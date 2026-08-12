@@ -7,7 +7,6 @@ import { isAccessDeniedError, parseCustomJwtResponseError } from '#src/utils/cus
 
 import type { CloudConnectionLibrary } from './cloud-connection.js';
 import { JwtCustomizerLibrary } from './jwt-customizer.js';
-import type { LogtoConfigLibrary } from './logto-config.js';
 import type { ScopeLibrary } from './scope.js';
 import type { UserLibrary } from './user.js';
 
@@ -17,7 +16,6 @@ const post = jest.fn();
 
 const library = new JwtCustomizerLibrary(
   {} as Queries,
-  {} as LogtoConfigLibrary,
   { getClient: async () => ({ post }) } as unknown as CloudConnectionLibrary,
   {} as UserLibrary,
   {} as ScopeLibrary

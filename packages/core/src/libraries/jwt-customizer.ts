@@ -4,39 +4,21 @@ import {
   jwtCustomizerUserContextGuard,
   userInfoSelectFields,
   type CustomJwtFetcher,
-  type JwtCustomizerType,
   type JwtCustomizerUserContext,
   type JwtCustomizerApplicationContext,
   type JwtCustomizerOrganizationContext,
   jwtCustomizerOrganizationContextGuard,
-  type LogtoJwtTokenKey,
   type CustomJwtScriptPayload,
   isBuiltInApplicationId,
   buildBuiltInApplicationDataForTenant,
 } from '@logto/schemas';
-import { type ConsoleLog } from '@logto/shared';
-import {
-  assert,
-  deduplicate,
-  type Optional,
-  pick,
-  pickState,
-  trySafe,
-} from '@silverhand/essentials';
-import deepmerge from 'deepmerge';
+import { deduplicate, type Optional, pick, pickState, trySafe } from '@silverhand/essentials';
 import { type UnknownObject } from 'oidc-provider';
 import { z } from 'zod';
 
-import { EnvSet } from '#src/env-set/index.js';
-import RequestError from '#src/errors/RequestError/index.js';
-import type { LogtoConfigLibrary } from '#src/libraries/logto-config.js';
 import { type ScopeLibrary } from '#src/libraries/scope.js';
 import { type UserLibrary } from '#src/libraries/user.js';
 import type Queries from '#src/tenants/Queries.js';
-import {
-  getJwtCustomizerScripts,
-  type CustomJwtDeployRequestBody,
-} from '#src/utils/custom-jwt/index.js';
 
 import { type CloudConnectionLibrary } from './cloud-connection.js';
 import {
@@ -118,17 +100,10 @@ export class JwtCustomizerLibrary {
 
   constructor(
     private readonly queries: Queries,
-    private readonly logtoConfigs: LogtoConfigLibrary,
     private readonly cloudConnection: CloudConnectionLibrary,
     private readonly userLibrary: UserLibrary,
     private readonly scopeLibrary: ScopeLibrary
   ) {}
-
-  get isRegionalAzureFunctionAppConfigured(): boolean {
-    const { azureFunctionUntrustedAppKey, azureFunctionUntrustedAppEndpoint } = EnvSet.values;
-
-    return Boolean(azureFunctionUntrustedAppKey && azureFunctionUntrustedAppEndpoint);
-  }
 
   /**
    * We does not include org roles' scopes for the following reason:
@@ -211,117 +186,6 @@ export class JwtCustomizerLibrary {
     }
 
     return jwtCustomizerOrganizationContextGuard.parse(organization);
-  }
-
-  /**
-   * This method is used to deploy the give JWT customizer scripts to the cloud worker service.
-   *
-   * @remarks Since cloud worker service deploy all the JWT customizer scripts at once,
-   * and the latest JWT customizer updates needs to be deployed ahead before saving it to the database,
-   * we need to merge the input payload with the existing JWT customizer scripts.
-   *
-   * @params payload - The latest JWT customizer payload needs to be deployed.
-   * @params payload.key - The tokenType of the JWT customizer.
-   * @params payload.value - JWT customizer value
-   * @params payload.useCase - The use case of JWT customizer script, can be either `test` or `production`.
-   *
-   * @remarks
-   * Kept until LOG-13957 removes the per-tenant worker lifecycle. With the script-run path live,
-   * every save, delete and Console "test" still pays a deploy whose result the script run no
-   * longer reads.
-   */
-  async deployJwtCustomizerScript<T extends LogtoJwtTokenKey>(
-    consoleLog: ConsoleLog,
-    payload: {
-      key: T;
-      value: JwtCustomizerType[T];
-      useCase: 'test' | 'production';
-    }
-  ) {
-    if (!EnvSet.values.isCloud) {
-      consoleLog.warn(
-        'Early terminate `deployJwtCustomizerScript` since we do not provide dedicated computing resource for OSS version.'
-      );
-      return;
-    }
-
-    if (this.isRegionalAzureFunctionAppConfigured) {
-      consoleLog.info(
-        'Skipping Cloudflare Workers deployment since regional Azure Function App is configured.'
-      );
-      return;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment, @typescript-eslint/prefer-ts-expect-error
-    // @ts-ignore TS2589: caused by router type growth from @logto/cloud
-    const [client, jwtCustomizers] = await Promise.all([
-      this.cloudConnection.getClient(),
-      this.logtoConfigs.getJwtCustomizers(consoleLog),
-    ]);
-
-    const customizerScriptsFromDatabase = getJwtCustomizerScripts(jwtCustomizers);
-
-    const newCustomizerScripts: CustomJwtDeployRequestBody = {
-      /**
-       * There are at most 4 custom JWT scripts in the `CustomJwtDeployRequestBody`-typed object,
-       * and can be indexed by `data[CustomJwtType][UseCase]`.
-       *
-       * Per our design, each script will be deployed as a API endpoint in the Cloudflare
-       * worker service. A production script will be deployed to `/api/custom-jwt`
-       * endpoint and a test script will be deployed to `/api/custom-jwt/test` endpoint.
-       *
-       * If the current use case is `test`, then the script should be deployed to a `/test` endpoint;
-       * otherwise, the script should be deployed to the `/api/custom-jwt` endpoint and overwrite
-       * previous handler of the API endpoint.
-       */
-      [payload.key]: { [payload.useCase]: payload.value.script },
-    };
-
-    await client.put(`/api/services/custom-jwt/worker`, {
-      body: deepmerge(customizerScriptsFromDatabase, newCustomizerScripts),
-    });
-  }
-
-  async undeployJwtCustomizerScript<T extends LogtoJwtTokenKey>(consoleLog: ConsoleLog, key: T) {
-    if (!EnvSet.values.isCloud) {
-      consoleLog.warn(
-        'Early terminate `undeployJwtCustomizerScript` since we do not deploy the script to dedicated computing resource for OSS version.'
-      );
-      return;
-    }
-
-    if (this.isRegionalAzureFunctionAppConfigured) {
-      consoleLog.info(
-        'Skipping Cloudflare Workers undeployment since regional Azure Function App is configured.'
-      );
-      return;
-    }
-
-    const [client, jwtCustomizers] = await Promise.all([
-      this.cloudConnection.getClient(),
-      this.logtoConfigs.getJwtCustomizers(consoleLog),
-    ]);
-
-    assert(jwtCustomizers[key], new RequestError({ code: 'entity.not_exists', name: key }));
-
-    // Undeploy the worker directly if the only JWT customizer is being deleted.
-    if (Object.entries(jwtCustomizers).length === 1) {
-      await client.delete(`/api/services/custom-jwt/worker`);
-      return;
-    }
-
-    // Remove the JWT customizer script (of given `key`) from the existing JWT customizer scripts and redeploy.
-    const customizerScriptsFromDatabase = getJwtCustomizerScripts(jwtCustomizers);
-    const newCustomizerScripts: CustomJwtDeployRequestBody = {
-      [key]: {
-        production: undefined,
-        test: undefined,
-      },
-    };
-
-    await client.put(`/api/services/custom-jwt/worker`, {
-      body: deepmerge(customizerScriptsFromDatabase, newCustomizerScripts),
-    });
   }
 
   /**
