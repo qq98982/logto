@@ -182,7 +182,7 @@ describe('ActionLibrary Cloud execution routing', () => {
     ).rejects.toBe(error);
   });
 
-  it('uses the remote runner for Cloud executeScript without falling back to local VM', async () => {
+  it('uses the remote runner for Cloud executeScript without falling back to the local runner', async () => {
     setIsCloud(true);
     const payload = {
       actionType: LogtoActionKey.PostSignIn,
@@ -194,14 +194,14 @@ describe('ActionLibrary Cloud execution routing', () => {
     const runScriptRemotely = jest
       .spyOn(library, 'runScriptRemotely')
       .mockResolvedValueOnce({ action: 'continue' });
-    const runScriptInLocalVm = jest.spyOn(ActionLibrary, 'runScriptInLocalVm');
+    const runScriptLocally = jest.spyOn(ActionLibrary, 'runScriptLocally');
 
     await expect(library.executeScript(payload)).resolves.toEqual({ action: 'continue' });
     expect(runScriptRemotely).toHaveBeenCalledWith(payload, undefined);
-    expect(runScriptInLocalVm).not.toHaveBeenCalled();
+    expect(runScriptLocally).not.toHaveBeenCalled();
   });
 
-  it('uses the local VM for non-Cloud executeScript', async () => {
+  it('uses the local runner for non-Cloud executeScript', async () => {
     setIsCloud(false);
     const payload = {
       actionType: LogtoActionKey.PostSignIn,
@@ -210,13 +210,13 @@ describe('ActionLibrary Cloud execution routing', () => {
         key: LogtoActionKey.PostSignIn,
       },
     };
-    const runScriptInLocalVm = jest
-      .spyOn(ActionLibrary, 'runScriptInLocalVm')
+    const runScriptLocally = jest
+      .spyOn(ActionLibrary, 'runScriptLocally')
       .mockResolvedValueOnce({ action: 'continue' });
     const runScriptRemotely = jest.spyOn(library, 'runScriptRemotely');
 
     await expect(library.executeScript(payload)).resolves.toEqual({ action: 'continue' });
-    expect(runScriptInLocalVm).toHaveBeenCalledWith(payload, 'tenant_id');
+    expect(runScriptLocally).toHaveBeenCalledWith(payload, 'tenant_id');
     expect(runScriptRemotely).not.toHaveBeenCalled();
   });
 
@@ -244,7 +244,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       script,
       environmentVariables,
     });
-    const runScriptInLocalVm = jest.spyOn(ActionLibrary, 'runScriptInLocalVm');
+    const runScriptLocally = jest.spyOn(ActionLibrary, 'runScriptLocally');
 
     await expect(
       runAction({
@@ -259,7 +259,7 @@ describe('ActionLibrary Cloud execution routing', () => {
         payload: { event, environmentVariables },
       },
     });
-    expect(runScriptInLocalVm).not.toHaveBeenCalled();
+    expect(runScriptLocally).not.toHaveBeenCalled();
     expect(mockAppend).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ actionType: LogtoActionKey.PostSignIn, runtimeLocation: 'remote' })
@@ -294,7 +294,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       onExecutionError: 'allow',
       script: 'const runAction = () => ({ action: "continue" });',
     });
-    const runScriptInLocalVm = jest.spyOn(ActionLibrary, 'runScriptInLocalVm');
+    const runScriptLocally = jest.spyOn(ActionLibrary, 'runScriptLocally');
 
     await expect(
       runAction({
@@ -303,7 +303,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       })
     ).resolves.toBeUndefined();
     expect(post).toHaveBeenCalledTimes(1);
-    expect(runScriptInLocalVm).not.toHaveBeenCalled();
+    expect(runScriptLocally).not.toHaveBeenCalled();
   });
 
   it('blocks PostSignIn when Cloud remote execution fails by default', async () => {
@@ -317,7 +317,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       enabled: true,
       script: 'const runAction = () => ({ action: "continue" });',
     });
-    const runScriptInLocalVm = jest.spyOn(ActionLibrary, 'runScriptInLocalVm');
+    const runScriptLocally = jest.spyOn(ActionLibrary, 'runScriptLocally');
 
     await expect(
       runAction({
@@ -328,7 +328,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       code: 'session.verification_failed',
       status: 400,
     });
-    expect(runScriptInLocalVm).not.toHaveBeenCalled();
+    expect(runScriptLocally).not.toHaveBeenCalled();
   });
 
   it('applies rejectInvalidCredentials when Cloud remote execution fails for P1 allow mode', async () => {
@@ -341,7 +341,7 @@ describe('ActionLibrary Cloud execution routing', () => {
       onExecutionError: 'allow',
       script: 'const runAction = () => ({ passwordVerified: true });',
     });
-    const runScriptInLocalVm = jest.spyOn(ActionLibrary, 'runScriptInLocalVm');
+    const runScriptLocally = jest.spyOn(ActionLibrary, 'runScriptLocally');
 
     await expect(
       runAction({
@@ -353,6 +353,6 @@ describe('ActionLibrary Cloud execution routing', () => {
     ).resolves.toEqual({
       action: 'rejectInvalidCredentials',
     });
-    expect(runScriptInLocalVm).not.toHaveBeenCalled();
+    expect(runScriptLocally).not.toHaveBeenCalled();
   });
 });

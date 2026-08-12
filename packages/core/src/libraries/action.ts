@@ -197,7 +197,7 @@ const applyActionExecutionErrorPolicyDecision = (decision: ActionExecutionErrorP
 };
 
 export class ActionLibrary {
-  static async runScriptInLocalVm<Event>(
+  static async runScriptLocally<Event>(
     data: ActionRunnerData<Event>,
     tenantId: string
   ): Promise<unknown> {
@@ -260,12 +260,12 @@ export class ActionLibrary {
       return this.runScriptRemotely(payload, isTest);
     }
 
-    return ActionLibrary.runScriptInLocalVm(payload, this.tenantId);
+    return ActionLibrary.runScriptLocally(payload, this.tenantId);
   }
 
   /**
    * For Logto Cloud use only. Run the action script remotely in an isolated environment.
-   * For OSS version, use @see ActionLibrary.runScriptInLocalVm instead.
+   * For OSS version, use @see ActionLibrary.runScriptLocally instead.
    */
   async runScriptRemotely(
     data: {

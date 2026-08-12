@@ -9,7 +9,7 @@ type ScriptFailureKind = Extract<ScriptResult, { ok: false }>['kind'];
 /**
  * The HTTP status code each failure kind maps to.
  *
- * This is the status mapping the local VM implementation has always used, kept as-is so
+ * This is the status mapping the script execution path has always used, kept as-is so
  * route-level error handling stays untouched. Call sites that throw {@link ScriptExecutionError}
  * for a known kind should read the status from here rather than hardcoding the number.
  */
@@ -61,8 +61,9 @@ export class ScriptExecutionError extends ResponseError {
  * @remarks
  *
  * Catch the error thrown by the script runtime, and build the error body.
- * Use `isNativeError` to check if the error is an instance of `Error`.
- * If the error comes from the `node:vm` module, then it will not be an instance of `Error` but can be captured by `isNativeError`.
+ * Use `isNativeError` instead of `instanceof Error`: an error created in another realm (e.g. the
+ * worker thread that executes the script) fails the `instanceof` check but is still captured by
+ * `isNativeError`.
  *
  */
 export const buildScriptExecutionErrorBody = (error: unknown) =>

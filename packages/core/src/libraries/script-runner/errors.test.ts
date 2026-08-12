@@ -6,7 +6,7 @@ import {
 } from './errors.js';
 
 describe('scriptFailureStatusCodes', () => {
-  // The status mapping the local VM implementation has always used. Route-level error handling
+  // The status mapping the script execution path has always used. Route-level error handling
   // depends on it, so any change here is a breaking change rather than a refactor.
   it('pins every failure kind to its historical status code', () => {
     expect(scriptFailureStatusCodes).toEqual({

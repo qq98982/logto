@@ -113,8 +113,8 @@ const startup = ((): Startup => {
   try {
     /**
      * Evaluated in this realm on purpose. It buys accurate `filename`/stack output and makes
-     * `instanceof SyntaxError` — plus the script's own error classes — work, which the cross-realm
-     * `runInNewContext` never allowed. It is not an isolation boundary; the thread is.
+     * `instanceof SyntaxError` — plus the script's own error classes — work, which a cross-realm
+     * evaluation would break. It is not an isolation boundary; the thread is.
      *
      * `typeof X === 'function' ? X : undefined` cannot throw a `ReferenceError` for an undeclared
      * entry, so anything thrown below is unambiguously the script's own top-level code. The leading
