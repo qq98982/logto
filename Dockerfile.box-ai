@@ -24,6 +24,8 @@ RUN pnpm --filter @logto/experience exec jest \
 FROM experience-dependencies AS experience-build
 
 RUN pnpm --filter @logto/experience build
+RUN test -s packages/experience/dist/brand/box-ai-logo.svg \
+  && test -s packages/experience/dist/brand/box-ai-favicon.svg
 
 FROM docker.io/svhd/logto@sha256:aac94e24ab7bef59be5d1809b1481b179495aaa75bb9dc2895ceae46e4117854
 
