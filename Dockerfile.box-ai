@@ -27,7 +27,9 @@ RUN pnpm --filter @logto/experience build
 
 FROM docker.io/svhd/logto@sha256:aac94e24ab7bef59be5d1809b1481b179495aaa75bb9dc2895ceae46e4117854
 
-ARG BOX_AI_LOGTO_REVISION=unknown
+ARG BOX_AI_LOGTO_REVISION
+
+RUN test -n "${BOX_AI_LOGTO_REVISION}"
 
 LABEL org.opencontainers.image.source="https://github.com/qq98982/logto" \
   org.opencontainers.image.revision="${BOX_AI_LOGTO_REVISION}" \
