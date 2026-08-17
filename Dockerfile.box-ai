@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+
+FROM docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS experience-dependencies
+
+WORKDIR /src
+
+ENV CI=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
+RUN npm add --location=global pnpm@10.34.5 \
+  && apk add --no-cache python3 make g++
+
+COPY . .
+
+RUN --mount=type=cache,id=box-ai-logto-pnpm,target=/root/.local/share/pnpm/store \
+  pnpm install --frozen-lockfile --filter '@logto/experience...'
+RUN pnpm -r --filter '@logto/experience^...' build
+
+FROM experience-dependencies AS white-label-test
+
+RUN pnpm --filter @logto/experience exec jest \
+  src/shared/components/LogtoSignature/index.test.tsx --runInBand
+
+FROM experience-dependencies AS experience-build
+
+RUN pnpm --filter @logto/experience build
+
+FROM docker.io/svhd/logto@sha256:aac94e24ab7bef59be5d1809b1481b179495aaa75bb9dc2895ceae46e4117854
+
+ARG BOX_AI_LOGTO_REVISION=unknown
+
+LABEL org.opencontainers.image.source="https://github.com/qq98982/logto" \
+  org.opencontainers.image.revision="${BOX_AI_LOGTO_REVISION}" \
+  org.opencontainers.image.licenses="MPL-2.0"
+
+COPY --from=experience-build /src/packages/experience/dist /etc/logto/packages/experience/dist
