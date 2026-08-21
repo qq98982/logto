@@ -8,6 +8,7 @@ export enum ConnectorErrorCodes {
   InvalidConfig = 'invalid_config',
   InvalidCertificate = 'invalid_certificate',
   InvalidResponse = 'invalid_response',
+  WeChatUnionIdRequired = 'wechat_unionid_required',
   /** The template is not found for the given type. */
   TemplateNotFound = 'template_not_found',
   /**

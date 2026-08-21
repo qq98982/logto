@@ -10,6 +10,7 @@ const connector = {
   invalid_config: '连接器配置错误',
   invalid_certificate: '连接器的证书无效，请确保证书采用PEM编码。',
   invalid_response: '连接器错误响应',
+  wechat_unionid_required: '当前微信账号暂时无法跨应用识别，请使用手机号登录。',
   template_not_found: '无法从连接器配置中找到对应的模板',
   template_not_supported: '连接器不支持此模板类型。',
   rate_limit_exceeded: '触发速率限制。请稍后再试。',

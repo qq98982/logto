@@ -11,6 +11,8 @@ const connector = {
   invalid_certificate:
     "The connector's certificate is invalid, please make sure the certificate is in PEM encoding.",
   invalid_response: "The connector's response is invalid.",
+  wechat_unionid_required:
+    'This WeChat account cannot be identified across apps. Sign in with your phone number.',
   template_not_found: 'Unable to find correct template in connector config.',
   template_not_supported: 'The connector does not support this template type.',
   rate_limit_exceeded: 'Trigger rate limit. Please try again later.',

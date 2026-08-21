@@ -223,6 +223,20 @@ describe('koaConnectorErrorHandler middleware', () => {
     );
   });
 
+  it('maps missing WeChat UnionID to a safe bad request error', async () => {
+    const error = new ConnectorError(ConnectorErrorCodes.WeChatUnionIdRequired);
+    next.mockImplementationOnce(() => {
+      throw error;
+    });
+
+    const result = koaConnectorErrorHandler()(ctx, next) as Promise<void>;
+
+    await expect(result).rejects.toBeInstanceOf(RequestError);
+    await expect(result).rejects.toHaveProperty('code', 'connector.wechat_unionid_required');
+    await expect(result).rejects.toHaveProperty('status', 400);
+    await expect(result).rejects.toMatchObject({ data: undefined });
+  });
+
   it('General connector errors with string type messages', async () => {
     const message = 'Mock General connector errors';
     const error = new ConnectorError(ConnectorErrorCodes.General, message);
