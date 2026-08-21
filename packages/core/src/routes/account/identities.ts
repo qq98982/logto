@@ -67,8 +67,15 @@ export default function identitiesRoutes<T extends UserRouter>(
     const currentUser = await findUserById(user.id);
     const existingIdentity = currentUser.identities[target];
 
+    if (!allowReplace && existingIdentity?.userId === userInfo.id) {
+      return;
+    }
+
     if (!allowReplace) {
-      assertThat(!existingIdentity, 'user.identity_already_in_use');
+      assertThat(
+        !existingIdentity,
+        new RequestError({ code: 'user.identity_already_in_use', status: 422 })
+      );
     }
 
     const updatedUser = await updateUserById(user.id, {

@@ -1,3 +1,4 @@
+import { appInsights } from '@logto/app-insights/node';
 import { ConnectorType } from '@logto/connector-kit';
 import { UserScope } from '@logto/core-kit';
 import {
@@ -11,6 +12,9 @@ import Router from 'koa-router';
 import request from 'supertest';
 
 import { mockUser } from '#src/__mocks__/user.js';
+import RequestError from '#src/errors/RequestError/index.js';
+import koaErrorHandler from '#src/middleware/koa-error-handler.js';
+import koaI18next from '#src/middleware/koa-i18next.js';
 import type Libraries from '#src/tenants/Libraries.js';
 import type Queries from '#src/tenants/Queries.js';
 import { MockTenant, type Partial2 } from '#src/test-utils/tenant.js';
@@ -20,6 +24,11 @@ import identitiesRoutes from './account/identities.js';
 import type { UserRouter } from './types.js';
 
 const { jest } = import.meta;
+
+const encryptedTokenSet = {
+  encryptedTokenSetBase64: 'encrypted-token-set',
+  metadata: { hasRefreshToken: true },
+};
 
 const buildUser = () => ({
   ...mockUser,
@@ -32,7 +41,10 @@ const buildUser = () => ({
   mfaVerifications: [],
 });
 
-const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') => {
+const createAccountIdentitiesRequester = (
+  socialUserInfoId = 'new-github-user',
+  includeEncryptedTokenSet = false
+) => {
   const findActiveVerificationRecordById = jest.fn(async (id: string) => ({
     id,
     userId: null,
@@ -40,6 +52,7 @@ const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') 
       type: VerificationType.Social,
       connectorId: 'github',
       socialUserInfo: { id: socialUserInfoId },
+      ...(includeEncryptedTokenSet && { encryptedTokenSet }),
     },
     expiresAt: Date.now() + 60_000,
   }));
@@ -53,6 +66,7 @@ const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') 
   const deleteSocialTokenSetSecretByUserIdAndTarget = jest.fn();
   const upsertSocialTokenSetSecret = jest.fn();
   const checkIdentifierCollision = jest.fn();
+  const appendDataHookContext = jest.fn();
   const getConnector = jest.fn(async () => ({
     type: ConnectorType.Social,
     metadata: {
@@ -78,6 +92,8 @@ const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') 
   const app = new Koa();
   const router: UserRouter = new Router();
 
+  app.use(koaI18next()).use(koaErrorHandler());
+
   router.use(async (ctx, next) => {
     ctx.auth = {
       type: 'user',
@@ -90,7 +106,7 @@ const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') 
         social: AccountCenterControlValue.Edit,
       },
     } as unknown as typeof ctx.accountCenter;
-    ctx.appendDataHookContext = jest.fn();
+    ctx.appendDataHookContext = appendDataHookContext;
 
     return next();
   });
@@ -99,7 +115,10 @@ const createAccountIdentitiesRequester = (socialUserInfoId = 'new-github-user') 
 
   return {
     accountIdentitiesRequest: request(app.callback()),
+    appendDataHookContext,
+    checkIdentifierCollision,
     deleteSocialTokenSetSecretByUserIdAndTarget,
+    updateUserById,
     upsertSocialTokenSetSecret,
   };
 };
@@ -191,5 +210,115 @@ describe('account social identity replacement', () => {
 
     expect(deleteSocialTokenSetSecretByUserIdAndTarget).not.toHaveBeenCalled();
     expect(upsertSocialTokenSetSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/my-account/identities', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns 204 without mutations when the same social identity is already linked', async () => {
+    const socialUserInfoId = 'github-user';
+    const trackException = jest.spyOn(appInsights, 'trackException').mockResolvedValue();
+    const {
+      accountIdentitiesRequest,
+      appendDataHookContext,
+      checkIdentifierCollision,
+      deleteSocialTokenSetSecretByUserIdAndTarget,
+      updateUserById,
+      upsertSocialTokenSetSecret,
+    } = createAccountIdentitiesRequester(socialUserInfoId, true);
+
+    const response = await accountIdentitiesRequest
+      .post('/my-account/identities')
+      .send({ newIdentifierVerificationRecordId: 'verification-record-id' });
+
+    expect(response.status).toBe(204);
+    expect(checkIdentifierCollision).toHaveBeenCalledWith(
+      { identity: { target: 'github', id: socialUserInfoId } },
+      'foo'
+    );
+    expect(updateUserById).not.toHaveBeenCalled();
+    expect(appendDataHookContext).not.toHaveBeenCalled();
+    expect(upsertSocialTokenSetSecret).not.toHaveBeenCalled();
+    expect(deleteSocialTokenSetSecretByUserIdAndTarget).not.toHaveBeenCalled();
+    expect(trackException).not.toHaveBeenCalled();
+    expect(response.text).not.toContain(socialUserInfoId);
+  });
+
+  it('returns 422 without mutations when the target is linked to a different social identity', async () => {
+    const existingSocialUserInfoId = 'github-user';
+    const newSocialUserInfoId = 'different-github-user';
+    const trackException = jest.spyOn(appInsights, 'trackException').mockResolvedValue();
+    const {
+      accountIdentitiesRequest,
+      appendDataHookContext,
+      checkIdentifierCollision,
+      deleteSocialTokenSetSecretByUserIdAndTarget,
+      updateUserById,
+      upsertSocialTokenSetSecret,
+    } = createAccountIdentitiesRequester(newSocialUserInfoId, true);
+
+    const response = await accountIdentitiesRequest
+      .post('/my-account/identities')
+      .send({ newIdentifierVerificationRecordId: 'verification-record-id' });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toHaveProperty('code', 'user.identity_already_in_use');
+    expect(checkIdentifierCollision).toHaveBeenCalledWith(
+      { identity: { target: 'github', id: newSocialUserInfoId } },
+      'foo'
+    );
+    expect(updateUserById).not.toHaveBeenCalled();
+    expect(appendDataHookContext).not.toHaveBeenCalled();
+    expect(upsertSocialTokenSetSecret).not.toHaveBeenCalled();
+    expect(deleteSocialTokenSetSecretByUserIdAndTarget).not.toHaveBeenCalled();
+    expect(trackException).toHaveBeenCalledTimes(1);
+    expect(response.text).not.toContain(existingSocialUserInfoId);
+    expect(response.text).not.toContain(newSocialUserInfoId);
+    expect(String(trackException.mock.calls[0]?.[0])).not.toContain(existingSocialUserInfoId);
+    expect(String(trackException.mock.calls[0]?.[0])).not.toContain(newSocialUserInfoId);
+    expect(JSON.stringify(trackException.mock.calls)).not.toContain(existingSocialUserInfoId);
+    expect(JSON.stringify(trackException.mock.calls)).not.toContain(newSocialUserInfoId);
+  });
+
+  it('returns 422 without mutations when another user owns the verified social identity', async () => {
+    const existingSocialUserInfoId = 'github-user';
+    const ownedSocialUserInfoId = 'other-user-github-id';
+    const trackException = jest.spyOn(appInsights, 'trackException').mockResolvedValue();
+    const {
+      accountIdentitiesRequest,
+      appendDataHookContext,
+      checkIdentifierCollision,
+      deleteSocialTokenSetSecretByUserIdAndTarget,
+      updateUserById,
+      upsertSocialTokenSetSecret,
+    } = createAccountIdentitiesRequester(ownedSocialUserInfoId, true);
+    checkIdentifierCollision.mockRejectedValueOnce(
+      new RequestError({ code: 'user.identity_already_in_use', status: 422 })
+    );
+
+    const response = await accountIdentitiesRequest
+      .post('/my-account/identities')
+      .send({ newIdentifierVerificationRecordId: 'verification-record-id' });
+
+    expect(response.status).toBe(422);
+    expect(response.body).toHaveProperty('code', 'user.identity_already_in_use');
+    expect(checkIdentifierCollision).toHaveBeenCalledWith(
+      { identity: { target: 'github', id: ownedSocialUserInfoId } },
+      'foo'
+    );
+    expect(updateUserById).not.toHaveBeenCalled();
+    expect(appendDataHookContext).not.toHaveBeenCalled();
+    expect(upsertSocialTokenSetSecret).not.toHaveBeenCalled();
+    expect(deleteSocialTokenSetSecretByUserIdAndTarget).not.toHaveBeenCalled();
+    expect(trackException).toHaveBeenCalledTimes(1);
+    expect(response.text).not.toContain(existingSocialUserInfoId);
+    expect(response.text).not.toContain(ownedSocialUserInfoId);
+    expect(String(trackException.mock.calls[0]?.[0])).not.toContain(existingSocialUserInfoId);
+    expect(String(trackException.mock.calls[0]?.[0])).not.toContain(ownedSocialUserInfoId);
+    expect(JSON.stringify(trackException.mock.calls)).not.toContain(existingSocialUserInfoId);
+    expect(JSON.stringify(trackException.mock.calls)).not.toContain(ownedSocialUserInfoId);
   });
 });
