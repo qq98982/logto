@@ -43,6 +43,14 @@ import {
   authResponseGuard,
 } from './types.js';
 
+const requireUnionId = (unionid: string | undefined): string => {
+  if (!unionid) {
+    throw new ConnectorError(ConnectorErrorCodes.WeChatUnionIdRequired);
+  }
+
+  return unionid;
+};
+
 const getAuthorizationUri =
   (getConfig: GetConnectorConfig): GetAuthorizationUri =>
   async ({ state, redirectUri, scope: customScope }) => {
@@ -115,7 +123,12 @@ const getUserInfo =
       // 'errmsg' and 'errcode' turn to non-empty values or empty values at the same time. Hence, if 'errmsg' is non-empty then 'errcode' should be non-empty.
       userInfoResponseMessageParser(result.data);
 
-      return { id: unionid ?? openid, avatar: headimgurl, name: nickname, rawData };
+      return {
+        id: requireUnionId(unionid),
+        avatar: headimgurl,
+        name: nickname,
+        rawData: {},
+      };
     } catch (error: unknown) {
       return getUserInfoErrorHandler(error);
     }

@@ -147,8 +147,10 @@ describe('getUserInfo', () => {
   const parameters = new URLSearchParams({ access_token: 'access_token', openid: 'openid' });
 
   it('should get valid SocialUserInfo', async () => {
+    const openid = 'openid';
+    const unionid = 'this_is_an_arbitrary_wechat_union_id';
     const jsonResponse = Object.freeze({
-      unionid: 'this_is_an_arbitrary_wechat_union_id',
+      unionid,
       headimgurl: 'https://github.com/images/error/octocat_happy.gif',
       nickname: 'wechat bot',
     });
@@ -163,12 +165,32 @@ describe('getUserInfo', () => {
       },
       vi.fn()
     );
-    expect(socialUserInfo).toMatchObject({
-      id: 'this_is_an_arbitrary_wechat_union_id',
+    expect(socialUserInfo).toStrictEqual({
+      id: unionid,
       avatar: 'https://github.com/images/error/octocat_happy.gif',
       name: 'wechat bot',
-      rawData: jsonResponse,
+      rawData: {},
     });
+    expect(JSON.stringify(socialUserInfo)).not.toContain(openid);
+  });
+
+  it.each([
+    ['omits `unionid`', undefined],
+    ['returns an empty `unionid`', ''],
+  ] as const)('throws WeChatUnionIdRequired when user info %s', async (_, unionid) => {
+    nock(userInfoEndpointUrl.origin)
+      .get(userInfoEndpointUrl.pathname)
+      .query(parameters)
+      .reply(200, {
+        ...(unionid === undefined ? {} : { unionid }),
+        headimgurl: 'https://github.com/images/error/octocat_happy.gif',
+        nickname: 'wechat bot',
+      });
+    const connector = await createConnector({ getConfig });
+
+    await expect(connector.getUserInfo({ code: 'code' }, vi.fn())).rejects.toStrictEqual(
+      new ConnectorError(ConnectorErrorCodes.WeChatUnionIdRequired)
+    );
   });
 
   it('throws General error if code not provided in input', async () => {
