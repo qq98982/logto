@@ -345,7 +345,7 @@
       "post": {
         "operationId": "AddUserIdentities",
         "summary": "Add a user identity",
-        "description": "Add an identity (social identity) to the user. A logto-verification-id header is required when the user has at least one security verification method: password, primary email, or primary phone. The header can be omitted only when the user has none of these methods. A verification record for the new social identity is always required.",
+        "description": "Add an identity (social identity) to the user. An exact retry for the current user with the same social target and the same provider identity returns 204 without mutating the user. Linking a different provider identity for the same social target, or linking a provider identity that belongs to another user, returns 422. A logto-verification-id header is required when the user has at least one security verification method: password, primary email, or primary phone. The header can be omitted only when the user has none of these methods. A verification record for the new social identity is always required.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -361,7 +361,7 @@
         },
         "responses": {
           "204": {
-            "description": "The identity was added successfully."
+            "description": "The identity was added successfully or was already linked to the user."
           },
           "400": {
             "description": "The request body is invalid or the social identity field is not editable."
