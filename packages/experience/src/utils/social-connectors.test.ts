@@ -1,5 +1,5 @@
 import { GoogleConnector } from '@logto/connector-kit';
-import type { ConnectorMetadata } from '@logto/schemas';
+import type { ConnectorMetadata, ExperienceSocialConnector } from '@logto/schemas';
 import { ConnectorPlatform } from '@logto/schemas';
 import { getCookie } from 'tiny-cookie';
 
@@ -22,6 +22,46 @@ const mockConnectors = [
   { platform: 'Native', target: 'wechat' },
   { platform: 'Native', target: 'alipay' },
 ] as ConnectorMetadata[];
+
+const wechatWebConnector: ExperienceSocialConnector = {
+  id: 'wechat-web-instance',
+  target: 'wechat',
+  platform: ConnectorPlatform.Web,
+  name: { en: 'WeChat Web' },
+  logo: '/wechat-web.svg',
+  logoDark: null,
+};
+
+const wechatNativeConnector: ExperienceSocialConnector = {
+  id: 'wechat-native-instance',
+  target: 'wechat',
+  platform: ConnectorPlatform.Native,
+  name: { en: 'WeChat Native' },
+  logo: '/wechat-native.svg',
+  logoDark: null,
+};
+
+const wechatMiniConnector: ExperienceSocialConnector = {
+  id: 'wechat-mini-instance',
+  target: 'wechat',
+  platform: null,
+  name: { en: 'WeChat Mini Program' },
+  logo: '/wechat-mini.svg',
+  logoDark: null,
+};
+
+// These all-three fixtures are valid only because the Box provisioner separately enforces
+// mini/native => web; these tests pin filtering only when all three coexist.
+const wechatConnectorOrders = [
+  {
+    name: 'Mini before Web',
+    connectors: [wechatMiniConnector, wechatNativeConnector, wechatWebConnector],
+  },
+  {
+    name: 'Web before Mini',
+    connectors: [wechatWebConnector, wechatNativeConnector, wechatMiniConnector],
+  },
+];
 
 jest.mock('@/utils/native-sdk', () => ({
   isNativeWebview: jest.fn(),
@@ -144,6 +184,57 @@ describe('filterPreviewSocialConnectors', () => {
     ]);
   });
 });
+
+describe.each(wechatConnectorOrders)(
+  'WeChat shared-target filtering with mini/native => web provisioner invariant: $name',
+  ({ connectors }) => {
+    afterEach(() => {
+      jest.clearAllMocks();
+      jest.resetAllMocks();
+    });
+
+    it('selects exactly Web in a browser', () => {
+      isNativeWebviewMock.mockReturnValue(false);
+
+      const result = filterSocialConnectors(connectors);
+
+      expect(result).toEqual([wechatWebConnector]);
+      expect(result).not.toContain(wechatMiniConnector);
+      expect(result).not.toContain(wechatNativeConnector);
+    });
+
+    it('selects exactly Native with a valid native SDK bridge', () => {
+      isNativeWebviewMock.mockReturnValue(true);
+      getLogtoNativeSdkMock.mockReturnValue({
+        platform: 'ios',
+        supportedConnector: {
+          universal: true,
+          nativeTargets: ['wechat'],
+        },
+        getPostMessage: jest.fn(),
+        callbackLink: 'logto://callback',
+      });
+
+      const result = filterSocialConnectors(connectors);
+
+      expect(result).toEqual([wechatNativeConnector]);
+      expect(result).not.toContain(wechatMiniConnector);
+      expect(result).not.toContain(wechatWebConnector);
+    });
+
+    it('selects Web and Native for their respective previews, never Mini', () => {
+      const webResult = filterPreviewSocialConnectors(ConnectorPlatform.Web, connectors);
+      const nativeResult = filterPreviewSocialConnectors(ConnectorPlatform.Native, connectors);
+
+      expect(webResult).toEqual([wechatWebConnector]);
+      expect(webResult).not.toContain(wechatMiniConnector);
+      expect(webResult).not.toContain(wechatNativeConnector);
+      expect(nativeResult).toEqual([wechatNativeConnector]);
+      expect(nativeResult).not.toContain(wechatMiniConnector);
+      expect(nativeResult).not.toContain(wechatWebConnector);
+    });
+  }
+);
 
 describe('buildSocialLandingUri', () => {
   it('buildSocialLandingUri', () => {
