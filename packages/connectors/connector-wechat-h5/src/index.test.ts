@@ -1,5 +1,5 @@
 import nock from 'nock';
-import { Readable } from 'node:stream';
+import { PassThrough } from 'node:stream';
 import { inspect } from 'node:util';
 import { gzipSync } from 'node:zlib';
 
@@ -339,15 +339,17 @@ describe('provider exchange', () => {
     await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
   });
 
-  it('rejects a non-2xx token response', async () => {
-    mockTokenResponse(502, `${appSecret}:${code}`);
+  it('rejects an otherwise valid non-2xx token response before user info', async () => {
+    mockTokenResponse(502, validTokenResponse);
+    const userInfoScope = mockUserInfoResponse();
 
     await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
+    expect(userInfoScope.isDone()).toBe(false);
   });
 
-  it('rejects a non-2xx user-info response', async () => {
+  it('rejects an otherwise valid non-2xx user-info response', async () => {
     mockTokenResponse();
-    mockUserInfoResponse(502, `${accessToken}:${openId}`);
+    mockUserInfoResponse(502, validUserInfoResponse);
 
     await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
   });
@@ -375,46 +377,58 @@ describe('provider exchange', () => {
     expect(redirected.isDone()).toBe(false);
   });
 
-  it('rejects a token response whose declared size exceeds 16 KiB', async () => {
-    mockTokenResponse(200, '{}', { 'Content-Length': String(maxResponseBytes + 1) });
+  it('cancels a chunked token response promptly when transferred bytes exceed 16 KiB', async () => {
+    const tailDelay = 1500;
+    const promptRejectionLimit = 1000;
+    const tailObserved = vi.fn();
+    const responseStream = new PassThrough();
+    const tailTimer = setTimeout(() => {
+      tailObserved();
+      responseStream.end(' ');
+    }, tailDelay);
+    responseStream.write(JSON.stringify(validTokenResponse));
+    responseStream.write(' '.repeat(maxResponseBytes));
+    mockTokenResponse(200, responseStream, { 'Content-Type': 'application/json' });
+    const userInfoScope = mockUserInfoResponse();
+    const startedAt = Date.now();
 
     await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
-  });
 
-  it('rejects a streamed user-info response whose transferred size exceeds 16 KiB', async () => {
-    mockTokenResponse();
-    const responseStream = Readable.from([
-      `{"unionid":"${unionId}`,
-      'x'.repeat(maxResponseBytes),
-      '"}',
-    ]);
-    mockUserInfoResponse(200, responseStream);
-
-    await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
-  });
+    const elapsed = Date.now() - startedAt;
+    clearTimeout(tailTimer);
+    responseStream.destroy();
+    expect(elapsed).toBeLessThan(promptRejectionLimit);
+    expect(tailObserved).not.toHaveBeenCalled();
+    expect(userInfoScope.isDone()).toBe(false);
+  }, 3000);
 
   it(
-    'stops a provider request after five seconds',
+    'rejects an otherwise valid token response delayed beyond five seconds',
     async () => {
       nock(accessTokenEndpointUrl.origin)
+        .matchHeader('accept-encoding', 'identity')
         .get(accessTokenEndpointUrl.pathname)
         .query(tokenQuery)
         .delayConnection(requestTimeout + 100)
         .reply(200, validTokenResponse);
+      const userInfoScope = mockUserInfoResponse();
 
       await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
+      expect(userInfoScope.isDone()).toBe(false);
     },
     requestTimeout + 3000
   );
 
-  it('does not automatically decompress provider responses', async () => {
+  it('rejects an otherwise valid gzip token response when decompression is disabled', async () => {
     const compressedBody = gzipSync(JSON.stringify(validTokenResponse));
     mockTokenResponse(200, compressedBody, {
       'Content-Encoding': 'gzip',
       'Content-Type': 'application/json',
     });
+    const userInfoScope = mockUserInfoResponse();
 
     await expectDataFreeConnectorError(getUserInfo(), ConnectorErrorCodes.InvalidResponse);
+    expect(userInfoScope.isDone()).toBe(false);
   });
 
   it('does not retry a failed provider request', async () => {
