@@ -17,15 +17,17 @@ RUN --mount=type=cache,id=box-ai-logto-pnpm,target=/root/.local/share/pnpm/store
     --filter '@logto/core...' \
     --filter '@logto/connector-wechat-web...' \
     --filter '@logto/connector-wechat-native...' \
-    --filter '@logto/connector-wechat-mini...'
+    --filter '@logto/connector-wechat-mini...' \
+    --filter '@logto/connector-wechat-h5...'
 RUN pnpm -r --filter '@logto/core^...' build
 
 FROM box-ai-dependencies AS connector-test
 
 RUN pnpm --filter @logto/connector-wechat-web test \
   && pnpm --filter @logto/connector-wechat-native test \
-  && pnpm --filter @logto/connector-wechat-mini test
-RUN pnpm --filter @logto/core build:test \
+  && pnpm --filter @logto/connector-wechat-mini test \
+  && pnpm --filter @logto/connector-wechat-h5 test \
+  && pnpm --filter @logto/core build:test \
   && pnpm --filter @logto/core test:only \
     account.identities \
     koa-connector-error-handler \
@@ -40,7 +42,7 @@ RUN pnpm --filter @logto/experience exec jest \
 
 FROM white-label-test AS box-ai-build
 
-RUN node --input-type=module -e "import { readFile } from 'node:fs/promises'; const readPackage = async (name) => JSON.parse(await readFile('packages/connectors/' + name + '/package.json', 'utf8')); const web = await readPackage('connector-wechat-web'); const mini = await readPackage('connector-wechat-mini'); for (const dependency of ['got', 'zod', '@logto/connector-kit']) { const webRange = web.dependencies[dependency]; const miniRange = mini.dependencies[dependency]; if (typeof webRange !== 'string' || miniRange !== webRange) throw new Error('Mini and Web dependency ranges differ for ' + dependency); }"
+RUN node --input-type=module -e "import { readFile } from 'node:fs/promises'; const readPackage = async (name) => JSON.parse(await readFile('packages/connectors/' + name + '/package.json', 'utf8')); const web = await readPackage('connector-wechat-web'); for (const connector of ['mini', 'h5']) { const candidate = await readPackage('connector-wechat-' + connector); for (const dependency of ['got', 'zod', '@logto/connector-kit']) { const webRange = web.dependencies[dependency]; const candidateRange = candidate.dependencies[dependency]; if (typeof webRange !== 'string' || candidateRange !== webRange) throw new Error(connector + ' and Web dependency ranges differ for ' + dependency); } }"
 
 RUN pnpm --filter @logto/connector-kit build \
   && pnpm --filter @logto/phrases build \
@@ -48,15 +50,17 @@ RUN pnpm --filter @logto/connector-kit build \
   && pnpm --filter @logto/connector-wechat-web build \
   && pnpm --filter @logto/connector-wechat-native build \
   && pnpm --filter @logto/connector-wechat-mini build \
+  && pnpm --filter @logto/connector-wechat-h5 build \
   && pnpm --filter @logto/experience build
 RUN set -eu; \
   connector_checksums=/tmp/box-ai-wechat-connectors.sha256; \
   : > "${connector_checksums}"; \
-  for connector in web native mini; do \
+  for connector in web native mini h5; do \
     artifact="packages/connectors/connector-wechat-${connector}/lib/index.js"; \
     test -s "${artifact}"; \
     grep -Fq 'WeChatUnionIdRequired' "${artifact}"; \
     ! grep -Fq 'id: unionid ?? openid' "${artifact}"; \
+    ! grep -Fq 'id: unionid || openid' "${artifact}"; \
     checksum="$(sha256sum "${artifact}")"; \
     printf '%s  /etc/logto/packages/connectors/connector-wechat-%s/lib/index.js\n' \
       "${checksum%% *}" "${connector}" >> "${connector_checksums}"; \
@@ -76,9 +80,11 @@ RUN set -eu; \
   grep -Fq 'wechat_unionid_required' packages/phrases/lib/locales/en/errors/connector.js; \
   test -s packages/phrases/lib/locales/zh-cn/errors/connector.js; \
   grep -Fq 'wechat_unionid_required' packages/phrases/lib/locales/zh-cn/errors/connector.js; \
-  test -s packages/connectors/connector-wechat-mini/package.json; \
-  test -s packages/connectors/connector-wechat-mini/logo.svg; \
-  test -s packages/connectors/connector-wechat-mini/README.md; \
+  for connector in mini h5; do \
+    test -s "packages/connectors/connector-wechat-${connector}/package.json"; \
+    test -s "packages/connectors/connector-wechat-${connector}/logo.svg"; \
+    test -s "packages/connectors/connector-wechat-${connector}/README.md"; \
+  done; \
   test -s packages/experience/dist/brand/box-ai-logo.svg; \
   test -s packages/experience/dist/brand/box-ai-favicon.svg; \
   experience_artifact="$(find packages/experience/dist/assets -type f -name '*.js' -print -quit)"; \
@@ -114,25 +120,30 @@ COPY --from=box-ai-build /src/packages/connectors/connector-wechat-native/lib/in
 COPY --from=box-ai-build /src/packages/connectors/connector-wechat-native/package.json /src/packages/connectors/connector-wechat-native/logo.svg /src/packages/connectors/connector-wechat-native/README.md /etc/logto/packages/connectors/connector-wechat-native/
 COPY --from=box-ai-build /src/packages/connectors/connector-wechat-mini/lib/index.js /src/packages/connectors/connector-wechat-mini/lib/index.js.map /etc/logto/packages/connectors/connector-wechat-mini/lib/
 COPY --from=box-ai-build /src/packages/connectors/connector-wechat-mini/package.json /src/packages/connectors/connector-wechat-mini/logo.svg /src/packages/connectors/connector-wechat-mini/README.md /etc/logto/packages/connectors/connector-wechat-mini/
+COPY --from=box-ai-build /src/packages/connectors/connector-wechat-h5/lib/index.js /src/packages/connectors/connector-wechat-h5/lib/index.js.map /etc/logto/packages/connectors/connector-wechat-h5/lib/
+COPY --from=box-ai-build /src/packages/connectors/connector-wechat-h5/package.json /src/packages/connectors/connector-wechat-h5/logo.svg /src/packages/connectors/connector-wechat-h5/README.md /etc/logto/packages/connectors/connector-wechat-h5/
 
 COPY --from=box-ai-build /src/packages/experience/dist /etc/logto/packages/experience/dist
 COPY --from=box-ai-build /tmp/box-ai-wechat-connectors.sha256 /tmp/box-ai-wechat-connectors.sha256
 
 RUN set -eu; \
-  mini_package=/etc/logto/packages/connectors/connector-wechat-mini; \
   web_dependencies=/etc/logto/packages/connectors/connector-wechat-web/node_modules; \
-  mkdir -p "${mini_package}/node_modules/@logto"; \
-  ln -s "$(readlink "${web_dependencies}/got")" "${mini_package}/node_modules/got"; \
-  ln -s "$(readlink "${web_dependencies}/zod")" "${mini_package}/node_modules/zod"; \
-  ln -s "$(readlink "${web_dependencies}/@logto/connector-kit")" "${mini_package}/node_modules/@logto/connector-kit"; \
-  ln -s ../../connectors/connector-wechat-mini /etc/logto/packages/core/connectors/@logto-connector-wechat-mini; \
+  for connector in mini h5; do \
+    connector_package="/etc/logto/packages/connectors/connector-wechat-${connector}"; \
+    mkdir -p "${connector_package}/node_modules/@logto"; \
+    ln -s "$(readlink "${web_dependencies}/got")" "${connector_package}/node_modules/got"; \
+    ln -s "$(readlink "${web_dependencies}/zod")" "${connector_package}/node_modules/zod"; \
+    ln -s "$(readlink "${web_dependencies}/@logto/connector-kit")" "${connector_package}/node_modules/@logto/connector-kit"; \
+    ln -s "../../connectors/connector-wechat-${connector}" "/etc/logto/packages/core/connectors/@logto-connector-wechat-${connector}"; \
+  done; \
   sha256sum -c /tmp/box-ai-wechat-connectors.sha256; \
   rm /tmp/box-ai-wechat-connectors.sha256; \
   test ! -e /tmp/box-ai-wechat-connectors.sha256; \
-  for connector in web native mini; do \
+  for connector in web native mini h5; do \
     artifact="/etc/logto/packages/connectors/connector-wechat-${connector}/lib/index.js"; \
     grep -Fq 'WeChatUnionIdRequired' "${artifact}"; \
     ! grep -Fq 'id: unionid ?? openid' "${artifact}"; \
+    ! grep -Fq 'id: unionid || openid' "${artifact}"; \
   done; \
   core_artifact=''; \
   for artifact in /etc/logto/packages/core/build/*.js; do \
@@ -151,14 +162,17 @@ RUN set -eu; \
   test -s /etc/logto/packages/phrases/lib/locales/zh-cn/errors/connector.js; \
   test -s /etc/logto/packages/phrases/lib/locales/zh-cn/errors/connector.d.ts; \
   grep -Fq 'wechat_unionid_required' /etc/logto/packages/phrases/lib/locales/zh-cn/errors/connector.js; \
-  test -s "${mini_package}/lib/index.js"; \
-  test -s "${mini_package}/package.json"; \
-  test -s "${mini_package}/logo.svg"; \
-  test -s "${mini_package}/README.md"; \
-  test "$(readlink /etc/logto/packages/core/connectors/@logto-connector-wechat-mini)" = '../../connectors/connector-wechat-mini'; \
+  for connector in mini h5; do \
+    connector_package="/etc/logto/packages/connectors/connector-wechat-${connector}"; \
+    test -s "${connector_package}/lib/index.js"; \
+    test -s "${connector_package}/package.json"; \
+    test -s "${connector_package}/logo.svg"; \
+    test -s "${connector_package}/README.md"; \
+    test "$(readlink "/etc/logto/packages/core/connectors/@logto-connector-wechat-${connector}")" = "../../connectors/connector-wechat-${connector}"; \
+  done; \
   test -s /etc/logto/packages/experience/dist/brand/box-ai-logo.svg; \
   test -s /etc/logto/packages/experience/dist/brand/box-ai-favicon.svg; \
   experience_artifact="$(find /etc/logto/packages/experience/dist/assets -type f -name '*.js' -print -quit)"; \
   test -n "${experience_artifact}"; \
   test -s "${experience_artifact}"; \
-  node --input-type=module -e "const connector = await import('/etc/logto/packages/core/connectors/@logto-connector-wechat-mini/lib/index.js'); if (typeof connector.default !== 'function') process.exit(1)"
+  node --input-type=module -e "for (const name of ['mini', 'h5']) { const connector = await import('/etc/logto/packages/core/connectors/@logto-connector-wechat-' + name + '/lib/index.js'); if (typeof connector.default !== 'function') process.exit(1); }"
