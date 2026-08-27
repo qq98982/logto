@@ -1,5 +1,5 @@
 import type { ConnectorMetadata } from '@logto/connector-kit';
-import { ConnectorConfigFormItemType } from '@logto/connector-kit';
+import { ConnectorConfigFormItemType, ConnectorPlatform } from '@logto/connector-kit';
 
 export const authorizationEndpoint = 'https://open.weixin.qq.com/connect/oauth2/authorize';
 export const accessTokenEndpoint = 'https://api.weixin.qq.com/sns/oauth2/access_token';
@@ -11,7 +11,7 @@ export const maxResponseBytes = 16 * 1024;
 export const defaultMetadata: ConnectorMetadata = {
   id: 'wechat-h5',
   target: 'wechat',
-  platform: null,
+  platform: ConnectorPlatform.Universal,
   name: {
     en: 'WeChat Official Account',
     'zh-CN': '微信公众号',

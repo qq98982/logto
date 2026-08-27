@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { inspect } from 'node:util';
 import { gzipSync } from 'node:zlib';
 
-import { ConnectorError, ConnectorErrorCodes } from '@logto/connector-kit';
+import { ConnectorError, ConnectorErrorCodes, ConnectorPlatform } from '@logto/connector-kit';
 
 import { accessTokenEndpoint, authorizationEndpoint, userInfoEndpoint } from './constant.js';
 import createConnector from './index.js';
@@ -133,7 +133,7 @@ describe('metadata and configuration', () => {
     expect(connector.metadata).toMatchObject({
       id: 'wechat-h5',
       target: 'wechat',
-      platform: null,
+      platform: ConnectorPlatform.Universal,
       name: {
         en: 'WeChat Official Account',
         'zh-CN': '微信公众号',

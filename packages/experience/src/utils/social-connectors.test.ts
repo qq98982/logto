@@ -41,6 +41,15 @@ const wechatNativeConnector: ExperienceSocialConnector = {
   logoDark: null,
 };
 
+const wechatH5Connector: ExperienceSocialConnector = {
+  id: 'wechat-h5-instance',
+  target: 'wechat',
+  platform: ConnectorPlatform.Universal,
+  name: { en: 'WeChat Official Account' },
+  logo: '/wechat-h5.svg',
+  logoDark: null,
+};
+
 const wechatMiniConnector: ExperienceSocialConnector = {
   id: 'wechat-mini-instance',
   target: 'wechat',
@@ -50,16 +59,16 @@ const wechatMiniConnector: ExperienceSocialConnector = {
   logoDark: null,
 };
 
-// These all-three fixtures are valid only because the Box provisioner separately enforces
-// mini/native => web; these tests pin filtering only when all three coexist.
+// These all-four fixtures are valid only because the Box provisioner separately enforces
+// mini/native => web; these tests pin filtering only when all four coexist.
 const wechatConnectorOrders = [
   {
     name: 'Mini before Web',
-    connectors: [wechatMiniConnector, wechatNativeConnector, wechatWebConnector],
+    connectors: [wechatMiniConnector, wechatH5Connector, wechatNativeConnector, wechatWebConnector],
   },
   {
     name: 'Web before Mini',
-    connectors: [wechatWebConnector, wechatNativeConnector, wechatMiniConnector],
+    connectors: [wechatWebConnector, wechatNativeConnector, wechatH5Connector, wechatMiniConnector],
   },
 ];
 
@@ -199,6 +208,7 @@ describe.each(wechatConnectorOrders)(
       const result = filterSocialConnectors(connectors);
 
       expect(result).toEqual([wechatWebConnector]);
+      expect(result).not.toContain(wechatH5Connector);
       expect(result).not.toContain(wechatMiniConnector);
       expect(result).not.toContain(wechatNativeConnector);
     });
@@ -218,6 +228,7 @@ describe.each(wechatConnectorOrders)(
       const result = filterSocialConnectors(connectors);
 
       expect(result).toEqual([wechatNativeConnector]);
+      expect(result).not.toContain(wechatH5Connector);
       expect(result).not.toContain(wechatMiniConnector);
       expect(result).not.toContain(wechatWebConnector);
     });
@@ -227,9 +238,11 @@ describe.each(wechatConnectorOrders)(
       const nativeResult = filterPreviewSocialConnectors(ConnectorPlatform.Native, connectors);
 
       expect(webResult).toEqual([wechatWebConnector]);
+      expect(webResult).not.toContain(wechatH5Connector);
       expect(webResult).not.toContain(wechatMiniConnector);
       expect(webResult).not.toContain(wechatNativeConnector);
       expect(nativeResult).toEqual([wechatNativeConnector]);
+      expect(nativeResult).not.toContain(wechatH5Connector);
       expect(nativeResult).not.toContain(wechatMiniConnector);
       expect(nativeResult).not.toContain(wechatWebConnector);
     });
