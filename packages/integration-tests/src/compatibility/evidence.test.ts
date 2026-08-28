@@ -34,9 +34,43 @@ const compactTokenFixture = [
 ].join('.');
 const shortCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', 'c2ln'].join('.');
 const emptySignatureCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', ''].join('.');
+const tinyPayloadCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'e30', 'c2ln'].join('.');
 const createPemPrivateKeyFixture = (label: string) =>
   ['-----BEGIN ', label, '-----\nfixture\n-----END ', label, '-----'].join('');
 const pemPrivateKeyFixture = createPemPrivateKeyFixture('PRIVATE KEY');
+const forbiddenWrapperKeys = [
+  'tokenResponse',
+  'accessTokenResponse',
+  'tokenWrapper',
+  'authorizationHeader',
+  'authorizationCodeValue',
+  'xFunctionsKeyValue',
+  'jwt',
+  'jwtValue',
+  'jwtResponse',
+  'authHeader',
+  'authHeaderValue',
+  'authenticationHeader',
+] as const;
+const reviewedMetadata = {
+  passwordAlgorithm: 'Argon2id',
+  hasPassword: true,
+  tokenLifetimeSeconds: 3600,
+  tokenType: 'Bearer',
+  authorization_endpoint: 'https://example.com/oidc/authorize',
+  authorization_response_iss_parameter_supported: true,
+  device_authorization_endpoint: 'https://example.com/oidc/device',
+  id_token_signing_alg_values_supported: ['RS256'],
+  pushed_authorization_request_endpoint: 'https://example.com/oidc/par',
+  token_endpoint: 'https://example.com/oidc/token',
+  token_endpoint_auth_methods_supported: ['client_secret_basic'],
+  token_endpoint_auth_signing_alg_values_supported: ['RS256'],
+};
+const credentialFixtures = [compactTokenFixture, 'Bearer abc', pemPrivateKeyFixture] as const;
+const reviewedMetadataCredentialCases = Object.keys(reviewedMetadata).map((key, index) => ({
+  key,
+  credential: credentialFixtures[index % credentialFixtures.length] ?? compactTokenFixture,
+}));
 const createdRoots = new Set<string>();
 const securePathFileSystem: NonNullable<EvidenceWriterOptions['fileSystem']> = {
   chmodPath: chmod,
@@ -221,6 +255,7 @@ describe('assertEvidenceIsSanitized', () => {
     'authTokenDetails',
     'tokenId',
     'tokenRaw',
+    ...forbiddenWrapperKeys,
     'setupScript',
     'scriptStart',
     'scriptPayload',
@@ -257,6 +292,46 @@ describe('assertEvidenceIsSanitized', () => {
     }).toThrow('client_secret');
   });
 
+  it.each(forbiddenWrapperKeys)(
+    'rejects nested credential wrapper key %s without echoing its value',
+    (key) => {
+      const opaqueValue = 'opaque-wrapper-value';
+
+      try {
+        assertEvidenceIsSanitized({ observations: [{ metadata: { [key]: opaqueValue } }] });
+        throw new Error('Expected sanitizer rejection');
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain(key);
+        expect((error as Error).message).not.toContain(opaqueValue);
+      }
+    }
+  );
+
+  it.each(reviewedMetadataCredentialCases)(
+    'recursively scans credential values under allowlisted key $key',
+    ({ key, credential }) => {
+      try {
+        assertEvidenceIsSanitized({ [key]: { nested: [credential] } });
+        throw new Error('Expected sanitizer rejection');
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Evidence contains forbidden credential material');
+        expect((error as Error).message).not.toContain(credential);
+      }
+    }
+  );
+
+  // Extra suffixes prove that reviewed metadata uses exact normalized-set membership.
+  it.each(Object.keys(reviewedMetadata).map((key) => `${key}_extra`))(
+    'rejects reviewed metadata key typo %s',
+    (key) => {
+      expect(() => {
+        assertEvidenceIsSanitized({ [key]: 'ordinary-value' });
+      }).toThrow(key);
+    }
+  );
+
   it.each([
     'Bearer eyJhbGciOiJIUzI1NiJ9.fixture-signature-material',
     'Bearer abc',
@@ -277,6 +352,16 @@ describe('assertEvidenceIsSanitized', () => {
     'Bearer scope=openid',
     compactTokenFixture,
     shortCompactTokenFixture,
+    tinyPayloadCompactTokenFixture,
+    `(${tinyPayloadCompactTokenFixture})`,
+    `[${tinyPayloadCompactTokenFixture}]`,
+    `<${tinyPayloadCompactTokenFixture}>`,
+    `|${tinyPayloadCompactTokenFixture}|`,
+    `\\${tinyPayloadCompactTokenFixture}\\`,
+    `"${tinyPayloadCompactTokenFixture}"`,
+    `https://example.com/callback?value=${tinyPayloadCompactTokenFixture}#done`,
+    `${tinyPayloadCompactTokenFixture}!`,
+    `${tinyPayloadCompactTokenFixture}.`,
     `,${shortCompactTokenFixture}`,
     `;${shortCompactTokenFixture}`,
     emptySignatureCompactTokenFixture,
@@ -323,25 +408,31 @@ describe('assertEvidenceIsSanitized', () => {
   it('allows reviewed metadata and ordinary normalized semantic values', () => {
     expect(() => {
       assertEvidenceIsSanitized({
-        passwordAlgorithm: 'Argon2id',
-        hasPassword: true,
-        tokenLifetimeSeconds: 3600,
-        tokenType: 'Bearer',
+        ...reviewedMetadata,
         subject: '<user.primary>',
         url: 'https://example.com/callback?error=password_reset_token_expired',
         error: 'invalid token or password',
-        authorizationError: 'expected an authorization token or password',
+        protocolError: 'expected an authorization token or password',
         bearerSchemeOnly: 'Bearer',
         bearerSchemeWithSpaceOnly: 'Bearer ',
         bearerSchemeWithWhitespaceOnly: 'Bearer \t ',
         embeddedBearerWord: 'NotBearer abc',
         bearerWithoutWhitespace: 'Bearer-abc',
         bearerColonWithoutWhitespace: 'Bearer:abc',
-        token_endpoint: 'https://example.com/oidc/token',
-        token_endpoint_auth_methods_supported: ['client_secret_basic'],
+        compactValueGluedOnLeft: `A${tinyPayloadCompactTokenFixture}`,
+        compactValueGluedOnRight: `${tinyPayloadCompactTokenFixture}A`,
         description: 'Public token metadata and script documentation',
         version: 'v1.2.3',
       });
+    }).not.toThrow();
+  });
+
+  it('allows JWT observation kind values because wrapper policy applies to keys only', () => {
+    expect(() => {
+      assertEvidenceIsSanitized([
+        { kind: 'jwt-header', value: { alg: 'RS256' } },
+        { kind: 'jwt-claims', value: { sub: '<user.primary>' } },
+      ]);
     }).not.toThrow();
   });
 
@@ -653,6 +744,126 @@ describe('atomic evidence writers', () => {
 
     await expect(writeScenarioEvidence(unsafeInput, options)).rejects.toThrow('client_secret');
     expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+  });
+
+  it('rejects nested credential wrappers without replacing prior evidence or echoing values', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const finalPath = await writeScenarioEvidence(scenarioEvidence(), options);
+    const originalBody = await readFile(finalPath, 'utf8');
+    const opaqueValue = 'opaque-wrapper-value';
+    const messages = await Promise.all(
+      forbiddenWrapperKeys.map(async (key) =>
+        getRejectionMessage(async () =>
+          writeScenarioEvidence(
+            {
+              ...scenarioEvidence(),
+              oracle: {
+                ...scenarioEvidence().oracle,
+                observations: [
+                  {
+                    ...scenarioEvidence().oracle.observations[0],
+                    value: { nested: { [key]: opaqueValue } },
+                  },
+                ],
+              },
+            },
+            options
+          )
+        )
+      )
+    );
+
+    for (const [index, message] of messages.entries()) {
+      expect(message).toContain(forbiddenWrapperKeys[index]);
+      expect(message).not.toContain(opaqueValue);
+    }
+
+    expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+  });
+
+  it('recursively scans allowlisted values without replacing prior evidence or echoing secrets', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const initialEvidence = scenarioEvidence('allowlisted.value.scanning');
+    const finalPath = await writeScenarioEvidence(initialEvidence, options);
+    const originalBody = await readFile(finalPath, 'utf8');
+    const messages = await Promise.all(
+      reviewedMetadataCredentialCases.map(async ({ key, credential }) =>
+        getRejectionMessage(async () =>
+          writeScenarioEvidence(
+            {
+              ...initialEvidence,
+              oracle: {
+                ...initialEvidence.oracle,
+                observations: [
+                  {
+                    ...initialEvidence.oracle.observations[0],
+                    value: { [key]: { nested: [credential] } },
+                  },
+                ],
+              },
+            },
+            options
+          )
+        )
+      )
+    );
+
+    for (const [index, message] of messages.entries()) {
+      const credential = reviewedMetadataCredentialCases[index]?.credential ?? compactTokenFixture;
+      expect(message).toBe('Evidence contains forbidden credential material');
+      expect(message).not.toContain(credential);
+    }
+
+    expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+  });
+
+  it('writes every exact reviewed metadata field after recursive sanitization', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const evidence = {
+      ...scenarioEvidence('oidc.discovery.metadata'),
+      oracle: {
+        ...scenarioEvidence().oracle,
+        observations: [
+          {
+            ...scenarioEvidence().oracle.observations[0],
+            value: reviewedMetadata,
+          },
+        ],
+      },
+    };
+
+    const finalPath = await writeScenarioEvidence(evidence, options);
+    const written = JSON.parse(await readFile(finalPath, 'utf8')) as {
+      oracle: { observations: Array<{ value: unknown }> };
+    };
+
+    expect(written.oracle.observations[0]?.value).toEqual(reviewedMetadata);
+  });
+
+  it('writes JWT observation kind values when their evidence is sanitized', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const evidence = {
+      ...scenarioEvidence('jwt.observation.kinds'),
+      oracle: {
+        ...scenarioEvidence().oracle,
+        observations: [
+          { stepId: 'header', kind: 'jwt-header', value: { alg: 'RS256' } },
+          { stepId: 'claims', kind: 'jwt-claims', value: { sub: '<user.primary>' } },
+        ],
+      },
+    };
+
+    await expect(writeScenarioEvidence(evidence, options)).resolves.toBe(
+      path.join(evidenceDirectory, 'jwt.observation.kinds.json')
+    );
   });
 
   it('rejects invalid image digests without creating run.json', async () => {

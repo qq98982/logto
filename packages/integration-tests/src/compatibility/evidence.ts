@@ -23,23 +23,23 @@ const safeMetadataKeys = new Set([
   'tokenlifetimeseconds',
   'tokentype',
 ]);
-const exactForbiddenKeys = new Set([
-  'authorization',
-  'authorizationcode',
-  'xfunctionskey',
-  'token',
+const reviewedPublicProtocolMetadataKeys = new Set([
+  'authorizationendpoint',
+  'authorizationresponseissparametersupported',
+  'deviceauthorizationendpoint',
+  'idtokensigningalgvaluessupported',
+  'pushedauthorizationrequestendpoint',
+  'tokenendpoint',
+  'tokenendpointauthmethodssupported',
+  'tokenendpointauthsigningalgvaluessupported',
 ]);
-const forbiddenTokenSuffixes = [
-  'tokenvalue',
-  'tokenpayload',
-  'tokendata',
-  'tokenhash',
-  'tokenhint',
-  'tokenset',
-  'tokeninfo',
-  'tokendetails',
-  'tokenid',
-  'tokenraw',
+const forbiddenWrapperKeyFragments = [
+  'token',
+  'authorization',
+  'xfunctionskey',
+  'jwt',
+  'authheader',
+  'authenticationheader',
 ];
 const forbiddenKeyFragments = [
   'secret',
@@ -51,7 +51,7 @@ const forbiddenKeyFragments = [
 ];
 const bearerPrefixPattern = /\bbearer\s+/giu;
 const compactTokenPattern =
-  /(?:^|[\s"'=:?&#/,;])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*(?:$|[\s"',;?&#/])/u;
+  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?(?![A-Za-z0-9_-])/u;
 const privateKeyPattern = /-----BEGIN (?:[A-Z0-9-]+ )*PRIVATE KEY(?: [A-Z0-9-]+)*-----/iu;
 const cookieHeaderPattern = /\b(?:set-cookie|cookie)\s*:/iu;
 const setCookieValuePattern =
@@ -98,17 +98,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isForbiddenKey = (key: string) => {
   const normalizedKey = normalizeEvidenceKey(key);
 
-  if (safeMetadataKeys.has(normalizedKey)) {
+  if (
+    safeMetadataKeys.has(normalizedKey) ||
+    reviewedPublicProtocolMetadataKeys.has(normalizedKey)
+  ) {
     return false;
   }
 
   return (
-    exactForbiddenKeys.has(normalizedKey) ||
-    normalizedKey.endsWith('token') ||
-    normalizedKey === 'tokens' ||
-    normalizedKey.endsWith('tokens') ||
-    normalizedKey.startsWith('rawtoken') ||
-    forbiddenTokenSuffixes.some((suffix) => normalizedKey.endsWith(suffix)) ||
+    forbiddenWrapperKeyFragments.some((fragment) => normalizedKey.includes(fragment)) ||
     normalizedKey.startsWith('script') ||
     normalizedKey.endsWith('script') ||
     normalizedKey.includes('environmentvariables') ||
