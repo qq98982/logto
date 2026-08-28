@@ -1,14 +1,41 @@
 import { z } from 'zod';
 
-const jsonPrimitiveGuard = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const jsonPrimitiveGuard = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
+const plainObjectGuard = z.custom<Record<string, unknown>>((value) => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+});
+
 export const jsonValueGuard: z.ZodType<unknown> = z.lazy(() =>
-  z.union([jsonPrimitiveGuard, z.array(jsonValueGuard), z.record(jsonValueGuard)])
+  z.union([
+    jsonPrimitiveGuard,
+    z.array(jsonValueGuard),
+    plainObjectGuard.pipe(z.record(jsonValueGuard)),
+  ])
 );
+
+const httpUrlGuard = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const { protocol } = new URL(value);
+
+      return protocol === 'http:' || protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'Expected an HTTP or HTTPS URL');
 
 export const targetConfigGuard = z.object({
   label: z.enum(['oracle', 'candidate']),
-  coreUrl: z.string().url(),
-  adminUrl: z.string().url(),
+  coreUrl: httpUrlGuard,
+  adminUrl: httpUrlGuard,
 });
 
 export const capabilityGuard = z.object({

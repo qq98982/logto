@@ -1,13 +1,61 @@
 import {
   capabilityManifestGuard,
+  jsonValueGuard,
   observationGuard,
   runEvidenceGuard,
   scenarioEvidenceGuard,
+  targetConfigGuard,
 } from './model.js';
 
 const referenceCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 
 describe('compatibility evidence model', () => {
+  it('accepts nested JSON values without changing their structure', () => {
+    const value = {
+      string: 'value',
+      number: 42.5,
+      boolean: true,
+      null: null,
+      nested: [{ enabled: false }, ['leaf']],
+    };
+
+    expect(jsonValueGuard.safeParse(value)).toEqual({ success: true, data: value });
+  });
+
+  it.each([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects nested non-finite number %p',
+    (value) => {
+      expect(jsonValueGuard.safeParse({ nested: [value] }).success).toBe(false);
+    }
+  );
+
+  it('rejects RegExp values instead of converting them to records', () => {
+    expect(jsonValueGuard.safeParse({ nested: /not-json/ }).success).toBe(false);
+  });
+
+  it('rejects Uint8Array values instead of converting them to records', () => {
+    expect(jsonValueGuard.safeParse({ nested: new Uint8Array([1, 2, 3]) }).success).toBe(false);
+  });
+
+  it.each(['http://localhost:3001', 'https://logto.example.com'])(
+    'accepts HTTP target URL %s',
+    (url) => {
+      expect(
+        targetConfigGuard.safeParse({ label: 'oracle', coreUrl: url, adminUrl: url }).success
+      ).toBe(true);
+    }
+  );
+
+  it('rejects non-HTTP target URLs', () => {
+    expect(
+      targetConfigGuard.safeParse({
+        label: 'candidate',
+        coreUrl: 'ftp://logto.example.com',
+        adminUrl: 'https://logto.example.com',
+      }).success
+    ).toBe(false);
+  });
+
   it('accepts the reference capability manifest', () => {
     expect(
       capabilityManifestGuard.safeParse({
