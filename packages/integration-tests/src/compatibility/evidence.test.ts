@@ -32,11 +32,11 @@ const compactTokenFixture = [
   'eyJzdWIiOiJ1c2VyIn0',
   'c2lnbmF0dXJlLW1hdGVyaWFs',
 ].join('.');
-const pemPrivateKeyFixture = [
-  '-----BEGIN PRIVATE',
-  ' KEY-----\nfixture\n-----END PRIVATE',
-  ' KEY-----',
-].join('');
+const shortCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', 'c2ln'].join('.');
+const emptySignatureCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', ''].join('.');
+const createPemPrivateKeyFixture = (label: string) =>
+  ['-----BEGIN ', label, '-----\nfixture\n-----END ', label, '-----'].join('');
+const pemPrivateKeyFixture = createPemPrivateKeyFixture('PRIVATE KEY');
 const createdRoots = new Set<string>();
 const securePathFileSystem: NonNullable<EvidenceWriterOptions['fileSystem']> = {
   chmodPath: chmod,
@@ -259,12 +259,38 @@ describe('assertEvidenceIsSanitized', () => {
 
   it.each([
     'Bearer eyJhbGciOiJIUzI1NiJ9.fixture-signature-material',
+    'Bearer abc',
+    'BEARER\tabc',
+    'bearer   abc',
+    'Bearer a',
+    'Bearer opaque=value',
+    'Bearer realm="example"',
+    'Bearer realm="opaque-secret-value"',
+    'Bearer "opaque-secret-value"',
+    "Bearer 'opaque-secret-value'",
+    'Bearer !opaque-secret-value',
+    'Bearer {"credential":"opaque-secret-value"}',
+    'Bearer :opaque-secret-value',
+    'bearer error=invalid_token',
+    'BEARER error_description = "expired"',
+    'Bearer error_uri = https://example.com/errors/invalid',
+    'Bearer scope=openid',
     compactTokenFixture,
+    shortCompactTokenFixture,
+    `,${shortCompactTokenFixture}`,
+    `;${shortCompactTokenFixture}`,
+    emptySignatureCompactTokenFixture,
     pemPrivateKeyFixture,
+    createPemPrivateKeyFixture('DSA PRIVATE KEY'),
+    createPemPrivateKeyFixture('PGP PRIVATE KEY BLOCK'),
+    createPemPrivateKeyFixture('dsa private key'),
+    createPemPrivateKeyFixture('OpenSSH Private Key'),
+    createPemPrivateKeyFixture('VENDOR-HSM PRIVATE KEY MATERIAL'),
     'Cookie: session=fixture; Path=/',
     'Set-Cookie: session=fixture; HttpOnly; Secure',
     'session=fixture; Path=/; HttpOnly; Secure; SameSite=Lax',
     `https://example.com/callback?access_token=${compactTokenFixture}&state=opaque`,
+    `https://example.com/callback?access_token=${emptySignatureCompactTokenFixture}&state=opaque`,
     `https://example.com/callback#/${compactTokenFixture}/done`,
     `https://example.com/tokens/${compactTokenFixture}/claims`,
   ])('rejects credential-bearing string category without echoing it', (value) => {
@@ -304,7 +330,13 @@ describe('assertEvidenceIsSanitized', () => {
         subject: '<user.primary>',
         url: 'https://example.com/callback?error=password_reset_token_expired',
         error: 'invalid token or password',
-        authorizationError: 'expected a Bearer token or password',
+        authorizationError: 'expected an authorization token or password',
+        bearerSchemeOnly: 'Bearer',
+        bearerSchemeWithSpaceOnly: 'Bearer ',
+        bearerSchemeWithWhitespaceOnly: 'Bearer \t ',
+        embeddedBearerWord: 'NotBearer abc',
+        bearerWithoutWhitespace: 'Bearer-abc',
+        bearerColonWithoutWhitespace: 'Bearer:abc',
         token_endpoint: 'https://example.com/oidc/token',
         token_endpoint_auth_methods_supported: ['client_secret_basic'],
         description: 'Public token metadata and script documentation',

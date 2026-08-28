@@ -49,10 +49,10 @@ const forbiddenKeyFragments = [
   'credential',
   'cookie',
 ];
-const bearerCredentialPattern = /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/iu;
+const bearerPrefixPattern = /\bbearer\s+/giu;
 const compactTokenPattern =
-  /(?:^|[\s"'=:?&#/])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{8,}(?:$|[\s"',;?&#/])/u;
-const privateKeyPattern = /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/iu;
+  /(?:^|[\s"'=:?&#/,;])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*(?:$|[\s"',;?&#/])/u;
+const privateKeyPattern = /-----BEGIN (?:[A-Z0-9-]+ )*PRIVATE KEY(?: [A-Z0-9-]+)*-----/iu;
 const cookieHeaderPattern = /\b(?:set-cookie|cookie)\s*:/iu;
 const setCookieValuePattern =
   /^[^;\s=]+=[^;\r\n]*;[^\r\n]*(?:secure|httponly|samesite\s*=|domain\s*=|path\s*=|expires\s*=|max-age\s*=)/iu;
@@ -116,8 +116,15 @@ const isForbiddenKey = (key: string) => {
   );
 };
 
+const containsBearerCredential = (value: string) =>
+  [...value.matchAll(bearerPrefixPattern)].some((match) => {
+    const remainder = value.slice(match.index + match[0].length);
+
+    return remainder.length > 0;
+  });
+
 const containsCredentialMaterial = (value: string) =>
-  bearerCredentialPattern.test(value) ||
+  containsBearerCredential(value) ||
   compactTokenPattern.test(value) ||
   privateKeyPattern.test(value) ||
   cookieHeaderPattern.test(value) ||

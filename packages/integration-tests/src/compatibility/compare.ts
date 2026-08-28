@@ -40,7 +40,9 @@ const createDisplayValue = (value: unknown): unknown => {
 
   if (isRecord(value)) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, element]) => [key, createDisplayValue(element)])
+      Object.keys(value)
+        .toSorted()
+        .map((key) => [key, createDisplayValue(value[key])])
     );
   }
 

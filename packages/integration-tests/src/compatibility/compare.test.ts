@@ -45,6 +45,21 @@ describe('compareJson', () => {
     ]);
   });
 
+  it('orders emitted object display keys for root and nested type mismatches', () => {
+    const rootDifferences = compareJson({ z: 'last', a: 'first' }, []);
+    const nestedDifferences = compareJson(
+      { observation: { z: 'last', a: 'first' } },
+      { observation: [] }
+    );
+
+    expect(Object.keys(rootDifferences[0]?.oracle as Record<string, unknown>)).toEqual(['a', 'z']);
+    expect(Object.keys(nestedDifferences[0]?.oracle as Record<string, unknown>)).toEqual([
+      'a',
+      'z',
+    ]);
+    expect(nestedDifferences[0]?.path).toBe('/observation');
+  });
+
   it('uses deterministic binary key order independent of insertion order', () => {
     const oracle = { z: 0, a: 0, B: 0, ä: 0 };
     const candidate = { ä: 1, B: 1, a: 1, z: 1 };
