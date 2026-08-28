@@ -460,3 +460,6 @@ printf '[aster] negative control: expected difference detected\n'
 
 pnpm compatibility:run --finalize-run \
   --negative-control-path /observations/0/value/issuer
+ASTER_RUN_DUAL_TARGET=1 \
+  pnpm test:only -i --config=jest.config.compatibility.js \
+    ./lib/compatibility/tests/reference-parity.test.js
