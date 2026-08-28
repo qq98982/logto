@@ -1,10 +1,10 @@
-# Logto Compatibility Lab Implementation Plan
+# Aster Compatibility Lab Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build phase 0 of the Rust rewrite program: a deterministic, secret-safe differential test lab that inventories the pinned Logto surface and proves that two independent instances of the pinned implementation produce equivalent behavior.
+**Goal:** Build phase 0 of the Aster rewrite program: a deterministic, secret-safe differential test lab that inventories the pinned reference surface and proves that two independent instances of the pinned implementation produce equivalent behavior.
 
-**Architecture:** Extend the existing TypeScript integration-test package with a small compatibility domain: inventory collectors, target-independent scenarios, explicit normalization rules, a semantic comparator, and evidence writers. Run one built Logto reference image twice against independent PostgreSQL/Redis state; the second target later becomes the Rust candidate without changing scenario code. Store runtime evidence under `/var/tmp/henry-build/logto-compatibility`, never in the repository.
+**Architecture:** Extend the existing TypeScript integration-test package with a small compatibility domain: inventory collectors, target-independent scenarios, explicit normalization rules, a semantic comparator, and evidence writers. Run one built upstream reference image twice against independent PostgreSQL/Redis state; the second target later becomes the Aster candidate without changing scenario code. Store runtime evidence under `/var/tmp/henry-build/aster-compatibility`, never in the repository.
 
 **Tech Stack:** Node.js 22, TypeScript, Jest, Zod, Ky, Jose, existing Logto integration clients, Docker Compose, PostgreSQL 17, Redis 6.
 
@@ -12,7 +12,9 @@
 
 ## Scope And Exit Criteria
 
-This plan implements only phase 0 from `docs/superpowers/specs/2026-08-28-logto-rust-compatible-rewrite-design.md`. It does not create a Rust workspace, a production service, a new database schema, or a compatibility proxy.
+This plan implements only phase 0 from `docs/superpowers/specs/2026-08-28-aster-compatible-rewrite-design.md`. It does not create a Rust workspace, a production service, a new database schema, or a compatibility proxy.
+
+All new operational identifiers use the neutral codename Aster: environment variables use the `ASTER_` prefix, images and Compose services use `aster-*`, and runtime directories use `aster-compatibility`. Inherited upstream package names and fixed internal paths remain unchanged where the reference implementation requires them.
 
 Phase 0 is complete only when all of these are true:
 
@@ -93,7 +95,7 @@ export default config;
 
 Compatibility tests must never load `jest.setup.api.js`, whose top-level setup mutates the live admin tenant.
 
-- [ ] **Step 2: Add model tests for accepted evidence and rejected raw secrets**
+- [ ] **Step 2: Add model tests for accepted evidence and rejected non-JSON values**
 
 Create `model.test.ts` with these contracts:
 
@@ -154,6 +156,8 @@ describe('compatibility model', () => {
 });
 ```
 
+Also verify that nested plain JSON values are preserved, `Infinity`, `-Infinity`, `RegExp`, and typed arrays are rejected at any depth, and target URLs accept only `http:` or `https:` schemes.
+
 - [ ] **Step 3: Run the focused test and confirm it fails because the model is absent**
 
 Run:
@@ -173,15 +177,42 @@ Create `model.ts` with these exported contracts:
 ```typescript
 import { z } from 'zod';
 
-const jsonPrimitiveGuard = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const jsonPrimitiveGuard = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
+const plainObjectGuard = z.custom<Record<string, unknown>>((value) => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+});
+
 export const jsonValueGuard: z.ZodType<unknown> = z.lazy(() =>
-  z.union([jsonPrimitiveGuard, z.array(jsonValueGuard), z.record(jsonValueGuard)])
+  z.union([
+    jsonPrimitiveGuard,
+    z.array(jsonValueGuard),
+    plainObjectGuard.pipe(z.record(jsonValueGuard)),
+  ])
 );
+
+const httpUrlGuard = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const { protocol } = new URL(value);
+
+      return protocol === 'http:' || protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'Expected an HTTP or HTTPS URL');
 
 export const targetConfigGuard = z.object({
   label: z.enum(['oracle', 'candidate']),
-  coreUrl: z.string().url(),
-  adminUrl: z.string().url(),
+  coreUrl: httpUrlGuard,
+  adminUrl: httpUrlGuard,
 });
 
 export const capabilityGuard = z.object({
@@ -408,9 +439,9 @@ Add these scripts to `packages/integration-tests/package.json`:
 "test:compatibility": "pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/"
 ```
 
-The inventory CLI must accept `--target oracle|candidate` and exactly one of `--check` or `--write`. `--write` is allowed only for the oracle target when `COMPAT_ALLOW_MANIFEST_WRITE=1`; it uses two-space JSON plus a trailing newline. `--check` compares parsed objects, prints added/removed capability IDs, and exits `1` on drift.
+The inventory CLI must accept `--target oracle|candidate` and exactly one of `--check` or `--write`. `--write` is allowed only for the oracle target when `ASTER_ALLOW_MANIFEST_WRITE=1`; it uses two-space JSON plus a trailing newline. `--check` compares parsed objects, prints added/removed capability IDs, and exits `1` on drift.
 
-`paths.ts` resolves the manifest as `path.join(repoRoot, 'compatibility/baseline-manifest.json')`. When `COMPAT_REPO_ROOT` is present, require an absolute path, resolve its real path, and verify that `<root>/pnpm-workspace.yaml` is a regular file. When absent in focused local tests, walk upward from `import.meta.url` until `pnpm-workspace.yaml` exists. Never resolve the manifest from `process.cwd()`. Add tests for a relative env path, a missing workspace marker, and a cwd change to an unrelated temporary directory.
+`paths.ts` resolves the manifest as `path.join(repoRoot, 'compatibility/baseline-manifest.json')`. When `ASTER_REPO_ROOT` is present, require an absolute path, resolve its real path, and verify that `<root>/pnpm-workspace.yaml` is a regular file. When absent in focused local tests, walk upward from `import.meta.url` until `pnpm-workspace.yaml` exists. Never resolve the manifest from `process.cwd()`. Add tests for a relative env path, a missing workspace marker, and a cwd change to an unrelated temporary directory.
 
 - [ ] **Step 5: Run inventory unit tests without requiring a live service**
 
@@ -430,7 +461,7 @@ Expected: unit tests pass. Live manifest generation is deliberately deferred to 
 ```bash
 git add compatibility/manual-capabilities.json packages/integration-tests/package.json \
   packages/integration-tests/src/compatibility/inventory
-git commit -m "test(test): inventory pinned Logto surface"
+git commit -m "test(test): inventory pinned reference surface"
 ```
 
 ## Task 3: Implement Logical Symbols And Explicit Normalization
@@ -629,7 +660,7 @@ Also reject values matching `Bearer <credential>`, OAuth authorization-code fiel
 
 `writeRunEvidence()` follows the same atomic write process but validates with `runEvidenceGuard` and always writes `run.json`. Add unit tests that parse the written file and reject a digest that does not match `sha256:<64 lowercase hex characters>`.
 
-Both writers use exactly one destination variable: `COMPAT_EVIDENCE_DIR`. Direct local calls default it to `/var/tmp/henry-build/logto-compatibility/direct`; the owned lifecycle script always overrides it with its private per-run `evidence/` directory.
+Both writers use exactly one destination variable: `ASTER_EVIDENCE_DIR`. Direct local calls default it to `/var/tmp/henry-build/aster-compatibility/direct`; the owned lifecycle script always overrides it with its private per-run `evidence/` directory.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -657,15 +688,15 @@ git commit -m "test(test): compare sanitized compatibility evidence"
 Require all four URLs and reject identical labels with different URL semantics:
 
 ```typescript
-expect(() => loadCompatibilityConfig({})).toThrow('COMPAT_ORACLE_URL');
+expect(() => loadCompatibilityConfig({})).toThrow('ASTER_ORACLE_URL');
 expect(() =>
   loadCompatibilityConfig({
-    COMPAT_ORACLE_URL: 'http://localhost:3101',
-    COMPAT_ORACLE_ADMIN_URL: 'http://localhost:3201',
-    COMPAT_CANDIDATE_URL: 'not-a-url',
-    COMPAT_CANDIDATE_ADMIN_URL: 'http://localhost:3202',
+    ASTER_ORACLE_URL: 'http://localhost:3101',
+    ASTER_ORACLE_ADMIN_URL: 'http://localhost:3201',
+    ASTER_CANDIDATE_URL: 'not-a-url',
+    ASTER_CANDIDATE_ADMIN_URL: 'http://localhost:3202',
   })
-).toThrow('COMPAT_CANDIDATE_URL');
+).toThrow('ASTER_CANDIDATE_URL');
 ```
 
 - [ ] **Step 2: Implement per-target clients**
@@ -761,7 +792,7 @@ The CLI runs selected scenarios on both targets, compares them, writes evidence,
 
 Fault injection is applied only to the in-memory candidate observation after both targets finish. It never changes a service or proxy response. Fault-injected execution must not overwrite positive scenario evidence; it writes one sanitized `negative-control.json` containing only the injected rule name and resulting difference paths.
 
-The CLI also has `--finalize-run --negative-control-path <json-pointer>` mode. It reads the already-written positive scenario evidence, validates `COMPAT_ORACLE_IMAGE_DIGEST` and `COMPAT_CANDIDATE_IMAGE_DIGEST`, calls `writeRunEvidence()`, and exits `0` only after `run.json` parses with `runEvidenceGuard`. Finalize mode performs no network requests.
+The CLI also has `--finalize-run --negative-control-path <json-pointer>` mode. It reads the already-written positive scenario evidence, validates `ASTER_ORACLE_IMAGE_DIGEST` and `ASTER_CANDIDATE_IMAGE_DIGEST`, calls `writeRunEvidence()`, and exits `0` only after `run.json` parses with `runEvidenceGuard`. Finalize mode performs no network requests.
 
 - [ ] **Step 3: Unit-test both controls using fixture observations**
 
@@ -818,8 +849,8 @@ Use the deterministic fixture:
 
 ```typescript
 const fixture = Object.freeze({
-  username: 'compat_phase0_password_user',
-  password: 'Compat_phase0_password_42',
+  username: 'aster_phase0_password_user',
+  password: 'Aster_phase0_password_42',
 });
 ```
 
@@ -916,10 +947,10 @@ git commit -m "test(test): add password code scenario"
 
 Define complete services without YAML inheritance:
 
-- `postgres-oracle`, `redis-oracle`, `logto-oracle`
-- `postgres-candidate`, `redis-candidate`, `logto-candidate`
+- `postgres-oracle`, `redis-oracle`, `aster-oracle`
+- `postgres-candidate`, `redis-candidate`, `aster-candidate`
 
-Use PostgreSQL 17 Alpine and Redis 6 Alpine exactly as `docker-compose.integration.yml`. Build and tag only `logto-oracle` as `logto-compat-reference:6852a7b8c`; default `logto-candidate` to that image through `COMPAT_CANDIDATE_IMAGE`.
+Use PostgreSQL 17 Alpine and Redis 6 Alpine exactly as `docker-compose.integration.yml`. Build and tag only `aster-oracle` as `aster-reference:6852a7b8c`; default `aster-candidate` to that image through `ASTER_CANDIDATE_IMAGE`.
 
 Map:
 
@@ -938,7 +969,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${COMPAT_POSTGRES_PASSWORD:?required}
+      POSTGRES_PASSWORD: ${ASTER_POSTGRES_PASSWORD:?required}
       POSTGRES_DB: postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -954,14 +985,14 @@ services:
       timeout: 3s
       retries: 20
 
-  logto-oracle:
-    image: logto-compat-reference:6852a7b8c
+  aster-oracle:
+    image: aster-reference:6852a7b8c
     build:
       context: .
       dockerfile: Dockerfile.integration
     stop_signal: SIGINT
     volumes:
-      - ${COMPAT_ORACLE_MESSAGE_DIR:?required}:/tmp/logto
+      - ${ASTER_ORACLE_MESSAGE_DIR:?required}:/tmp/logto
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -970,12 +1001,12 @@ services:
       redis-oracle:
         condition: service_healthy
     environment:
-      DB_URL: postgres://postgres:${COMPAT_POSTGRES_PASSWORD:?required}@postgres-oracle:5432/postgres
+      DB_URL: postgres://postgres:${ASTER_POSTGRES_PASSWORD:?required}@postgres-oracle:5432/postgres
       REDIS_URL: redis://redis-oracle:6379
       ENDPOINT: http://localhost:3101
       ADMIN_ENDPOINT: http://localhost:3201
-      SECRET_VAULT_KEK: ${COMPAT_SECRET_VAULT_KEK:?required}
-      STATUS_API_KEY: ${COMPAT_STATUS_API_KEY:?required}
+      SECRET_VAULT_KEK: ${ASTER_SECRET_VAULT_KEK:?required}
+      STATUS_API_KEY: ${ASTER_STATUS_API_KEY:?required}
       TRUST_PROXY_HEADER: "1"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 3001 || exit 1"]
@@ -990,7 +1021,7 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${COMPAT_POSTGRES_PASSWORD:?required}
+      POSTGRES_PASSWORD: ${ASTER_POSTGRES_PASSWORD:?required}
       POSTGRES_DB: postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
@@ -1006,11 +1037,11 @@ services:
       timeout: 3s
       retries: 20
 
-  logto-candidate:
-    image: ${COMPAT_CANDIDATE_IMAGE:-logto-compat-reference:6852a7b8c}
+  aster-candidate:
+    image: ${ASTER_CANDIDATE_IMAGE:-aster-reference:6852a7b8c}
     stop_signal: SIGINT
     volumes:
-      - ${COMPAT_CANDIDATE_MESSAGE_DIR:?required}:/tmp/logto
+      - ${ASTER_CANDIDATE_MESSAGE_DIR:?required}:/tmp/logto
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -1019,12 +1050,12 @@ services:
       redis-candidate:
         condition: service_healthy
     environment:
-      DB_URL: postgres://postgres:${COMPAT_POSTGRES_PASSWORD:?required}@postgres-candidate:5432/postgres
+      DB_URL: postgres://postgres:${ASTER_POSTGRES_PASSWORD:?required}@postgres-candidate:5432/postgres
       REDIS_URL: redis://redis-candidate:6379
       ENDPOINT: http://localhost:3102
       ADMIN_ENDPOINT: http://localhost:3202
-      SECRET_VAULT_KEK: ${COMPAT_SECRET_VAULT_KEK:?required}
-      STATUS_API_KEY: ${COMPAT_STATUS_API_KEY:?required}
+      SECRET_VAULT_KEK: ${ASTER_SECRET_VAULT_KEK:?required}
+      STATUS_API_KEY: ${ASTER_STATUS_API_KEY:?required}
       TRUST_PROXY_HEADER: "1"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 3001 || exit 1"]
@@ -1041,13 +1072,13 @@ services:
 `run.sh` must:
 
 1. require a clean runtime-source diff against `6852a7b8c8984c5c12b2061e8c51faa310a36412` using `git diff --quiet` over the whole repository while excluding only `docs/superpowers/**`, `packages/integration-tests/**`, `compatibility/**`, `.scripts/compatibility/**`, `docker-compose.compatibility.yml`, and `.github/workflows/compatibility-test.yml`;
-2. create a private run directory under `/var/tmp/henry-build/logto-compatibility` using `mktemp -d`;
-3. use a unique explicit Compose project name `logto-compat-<pid>`;
+2. create a private run directory under `/var/tmp/henry-build/aster-compatibility` using `mktemp -d`;
+3. use a unique explicit Compose project name `aster-lab-<pid>`;
 4. export separate oracle/candidate mock-message directories;
 5. build the reference image once;
 6. start all six services with `docker compose up -d --wait`;
 7. build `@logto/integration-tests...`;
-8. when `COMPAT_WRITE_BASELINE=1`, generate the oracle manifest with `COMPAT_ALLOW_MANIFEST_WRITE=1`; otherwise check both oracle and candidate inventories against the committed manifest;
+8. when `ASTER_WRITE_BASELINE=1`, generate the oracle manifest with `ASTER_ALLOW_MANIFEST_WRITE=1`; otherwise check both oracle and candidate inventories against the committed manifest;
 9. run the positive CLI, then the injected negative control without restarting services;
 10. record exact oracle and candidate image digests in sanitized `run.json` evidence;
 11. dump per-service logs and sanitized evidence into the private run directory;
@@ -1069,29 +1100,29 @@ REFERENCE_COMMIT=6852a7b8c8984c5c12b2061e8c51faa310a36412
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.compatibility.yml"
-PROJECT_NAME="logto-compat-$$"
-RUN_ROOT="${COMPAT_RUN_ROOT:-/var/tmp/henry-build/logto-compatibility}"
+PROJECT_NAME="aster-lab-$$"
+RUN_ROOT="${ASTER_RUN_ROOT:-/var/tmp/henry-build/aster-compatibility}"
 
 mkdir -p "${RUN_ROOT}"
 chmod 700 "${RUN_ROOT}"
 RUN_DIR="$(mktemp -d "${RUN_ROOT}/run.XXXXXX")"
-export COMPAT_ORACLE_MESSAGE_DIR="${RUN_DIR}/oracle-messages"
-export COMPAT_CANDIDATE_MESSAGE_DIR="${RUN_DIR}/candidate-messages"
-mkdir -p "${COMPAT_ORACLE_MESSAGE_DIR}" "${COMPAT_CANDIDATE_MESSAGE_DIR}"
-export COMPAT_EVIDENCE_DIR="${RUN_DIR}/evidence"
-mkdir -p "${COMPAT_EVIDENCE_DIR}"
-chmod 700 "${COMPAT_EVIDENCE_DIR}"
+export ASTER_ORACLE_MESSAGE_DIR="${RUN_DIR}/oracle-messages"
+export ASTER_CANDIDATE_MESSAGE_DIR="${RUN_DIR}/candidate-messages"
+mkdir -p "${ASTER_ORACLE_MESSAGE_DIR}" "${ASTER_CANDIDATE_MESSAGE_DIR}"
+export ASTER_EVIDENCE_DIR="${RUN_DIR}/evidence"
+mkdir -p "${ASTER_EVIDENCE_DIR}"
+chmod 700 "${ASTER_EVIDENCE_DIR}"
 
-export COMPAT_POSTGRES_PASSWORD
-export COMPAT_SECRET_VAULT_KEK
-export COMPAT_STATUS_API_KEY
-COMPAT_POSTGRES_PASSWORD="$(node -e "process.stdout.write(require('node:crypto').randomBytes(16).toString('hex'))")"
-COMPAT_SECRET_VAULT_KEK="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64'))")"
-COMPAT_STATUS_API_KEY="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))")"
+export ASTER_POSTGRES_PASSWORD
+export ASTER_SECRET_VAULT_KEK
+export ASTER_STATUS_API_KEY
+ASTER_POSTGRES_PASSWORD="$(node -e "process.stdout.write(require('node:crypto').randomBytes(16).toString('hex'))")"
+ASTER_SECRET_VAULT_KEK="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64'))")"
+ASTER_STATUS_API_KEY="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))")"
 
 for port in 3101 3201 3102 3202; do
   if timeout 1 bash -c "</dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
-    printf '[compat] port %s is already in use\n' "${port}" >&2
+    printf '[aster] port %s is already in use\n' "${port}" >&2
     exit 1
   fi
 done
@@ -1100,7 +1131,7 @@ compose=(docker compose -p "${PROJECT_NAME}" -f "${COMPOSE_FILE}")
 
 dump_logs() {
   local service
-  for service in postgres-oracle redis-oracle logto-oracle postgres-candidate redis-candidate logto-candidate; do
+  for service in postgres-oracle redis-oracle aster-oracle postgres-candidate redis-candidate aster-candidate; do
     "${compose[@]}" logs "${service}" >"${RUN_DIR}/${service}.log" 2>&1 || true
   done
 }
@@ -1109,7 +1140,7 @@ cleanup() {
   local exit_code=$?
   dump_logs
   "${compose[@]}" down -v --remove-orphans || true
-  printf '[compat] evidence: %s\n' "${RUN_DIR}"
+  printf '[aster] evidence: %s\n' "${RUN_DIR}"
   exit "${exit_code}"
 }
 trap cleanup EXIT
@@ -1126,45 +1157,45 @@ git diff --quiet "${REFERENCE_COMMIT}" -- . \
 untracked_runtime="$(git ls-files --others --exclude-standard | grep -Ev \
   '^(docs/superpowers/|packages/integration-tests/|compatibility/|\.scripts/compatibility/|docker-compose\.compatibility\.yml$|\.github/workflows/compatibility-test\.yml$)' || true)"
 if [[ -n "${untracked_runtime}" ]]; then
-  printf '[compat] untracked runtime input:\n%s\n' "${untracked_runtime}" >&2
+  printf '[aster] untracked runtime input:\n%s\n' "${untracked_runtime}" >&2
   exit 1
 fi
 
-"${compose[@]}" build logto-oracle
+"${compose[@]}" build aster-oracle
 "${compose[@]}" up -d --wait
 
 pnpm -r --filter '@logto/integration-tests...' build
 
-export COMPAT_ORACLE_URL=http://localhost:3101
-export COMPAT_ORACLE_ADMIN_URL=http://localhost:3201
-export COMPAT_CANDIDATE_URL=http://localhost:3102
-export COMPAT_CANDIDATE_ADMIN_URL=http://localhost:3202
-export COMPAT_REPO_ROOT="${REPO_ROOT}"
-export COMPAT_ORACLE_IMAGE_DIGEST
-export COMPAT_CANDIDATE_IMAGE_DIGEST
-COMPAT_ORACLE_IMAGE_DIGEST="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q logto-oracle)")"
-COMPAT_CANDIDATE_IMAGE_DIGEST="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q logto-candidate)")"
+export ASTER_ORACLE_URL=http://localhost:3101
+export ASTER_ORACLE_ADMIN_URL=http://localhost:3201
+export ASTER_CANDIDATE_URL=http://localhost:3102
+export ASTER_CANDIDATE_ADMIN_URL=http://localhost:3202
+export ASTER_REPO_ROOT="${REPO_ROOT}"
+export ASTER_ORACLE_IMAGE_DIGEST
+export ASTER_CANDIDATE_IMAGE_DIGEST
+ASTER_ORACLE_IMAGE_DIGEST="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q aster-oracle)")"
+ASTER_CANDIDATE_IMAGE_DIGEST="$(docker inspect --format '{{.Image}}' "$("${compose[@]}" ps -q aster-candidate)")"
 
 cd "${REPO_ROOT}/packages/integration-tests"
-if [[ "${COMPAT_WRITE_BASELINE:-0}" == "1" ]]; then
-  COMPAT_ALLOW_MANIFEST_WRITE=1 pnpm compatibility:inventory -- --target oracle --write
+if [[ "${ASTER_WRITE_BASELINE:-0}" == "1" ]]; then
+  ASTER_ALLOW_MANIFEST_WRITE=1 pnpm compatibility:inventory -- --target oracle --write
 else
   pnpm compatibility:inventory -- --target oracle --check
   pnpm compatibility:inventory -- --target candidate --check
 fi
 
 pnpm compatibility:run
-printf '[compat] positive control: zero differences\n'
+printf '[aster] positive control: zero differences\n'
 
 set +e
 pnpm compatibility:run -- --fault-injection discovery-issuer
 negative_exit=$?
 set -e
 if [[ "${negative_exit}" != "2" ]]; then
-  printf '[compat] negative control failed with exit %s\n' "${negative_exit}" >&2
+  printf '[aster] negative control failed with exit %s\n' "${negative_exit}" >&2
   exit 1
 fi
-printf '[compat] negative control: expected difference detected\n'
+printf '[aster] negative control: expected difference detected\n'
 pnpm compatibility:run -- \
   --finalize-run \
   --negative-control-path /observations/0/value/issuer
@@ -1175,29 +1206,29 @@ Task 9 adds the opt-in Jest invocation after the negative-control block and befo
 - [ ] **Step 3: Run the complete local lab**
 
 ```bash
-COMPAT_WRITE_BASELINE=1 ./.scripts/compatibility/run.sh
+ASTER_WRITE_BASELINE=1 ./.scripts/compatibility/run.sh
 ```
 
 Expected:
 
 ```text
-[compat] positive control: zero differences
-[compat] negative control: expected difference detected
-[compat] evidence: /var/tmp/henry-build/logto-compatibility/<run-id>
+[aster] positive control: zero differences
+[aster] negative control: expected difference detected
+[aster] evidence: /var/tmp/henry-build/aster-compatibility/<run-id>
 ```
 
-All six containers must be gone after the command exits. `compatibility/baseline-manifest.json` must now exist, be sorted, and contain non-zero entries for all seven surfaces. Run `./.scripts/compatibility/run.sh` a second time without `COMPAT_WRITE_BASELINE`; it must check both targets without modifying the manifest.
+All six containers must be gone after the command exits. `compatibility/baseline-manifest.json` must now exist, be sorted, and contain non-zero entries for all seven surfaces. Run `./.scripts/compatibility/run.sh` a second time without `ASTER_WRITE_BASELINE`; it must check both targets without modifying the manifest.
 
 - [ ] **Step 4: Inspect evidence and verify forbidden material is absent**
 
 Run:
 
 ```bash
-evidence_dir="$(find /var/tmp/henry-build/logto-compatibility -mindepth 2 -maxdepth 2 \
+evidence_dir="$(find /var/tmp/henry-build/aster-compatibility -mindepth 2 -maxdepth 2 \
   -type d -name evidence -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)"
 test -n "${evidence_dir}"
 find "${evidence_dir}" -type f -name '*.json' -print0 | xargs -0 -r rg -n \
-  '(access_token|refresh_token|id_token|set-cookie|authorization_code|Compat_phase0_password_42)'
+  '(access_token|refresh_token|id_token|set-cookie|authorization_code|Aster_phase0_password_42)'
 ```
 
 Expected: no matches in JSON evidence. Confirm `evidence_dir` is below the configured run root before scanning. Service logs are diagnostic artifacts and must remain in the private run directory, never uploaded until separately redacted.
@@ -1221,16 +1252,16 @@ git commit -m "test(test): run isolated reference pair"
 
 - [ ] **Step 1: Add an opt-in smoke test**
 
-The test skips unless `COMPAT_RUN_DUAL_TARGET=1`. When enabled, it loads validated configuration, imports `defaultCompatibilityScenarios` from `scenarios/index.ts`, runs every member, and asserts `differences` is empty for both. It must not name discovery or password-code separately.
+The test skips unless `ASTER_RUN_DUAL_TARGET=1`. When enabled, it loads validated configuration, imports `defaultCompatibilityScenarios` from `scenarios/index.ts`, runs every member, and asserts `differences` is empty for both. It must not name discovery or password-code separately.
 
 - [ ] **Step 2: Make the lifecycle script run the smoke test while targets are live**
 
-After the positive control, negative control, and `--finalize-run` command have completed, but before log collection, invoke the built Jest test with `COMPAT_RUN_DUAL_TARGET=1` and the four target URLs already owned by the script.
+After the positive control, negative control, and `--finalize-run` command have completed, but before log collection, invoke the built Jest test with `ASTER_RUN_DUAL_TARGET=1` and the four target URLs already owned by the script.
 
 Append this command immediately after the `--finalize-run` command in `run.sh`:
 
 ```bash
-COMPAT_RUN_DUAL_TARGET=1 \
+ASTER_RUN_DUAL_TARGET=1 \
   pnpm test:only -i --config=jest.config.compatibility.js \
     ./lib/compatibility/tests/reference-parity.test.js
 ```
@@ -1288,7 +1319,7 @@ Document:
 - positive and negative controls;
 - evidence schema and `/var/tmp/henry-build` location;
 - forbidden evidence fields;
-- how `COMPAT_CANDIDATE_IMAGE` replaces the mirror target later;
+- how `ASTER_CANDIDATE_IMAGE` replaces the mirror target later;
 - phase-0 exit criteria from this plan;
 - troubleshooting using private service logs without committing them.
 - the intentional frozen-baseline behavior: runtime-source changes fail the pin gate, and this workflow must not become a required check on unrelated product branches without an explicit baseline-update process.
@@ -1300,9 +1331,9 @@ Create a workflow on `ubuntu-22.04` with `timeout-minutes: 60`. Record actual wa
 1. check out the branch;
 2. install Node 22 and pnpm 10;
 3. run `pnpm install --frozen-lockfile`;
-4. set `COMPAT_RUN_ROOT=${RUNNER_TEMP}/logto-compatibility-evidence`;
+4. set `ASTER_RUN_ROOT=${RUNNER_TEMP}/aster-compatibility-evidence`;
 5. run `bash .scripts/compatibility/run.sh`;
-6. upload only `${COMPAT_RUN_ROOT}/run.*/evidence/*.json` with `actions/upload-artifact@v4` under `if: always()`;
+6. upload only `${ASTER_RUN_ROOT}/run.*/evidence/*.json` with `actions/upload-artifact@v4` under `if: always()`;
 7. never upload service logs automatically.
 
 Configure `actions/checkout@v4` with `fetch-depth: 0` so the pinned commit exists for the runtime diff gate.
@@ -1337,7 +1368,7 @@ Expected: formatting passes; controls produce the same results as task 8.
 
 ```bash
 git add compatibility/README.md .github/workflows/compatibility-test.yml
-git commit -m "ci(test): gate Logto compatibility lab"
+git commit -m "ci(test): gate Aster compatibility lab"
 ```
 
 ## Task 11: Produce And Verify The Phase-0 Acceptance Record
@@ -1377,7 +1408,7 @@ Write only observed values:
 
 ```bash
 rg -n 'TBD|TODO|FIXME|PLACEHOLDER' compatibility/phase-0-acceptance.md
-rg -n '(BEGIN .*PRIVATE KEY|access_token|refresh_token|id_token|set-cookie|Compat_phase0_password_42)' \
+rg -n '(BEGIN .*PRIVATE KEY|access_token|refresh_token|id_token|set-cookie|Aster_phase0_password_42)' \
   compatibility/phase-0-acceptance.md
 ```
 
