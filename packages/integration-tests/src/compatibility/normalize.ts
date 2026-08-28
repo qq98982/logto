@@ -64,6 +64,23 @@ const dropped = Symbol('dropped');
 const pointerIndexPattern = /^(?:0|[1-9]\d*)$/;
 const cookieNamePattern = /^[\w!#$%&'*+.^`|~-]+$/;
 const normalizationStrategies = new Set<string>(['drop', 'timestamp', 'duration-seconds']);
+const cookieExpiresPattern =
+  /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+const cookieWeekdays: readonly string[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const cookieMonths: readonly string[] = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 const isJsonObject = (value: JsonValue): value is Record<string, JsonValue> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -431,11 +448,88 @@ const normalizeMaxAge = (value: string): number => {
   return maxAge;
 };
 
-const normalizeExpires = (value: string): string => {
-  const expires = new Date(value);
+type ParsedCookieExpires = {
+  weekday: string;
+  dayText: string;
+  monthIndex: number;
+  yearText: string;
+  hourText: string;
+  minuteText: string;
+  secondText: string;
+  day: number;
+  year: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
 
-  if (Number.isNaN(expires.getTime())) {
-    throw new TypeError(`Invalid Expires value: ${value}`);
+const requireExpiresMatchPart = (part: string | undefined): string => {
+  if (part === undefined) {
+    throw new TypeError('Invalid Expires attribute: expected canonical IMF-fixdate');
+  }
+
+  return part;
+};
+
+const parseCookieExpires = (value: string): ParsedCookieExpires => {
+  const match = cookieExpiresPattern.exec(value);
+
+  if (!match) {
+    throw new TypeError('Invalid Expires attribute: expected canonical IMF-fixdate');
+  }
+
+  const weekday = requireExpiresMatchPart(match[1]);
+  const dayText = requireExpiresMatchPart(match[2]);
+  const month = requireExpiresMatchPart(match[3]);
+  const yearText = requireExpiresMatchPart(match[4]);
+  const hourText = requireExpiresMatchPart(match[5]);
+  const minuteText = requireExpiresMatchPart(match[6]);
+  const secondText = requireExpiresMatchPart(match[7]);
+  const day = Number(dayText);
+  const monthIndex = cookieMonths.indexOf(month);
+  const year = Number(yearText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+
+  if (monthIndex < 0 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) {
+    throw new TypeError('Invalid Expires attribute: date or time component is out of range');
+  }
+
+  return {
+    weekday,
+    dayText,
+    monthIndex,
+    yearText,
+    hourText,
+    minuteText,
+    secondText,
+    day,
+    year,
+    hour,
+    minute,
+    second,
+  };
+};
+
+const isConsistentCookieExpires = (expires: Date, parsed: ParsedCookieExpires) =>
+  !Number.isNaN(expires.getTime()) &&
+  expires.getUTCFullYear() === parsed.year &&
+  expires.getUTCMonth() === parsed.monthIndex &&
+  expires.getUTCDate() === parsed.day &&
+  expires.getUTCHours() === parsed.hour &&
+  expires.getUTCMinutes() === parsed.minute &&
+  expires.getUTCSeconds() === parsed.second &&
+  cookieWeekdays[expires.getUTCDay()] === parsed.weekday;
+
+const normalizeExpires = (value: string): string => {
+  const parsed = parseCookieExpires(value);
+  const expires = new Date(
+    `${parsed.yearText}-${String(parsed.monthIndex + 1).padStart(2, '0')}-${parsed.dayText}T${parsed.hourText}:${parsed.minuteText}:${parsed.secondText}Z`
+  );
+
+  if (!isConsistentCookieExpires(expires, parsed)) {
+    throw new TypeError('Invalid Expires attribute: date or weekday is inconsistent');
   }
 
   return expires.toISOString();

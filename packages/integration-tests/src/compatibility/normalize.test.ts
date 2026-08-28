@@ -1,4 +1,5 @@
-import { SignJWT } from 'jose';
+/* eslint-disable max-lines */
+import { SignJWT, base64url } from 'jose';
 
 import {
   normalizeJson,
@@ -22,6 +23,27 @@ const signJwt = async (claims: Record<string, unknown>, kid = 'runtime-kid') =>
   new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256', kid, typ: 'JWT' })
     .sign(new TextEncoder().encode('test-only-signing-key-with-sufficient-length'));
+
+const createCompactJwt = (
+  header: unknown,
+  claims: unknown,
+  signatureMarker = 'fixture-signature'
+) =>
+  [
+    base64url.encode(JSON.stringify(header)),
+    base64url.encode(JSON.stringify(claims)),
+    base64url.encode(signatureMarker),
+  ].join('.');
+
+const getThrownMessage = (operation: () => unknown): string => {
+  try {
+    operation();
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  throw new Error('Expected operation to throw');
+};
 
 describe('SymbolTable', () => {
   it('binds idempotently and exposes both lookup directions', () => {
@@ -148,6 +170,22 @@ describe('normalizeJson', () => {
     });
   });
 
+  it('preserves unchecked material fields exactly when no rules apply', () => {
+    const materialClaims = {
+      id: 'record-123',
+      state: 'state-456',
+      code: 'code-789',
+      scope: 'read write',
+      aud: 'urn:example:audience',
+      iss: 'urn:example:issuer',
+      sub: 'subject-value',
+      role: 'admin',
+      organization: { id: 'organization-1', name: 'Primary' },
+    };
+
+    expect(normalizeJson(materialClaims, createContext(), [])).toEqual(materialClaims);
+  });
+
   it('derives durations from the untouched original input', () => {
     expect(
       normalizeJson({ startedAt: 100, finishedAt: 145 }, createContext(), [
@@ -269,6 +307,30 @@ describe('normalizeSetCookies', () => {
   });
 
   it.each([
+    ['0', 'a numeric date shortcut'],
+    ['Wed, 21 Oct 2015 07:28:00 UTC', 'non-IMF timezone grammar'],
+    ['Mon, 31 Feb 2020 07:28:00 GMT', 'an impossible calendar date'],
+    ['Wed, 21 Oct 2015 24:00:00 GMT', 'an invalid time'],
+    ['Thu, 21 Oct 2015 07:28:00 GMT', 'a weekday mismatch'],
+  ])('rejects %s as %s without echoing the Expires value', (expiresValue) => {
+    const message = getThrownMessage(() =>
+      normalizeSetCookies([`name=private-cookie; Expires=${expiresValue}`])
+    );
+
+    expect(message).toMatch(/expires/i);
+    expect(message).not.toContain(expiresValue);
+  });
+
+  it('keeps one comma-containing header as one cookie observation', () => {
+    const normalized = normalizeSetCookies(['payload="left,right"; Path=/observations; Secure']);
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized).toEqual([
+      { name: 'payload', path: '/observations', httpOnly: false, secure: true },
+    ]);
+  });
+
+  it.each([
     ['name=value; SameSite=invalid', /samesite/i],
     ['name=value; Max-Age=1.5', /max-age/i],
     ['name=value; Max-Age=huge', /max-age/i],
@@ -289,10 +351,15 @@ describe('normalizeJwt', () => {
       iat: 100,
       exp: 3700,
       auth_time: 90,
+      nbf: 95,
+      updated_at: 80,
       scope: 'read write',
       aud: 'https://api.example',
-      role: ['admin'],
+      iss: 'https://issuer.example',
+      role: 'admin',
+      roles: ['admin', 'auditor'],
       organization: 'primary',
+      organizations: ['primary', 'secondary'],
     });
 
     const normalized = normalizeJwt(token, context, {
@@ -309,10 +376,15 @@ describe('normalizeJwt', () => {
         iat: { $timestamp: 100, $toleranceSeconds: 60 },
         exp: { $timestamp: 3700, $toleranceSeconds: 60 },
         auth_time: { $timestamp: 90, $toleranceSeconds: 60 },
+        nbf: { $timestamp: 95, $toleranceSeconds: 60 },
+        updated_at: { $timestamp: 80, $toleranceSeconds: 60 },
         scope: 'read write',
         aud: 'https://api.example',
-        role: ['admin'],
+        iss: 'https://issuer.example',
+        role: 'admin',
+        roles: ['admin', 'auditor'],
         organization: 'primary',
+        organizations: ['primary', 'secondary'],
         tokenLifetimeSeconds: 3600,
       },
     });
@@ -351,12 +423,15 @@ describe('normalizeJwt', () => {
   });
 
   it('rejects malformed tokens and invalid identifier or configured time claim types', async () => {
-    expect(() =>
-      normalizeJwt('not-a-compact-token', createContext(), {
+    const malformedToken = 'raw-secret-like-malformed-token';
+    const malformedMessage = getThrownMessage(() =>
+      normalizeJwt(malformedToken, createContext(), {
         tokenKind: 'id-token',
         timestampToleranceSeconds: 10,
       })
-    ).toThrow(/jwt/i);
+    );
+    expect(malformedMessage).toMatch(/jwt/i);
+    expect(malformedMessage).not.toContain(malformedToken);
 
     const invalidIdentifier = await signJwt({ sub: 42 });
     expect(() =>
@@ -365,6 +440,15 @@ describe('normalizeJwt', () => {
         timestampToleranceSeconds: 10,
       })
     ).toThrow(/identifier.*\/sub.*string/i);
+
+    const invalidConfiguredIdentifier = await signJwt({ custom: { subject: 42 } });
+    expect(() =>
+      normalizeJwt(invalidConfiguredIdentifier, createContext(), {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+        identifierClaimPaths: ['/custom/subject'],
+      })
+    ).toThrow(/identifier.*\/custom\/subject.*string/i);
 
     const invalidTime = await signJwt({ customTime: 'now' });
     expect(() =>
@@ -375,4 +459,55 @@ describe('normalizeJwt', () => {
       })
     ).toThrow(/time claim.*\/customtime.*finite number/i);
   });
+
+  it.each([-1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'rejects invalid JWT timestamp tolerance %p',
+    async (timestampToleranceSeconds) => {
+      const token = await signJwt({ sub: 'runtime-user' });
+
+      expect(() =>
+        normalizeJwt(token, createContext(), {
+          tokenKind: 'id-token',
+          timestampToleranceSeconds,
+        })
+      ).toThrow(/timestamp tolerance.*(?:non-negative|finite)/i);
+    }
+  );
+
+  it('rejects non-object protected headers and claims payloads', () => {
+    expect(() =>
+      normalizeJwt(createCompactJwt([], { sub: 'runtime-user' }), createContext(), {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+      })
+    ).toThrow(/jwt|header|object/i);
+    expect(() =>
+      normalizeJwt(createCompactJwt({ alg: 'none' }, []), createContext(), {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+      })
+    ).toThrow(/jwt|claims|object/i);
+  });
+
+  it('decodes without verifying and never exposes corrupt signature material', async () => {
+    const signedToken = await signJwt({ scope: 'read', aud: 'urn:api' });
+    const [protectedHeaderSegment, claimsSegment] = signedToken.split('.');
+    const signatureMarker = 'deliberately-corrupt-signature-marker';
+    const signatureSegment = base64url.encode(signatureMarker);
+    const corruptToken = `${protectedHeaderSegment}.${claimsSegment}.${signatureSegment}`;
+
+    const normalized = normalizeJwt(corruptToken, createContext(), {
+      tokenKind: 'access-token',
+      timestampToleranceSeconds: 10,
+    });
+    const serialized = JSON.stringify(normalized);
+
+    expect(normalized).toEqual({
+      header: { alg: 'HS256', kid: '<access-token.kid.1>', typ: 'JWT' },
+      claims: { scope: 'read', aud: 'urn:api' },
+    });
+    expect(serialized).not.toContain(signatureSegment);
+    expect(serialized).not.toContain(signatureMarker);
+  });
 });
+/* eslint-enable max-lines */
