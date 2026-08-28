@@ -13,6 +13,7 @@ import {
 import type { Observation, ScenarioEvidence, TargetConfig, TargetEvidence } from './model.js';
 import { runScenarioForTarget } from './scenario.js';
 import discoveryScenario, { sanitizeJwks, sortDiscoveryDocument } from './scenarios/discovery.js';
+import { defaultCompatibilityScenarios } from './scenarios/index.js';
 import { SymbolTable } from './symbol-table.js';
 import { TargetClient } from './target-client.js';
 
@@ -164,7 +165,6 @@ const createCliHarness = (
   const writtenNegativeControls: unknown[] = [];
   const dependencies: Partial<CompatibilityCliDependencies> = {
     loadConfig: () => config,
-    scenarios: [discoveryScenario],
     runScenario: async (_scenario, target) => targetEvidence(target.label),
     compare: compareJson,
     writeScenario: async (input) => {
@@ -514,9 +514,31 @@ describe('compatibility CLI', () => {
     const harness = createCliHarness();
 
     expect(await runCompatibilityCli([], {}, harness.dependencies)).toBe(0);
-    expect(harness.writtenScenarios).toEqual([scenarioEvidence()]);
-    expect(harness.stdout).toEqual(['Scenario discovery: 0 difference(s)']);
+    expect(harness.writtenScenarios).toEqual([
+      scenarioEvidence(),
+      scenarioEvidence([], 'password-code'),
+    ]);
+    expect(harness.stdout).toEqual([
+      'Scenario discovery: 0 difference(s)',
+      'Scenario password-code: 0 difference(s)',
+    ]);
     expect(harness.stderr).toEqual([]);
+  });
+
+  it('uses the exact sole default registry in order', async () => {
+    const seenScenarios: unknown[] = [];
+    const harness = createCliHarness({
+      runScenario: async (scenario, target) => {
+        if (target.label === 'oracle') {
+          seenScenarios.push(scenario);
+        }
+
+        return targetEvidence(target.label);
+      },
+    });
+
+    await expect(runCompatibilityCli([], {}, harness.dependencies)).resolves.toBe(0);
+    expect(seenScenarios).toEqual(defaultCompatibilityScenarios);
   });
 
   it('always writes positive evidence and returns 1 for material differences', async () => {
@@ -529,8 +551,12 @@ describe('compatibility CLI', () => {
     });
 
     expect(await runCompatibilityCli([], {}, harness.dependencies)).toBe(1);
-    expect(harness.writtenScenarios).toHaveLength(1);
+    expect(harness.writtenScenarios).toHaveLength(2);
     expect(harness.writtenScenarios[0]).toMatchObject({
+      differences: [{ path: '/observations/0/value/issuer' }],
+    });
+    expect(harness.writtenScenarios[1]).toMatchObject({
+      scenarioId: 'password-code',
       differences: [{ path: '/observations/0/value/issuer' }],
     });
   });
@@ -774,6 +800,9 @@ describe('compatibility CLI', () => {
       ]),
       { env: { ASTER_EVIDENCE_DIR: evidenceDirectory } }
     );
+    await writeScenarioEvidence(scenarioEvidence([], 'password-code'), {
+      env: { ASTER_EVIDENCE_DIR: evidenceDirectory },
+    });
     await writeNegativeControlEvidence(
       {
         schemaVersion: 1,
@@ -814,7 +843,10 @@ describe('compatibility CLI', () => {
       referenceCommit,
       oracleImageDigest: oracleDigest,
       candidateImageDigest: candidateDigest,
-      scenarios: [{ scenarioId: 'discovery', differenceCount: 1 }],
+      scenarios: [
+        { scenarioId: 'discovery', differenceCount: 1 },
+        { scenarioId: 'password-code', differenceCount: 0 },
+      ],
       negativeControl: { differencePath: '/observations/0/value/issuer' },
     });
   });

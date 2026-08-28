@@ -24,7 +24,7 @@ import {
   type TargetEvidence,
 } from './model.js';
 import { runScenarioForTarget, type CompatibilityScenario } from './scenario.js';
-import discoveryScenario from './scenarios/discovery.js';
+import { defaultCompatibilityScenarios } from './scenarios/index.js';
 
 const referenceCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 const expectedFaultPath = '/observations/0/value/issuer';
@@ -54,10 +54,9 @@ type CompatibilityMode =
 
 class FixedDiagnosticError extends Error {}
 
-const defaultScenarios = Object.freeze([discoveryScenario] as const);
 const defaultDependencies: CompatibilityCliDependencies = {
   loadConfig: loadCompatibilityConfig,
-  scenarios: defaultScenarios,
+  scenarios: defaultCompatibilityScenarios,
   runScenario: runScenarioForTarget,
   compare: compareJson,
   writeScenario: writeScenarioEvidence,
