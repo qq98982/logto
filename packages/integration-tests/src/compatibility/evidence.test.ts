@@ -16,6 +16,8 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
+import { base64url } from 'jose';
+
 import {
   assertEvidenceIsSanitized,
   writeRunEvidence,
@@ -35,6 +37,35 @@ const compactTokenFixture = [
 const shortCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', 'c2ln'].join('.');
 const emptySignatureCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'eyJzdWIiOiIxIn0', ''].join('.');
 const tinyPayloadCompactTokenFixture = ['eyJhbGciOiJub25lIn0', 'e30', 'c2ln'].join('.');
+const whitespaceHeaderUnsecuredFixture = [
+  base64url.encode('{ "alg":"none"}'),
+  base64url.encode(JSON.stringify({ sub: '1' })),
+  '',
+].join('.');
+const detachedJwsFixture = [
+  base64url.encode(JSON.stringify({ alg: 'HS256' })),
+  '',
+  base64url.encode('sig'),
+].join('.');
+const emptyProtectedHeaderFixture = [
+  base64url.encode(JSON.stringify({})),
+  base64url.encode(JSON.stringify({})),
+  '',
+].join('.');
+const compactJweFixture = [
+  base64url.encode(JSON.stringify({ alg: 'dir', enc: 'A256GCM' })),
+  base64url.encode('key'),
+  base64url.encode('iv'),
+  base64url.encode('ciphertext'),
+  base64url.encode('tag'),
+].join('.');
+const directEncryptionJweFixture = [
+  base64url.encode(JSON.stringify({ alg: 'dir', enc: 'A256GCM' })),
+  '',
+  base64url.encode('iv'),
+  base64url.encode('ciphertext'),
+  base64url.encode('tag'),
+].join('.');
 const createPemPrivateKeyFixture = (label: string) =>
   ['-----BEGIN ', label, '-----\nfixture\n-----END ', label, '-----'].join('');
 const pemPrivateKeyFixture = createPemPrivateKeyFixture('PRIVATE KEY');
@@ -71,6 +102,10 @@ const reviewedMetadataCredentialCases = Object.keys(reviewedMetadata).map((key, 
   key,
   credential: credentialFixtures[index % credentialFixtures.length] ?? compactTokenFixture,
 }));
+const directAllowlistedCredentialCases = [
+  { key: 'tokenType', credential: compactTokenFixture },
+  { key: 'token_endpoint', credential: 'Bearer abc' },
+] as const;
 const createdRoots = new Set<string>();
 const securePathFileSystem: NonNullable<EvidenceWriterOptions['fileSystem']> = {
   chmodPath: chmod,
@@ -322,6 +357,20 @@ describe('assertEvidenceIsSanitized', () => {
     }
   );
 
+  it.each(directAllowlistedCredentialCases)(
+    'directly scans malicious value under allowlisted key $key',
+    ({ key, credential }) => {
+      try {
+        assertEvidenceIsSanitized({ [key]: credential });
+        throw new Error('Expected sanitizer rejection');
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Evidence contains forbidden credential material');
+        expect((error as Error).message).not.toContain(credential);
+      }
+    }
+  );
+
   // Extra suffixes prove that reviewed metadata uses exact normalized-set membership.
   it.each(Object.keys(reviewedMetadata).map((key) => `${key}_extra`))(
     'rejects reviewed metadata key typo %s',
@@ -353,6 +402,18 @@ describe('assertEvidenceIsSanitized', () => {
     compactTokenFixture,
     shortCompactTokenFixture,
     tinyPayloadCompactTokenFixture,
+    whitespaceHeaderUnsecuredFixture,
+    detachedJwsFixture,
+    compactJweFixture,
+    `foo.${whitespaceHeaderUnsecuredFixture}`,
+    `v1.0.${detachedJwsFixture}`,
+    `prefix.${compactJweFixture}`,
+    directEncryptionJweFixture,
+    `v1.2.3.${whitespaceHeaderUnsecuredFixture}`,
+    `(${whitespaceHeaderUnsecuredFixture})`,
+    `[${detachedJwsFixture}]`,
+    `https://example.com/callback?value=${whitespaceHeaderUnsecuredFixture}#done`,
+    `v1.2.3 ${whitespaceHeaderUnsecuredFixture}`,
     `(${tinyPayloadCompactTokenFixture})`,
     `[${tinyPayloadCompactTokenFixture}]`,
     `<${tinyPayloadCompactTokenFixture}>`,
@@ -421,6 +482,9 @@ describe('assertEvidenceIsSanitized', () => {
         bearerColonWithoutWhitespace: 'Bearer:abc',
         compactValueGluedOnLeft: `A${tinyPayloadCompactTokenFixture}`,
         compactValueGluedOnRight: `${tinyPayloadCompactTokenFixture}A`,
+        emptyProtectedObjectJose: emptyProtectedHeaderFixture,
+        wrappedEmptyProtectedObjectJose: `<${emptyProtectedHeaderFixture}>`,
+        emptyObjectDomainLikeValue: 'e30.min.js',
         description: 'Public token metadata and script documentation',
         version: 'v1.2.3',
       });
@@ -814,6 +878,44 @@ describe('atomic evidence writers', () => {
 
     for (const [index, message] of messages.entries()) {
       const credential = reviewedMetadataCredentialCases[index]?.credential ?? compactTokenFixture;
+      expect(message).toBe('Evidence contains forbidden credential material');
+      expect(message).not.toContain(credential);
+    }
+
+    expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+  });
+
+  it('directly scans allowlisted values without replacing prior evidence or echoing secrets', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const initialEvidence = scenarioEvidence('allowlisted.direct.value.scanning');
+    const finalPath = await writeScenarioEvidence(initialEvidence, options);
+    const originalBody = await readFile(finalPath, 'utf8');
+    const messages = await Promise.all(
+      directAllowlistedCredentialCases.map(async ({ key, credential }) =>
+        getRejectionMessage(async () =>
+          writeScenarioEvidence(
+            {
+              ...initialEvidence,
+              oracle: {
+                ...initialEvidence.oracle,
+                observations: [
+                  {
+                    ...initialEvidence.oracle.observations[0],
+                    value: { [key]: credential },
+                  },
+                ],
+              },
+            },
+            options
+          )
+        )
+      )
+    );
+
+    for (const [index, message] of messages.entries()) {
+      const credential = directAllowlistedCredentialCases[index]?.credential ?? compactTokenFixture;
       expect(message).toBe('Evidence contains forbidden credential material');
       expect(message).not.toContain(credential);
     }

@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
+import { decodeProtectedHeader } from 'jose';
+
 import {
   jsonValueGuard,
   runEvidenceGuard,
@@ -50,8 +52,8 @@ const forbiddenKeyFragments = [
   'cookie',
 ];
 const bearerPrefixPattern = /\bbearer\s+/giu;
-const compactTokenPattern =
-  /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?(?![A-Za-z0-9_-])/u;
+const createCompactJoseRunMatcher = () =>
+  /(?<![A-Za-z0-9_-])(?:[A-Za-z0-9_-]*\.){2,}[A-Za-z0-9_-]*(?![A-Za-z0-9_-])/gu;
 const privateKeyPattern = /-----BEGIN (?:[A-Z0-9-]+ )*PRIVATE KEY(?: [A-Z0-9-]+)*-----/iu;
 const cookieHeaderPattern = /\b(?:set-cookie|cookie)\s*:/iu;
 const setCookieValuePattern =
@@ -121,9 +123,48 @@ const containsBearerCredential = (value: string) =>
     return remainder.length > 0;
   });
 
+const containsCompactJoseCredential = (value: string) => {
+  for (const run of value.matchAll(createCompactJoseRunMatcher())) {
+    const segments = run[0].split('.');
+    const containsMarkedHeader = segments.slice(0, -2).some((_segment, index) => {
+      const [headerSegment = '', payloadSegment = '', signatureSegment = ''] = segments.slice(
+        index,
+        index + 3
+      );
+
+      if (headerSegment.length === 0 || signatureSegment.length % 4 === 1) {
+        return false;
+      }
+
+      try {
+        const protectedHeader = decodeProtectedHeader(
+          [headerSegment, payloadSegment, signatureSegment].join('.')
+        );
+
+        if (
+          isRecord(protectedHeader) &&
+          (typeof protectedHeader.alg === 'string' || typeof protectedHeader.enc === 'string')
+        ) {
+          return true;
+        }
+      } catch {
+        // Invalid protected headers are ordinary dotted text; keep scanning later windows.
+      }
+
+      return false;
+    });
+
+    if (containsMarkedHeader) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
 const containsCredentialMaterial = (value: string) =>
   containsBearerCredential(value) ||
-  compactTokenPattern.test(value) ||
+  containsCompactJoseCredential(value) ||
   privateKeyPattern.test(value) ||
   cookieHeaderPattern.test(value) ||
   setCookieValuePattern.test(value);
