@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/pro
 import path from 'node:path';
 
 import { decodeProtectedHeader } from 'jose';
+import { z } from 'zod';
 
 import {
   jsonValueGuard,
@@ -91,6 +92,30 @@ export type EvidenceWriterOptions = {
   env?: Readonly<Record<string, string | undefined>>;
   fileSystem?: EvidenceFileSystemOverrides;
 };
+
+const absoluteJsonPointerPattern = /^(?:\/(?:[^~]|~[01])*)+$/;
+
+export const negativeControlEvidenceGuard = z
+  .object({
+    schemaVersion: z.literal(1),
+    faultInjection: z.literal('discovery-issuer'),
+    differencePaths: z.array(z.string().regex(absoluteJsonPointerPattern)).min(1),
+  })
+  .strict()
+  .superRefine(({ differencePaths }, context) => {
+    if (new Set(differencePaths).size !== differencePaths.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Difference paths must be unique' });
+    }
+
+    if (differencePaths.some((value, index) => value !== differencePaths.toSorted()[index])) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Difference paths must be deterministically sorted',
+      });
+    }
+  });
+
+export type NegativeControlEvidence = z.infer<typeof negativeControlEvidenceGuard>;
 
 const normalizeEvidenceKey = (key: string) => key.replaceAll(/[_\s-]/gu, '').toLowerCase();
 
@@ -211,19 +236,21 @@ export const assertEvidenceIsSanitized = (value: unknown): void => {
   inspectEvidenceValue(value);
 };
 
-const requireSafeScenarioId = (scenarioId: string) => {
+export const assertSafeScenarioEvidenceId = (scenarioId: string): void => {
   if (
     !safeScenarioId.test(scenarioId) ||
     scenarioId === '.' ||
     scenarioId === '..' ||
-    scenarioId.toLowerCase() === 'run'
+    ['run', 'negative-control'].includes(scenarioId.toLowerCase())
   ) {
     throw new Error('Scenario ID is not a safe evidence filename');
   }
 };
 
-const getEvidenceDirectory = (options: EvidenceWriterOptions) => {
-  const configuredDirectory = (options.env ?? process.env)[destinationEnvironmentVariable];
+export const resolveEvidenceDirectory = (
+  env: Readonly<Record<string, string | undefined>> = process.env
+): string => {
+  const configuredDirectory = env[destinationEnvironmentVariable];
   const evidenceDirectory = configuredDirectory ?? defaultEvidenceDirectory;
 
   if (!path.isAbsolute(evidenceDirectory)) {
@@ -240,14 +267,19 @@ const getEvidenceDirectory = (options: EvidenceWriterOptions) => {
     throw new Error('Evidence directory must be an absolute private disk path');
   }
 
-  const relativeToDefaultBuildRoot = path.relative(defaultBuildRoot, normalizedDirectory);
+  return normalizedDirectory;
+};
+
+const getEvidenceDirectory = (options: EvidenceWriterOptions) => {
+  const evidenceDirectory = resolveEvidenceDirectory(options.env ?? process.env);
+  const relativeToDefaultBuildRoot = path.relative(defaultBuildRoot, evidenceDirectory);
   const usesSecureBuildPath =
     relativeToDefaultBuildRoot === '' ||
     (relativeToDefaultBuildRoot !== '..' &&
       !relativeToDefaultBuildRoot.startsWith(`..${path.sep}`) &&
       !path.isAbsolute(relativeToDefaultBuildRoot));
 
-  return { evidenceDirectory: normalizedDirectory, usesSecureBuildPath };
+  return { evidenceDirectory, usesSecureBuildPath };
 };
 
 const getDirectoryState = async (
@@ -407,7 +439,7 @@ type EvidenceFileWrite = {
   evidenceDirectory: string;
   usesSecureBuildPath: boolean;
   filename: string;
-  value: ScenarioEvidence | RunEvidence;
+  value: ScenarioEvidence | RunEvidence | NegativeControlEvidence;
   overrides?: EvidenceFileSystemOverrides;
 };
 
@@ -478,7 +510,7 @@ export const writeScenarioEvidence = async (
 
   const evidence = result.data;
   assertEvidenceIsSanitized(evidence);
-  requireSafeScenarioId(evidence.scenarioId);
+  assertSafeScenarioEvidenceId(evidence.scenarioId);
   const { evidenceDirectory, usesSecureBuildPath } = getEvidenceDirectory(options);
 
   return writeEvidenceFile({
@@ -509,6 +541,30 @@ export const writeRunEvidence = async (
     evidenceDirectory,
     usesSecureBuildPath,
     filename: 'run.json',
+    value: evidence,
+    overrides: options.fileSystem,
+  });
+};
+
+export const writeNegativeControlEvidence = async (
+  input: unknown,
+  options: EvidenceWriterOptions = {}
+): Promise<string> => {
+  assertEvidenceIsSanitized(input);
+  const result = negativeControlEvidenceGuard.safeParse(input);
+
+  if (!result.success) {
+    throw new Error('Invalid negative-control evidence');
+  }
+
+  const evidence = result.data;
+  assertEvidenceIsSanitized(evidence);
+  const { evidenceDirectory, usesSecureBuildPath } = getEvidenceDirectory(options);
+
+  return writeEvidenceFile({
+    evidenceDirectory,
+    usesSecureBuildPath,
+    filename: 'negative-control.json',
     value: evidence,
     overrides: options.fileSystem,
   });

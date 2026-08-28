@@ -20,6 +20,8 @@ import { base64url } from 'jose';
 
 import {
   assertEvidenceIsSanitized,
+  negativeControlEvidenceGuard,
+  writeNegativeControlEvidence,
   writeRunEvidence,
   writeScenarioEvidence,
   type EvidenceWriterOptions,
@@ -154,6 +156,12 @@ const runEvidence = () => ({
   candidateImageDigest: `sha256:${'b'.repeat(64)}`,
   scenarios: [{ scenarioId: 'management-api.users.create', differenceCount: 1 }],
   negativeControl: { differencePath: '/observations/0/value/status' },
+});
+
+const negativeControlEvidence = () => ({
+  schemaVersion: 1 as const,
+  faultInjection: 'discovery-issuer' as const,
+  differencePaths: ['/observations/0/value/issuer'],
 });
 
 const getRejectionMessage = async (operation: () => Promise<unknown>) => {
@@ -511,6 +519,97 @@ describe('assertEvidenceIsSanitized', () => {
 });
 
 describe('atomic evidence writers', () => {
+  it('accepts only canonical negative-control evidence', () => {
+    expect(negativeControlEvidenceGuard.safeParse(negativeControlEvidence()).success).toBe(true);
+
+    for (const input of [
+      { ...negativeControlEvidence(), differencePaths: [] },
+      {
+        ...negativeControlEvidence(),
+        differencePaths: ['/observations/1/value/issuer', '/observations/0/value/issuer'],
+      },
+      {
+        ...negativeControlEvidence(),
+        differencePaths: ['/observations/0/value/issuer', '/observations/0/value/issuer'],
+      },
+      { ...negativeControlEvidence(), differencePaths: ['observations/0/value/issuer'] },
+      { ...negativeControlEvidence(), differencePaths: ['/invalid/~escape'] },
+      { ...negativeControlEvidence(), faultInjection: 'unknown' },
+      { ...negativeControlEvidence(), extra: true },
+    ]) {
+      expect(negativeControlEvidenceGuard.safeParse(input).success).toBe(false);
+    }
+  });
+
+  it('writes negative-control.json with stable formatting and restrictive mode', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const options = createRealWriterOptions(evidenceDirectory);
+    const finalPath = await writeNegativeControlEvidence(negativeControlEvidence(), options);
+
+    expect(finalPath).toBe(path.join(evidenceDirectory, 'negative-control.json'));
+    expect(await readFile(finalPath, 'utf8')).toBe(
+      `${JSON.stringify(negativeControlEvidence(), undefined, 2)}\n`
+    );
+    const finalState = await lstat(finalPath);
+    expect(finalState.mode % 0o1000).toBe(0o600);
+  });
+
+  it('rejects invalid negative-control input with fixed non-echoing errors', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const marker = 'synthetic-sensitive-marker';
+    const options = createRealWriterOptions(evidenceDirectory);
+    const invalidMessage = await getRejectionMessage(async () =>
+      writeNegativeControlEvidence(
+        { ...negativeControlEvidence(), differencePaths: [`/${marker}`, '/a'] },
+        options
+      )
+    );
+    const secretMessage = await getRejectionMessage(async () =>
+      writeNegativeControlEvidence({ ...negativeControlEvidence(), client_secret: marker }, options)
+    );
+
+    expect(invalidMessage).toBe('Invalid negative-control evidence');
+    expect(invalidMessage).not.toContain(marker);
+    expect(secretMessage).toContain('client_secret');
+    expect(secretMessage).not.toContain(marker);
+    await expect(lstat(evidenceDirectory)).rejects.toBeDefined();
+  });
+
+  it('reserves negative-control.json against scenario filename collisions', async () => {
+    const root = await createPrivateRoot();
+    const options = createRealWriterOptions(path.join(root, 'evidence'));
+    const finalPath = await writeNegativeControlEvidence(negativeControlEvidence(), options);
+    const originalBody = await readFile(finalPath, 'utf8');
+
+    await expect(
+      writeScenarioEvidence(scenarioEvidence('negative-control'), options)
+    ).rejects.toThrow('Scenario ID is not a safe evidence filename');
+    expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+  });
+
+  it('cleans a failed negative-control replacement and preserves prior bytes', async () => {
+    const root = await createPrivateRoot();
+    const evidenceDirectory = path.join(root, 'evidence');
+    const baseOptions = createRealWriterOptions(evidenceDirectory);
+    const finalPath = await writeNegativeControlEvidence(negativeControlEvidence(), baseOptions);
+    const originalBody = await readFile(finalPath, 'utf8');
+    let temporaryPath = '';
+    const options = createRealWriterOptions(evidenceDirectory, {
+      renameFile: async (from) => {
+        temporaryPath = from;
+        throw new Error('injected negative-control rename failure');
+      },
+    });
+
+    await expect(writeNegativeControlEvidence(negativeControlEvidence(), options)).rejects.toThrow(
+      'injected negative-control rename failure'
+    );
+    expect(await readFile(finalPath, 'utf8')).toBe(originalBody);
+    await expect(lstat(temporaryPath)).rejects.toBeDefined();
+  });
+
   it('rejects credential material before schema errors can expose invalid fields', async () => {
     const root = await createPrivateRoot();
     const evidenceDirectory = path.join(root, 'evidence');
