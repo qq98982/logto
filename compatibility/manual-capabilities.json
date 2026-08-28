@@ -1,0 +1,92 @@
+[
+  {
+    "id": "manual.tenant.admin-issuer-data-tenant",
+    "surface": "manual",
+    "source": "packages/core/src/middleware/koa-auth/index.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.tenant.custom-domain-routing",
+    "surface": "manual",
+    "source": "packages/core/src/utils/tenant.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.tenant.path-based-routing",
+    "surface": "manual",
+    "source": "packages/core/src/utils/tenant.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.tenant.rls-isolation",
+    "surface": "manual",
+    "source": "packages/schemas/tables/_after_each.sql",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.keys.immediate-rotation",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/oidc-private-key.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.keys.staged-rotation",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/oidc-private-key.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.script.custom-jwt",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/jwt-customizer.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.script.post-first-factor",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/action.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.script.post-sign-in",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/action.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.saml.application-idp",
+    "surface": "manual",
+    "source": "packages/core/src/saml-application",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.saml.enterprise-sso-sp",
+    "surface": "manual",
+    "source": "packages/core/src/sso/SamlConnector",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.webhook.retry-and-signature",
+    "surface": "manual",
+    "source": "packages/core/src/libraries/hook/utils.ts",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.storage.user-assets",
+    "surface": "manual",
+    "source": "packages/core/src/utils/storage",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.password.all-import-algorithms",
+    "surface": "manual",
+    "source": "packages/schemas/tables/users.sql",
+    "existingEvidence": []
+  },
+  {
+    "id": "manual.cache.redis-degradation",
+    "surface": "manual",
+    "source": "packages/core/src/caches/index.ts",
+    "existingEvidence": []
+  }
+]
