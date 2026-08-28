@@ -117,8 +117,21 @@ const completeWithoutResult = async (): Promise<void> => {
   await Promise.resolve();
 };
 
-const createCleanupClient = (cleanup: () => Promise<void>) =>
-  ({ cleanup }) as unknown as TargetClient;
+class CleanupTargetClient extends TargetClient {
+  constructor(
+    target: TargetConfig,
+    private readonly performCleanup: () => Promise<void>
+  ) {
+    super(target);
+  }
+
+  override async cleanup(): Promise<void> {
+    await this.performCleanup();
+  }
+}
+
+const createCleanupClientFactory = (cleanup: () => Promise<void>) => (target: TargetConfig) =>
+  new CleanupTargetClient(target, cleanup);
 
 const renderError = (error: unknown): string => {
   const enumerableProperties =
@@ -803,6 +816,128 @@ describe('runScenarioForTarget', () => {
     expect(factoryCallCount).toBe(0);
   });
 
+  it.each([
+    {
+      name: 'an oracle client for a candidate run',
+      runTarget: {
+        label: 'candidate' as const,
+        coreUrl: 'https://candidate.example.com/',
+        adminUrl: 'https://candidate-admin.example.com/',
+      },
+      clientTarget: {
+        label: 'oracle' as const,
+        coreUrl: 'https://oracle.example.com/',
+        adminUrl: 'https://oracle-admin.example.com/',
+      },
+    },
+    {
+      name: 'a URL mismatch',
+      runTarget: {
+        label: 'candidate' as const,
+        coreUrl: 'https://candidate.example.com/',
+        adminUrl: 'https://candidate-admin.example.com/',
+      },
+      clientTarget: {
+        label: 'candidate' as const,
+        coreUrl: 'https://private-mismatch.example.com/',
+        adminUrl: 'https://candidate-admin.example.com/',
+      },
+    },
+    {
+      name: 'a label mismatch',
+      runTarget: {
+        label: 'candidate' as const,
+        coreUrl: 'https://candidate.example.com/',
+        adminUrl: 'https://candidate-admin.example.com/',
+      },
+      clientTarget: {
+        label: 'oracle' as const,
+        coreUrl: 'https://candidate.example.com/',
+        adminUrl: 'https://candidate-admin.example.com/',
+      },
+    },
+  ])('rejects $name before scenario invocation or cleanup', async ({ runTarget, clientTarget }) => {
+    let factoryCallCount = 0;
+    let scenarioCallCount = 0;
+    let cleanupCallCount = 0;
+
+    await expect(
+      runScenarioForTarget(
+        {
+          id: 'factory-target-mismatch',
+          run: async () => {
+            scenarioCallCount += 1;
+          },
+        },
+        runTarget,
+        {
+          clientFactory: () => {
+            factoryCallCount += 1;
+            return new CleanupTargetClient(clientTarget, async () => {
+              cleanupCallCount += 1;
+            });
+          },
+        }
+      )
+    ).rejects.toThrow(new Error('Client factory returned incompatible target configuration'));
+    expect(factoryCallCount).toBe(1);
+    expect(scenarioCallCount).toBe(0);
+    expect(cleanupCallCount).toBe(0);
+  });
+
+  it('rejects a structurally similar non-client with the fixed configuration error', async () => {
+    const target = createTarget('oracle', 'https://core.example.com/');
+
+    await expect(
+      runScenarioForTarget({ id: 'non-client', run: completeWithoutResult }, target, {
+        clientFactory: () =>
+          ({ target, cleanup: completeWithoutResult }) as unknown as TargetClient,
+      })
+    ).rejects.toThrow(new Error('Client factory returned incompatible target configuration'));
+  });
+
+  it('creates one distinct matching factory client and fresh state for each target run', async () => {
+    const factoryClients: TargetClient[] = [];
+    const scenarioClients: TargetClient[] = [];
+    let cleanupCallCount = 0;
+    const clientFactory = (target: TargetConfig) => {
+      const client = new CleanupTargetClient(target, async () => {
+        cleanupCallCount += 1;
+      });
+      factoryClients.push(client);
+      return client;
+    };
+    const scenario: CompatibilityScenario = {
+      id: 'fresh-factory-client',
+      run: async ({ target, client, symbols, observe }) => {
+        scenarioClients.push(client);
+        symbols.bind('run-client', `runtime-${target.label}`);
+        observe({ stepId: 'client', kind: 'semantic-state', value: `runtime-${target.label}` });
+      },
+    };
+
+    const oracle = await runScenarioForTarget(
+      scenario,
+      createTarget('oracle', 'https://oracle.example.com/'),
+      { clientFactory }
+    );
+    const candidate = await runScenarioForTarget(
+      scenario,
+      createTarget('candidate', 'https://candidate.example.com/'),
+      { clientFactory }
+    );
+
+    expect(factoryClients).toHaveLength(2);
+    expect(factoryClients[0]).not.toBe(factoryClients[1]);
+    expect(scenarioClients).toEqual(factoryClients);
+    expect(factoryClients.map(({ target }) => target.label)).toEqual(['oracle', 'candidate']);
+    expect(cleanupCallCount).toBe(2);
+    expect(oracle.observations).toEqual(candidate.observations);
+    expect(oracle.observations).toEqual([
+      { stepId: 'client', kind: 'semantic-state', value: '<run-client>' },
+    ]);
+  });
+
   it('aggregates a primary failure with sanitized real-client cleanup failure', async () => {
     const responseMarker = ['cleanup', 'private', 'response', 'marker'].join('-');
     const password = ['cleanup', 'request', 'password', 'marker'].join('-');
@@ -815,7 +950,6 @@ describe('runScenarioForTarget', () => {
       sendJson(response, 500, { responseMarker });
     });
     const primaryError = new Error('primary non-network scenario failure');
-    const client = new TargetClient(createTarget('oracle', server.baseUrl));
 
     try {
       await runScenarioForTarget(
@@ -827,7 +961,7 @@ describe('runScenarioForTarget', () => {
           },
         },
         createTarget('oracle', server.baseUrl),
-        { client }
+        { clientFactory: (target) => new TargetClient(target) }
       );
       throw new Error('Expected scenario and cleanup to fail');
     } catch (error: unknown) {
@@ -860,13 +994,13 @@ describe('runScenarioForTarget', () => {
           },
         },
         target,
-        { client: createCleanupClient(completeWithoutResult) }
+        { clientFactory: createCleanupClientFactory(completeWithoutResult) }
       )
     ).rejects.toBe(scenarioError);
 
     await expect(
       runScenarioForTarget({ id: 'cleanup-only', run: completeWithoutResult }, target, {
-        client: createCleanupClient(async () => {
+        clientFactory: createCleanupClientFactory(async () => {
           throw cleanupError;
         }),
       })
@@ -882,7 +1016,7 @@ describe('runScenarioForTarget', () => {
         },
         target,
         {
-          client: createCleanupClient(async () => {
+          clientFactory: createCleanupClientFactory(async () => {
             throw cleanupError;
           }),
         }

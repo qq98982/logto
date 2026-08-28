@@ -23,8 +23,39 @@ export type CompatibilityScenario = {
 };
 
 export type ScenarioRunnerOptions = {
-  client?: TargetClient;
   clientFactory?: (target: TargetConfig) => TargetClient;
+};
+
+const incompatibleFactoryTargetMessage =
+  'Client factory returned incompatible target configuration';
+
+const validateFactoryClient = (value: unknown, target: TargetConfig): TargetClient => {
+  try {
+    if (!(value instanceof TargetClient) || !Object.isFrozen(value.target)) {
+      throw new Error(incompatibleFactoryTargetMessage);
+    }
+
+    const exposedTarget = value.target;
+    const canonicalTarget = validateTargetConfig(exposedTarget);
+    const hasExactShape =
+      Object.keys(exposedTarget).toSorted().join(',') === 'adminUrl,coreUrl,label';
+    const isCanonical =
+      exposedTarget.label === canonicalTarget.label &&
+      exposedTarget.coreUrl === canonicalTarget.coreUrl &&
+      exposedTarget.adminUrl === canonicalTarget.adminUrl;
+    const matchesRunTarget =
+      exposedTarget.label === target.label &&
+      exposedTarget.coreUrl === target.coreUrl &&
+      exposedTarget.adminUrl === target.adminUrl;
+
+    if (!hasExactShape || !isCanonical || !matchesRunTarget) {
+      throw new Error(incompatibleFactoryTargetMessage);
+    }
+
+    return value;
+  } catch {
+    throw new Error(incompatibleFactoryTargetMessage);
+  }
 };
 
 const assertSafeScenarioId = (scenarioId: string) => {
@@ -70,12 +101,10 @@ export const runScenarioForTarget = async (
   const parsedTarget = validateTargetConfig(target);
   assertSafeScenarioId(scenario.id);
 
-  if (options.client && options.clientFactory) {
-    throw new TypeError('Specify either client or clientFactory, not both');
-  }
-
-  const client =
-    options.client ?? options.clientFactory?.(parsedTarget) ?? new TargetClient(parsedTarget);
+  const client = validateFactoryClient(
+    options.clientFactory ? options.clientFactory(parsedTarget) : new TargetClient(parsedTarget),
+    parsedTarget
+  );
   const symbols = new SymbolTable();
   const observations: Observation[] = [];
   const observe = (observation: Observation) => {
