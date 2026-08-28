@@ -1,0 +1,55 @@
+name: Aster compatibility
+
+on:
+  pull_request:
+    paths:
+      - "compatibility/**"
+      - "docker-compose.compatibility.yml"
+      - "Dockerfile.integration"
+      - "Dockerfile"
+      - ".scripts/compatibility/**"
+      - ".scripts/integration/**"
+      - ".scripts/package.sh"
+      - ".github/workflows/compatibility-test.yml"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run compatibility lab
+        run: bash .scripts/compatibility/run.sh
+        env:
+          ASTER_RUN_ROOT: ${{ runner.temp }}/aster-compatibility-evidence
+
+      - name: Upload sanitized compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aster-compatibility-evidence
+          path: ${{ runner.temp }}/aster-compatibility-evidence/run.*/evidence/*.json
+          if-no-files-found: error
