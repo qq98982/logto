@@ -1,0 +1,4466 @@
+{
+  "schemaVersion": 1,
+  "referenceCommit": "6852a7b8c8984c5c12b2061e8c51faa310a36412",
+  "capabilities": [
+    {
+      "id": "connector.alipay-native",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.alipay-web",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.aliyun-direct-mail",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.aliyun-short-message-auth-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.aliyun-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.amazon-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.apple-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.aws-ses-mail",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.azuread-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.dingtalk-web",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.discord-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.facebook-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.feishu-web",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.gatewayapi-sms",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.github-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.gitlab-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.google-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.http-email",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.http-sms",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.huggingface-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.kakao-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.kook-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.line-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.linkedin-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mailgun-email",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mailjunky-email-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mock-email-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mock-email-service-alternative",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mock-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.mock-social-connector",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.naver-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.oauth2",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.oidc",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.patreon-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.postmark-mail",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.qq-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.saml",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.sendgrid-email-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.simple-mail-transfer-protocol",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.slack-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.smsaero-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.smsbao-sms",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.smtp2go-email-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.tencent-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.twilio-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.vonage-sms",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.wechat-h5",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.wechat-mini",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.wechat-native",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.wechat-web",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.wecom-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.whatsapp-short-message-service",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.x-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.xiaomi-universal",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "connector.yunpian-sms",
+      "surface": "connector",
+      "source": "/api/connector-factories",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.get./api/experience/interaction",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.get./api/experience/sso-connectors",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/identification",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/preflight/sign-in-passkey/authentication",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa/mfa-enabled",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa/mfa-skipped",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa/mfa-suggestion-skipped",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa/passkey",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/profile/mfa/passkey-skipped",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/submit",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/user-assets/avatar",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/backup-code/generate",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/backup-code/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/mfa-verification-code",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/mfa-verification-code/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/new-password-identity",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/one-time-token/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/password",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/sign-in-passkey/authentication",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/sign-in-passkey/authentication/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/social/{connectorId}/authorization-uri",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/social/{connectorId}/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/sso/{connectorId}/authorization-uri",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/sso/{connectorId}/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/totp/secret",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/totp/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/verification-code",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/verification-code/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/web-authn/authentication",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/web-authn/authentication/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/web-authn/registration",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.post./api/experience/verification/web-authn/registration/verify",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.put./api/experience",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.put./api/experience/interaction-event",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.experience-api.put./api/experience/profile/password",
+      "surface": "experience-api",
+      "source": "/api/.well-known/experience.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{applicationId}/roles/{roleId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{applicationId}/user-consent-scopes/{scopeType}/{scopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{id}/legacy-secret",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{id}/protected-app-metadata/custom-domains/{domain}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{id}/secrets/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/applications/{id}/users/{userId}/consent-organizations/{organizationId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/captcha-provider",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/configs/actions/{actionType}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/configs/jwt-customizer/{tokenTypePath}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/configs/oidc/{keyType}/{keyId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/custom-phrases/{languageTag}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/custom-profile-fields/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/domains/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/email-templates",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/email-templates/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/hooks/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/one-time-tokens/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organization-invitations/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organization-roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organization-roles/{id}/resource-scopes/{scopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organization-roles/{id}/scopes/{organizationScopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organization-scopes/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/applications/{applicationId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/applications/{applicationId}/roles/{organizationRoleId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/jit/email-domains/{emailDomain}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/jit/roles/{organizationRoleId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/jit/sso-connectors/{ssoConnectorId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/users/{userId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/organizations/{id}/users/{userId}/roles/{organizationRoleId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/resources/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/resources/{resourceId}/scopes/{scopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/roles/{id}/applications/{applicationId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/roles/{id}/scopes/{scopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/roles/{id}/users/{userId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/saml-applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/saml-applications/{id}/secrets/{secretId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/secrets/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/sso-connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/grants/{grantId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/identities/{target}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/mfa-verifications/{verificationId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/personal-access-tokens/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/roles/{roleId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.delete./api/users/{userId}/sessions/{sessionId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/account-center",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/experience",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/experience.openapi.json",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/management.openapi.json",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/phrases",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/sign-in-exp",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/.well-known/user.openapi.json",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/account-center",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{applicationId}/access-control",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{applicationId}/sign-in-experience",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{applicationId}/user-consent-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{id}/organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{id}/protected-app-metadata/custom-domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{id}/secrets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/applications/{id}/users/{userId}/consent-organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/authn/hasura",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/captcha-provider",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/actions",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/actions/{actionType}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/admin-console",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/id-token",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/jwt-customizer",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/jwt-customizer/{tokenTypePath}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/oidc/session",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/configs/oidc/{keyType}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/connector-factories",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/connector-factories/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/custom-phrases",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/custom-phrases/{languageTag}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/custom-profile-fields",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/custom-profile-fields/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/dashboard/users/active",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/dashboard/users/new",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/dashboard/users/total",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/domains/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/domains/{id}/verification-files",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/email-templates",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/email-templates/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/hooks",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/hooks/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/hooks/{id}/recent-logs",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/logs",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/logs/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/one-time-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/one-time-tokens/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-invitations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-invitations/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-roles/{id}/resource-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-roles/{id}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organization-scopes/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/jit/email-domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/jit/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/jit/sso-connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/organizations/{id}/users/{userId}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/resources",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/resources/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/resources/{resourceId}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/roles/{id}/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/roles/{id}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/roles/{id}/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/saml-applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/saml-applications/{id}/callback",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/saml-applications/{id}/metadata",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/saml-applications/{id}/secrets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/saml/{id}/authn",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/sign-in-exp",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/sign-in-exp/username-policy/case-sensitivity-conflicts",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/sso-connector-providers",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/sso-connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/sso-connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/status",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/swagger.json",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/systems/application",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/user-assets/service-status",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/all-identities",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/custom-data",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/grants",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/has-password",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/identities/{target}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/logto-configs",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/mfa-verifications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/personal-access-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/sessions",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/sessions/{sessionId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.get./api/users/{userId}/sso-identities/{ssoConnectorId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/account-center",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/applications/{applicationId}/custom-data",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/applications/{id}/secrets/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/configs/actions/{actionType}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/configs/admin-console",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/configs/jwt-customizer/{tokenTypePath}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/configs/oidc/session",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/email-templates/{id}/details",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/hooks/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/hooks/{id}/signing-key",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/organization-roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/organization-scopes/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/organizations/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/resources/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/resources/{id}/is-default",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/resources/{resourceId}/scopes/{scopeId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/roles/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/saml-applications/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/saml-applications/{id}/secrets/{secretId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/sign-in-exp",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/sso-connectors/{id}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/custom-data",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/is-suspended",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/logto-configs",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/password",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/password/expiration",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/personal-access-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/personal-access-tokens/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.patch./api/users/{userId}/profile",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications/{applicationId}/user-consent-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications/{id}/protected-app-metadata/custom-domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications/{id}/secrets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/applications/{id}/users/{userId}/consent-organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/authn/saml/{connectorId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/authn/single-sign-on/saml/{connectorId}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/configs/actions/test",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/configs/jwt-customizer/test",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/configs/oidc/{keyType}/rotate",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/connectors/{connectorId}/authorization-uri",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/connectors/{factoryId}/test",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/custom-profile-fields",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/custom-profile-fields/batch",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/custom-profile-fields/properties/sie-order",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/domains/cleanup",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/hooks",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/hooks/{id}/test",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/one-time-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/one-time-tokens/verify",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-invitations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-invitations/{id}/message",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-roles/{id}/resource-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-roles/{id}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organization-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/applications/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/jit/email-domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/jit/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/jit/sso-connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/users/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/organizations/{id}/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/resources",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/resources/{resourceId}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/roles/{id}/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/roles/{id}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/roles/{id}/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/saml-applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/saml-applications/{id}/secrets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/saml/{id}/authn",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/sentinel-activities/delete",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/sign-in-exp/default/check-password",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/sign-in-exp/default/custom-ui-assets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/sso-connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/subject-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/user-assets",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/identities",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/mfa-verifications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/password/verify",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/personal-access-tokens",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/personal-access-tokens/delete",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/verification-codes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.post./api/verification-codes/verify",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/applications/{applicationId}/access-control",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/applications/{applicationId}/sign-in-experience",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/applications/{id}/users/{userId}/consent-organizations",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/captcha-provider",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/configs/actions/{actionType}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/configs/id-token",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/configs/jwt-customizer/{tokenTypePath}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/custom-phrases/{languageTag}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/custom-profile-fields/{name}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/domains/{id}/verification-files",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/email-templates",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/one-time-tokens/{id}/status",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organization-invitations/{id}/status",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organization-roles/{id}/resource-scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organization-roles/{id}/scopes",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/applications",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/applications/{applicationId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/jit/email-domains",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/jit/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/jit/sso-connectors",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/users",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/organizations/{id}/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/users/{userId}/identities/{target}",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.management-api.put./api/users/{userId}/roles",
+      "surface": "management-api",
+      "source": "/api/.well-known/management.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/grants/{grantId}",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/identities/{target}",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/mfa-verifications/{verificationId}",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/primary-email",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/primary-phone",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.delete./api/my-account/sessions/{sessionId}",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/grants",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/identities/{target}/access-token",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/logto-configs",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/mfa-settings",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/mfa-verifications",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/mfa-verifications/backup-codes",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/sessions",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.get./api/my-account/sso-identities/{connectorId}/access-token",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.patch./api/my-account",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.patch./api/my-account/logto-configs",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.patch./api/my-account/mfa-settings",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.patch./api/my-account/mfa-verifications/{verificationId}/name",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.patch./api/my-account/profile",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/identities",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/mfa-verifications",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/mfa-verifications/backup-codes/generate",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/mfa-verifications/totp-secret/generate",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/password",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/primary-email",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/primary-phone",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/my-account/user-assets/avatar",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/password",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/social",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/social/verify",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/verification-code",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/verification-code/verify",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/web-authn/registration",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.post./api/verifications/web-authn/registration/verify",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.put./api/my-account/identities",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.put./api/my-account/identities/{target}/access-token",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "http.user-api.put./api/my-account/mfa-verifications/totp",
+      "surface": "user-api",
+      "source": "/api/.well-known/user.openapi.json",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.cache.redis-degradation",
+      "surface": "manual",
+      "source": "packages/core/src/caches/index.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.keys.immediate-rotation",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/oidc-private-key.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.keys.staged-rotation",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/oidc-private-key.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.password.all-import-algorithms",
+      "surface": "manual",
+      "source": "packages/schemas/tables/users.sql",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.saml.application-idp",
+      "surface": "manual",
+      "source": "packages/core/src/saml-application",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.saml.enterprise-sso-sp",
+      "surface": "manual",
+      "source": "packages/core/src/sso/SamlConnector",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.script.custom-jwt",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/jwt-customizer.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.script.post-first-factor",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/action.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.script.post-sign-in",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/action.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.storage.user-assets",
+      "surface": "manual",
+      "source": "packages/core/src/utils/storage",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.tenant.admin-issuer-data-tenant",
+      "surface": "manual",
+      "source": "packages/core/src/middleware/koa-auth/index.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.tenant.custom-domain-routing",
+      "surface": "manual",
+      "source": "packages/core/src/utils/tenant.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.tenant.path-based-routing",
+      "surface": "manual",
+      "source": "packages/core/src/utils/tenant.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.tenant.rls-isolation",
+      "surface": "manual",
+      "source": "packages/schemas/tables/_after_each.sql",
+      "existingEvidence": []
+    },
+    {
+      "id": "manual.webhook.retry-and-signature",
+      "surface": "manual",
+      "source": "packages/core/src/libraries/hook/utils.ts",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.authorization_code",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.client_credentials",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.implicit",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.refresh_token",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.urn:ietf:params:oauth:grant-type:device_code",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.grant.urn:ietf:params:oauth:grant-type:token-exchange",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_mode.form_post",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_mode.fragment",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_mode.query",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_type.code",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_type.code+id_token",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_type.id_token",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.response_type.none",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.token_endpoint_auth_method.client_secret_basic",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.token_endpoint_auth_method.client_secret_jwt",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.token_endpoint_auth_method.client_secret_post",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.token_endpoint_auth_method.none",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "oidc.token_endpoint_auth_method.private_key_jwt",
+      "surface": "oidc",
+      "source": "/oidc/.well-known/openid-configuration",
+      "existingEvidence": []
+    },
+    {
+      "id": "test.api/account-center.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account-center.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account-center.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account.username-case.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account.username-case.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account.username-case.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account.username-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account.username-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account.username-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/account-center-reject.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/account-center-reject.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/account-center-reject.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/avatar-upload.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/avatar-upload.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/avatar-upload.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/email-and-phone.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/email-and-phone.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/email-and-phone.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/grants.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/grants.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/grants.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/initial-password-setup.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/initial-password-setup.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/initial-password-setup.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/mfa-backup-codes.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/mfa-backup-codes.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/mfa-backup-codes.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/mfa-settings.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/mfa-settings.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/mfa-settings.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/mfa-totp.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/mfa-totp.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/mfa-totp.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/mfa-webauthn.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/mfa-webauthn.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/mfa-webauthn.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/password-update.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/password-update.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/password-update.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/session.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/session.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/session.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/social-without-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/social-without-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/social-without-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/social.delete-identity.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/social.delete-identity.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/social.delete-identity.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/social.replace-identity.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/social.replace-identity.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/social.replace-identity.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/social.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/social.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/social.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/account/verification-code-rate-limit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/account/verification-code-rate-limit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/account/verification-code-rate-limit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.mfa-verifications.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.mfa-verifications.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.mfa-verifications.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.organization-jit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.organization-jit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.organization-jit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.personal-access-tokens.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.personal-access-tokens.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.personal-access-tokens.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.phone-number.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.phone-number.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.phone-number.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.roles.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.roles.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.roles.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.search.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.search.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.search.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/admin-user.username-case.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/admin-user.username-case.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/admin-user.username-case.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application-access-control.management.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application-access-control.management.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application-access-control.management.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application-access-control.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application-access-control.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application-access-control.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application-custom-data.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application-custom-data.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application-custom-data.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application-sign-in-experience.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application-sign-in-experience.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application-sign-in-experience.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application-user-consent-organization.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application-user-consent-organization.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application-user-consent-organization.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application-user-consent-scope.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application-user-consent-scope.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application-user-consent-scope.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application.max-allowed-grants.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application.max-allowed-grants.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application.max-allowed-grants.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application.organization.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application.organization.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application.organization.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application.roles.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application.roles.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application.roles.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application.secrets.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application.secrets.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application.secrets.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/application.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/application.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/application.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/application/saml-application.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/application/saml-application.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/application/saml-application.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/audit-logs/count-cap.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/audit-logs/count-cap.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/audit-logs/count-cap.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/audit-logs/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/audit-logs/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/audit-logs/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/audit-logs/time-window.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/audit-logs/time-window.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/audit-logs/time-window.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/authn.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/authn.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/authn.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/callback.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/callback.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/callback.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/captcha-provider.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/captcha-provider.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/captcha-provider.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/connector.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/connector.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/connector.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/custom-phrase.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/custom-phrase.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/custom-phrase.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/custom-profile-fields.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/custom-profile-fields.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/custom-profile-fields.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/dashboard.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/dashboard.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/dashboard.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/domains.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/domains.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/domains.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/connector-test-api.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/connector-test-api.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/connector-test-api.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/experience-api.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/experience-api.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/experience-api.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/interaction-api.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/interaction-api.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/interaction-api.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/organization-invitation.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/organization-invitation.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/organization-invitation.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/email-templates/user-account-api.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/email-templates/user-account-api.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/email-templates/user-account-api.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/actions/post-first-factor-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/actions/post-first-factor-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/actions/post-first-factor-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/actions/post-sign-in.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/actions/post-sign-in.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/actions/post-sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/basic-sentinel.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/basic-sentinel.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/basic-sentinel.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/email-phone.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/email-phone.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/email-phone.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/email-with-signup.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/email-with-signup.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/email-with-signup.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/happpy-path.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/happpy-path.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/happpy-path.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/mfa-suggestion.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/mfa-suggestion.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/mfa-suggestion.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/organization-required-mfa.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/organization-required-mfa.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/organization-required-mfa.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/bind-mfa/sad-path.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/bind-mfa/sad-path.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/bind-mfa/sad-path.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/captcha/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/captcha/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/captcha/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/interaction.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/interaction.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/interaction.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/mfa-sentinel.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/mfa-sentinel.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/mfa-sentinel.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/profile/fulfill-user-profiles.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/profile/fulfill-user-profiles.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/profile/fulfill-user-profiles.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/profile/reset-password.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/profile/reset-password.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/profile/reset-password.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/profile/social-fullfill-user-profiles.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/profile/social-fullfill-user-profiles.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/profile/social-fullfill-user-profiles.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/profile/upload-avatar.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/profile/upload-avatar.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/profile/upload-avatar.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/email-blocklist.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/email-blocklist.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/email-blocklist.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/enterprise-sso.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/enterprise-sso.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/enterprise-sso.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/one-time-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/one-time-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/one-time-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/organization-jti.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/organization-jti.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/organization-jti.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/username-password.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/username-password.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/username-password.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/register-interaction/verification-code.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/register-interaction/verification-code.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/register-interaction/verification-code.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/adaptive-mfa.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/adaptive-mfa.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/adaptive-mfa.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/enterprise-sso.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/enterprise-sso.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/enterprise-sso.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/mfa-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/mfa-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/mfa-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/one-time-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/one-time-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/one-time-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/password.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/password.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/password.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/skip-mfa-on-sign-in.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/skip-mfa-on-sign-in.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/skip-mfa-on-sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/social.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/social.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/social.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/sign-in-interaction/verification-code.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/verification-code.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/sign-in-interaction/verification-code.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/username-case.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/username-case.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/username-case.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/username-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/username-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/username-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/backup-code-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/backup-code-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/backup-code-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/email-phone-mfa-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/email-phone-mfa-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/email-phone-mfa-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/enterprise-sso-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/enterprise-sso-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/enterprise-sso-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/new-password-identity-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/new-password-identity-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/new-password-identity-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/one-time-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/one-time-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/one-time-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/password-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/password-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/password-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/social-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/social-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/social-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/totp-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/totp-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/totp-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/verification-code-rate-limit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code-rate-limit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code-rate-limit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/verification-code.suppress-delivery.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code.suppress-delivery.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code.suppress-delivery.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/verification-code.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/verification-code.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/experience-api/verifications/web-authn-verification.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/experience-api/verifications/web-authn-verification.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/experience-api/verifications/web-authn-verification.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/health-check.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/health-check.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/health-check.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.stats.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.stats.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.stats.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.testing.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.testing.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.testing.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.custom.data.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.custom.data.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.custom.data.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.data.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.data.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.data.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.experience.adaptive-mfa.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.experience.adaptive-mfa.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.experience.adaptive-mfa.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.experience.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.experience.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.experience.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.grant-limit-exceeded.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.grant-limit-exceeded.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.grant-limit-exceeded.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.message-rate-limited.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.message-rate-limited.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.message-rate-limited.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/hook.trigger.organization.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/hook.trigger.organization.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/hook.trigger.organization.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/hook/utils.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/hook/utils.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/hook/utils.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/interaction/consent/device-flow.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/interaction/consent/device-flow.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/interaction/consent/device-flow.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/interaction/consent/happy-path.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/interaction/consent/happy-path.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/interaction/consent/happy-path.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/log.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/log.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/log.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/logto-config.id-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/logto-config.id-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/logto-config.id-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/logto-config.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/logto-config.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/logto-config.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/me-verification-code-rate-limit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/me-verification-code-rate-limit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/me-verification-code-rate-limit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/me.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/me.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/me.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/always-issue-refresh-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/always-issue-refresh-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/always-issue-refresh-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/client-authentication.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/client-authentication.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/client-authentication.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/client-credentials-grant.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/client-credentials-grant.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/client-credentials-grant.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/comma-separated-resource.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/comma-separated-resource.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/comma-separated-resource.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/content-type-json.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/content-type-json.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/content-type-json.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/device-flow-shortcut.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/device-flow-shortcut.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/device-flow-shortcut.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/discovery.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/discovery.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/discovery.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/dpop-disabled.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/dpop-disabled.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/dpop-disabled.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/get-access-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/id-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/id-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/id-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/mixed-redirect-uri.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/mixed-redirect-uri.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/mixed-redirect-uri.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/organization-api-resource.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/organization-api-resource.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/organization-api-resource.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/organization-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/organization-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/organization-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/per-client-interaction-cookie.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/per-client-interaction-cookie.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/per-client-interaction-cookie.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/post-authorization-and-logout.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/post-authorization-and-logout.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/post-authorization-and-logout.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/provider-semantics.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/refresh-token-grant.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/refresh-token-grant.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/refresh-token-grant.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/route-post-processing.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/route-post-processing.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/route-post-processing.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/rp-initiated-logout.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/rp-initiated-logout.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/rp-initiated-logout.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/token-exchange/access-token-exchange.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/token-exchange/access-token-exchange.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/token-exchange/access-token-exchange.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/token-exchange/actor-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/token-exchange/actor-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/token-exchange/actor-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/token-exchange/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/token-exchange/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/token-exchange/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/token-exchange/personal-access-token.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/token-exchange/personal-access-token.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/token-exchange/personal-access-token.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/token-metering.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/token-metering.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/token-metering.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/oidc/wildcard-redirect-uri.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/oidc/wildcard-redirect-uri.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/oidc/wildcard-redirect-uri.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/one-time-tokens.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/one-time-tokens.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/one-time-tokens.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-application.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-application.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-application.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-invitation.creation.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-invitation.creation.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-invitation.creation.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-invitation.get.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-invitation.get.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-invitation.get.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-invitation.rate-limit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-invitation.rate-limit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-invitation.rate-limit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-invitation.status.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-invitation.status.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-invitation.status.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-jit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-jit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-jit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-role.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-role.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-role.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-scope.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-scope.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-scope.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-user.roles.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-user.roles.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-user.roles.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization-user.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization-user.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization-user.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/organization/organization.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/organization/organization.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/organization/organization.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/resource.scope.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/resource.scope.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/resource.scope.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/resource.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/resource.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/resource.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/role.application.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/role.application.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/role.application.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/role.is-default.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/role.is-default.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/role.is-default.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/role.scope.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/role.scope.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/role.scope.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/role.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/role.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/role.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/role.user.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/role.user.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/role.user.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/security.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/security.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/security.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sessions/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sessions/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sessions/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sign-in-experience.custom-ui-csp.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sign-in-experience.custom-ui-csp.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sign-in-experience.custom-ui-csp.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sign-in-experience.forgot-password.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sign-in-experience.forgot-password.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sign-in-experience.forgot-password.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sign-in-experience.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sign-in-experience.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sign-in-experience.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sign-in-experience.username-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sign-in-experience.username-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sign-in-experience.username-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/spa-proxy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/spa-proxy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/spa-proxy.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sso-connectors/sso-connector-idp-initiated-auth-config.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sso-connectors/sso-connector-idp-initiated-auth-config.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sso-connectors/sso-connector-idp-initiated-auth-config.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sso-connectors/sso-connector-signed-authn-request.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sso-connectors/sso-connector-signed-authn-request.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sso-connectors/sso-connector-signed-authn-request.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/sso-connectors/sso-connectors.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/sso-connectors/sso-connectors.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/sso-connectors/sso-connectors.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/status.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/status.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/status.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/swagger-check.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/swagger-check.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/swagger-check.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/verification-code-rate-limit.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/verification-code-rate-limit.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/verification-code-rate-limit.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/verification-code.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/verification-code.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/verification-code.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/well-known.openapi.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/well-known.openapi.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/well-known.openapi.test.ts"
+      ]
+    },
+    {
+      "id": "test.api/well-known.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/api/well-known.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/api/well-known.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/applications/access-control.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/applications/access-control.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/applications/access-control.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/applications/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/applications/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/applications/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/backchannel-logout.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/backchannel-logout.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/backchannel-logout.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/bootstrap.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/bootstrap.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/bootstrap.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/connectors/passwordless-connectors.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/connectors/passwordless-connectors.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/connectors/passwordless-connectors.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/connectors/social-connectors.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/connectors/social-connectors.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/connectors/social-connectors.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/error-handling.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/error-handling.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/error-handling.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/mfa/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/mfa/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/mfa/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/organizations.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/organizations.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/organizations.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/rbac/machime-to-machime-rbac.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/rbac/machime-to-machime-rbac.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/rbac/machime-to-machime-rbac.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/rbac/organization-rbac.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/rbac/organization-rbac.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/rbac/organization-rbac.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/rbac/user-rbac.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/rbac/user-rbac.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/rbac/user-rbac.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/security/password-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/security/password-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/security/password-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sign-in-experience/branding.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sign-in-experience/branding.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sign-in-experience/branding.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sign-in-experience/sign-in-preview.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sign-in-experience/sign-in-preview.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sign-in-experience/sign-in-preview.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sign-in-experience/sign-up-and-sign-in/happy-path.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sign-in-experience/sign-up-and-sign-in/happy-path.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sign-in-experience/sign-up-and-sign-in/happy-path.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sign-in-experience/sign-up-and-sign-in/sad-path.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sign-in-experience/sign-up-and-sign-in/sad-path.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sign-in-experience/sign-up-and-sign-in/sad-path.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sign-in-experience/username-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sign-in-experience/username-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sign-in-experience/username-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/sso-connectors/sso-connectors.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/sso-connectors/sso-connectors.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/sso-connectors/sso-connectors.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/user-management.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/user-management.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/user-management.test.ts"
+      ]
+    },
+    {
+      "id": "test.console/webhooks/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/console/webhooks/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/console/webhooks/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/application-access-control.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/application-access-control.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/application-access-control.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/automatic-account-linking.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/automatic-account-linking.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/automatic-account-linking.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/basic-sentinel.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/basic-sentinel.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/basic-sentinel.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/bootstrap.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/bootstrap.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/bootstrap.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/collect-user-profile.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/collect-user-profile.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/collect-user-profile.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/direct-sign-in.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/direct-sign-in.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/direct-sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/first-screen.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/first-screen.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/first-screen.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/identifier-first-verification-switching.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/identifier-first-verification-switching.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/identifier-first-verification-switching.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/identifier-input-cache.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/identifier-input-cache.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/identifier-input-cache.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/backup-code/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/backup-code/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/backup-code/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/email-verification/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/email-verification/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/email-verification/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/email/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/email/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/email/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/multi-factors.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/multi-factors.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/multi-factors.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/phone/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/phone/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/phone/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/suggest-binding-additional-factor.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/suggest-binding-additional-factor.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/suggest-binding-additional-factor.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/totp/add-missing-profile-flow.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/totp/add-missing-profile-flow.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/totp/add-missing-profile-flow.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/totp/passcode-identifier-flow.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/totp/passcode-identifier-flow.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/totp/passcode-identifier-flow.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/totp/password-identifier-flow.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/totp/password-identifier-flow.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/totp/password-identifier-flow.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/totp/social-flow.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/totp/social-flow.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/totp/social-flow.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/user-controlled.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/user-controlled.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/user-controlled.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/mfa/webauthn/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/mfa/webauthn/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/mfa/webauthn/index.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/overrides.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/overrides.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/overrides.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/password-expiration.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/password-expiration.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/password-expiration.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/password-policy.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/password-policy.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/password-policy.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/server-side-rendering.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/server-side-rendering.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/server-side-rendering.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/social-sign-in-session-fallback.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/social-sign-in-session-fallback.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/social-sign-in-session-fallback.test.ts"
+      ]
+    },
+    {
+      "id": "test.experience/social-sign-in.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/experience/social-sign-in.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/experience/social-sign-in.test.ts"
+      ]
+    },
+    {
+      "id": "test.well-known/index.test.ts",
+      "surface": "integration-test",
+      "source": "packages/integration-tests/src/tests/well-known/index.test.ts",
+      "existingEvidence": [
+        "packages/integration-tests/src/tests/well-known/index.test.ts"
+      ]
+    }
+  ]
+}
