@@ -602,6 +602,40 @@ describe('compatibility inventory CLI contracts', () => {
     }
   });
 
+  it('returns drift exit 1 when capability metadata changes without changing IDs', async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'aster-inventory-metadata-drift-'));
+    const diagnosticsPath = path.join(temporaryRoot, 'diagnostics.txt');
+    const changedCapability = {
+      ...sampleCapability,
+      source: 'compatibility/reviewed-manual-capabilities.json',
+    };
+
+    try {
+      await writeFile(
+        path.join(temporaryRoot, 'baseline-manifest.json'),
+        JSON.stringify(sampleManifest)
+      );
+      const exitCode = await runInventoryCli(
+        ['--target', 'oracle', '--check'],
+        cliEnvironment,
+        createCliDependencies(temporaryRoot, {
+          collectManifest: async () => ({
+            ...sampleManifest,
+            capabilities: [changedCapability],
+          }),
+          writeError: async (message) => appendFile(diagnosticsPath, `${message}\n`),
+        })
+      );
+
+      expect(exitCode).toBe(1);
+      expect(await readFile(diagnosticsPath, 'utf8')).toBe(
+        'Added capability IDs: (none)\nRemoved capability IDs: (none)\n'
+      );
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     { name: 'missing', contents: undefined, error: /Unable to read committed capability manifest/ },
     { name: 'invalid JSON', contents: '{', error: /Invalid committed capability manifest JSON/ },
