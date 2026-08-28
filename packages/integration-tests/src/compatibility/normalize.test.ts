@@ -178,6 +178,62 @@ describe('normalizeJson', () => {
     });
   });
 
+  it('leaves one canonical configured trailing slash in the normalized observation', () => {
+    const context = createContext({
+      target: {
+        label: 'candidate',
+        coreUrl: 'https://slash.example/',
+        adminUrl: 'https://slash.example/admin/',
+      },
+    });
+
+    expect(
+      normalizeJson(
+        {
+          exactRoot: 'https://slash.example/',
+          rootWithoutSlash: 'https://slash.example',
+          path: 'https://slash.example/api',
+          query: 'https://slash.example/?key=value',
+          queryWithoutSlash: 'https://slash.example?key=value',
+          fragment: 'https://slash.example/#section',
+          overlappingAdminRoot: 'https://slash.example/admin/',
+          overlappingAdminPath: 'https://slash.example/admin/users',
+          overlappingAdminQuery: 'https://slash.example/admin/?key=value',
+          evilSuffix: 'https://slash.example.evil/path',
+          differentPort: 'https://slash.example:444/path',
+        },
+        context,
+        []
+      )
+    ).toEqual({
+      exactRoot: '<target.core-url>/',
+      rootWithoutSlash: '<target.core-url>',
+      path: '<target.core-url>/api',
+      query: '<target.core-url>/?key=value',
+      queryWithoutSlash: '<target.core-url>?key=value',
+      fragment: '<target.core-url>/#section',
+      overlappingAdminRoot: '<target.admin-url>/',
+      overlappingAdminPath: '<target.admin-url>/users',
+      overlappingAdminQuery: '<target.admin-url>/?key=value',
+      evilSuffix: 'https://slash.example.evil/path',
+      differentPort: 'https://slash.example:444/path',
+    });
+
+    expect(
+      normalizeJson(
+        'https://duplicate.example/',
+        createContext({
+          target: {
+            label: 'candidate',
+            coreUrl: 'https://duplicate.example/',
+            adminUrl: 'https://duplicate.example',
+          },
+        }),
+        []
+      )
+    ).toBe('<target.core-url>/');
+  });
+
   it('applies escaped JSON Pointer paths exactly and removes array elements deterministically', () => {
     const input = {
       'a/b': { '~key': 'remove', keep: 'value' },

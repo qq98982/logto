@@ -232,19 +232,23 @@ const isUrlBoundary = (sourceValue: string, endIndex: number) => {
   );
 };
 
+const removeSingleTrailingSlash = (value: string) =>
+  value.endsWith('/') ? value.slice(0, -1) : value;
+
 const normalizeString = (value: string, context: NormalizationContext) => {
   const urlCandidates: LiteralReplacementCandidate[] = [
-    {
-      source: context.target.coreUrl,
-      replacement: '<target.core-url>',
+    { source: context.target.coreUrl, replacement: '<target.core-url>' },
+    { source: context.target.adminUrl, replacement: '<target.admin-url>' },
+  ]
+    .map(({ source, replacement }) => ({
+      source: removeSingleTrailingSlash(source),
+      replacement,
       isMatch: isUrlBoundary,
-    },
-    {
-      source: context.target.adminUrl,
-      replacement: '<target.admin-url>',
-      isMatch: isUrlBoundary,
-    },
-  ];
+    }))
+    .filter(
+      (candidate, index, candidates) =>
+        candidates.findIndex(({ source }) => source === candidate.source) === index
+    );
 
   return replaceLiteralCandidates(value, [
     urlCandidates,
