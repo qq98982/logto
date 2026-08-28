@@ -7,6 +7,47 @@ const assertNonEmptyString = (value: string, description: string) => {
 const compareRuntimeValues = (left: string, right: string) =>
   right.length - left.length || (left < right ? -1 : left > right ? 1 : 0);
 
+export type LiteralReplacementCandidate = {
+  source: string;
+  replacement: string;
+  isMatch?: (value: string, endIndex: number) => boolean;
+};
+
+const compareCandidates = (left: LiteralReplacementCandidate, right: LiteralReplacementCandidate) =>
+  compareRuntimeValues(left.source, right.source) ||
+  (left.replacement < right.replacement ? -1 : left.replacement > right.replacement ? 1 : 0);
+
+export const replaceLiteralCandidates = (
+  value: string,
+  candidateClasses: ReadonlyArray<readonly LiteralReplacementCandidate[]>
+): string => {
+  const candidates = candidateClasses.flatMap((candidateClass) =>
+    candidateClass.toSorted(compareCandidates)
+  );
+
+  return Array.from({ length: value.length }, (_, index) => index).reduce(
+    (state, index) => {
+      if (index < state.skipUntil) {
+        return state;
+      }
+
+      const candidate = candidates.find(({ source, isMatch }) => {
+        const endIndex = index + source.length;
+
+        return value.startsWith(source, index) && (isMatch?.(value, endIndex) ?? true);
+      });
+
+      return candidate
+        ? {
+            result: state.result + candidate.replacement,
+            skipUntil: index + candidate.source.length,
+          }
+        : { result: state.result + value[index], skipUntil: index + 1 };
+    },
+    { result: '', skipUntil: 0 }
+  ).result;
+};
+
 export class SymbolTable {
   readonly #logicalToRuntime = new Map<string, string>();
   readonly #runtimeToLogical = new Map<string, string>();
@@ -71,27 +112,14 @@ export class SymbolTable {
     return allocate((this.#occurrenceCounters.get(namespace) ?? 0) + 1);
   }
 
+  getReplacementCandidates(): LiteralReplacementCandidate[] {
+    return Array.from(this.#runtimeToLogical.entries()).map(([source, logicalName]) => ({
+      source,
+      replacement: `<${logicalName}>`,
+    }));
+  }
+
   replace(value: string): string {
-    const bindings = Array.from(this.#runtimeToLogical.entries()).toSorted(([left], [right]) =>
-      compareRuntimeValues(left, right)
-    );
-
-    return Array.from({ length: value.length }, (_, index) => index).reduce(
-      (state, index) => {
-        if (index < state.skipUntil) {
-          return state;
-        }
-
-        const binding = bindings.find(([runtimeValue]) => value.startsWith(runtimeValue, index));
-
-        return binding
-          ? {
-              result: `${state.result}<${binding[1]}>`,
-              skipUntil: index + binding[0].length,
-            }
-          : { result: state.result + value[index], skipUntil: index + 1 };
-      },
-      { result: '', skipUntil: 0 }
-    ).result;
+    return replaceLiteralCandidates(value, [this.getReplacementCandidates()]);
   }
 }

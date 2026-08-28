@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines -- Integration coverage intentionally keeps all normalizer contracts in one focused suite. */
 import { SignJWT, base64url } from 'jose';
 
 import {
@@ -137,6 +137,47 @@ describe('normalizeJson', () => {
     });
   });
 
+  it('replaces URLs atomically only at URL boundaries before replacing symbols', () => {
+    const context = createContext({
+      target: {
+        label: 'candidate',
+        coreUrl: 'https://example.com',
+        adminUrl: 'https://example.com/admin',
+      },
+    });
+    context.symbols.bind('word.target', 'target');
+    context.symbols.bind('word.angle-target', '<target');
+    context.symbols.bind('url.business', 'https://example.com/admin');
+
+    expect(
+      normalizeJson(
+        {
+          evilSuffix: 'https://example.com.evil/path',
+          differentPort: 'https://example.com:444/path',
+          path: 'https://example.com/path',
+          query: 'https://example.com?key=value',
+          fragment: 'https://example.com#section',
+          end: 'https://example.com',
+          overlappingAdmin: 'https://example.com/admin/users',
+          opaquePlaceholders: 'https://example.com/path target <target',
+          urlBeforeSymbol: 'https://example.com/admin',
+        },
+        context,
+        []
+      )
+    ).toEqual({
+      evilSuffix: 'https://example.com.evil/path',
+      differentPort: 'https://example.com:444/path',
+      path: '<target.core-url>/path',
+      query: '<target.core-url>?key=value',
+      fragment: '<target.core-url>#section',
+      end: '<target.core-url>',
+      overlappingAdmin: '<target.admin-url>/users',
+      opaquePlaceholders: '<target.core-url>/path <word.target> <word.angle-target>',
+      urlBeforeSymbol: '<target.admin-url>',
+    });
+  });
+
   it('applies escaped JSON Pointer paths exactly and removes array elements deterministically', () => {
     const input = {
       'a/b': { '~key': 'remove', keep: 'value' },
@@ -196,6 +237,33 @@ describe('normalizeJson', () => {
       startedAt: { $timestamp: 100, $toleranceSeconds: 5 },
       finishedAt: { $durationSeconds: 45 },
     });
+  });
+
+  it('supports the empty root pointer and keeps it distinct from an empty property pointer', () => {
+    expect(
+      normalizeJson(100, createContext(), [
+        { path: '', strategy: 'timestamp', toleranceSeconds: 2 },
+      ])
+    ).toEqual({ $timestamp: 100, $toleranceSeconds: 2 });
+    expect(
+      normalizeJson(100, createContext(), [
+        { path: '', strategy: 'duration-seconds', startPath: '' },
+      ])
+    ).toEqual({ $durationSeconds: 0 });
+    expect(
+      normalizeJson({ '': 100 }, createContext(), [
+        { path: '/', strategy: 'timestamp', toleranceSeconds: 3 },
+      ])
+    ).toEqual({ '': { $timestamp: 100, $toleranceSeconds: 3 } });
+    expect(() =>
+      normalizeJson({ value: 1 }, createContext(), [{ path: '', strategy: 'drop' }])
+    ).toThrow(/root cannot be dropped/i);
+    expect(() =>
+      normalizeJson(100, createContext(), [
+        { path: '', strategy: 'timestamp', toleranceSeconds: 1 },
+        { path: '', strategy: 'timestamp', toleranceSeconds: 2 },
+      ])
+    ).toThrow(/duplicate normalization rule/i);
   });
 
   it('recurses through deep arrays and objects without mutating input, context, or rules', () => {
@@ -277,7 +345,7 @@ describe('normalizeSetCookies', () => {
   it('removes values while preserving canonical metadata and input order', () => {
     expect(
       normalizeSetCookies([
-        'interaction="secret-like;value"; Path=/; HttpOnly; SameSite=lax',
+        'interaction="secret-like.value"; Path=/; HttpOnly; SameSite=lax',
         'session=another-secret; DOMAIN=example.com; secure; SAMESITE=STRICT; Max-Age=60',
       ])
     ).toEqual([
@@ -312,7 +380,7 @@ describe('normalizeSetCookies', () => {
     ['Mon, 31 Feb 2020 07:28:00 GMT', 'an impossible calendar date'],
     ['Wed, 21 Oct 2015 24:00:00 GMT', 'an invalid time'],
     ['Thu, 21 Oct 2015 07:28:00 GMT', 'a weekday mismatch'],
-  ])('rejects %s as %s without echoing the Expires value', (expiresValue) => {
+  ])('rejects invalid Expires case %# without echoing its value', (expiresValue) => {
     const message = getThrownMessage(() =>
       normalizeSetCookies([`name=private-cookie; Expires=${expiresValue}`])
     );
@@ -321,13 +389,54 @@ describe('normalizeSetCookies', () => {
     expect(message).not.toContain(expiresValue);
   });
 
-  it('keeps one comma-containing header as one cookie observation', () => {
-    const normalized = normalizeSetCookies(['payload="left,right"; Path=/observations; Secure']);
+  it('keeps a valid Expires comma in one header and one cookie observation', () => {
+    const normalized = normalizeSetCookies([
+      'payload=value; Path=/observations; Secure; Expires=Wed, 21 Oct 2015 07:28:00 GMT',
+    ]);
 
     expect(normalized).toHaveLength(1);
     expect(normalized).toEqual([
-      { name: 'payload', path: '/observations', httpOnly: false, secure: true },
+      {
+        name: 'payload',
+        path: '/observations',
+        httpOnly: false,
+        secure: true,
+        expires: '2015-10-21T07:28:00.000Z',
+      },
     ]);
+  });
+
+  it.each([
+    ['header-marker', 'name=value\r\nheader-marker: injected', /control/i],
+    ['pair-marker', 'pair-marker', /cookie-pair/i],
+    ['name-marker', 'bad(name-marker=value', /cookie name/i],
+    ['comma-marker', 'name=value,comma-marker', /cookie value/i],
+    ['quote-marker', 'name="quote-marker', /cookie value/i],
+    ['interior-marker', 'name=bad"interior-marker"value', /cookie value/i],
+    ['control-marker', 'name=control-marker\u0000', /control/i],
+    ['attribute-marker', 'name=value; bad(attribute-marker=value', /attribute name/i],
+    ['same-site-marker', 'name=value; SameSite=same-site-marker', /samesite/i],
+    ['max-age-marker', 'name=value; Max-Age=max-age-marker', /max-age/i],
+    ['expires-marker', 'name=value; Expires=expires-marker', /expires/i],
+    ['duplicate-marker', 'name=value; Path=/; pAtH=duplicate-marker', /duplicate/i],
+    ['flag-marker', 'name=value; HttpOnly=flag-marker', /httponly/i],
+  ])('rejects unsafe cookie class %# without echoing its marker', (marker, header, category) => {
+    const message = getThrownMessage(() => normalizeSetCookies([header]));
+
+    expect(message).toMatch(category);
+    expect(message).not.toContain(marker);
+  });
+
+  it.each([
+    'name="just-a-quote',
+    'name=bad\\value',
+    'name=value;',
+    'name=value;; Extension=ok',
+    'name=value; bad attribute=value',
+    'name=value; \u00A0Secure',
+    'name=value; Secure; secure',
+  ])('rejects malformed cookie grammar case %#', (header) => {
+    expect(() => normalizeSetCookies([header])).toThrow(/set-cookie/i);
   });
 
   it.each([
@@ -335,7 +444,7 @@ describe('normalizeSetCookies', () => {
     ['name=value; Max-Age=1.5', /max-age/i],
     ['name=value; Max-Age=huge', /max-age/i],
     ['name=value; Expires=not-a-date', /expires/i],
-  ])('rejects invalid known cookie metadata in %s', (header, expectedError) => {
+  ])('rejects invalid known cookie metadata case %#', (header, expectedError) => {
     expect(() => normalizeSetCookies([header])).toThrow(expectedError);
   });
 });
@@ -473,6 +582,70 @@ describe('normalizeJwt', () => {
       ).toThrow(/timestamp tolerance.*(?:non-negative|finite)/i);
     }
   );
+
+  it.each([
+    [{ tokenKind: 'refresh-token', timestampToleranceSeconds: 10 }, /tokenkind/i],
+    [
+      {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+        identifierClaimPaths: '/custom/subject',
+      },
+      /identifierclaimpaths.*array of strings/i,
+    ],
+    [
+      {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+        identifierClaimPaths: ['/custom/subject', 42],
+      },
+      /identifierclaimpaths.*array of strings/i,
+    ],
+    [
+      {
+        tokenKind: 'access-token',
+        timestampToleranceSeconds: 10,
+        timeClaimPaths: { first: '/custom/time' },
+      },
+      /timeclaimpaths.*array of strings/i,
+    ],
+  ])('rejects invalid runtime JWT options %# before decoding', (options, expectedError) => {
+    expect(() =>
+      Reflect.apply(normalizeJwt, undefined, ['not-a-compact-token', createContext(), options])
+    ).toThrow(expectedError);
+  });
+
+  it('rejects a derived lifetime collision without overwriting the material claim', async () => {
+    const token = await signJwt({
+      iat: 100,
+      exp: 3700,
+      tokenLifetimeSeconds: 3600,
+    });
+    const message = getThrownMessage(() =>
+      normalizeJwt(token, createContext(), {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+      })
+    );
+
+    expect(message).toMatch(/tokenlifetimeseconds/i);
+    expect(message).not.toContain(token);
+    expect(message).not.toContain('3600');
+  });
+
+  it('preserves an existing lifetime claim when a lifetime cannot be derived', async () => {
+    const token = await signJwt({ iat: 100, tokenLifetimeSeconds: 'custom-lifetime' });
+
+    expect(
+      normalizeJwt(token, createContext(), {
+        tokenKind: 'id-token',
+        timestampToleranceSeconds: 10,
+      }).claims
+    ).toEqual({
+      iat: { $timestamp: 100, $toleranceSeconds: 10 },
+      tokenLifetimeSeconds: 'custom-lifetime',
+    });
+  });
 
   it('rejects non-object protected headers and claims payloads', () => {
     expect(() =>

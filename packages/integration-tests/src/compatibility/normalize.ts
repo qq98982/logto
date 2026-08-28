@@ -1,8 +1,13 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines -- Compatibility normalization primitives share recursive JSON, cookie, and JWT contracts. */
 import { decodeJwt, decodeProtectedHeader } from 'jose';
+import { z } from 'zod';
 
 import { jsonValueGuard, targetConfigGuard, type TargetConfig } from './model.js';
-import { SymbolTable } from './symbol-table.js';
+import {
+  replaceLiteralCandidates,
+  SymbolTable,
+  type LiteralReplacementCandidate,
+} from './symbol-table.js';
 
 export type NormalizationRule =
   | { path: string; strategy: 'drop' }
@@ -47,6 +52,15 @@ export type JwtNormalizationOptions = {
   timeClaimPaths?: readonly string[];
 };
 
+const jwtNormalizationOptionsGuard = z
+  .object({
+    tokenKind: z.enum(['id-token', 'access-token']),
+    timestampToleranceSeconds: z.number().finite().nonnegative(),
+    identifierClaimPaths: z.array(z.string()).optional(),
+    timeClaimPaths: z.array(z.string()).optional(),
+  })
+  .strict();
+
 export type NormalizedJwt = {
   header: Record<string, JsonValue>;
   claims: Record<string, JsonValue>;
@@ -81,6 +95,13 @@ const cookieMonths: readonly string[] = [
   'Nov',
   'Dec',
 ];
+const cookieOctetRanges: ReadonlyArray<readonly [number, number]> = [
+  [33, 33],
+  [35, 43],
+  [45, 58],
+  [60, 91],
+  [93, 126],
+];
 
 const isJsonObject = (value: JsonValue): value is Record<string, JsonValue> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -98,6 +119,10 @@ const parseJsonValue = (value: unknown, description: string): JsonValue => {
 const isJsonValue = (value: unknown): value is JsonValue => jsonValueGuard.safeParse(value).success;
 
 const parseJsonPointer = (pointer: string, description = 'Rule path'): string[] => {
+  if (pointer === '') {
+    return [];
+  }
+
   if (typeof pointer !== 'string' || !pointer.startsWith('/')) {
     throw new TypeError(`${description} must be an absolute JSON Pointer`);
   }
@@ -196,20 +221,35 @@ const lookupPath = (root: JsonValue, segments: readonly string[]): PathLookup =>
   return value === undefined ? { found: false } : lookupPath(value, remaining);
 };
 
-const normalizeString = (value: string, context: NormalizationContext) => {
-  const replacements = Array.from([
-    { runtimeValue: context.target.coreUrl, placeholder: '<target.core-url>', order: 0 },
-    { runtimeValue: context.target.adminUrl, placeholder: '<target.admin-url>', order: 1 },
-  ]).toSorted(
-    (left, right) =>
-      right.runtimeValue.length - left.runtimeValue.length || left.order - right.order
-  );
-  const withStableUrls = replacements.reduce(
-    (result, { runtimeValue, placeholder }) => result.replaceAll(runtimeValue, placeholder),
-    value
-  );
+const isUrlBoundary = (sourceValue: string, endIndex: number) => {
+  const nextCharacter = sourceValue[endIndex];
 
-  return context.symbols.replace(withStableUrls);
+  return (
+    nextCharacter === undefined ||
+    nextCharacter === '/' ||
+    nextCharacter === '?' ||
+    nextCharacter === '#'
+  );
+};
+
+const normalizeString = (value: string, context: NormalizationContext) => {
+  const urlCandidates: LiteralReplacementCandidate[] = [
+    {
+      source: context.target.coreUrl,
+      replacement: '<target.core-url>',
+      isMatch: isUrlBoundary,
+    },
+    {
+      source: context.target.adminUrl,
+      replacement: '<target.admin-url>',
+      isMatch: isUrlBoundary,
+    },
+  ];
+
+  return replaceLiteralCandidates(value, [
+    urlCandidates,
+    context.symbols.getReplacementCandidates(),
+  ]);
 };
 
 const applyRule = (
@@ -318,70 +358,19 @@ export const normalizeJson = (
   return normalized;
 };
 
-type CookieScanState = {
-  segments: readonly string[];
-  start: number;
-  quoted: boolean;
-  escaped: boolean;
-};
-
-const scanCookieCharacter = (
-  header: string,
-  state: CookieScanState,
-  index: number
-): CookieScanState => {
-  const character = header[index];
-
-  if (state.escaped) {
-    return { ...state, escaped: false };
-  }
-
-  if (state.quoted && character === '\\') {
-    return { ...state, escaped: true };
-  }
-
-  if (character === '"') {
-    return { ...state, quoted: !state.quoted };
-  }
-
-  return character === ';' && !state.quoted
-    ? {
-        ...state,
-        segments: [...state.segments, header.slice(state.start, index).trim()],
-        start: index + 1,
-      }
-    : state;
-};
-
-const splitCookieSegments = (header: string): string[] => {
-  const finalState = Array.from(
-    { length: header.length },
-    (_, index) => index
-  ).reduce<CookieScanState>((state, index) => scanCookieCharacter(header, state, index), {
-    segments: [],
-    start: 0,
-    quoted: false,
-    escaped: false,
-  } satisfies CookieScanState);
-
-  if (finalState.quoted || finalState.escaped) {
-    throw new TypeError('Set-Cookie header contains an unterminated quoted value');
-  }
-
-  return [...finalState.segments, header.slice(finalState.start).trim()];
-};
+const trimAsciiSpaces = (value: string) => value.replaceAll(/^ +| +$/g, '');
 
 const splitAttribute = (segment: string): [string, string | undefined] => {
   const separator = segment.indexOf('=');
 
   return separator < 0
-    ? [segment.trim(), undefined]
-    : [segment.slice(0, separator).trim(), segment.slice(separator + 1).trim()];
+    ? [trimAsciiSpaces(segment), undefined]
+    : [trimAsciiSpaces(segment.slice(0, separator)), trimAsciiSpaces(segment.slice(separator + 1))];
 };
 
 const assertUniqueAttribute = (seen: Set<string>, attribute: string) => {
   if (seen.has(attribute)) {
-    throw new TypeError(`Duplicate Set-Cookie attribute: ${attribute}`);
+    throw new TypeError('Duplicate Set-Cookie known attribute');
   }
 
   seen.add(attribute);
@@ -411,7 +400,7 @@ const isKnownCookieAttribute = (attribute: string): attribute is KnownCookieAttr
 
 const requireAttributeValue = (attribute: string, value: string | undefined): string => {
   if (value === undefined || value.length === 0) {
-    throw new TypeError(`${attribute} must have a non-empty value`);
+    throw new TypeError(`Invalid Set-Cookie ${attribute} attribute`);
   }
 
   return value;
@@ -429,20 +418,20 @@ const normalizeSameSite = (value: string): NonNullable<CookieMetadata['sameSite'
       return 'None';
     }
     default: {
-      throw new TypeError(`Invalid SameSite value: ${value}`);
+      throw new TypeError('Invalid Set-Cookie SameSite attribute');
     }
   }
 };
 
 const normalizeMaxAge = (value: string): number => {
   if (!/^-?\d+$/.test(value)) {
-    throw new TypeError(`Invalid Max-Age value: ${value}`);
+    throw new TypeError('Invalid Set-Cookie Max-Age attribute');
   }
 
   const maxAge = Number(value);
 
   if (!Number.isSafeInteger(maxAge)) {
-    throw new TypeError(`Invalid Max-Age value: ${value}`);
+    throw new TypeError('Invalid Set-Cookie Max-Age attribute');
   }
 
   return maxAge;
@@ -537,18 +526,17 @@ const normalizeExpires = (value: string): string => {
 
 const parseKnownCookieAttribute = (
   attribute: KnownCookieAttribute,
-  rawName: string,
   attributeValue: string | undefined
 ): Partial<CookieMetadata> => {
   if (attribute === 'httponly' || attribute === 'secure') {
     if (attributeValue !== undefined) {
-      throw new TypeError(`${rawName} must not have a value`);
+      throw new TypeError(`Invalid Set-Cookie ${attribute} attribute`);
     }
 
     return attribute === 'httponly' ? { httpOnly: true } : { secure: true };
   }
 
-  const value = requireAttributeValue(rawName, attributeValue);
+  const value = requireAttributeValue(attribute, attributeValue);
 
   switch (attribute) {
     case 'path': {
@@ -569,27 +557,84 @@ const parseKnownCookieAttribute = (
   }
 };
 
-const normalizeSetCookie = (header: string): CookieMetadata => {
-  const [cookiePair, ...attributeSegments] = splitCookieSegments(header);
-  const [name, cookieValue] = splitAttribute(cookiePair ?? '');
+const hasAsciiControl = (value: string) =>
+  [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
 
-  if (!cookieNamePattern.test(name) || cookieValue === undefined) {
-    throw new TypeError('Set-Cookie header must begin with a valid cookie name and value');
+    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
+  });
+
+const isCookieOctet = (character: string) => {
+  const codePoint = character.codePointAt(0);
+
+  return (
+    codePoint !== undefined &&
+    cookieOctetRanges.some(([minimum, maximum]) => codePoint >= minimum && codePoint <= maximum)
+  );
+};
+
+const isValidCookieValue = (value: string) => {
+  const framedByQuotes = value.startsWith('"') || value.endsWith('"');
+
+  if (framedByQuotes && (value.length < 2 || !(value.startsWith('"') && value.endsWith('"')))) {
+    return false;
   }
+
+  const octets = framedByQuotes ? value.slice(1, -1) : value;
+
+  return [...octets].every((character) => isCookieOctet(character));
+};
+
+type ParsedCookiePair = {
+  name: string;
+  attributeSegments: readonly string[];
+};
+
+const parseCookiePair = (header: string): ParsedCookiePair => {
+  if (hasAsciiControl(header)) {
+    throw new TypeError('Invalid Set-Cookie header: ASCII control character');
+  }
+
+  const attributeSeparator = header.indexOf(';');
+  const cookiePair = attributeSeparator < 0 ? header : header.slice(0, attributeSeparator);
+  const attributeSegments =
+    attributeSeparator < 0 ? [] : header.slice(attributeSeparator + 1).split(';');
+  const pairSeparator = cookiePair.indexOf('=');
+
+  if (pairSeparator <= 0) {
+    throw new TypeError('Invalid Set-Cookie cookie-pair');
+  }
+
+  const name = cookiePair.slice(0, pairSeparator);
+  const cookieValue = cookiePair.slice(pairSeparator + 1);
+
+  if (!cookieNamePattern.test(name)) {
+    throw new TypeError('Invalid Set-Cookie cookie name');
+  }
+
+  if (!isValidCookieValue(cookieValue)) {
+    throw new TypeError('Invalid Set-Cookie cookie value');
+  }
+
+  return { name, attributeSegments };
+};
+
+const normalizeSetCookie = (header: string): CookieMetadata => {
+  const { name, attributeSegments } = parseCookiePair(header);
 
   const seen = new Set<string>();
 
   return attributeSegments.reduce<CookieMetadata>(
     (metadata, segment) => {
       if (segment.length === 0) {
-        throw new TypeError('Set-Cookie header contains an empty attribute');
+        throw new TypeError('Invalid Set-Cookie attribute');
       }
 
       const [rawName, attributeValue] = splitAttribute(segment);
       const attribute = rawName.toLowerCase();
 
       if (!cookieNamePattern.test(rawName)) {
-        throw new TypeError(`Invalid Set-Cookie attribute name: ${rawName}`);
+        throw new TypeError('Invalid Set-Cookie attribute name');
       }
 
       if (!isKnownCookieAttribute(attribute)) {
@@ -598,7 +643,7 @@ const normalizeSetCookie = (header: string): CookieMetadata => {
 
       assertUniqueAttribute(seen, attribute);
 
-      return { ...metadata, ...parseKnownCookieAttribute(attribute, rawName, attributeValue) };
+      return { ...metadata, ...parseKnownCookieAttribute(attribute, attributeValue) };
     },
     { name, httpOnly: false, secure: false }
   );
@@ -703,13 +748,33 @@ const decodeCompactJwt = (compactToken: string) => {
   }
 };
 
-const validateJwtOptions = (options: JwtNormalizationOptions) => {
-  if (!Number.isFinite(options.timestampToleranceSeconds)) {
-    throw new TypeError('JWT timestamp tolerance must be finite');
+const parseJwtNormalizationOptions = (value: unknown): JwtNormalizationOptions => {
+  const result = jwtNormalizationOptionsGuard.safeParse(value);
+
+  if (result.success) {
+    return result.data;
   }
 
-  if (options.timestampToleranceSeconds < 0) {
-    throw new TypeError('JWT timestamp tolerance must be non-negative');
+  switch (result.error.issues.at(0)?.path.at(0)) {
+    case 'tokenKind': {
+      throw new TypeError('Invalid JWT normalization options: tokenKind must be a supported kind');
+    }
+    case 'timestampToleranceSeconds': {
+      throw new TypeError('JWT timestamp tolerance must be a finite non-negative number');
+    }
+    case 'identifierClaimPaths': {
+      throw new TypeError(
+        'Invalid JWT normalization options: identifierClaimPaths must be an array of strings'
+      );
+    }
+    case 'timeClaimPaths': {
+      throw new TypeError(
+        'Invalid JWT normalization options: timeClaimPaths must be an array of strings'
+      );
+    }
+    default: {
+      throw new TypeError('Invalid JWT normalization options');
+    }
   }
 };
 
@@ -743,6 +808,12 @@ const getTokenLifetime = (claims: JsonObject): number | undefined => {
     return undefined;
   }
 
+  if (Object.hasOwn(claims, 'tokenLifetimeSeconds')) {
+    throw new TypeError(
+      'JWT claims must not define tokenLifetimeSeconds when token lifetime is derived'
+    );
+  }
+
   const tokenLifetimeSeconds = expiresAt - issuedAt;
 
   if (!Number.isFinite(tokenLifetimeSeconds)) {
@@ -752,28 +823,31 @@ const getTokenLifetime = (claims: JsonObject): number | undefined => {
   return tokenLifetimeSeconds;
 };
 
+/**
+ * Decodes a compact JWT for compatibility observation only. This deliberately performs NO
+ * signature, authenticity, or integrity verification and must never be used for authorization.
+ */
 export const normalizeJwt = (
   compactToken: string,
   context: NormalizationContext,
   options: JwtNormalizationOptions
 ): NormalizedJwt => {
-  validateJwtOptions(options);
+  const parsedOptions = parseJwtNormalizationOptions(options);
 
   const { decodedHeader, decodedClaims } = decodeCompactJwt(compactToken);
   const header = asJsonObject(decodedHeader, 'JWT protected header');
   const claims = asJsonObject(decodedClaims, 'JWT claims');
+  const tokenLifetimeSeconds = getTokenLifetime(claims);
 
-  bindJwtIdentifiers(header, claims, context, options);
+  bindJwtIdentifiers(header, claims, context, parsedOptions);
 
-  const timeRules = collectPresentTimeRules(claims, options);
+  const timeRules = collectPresentTimeRules(claims, parsedOptions);
   const normalizedHeader = normalizeJson(header, context, []);
   const normalizedClaims = normalizeJson(claims, context, timeRules);
 
   if (!isJsonObject(normalizedHeader) || !isJsonObject(normalizedClaims)) {
     throw new TypeError('Normalized JWT observations must be JSON objects');
   }
-
-  const tokenLifetimeSeconds = getTokenLifetime(claims);
 
   return {
     header: normalizedHeader,
