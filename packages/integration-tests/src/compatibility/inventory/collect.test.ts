@@ -1,9 +1,24 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+/* eslint-disable max-lines */
+import {
+  appendFile,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { parseInventoryArguments, resolveTargetConfig } from './cli.js';
+import {
+  parseInventoryArguments,
+  resolveTargetConfig,
+  runInventoryCli,
+  type InventoryCliDependencies,
+} from './cli.js';
 import {
   collectCapabilityManifest,
   collectIntegrationTestCapabilities,
@@ -16,6 +31,84 @@ import { resolveCompatibilityPaths } from './paths.js';
 
 const referenceCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 const fakeReadFiles = async () => ['console\\users\\index.test.ts', 'src/tests/api/users.test.ts'];
+const validOidcDiscovery = {
+  grant_types_supported: ['authorization_code'],
+  response_types_supported: ['code'],
+  response_modes_supported: ['query'],
+  token_endpoint_auth_methods_supported: ['client_secret_basic'],
+};
+const validRuntimeResponses: Readonly<Record<string, unknown>> = {
+  '/api/.well-known/experience.openapi.json': {
+    paths: { '/api/experience': { post: {} } },
+  },
+  '/api/.well-known/management.openapi.json': {
+    paths: { '/api/users': { get: {} } },
+  },
+  '/api/.well-known/user.openapi.json': {
+    paths: { '/api/account': { patch: {} } },
+  },
+  '/oidc/.well-known/openid-configuration': validOidcDiscovery,
+  '/api/connector-factories': [{ id: 'email' }],
+};
+
+const collectFromRuntimeResponses = async (responseByPath: Readonly<Record<string, unknown>>) =>
+  collectCapabilityManifest(
+    {
+      label: 'oracle',
+      coreUrl: 'https://core.example.com',
+      adminUrl: 'https://admin.example.com',
+    },
+    {
+      testRoot: '/repo/packages/integration-tests/src/tests',
+      manualCapabilitiesPath: '/repo/compatibility/manual-capabilities.json',
+      fetchJson: async (url) => responseByPath[url.pathname],
+      readFiles: async () => [],
+      readManualCapabilities: async () => [],
+    }
+  );
+
+const sampleCapability = {
+  id: 'manual.sample',
+  surface: 'manual' as const,
+  source: 'compatibility/manual-capabilities.json',
+  existingEvidence: [],
+};
+const sampleManifest = {
+  schemaVersion: 1 as const,
+  referenceCommit: referenceCommit as typeof referenceCommit,
+  capabilities: [sampleCapability],
+};
+const cliEnvironment = {
+  ASTER_ORACLE_URL: 'https://oracle.example.com',
+  ASTER_ORACLE_ADMIN_URL: 'https://oracle-admin.example.com',
+  ASTER_CANDIDATE_URL: 'https://candidate.example.com',
+  ASTER_CANDIDATE_ADMIN_URL: 'https://candidate-admin.example.com',
+};
+
+const createCliDependencies = (
+  temporaryRoot: string,
+  overrides: Partial<InventoryCliDependencies> = {}
+): InventoryCliDependencies => ({
+  resolvePaths: async () => ({
+    repoRoot: temporaryRoot,
+    manifestPath: path.join(temporaryRoot, 'baseline-manifest.json'),
+    manualCapabilitiesPath: path.join(temporaryRoot, 'manual-capabilities.json'),
+    integrationTestRoot: path.join(temporaryRoot, 'tests'),
+  }),
+  collectManifest: async () => sampleManifest,
+  readManifestFile: async (filePath) => readFile(filePath, 'utf8'),
+  writeManifestFile: async (filePath, contents, options) => writeFile(filePath, contents, options),
+  renameFile: async (oldPath, newPath) => rename(oldPath, newPath),
+  unlinkFile: async (filePath) => rm(filePath),
+  writeOutput: async (message) => {
+    expect(typeof message).toBe('string');
+  },
+  writeError: async (message) => {
+    expect(typeof message).toBe('string');
+  },
+  randomId: () => 'fixed-id',
+  ...overrides,
+});
 
 describe('capability inventory collectors', () => {
   it.each([
@@ -77,15 +170,34 @@ describe('capability inventory collectors', () => {
     );
   });
 
-  it('canonicalizes compound OIDC response types and rejects duplicate generated IDs', () => {
+  it('encodes valid compound OIDC response types and rejects duplicate generated IDs', () => {
     expect(
-      extractOidcCapabilities({ response_types_supported: ['code\vid_token'] }).map(({ id }) => id)
+      extractOidcCapabilities({ response_types_supported: ['code id_token'] }).map(({ id }) => id)
     ).toEqual(['oidc.response_type.code+id_token']);
     expect(() =>
       extractOidcCapabilities({
-        response_types_supported: ['code id_token', 'code  id_token'],
+        response_types_supported: ['code id_token', 'code id_token'],
       })
     ).toThrow('Duplicate capability ID: oidc.response_type.code+id_token');
+  });
+
+  it.each([
+    ' code',
+    'code ',
+    'code  id_token',
+    'code\tid_token',
+    'code\vid_token',
+    'code\nid_token',
+  ])('rejects invalid OIDC response type whitespace: %p', (responseType) => {
+    expect(() => extractOidcCapabilities({ response_types_supported: [responseType] })).toThrow(
+      /response_types_supported/
+    );
+  });
+
+  it('continues to reject whitespace in non-response OIDC identifiers', () => {
+    expect(() =>
+      extractOidcCapabilities({ grant_types_supported: ['authorization code'] })
+    ).toThrow(/grant_types_supported/);
   });
 
   it('sorts connector factory IDs', () => {
@@ -138,22 +250,6 @@ describe('capability inventory collectors', () => {
   });
 
   it('fetches each runtime surface and sends the development user header only to connectors', async () => {
-    const responseByPath: Record<string, unknown> = {
-      '/api/.well-known/experience.openapi.json': {
-        paths: { '/api/experience': { post: {} } },
-      },
-      '/api/.well-known/management.openapi.json': {
-        paths: { '/api/users': { get: {} } },
-      },
-      '/api/.well-known/user.openapi.json': {
-        paths: { '/api/account': { patch: {} } },
-      },
-      '/oidc/.well-known/openid-configuration': {
-        grant_types_supported: ['authorization_code'],
-      },
-      '/api/connector-factories': [{ id: 'email' }],
-    };
-
     const manifest = await collectCapabilityManifest(
       {
         label: 'oracle',
@@ -172,7 +268,7 @@ describe('capability inventory collectors', () => {
             expect(options).toBeUndefined();
           }
 
-          return responseByPath[url.pathname];
+          return validRuntimeResponses[url.pathname];
         },
         readFiles: async () => ['api/users.test.ts'],
         readManualCapabilities: async () => [],
@@ -187,8 +283,58 @@ describe('capability inventory collectors', () => {
       'http.management-api.get./api/users',
       'http.user-api.patch./api/account',
       'oidc.grant.authorization_code',
+      'oidc.response_mode.query',
+      'oidc.response_type.code',
+      'oidc.token_endpoint_auth_method.client_secret_basic',
       'test.api/users.test.ts',
     ]);
+  });
+
+  it.each([
+    { name: 'a non-object document', document: [] },
+    { name: 'a missing paths record', document: {} },
+    { name: 'an empty paths record', document: { paths: {} } },
+    { name: 'a null path item', document: { paths: { '/api/users': null } } },
+    { name: 'an array path item', document: { paths: { '/api/users': [] } } },
+    { name: 'a null operation', document: { paths: { '/api/users': { get: null } } } },
+    { name: 'a string operation', document: { paths: { '/api/users': { get: 'invalid' } } } },
+    { name: 'an array operation', document: { paths: { '/api/users': { get: [] } } } },
+  ])('rejects runtime OpenAPI documents with $name', async ({ document }) => {
+    await expect(
+      collectFromRuntimeResponses({
+        ...validRuntimeResponses,
+        '/api/.well-known/experience.openapi.json': document,
+      })
+    ).rejects.toThrow(/plain object|paths|operation/i);
+  });
+
+  it.each([
+    { name: 'a non-object document', discovery: [] },
+    {
+      name: 'a missing required field',
+      discovery: { ...validOidcDiscovery, response_modes_supported: undefined },
+    },
+    {
+      name: 'an empty required array',
+      discovery: { ...validOidcDiscovery, grant_types_supported: [] },
+    },
+    {
+      name: 'an empty array entry',
+      discovery: { ...validOidcDiscovery, grant_types_supported: [''] },
+    },
+    {
+      name: 'an invalid compound response type',
+      discovery: { ...validOidcDiscovery, response_types_supported: ['code  id_token'] },
+    },
+  ])('rejects runtime OIDC discovery with $name', async ({ discovery }) => {
+    await expect(
+      collectFromRuntimeResponses({
+        ...validRuntimeResponses,
+        '/oidc/.well-known/openid-configuration': discovery,
+      })
+    ).rejects.toThrow(
+      /plain object|grant_types_supported|response_types_supported|response_modes_supported/
+    );
   });
 });
 
@@ -261,4 +407,223 @@ describe('compatibility inventory CLI contracts', () => {
       })
     ).toThrow('ASTER_CANDIDATE_URL must be an HTTP(S) URL');
   });
+
+  it.each([
+    {
+      variableName: 'ASTER_CANDIDATE_URL',
+      value: 'https://candidate.example.com/tenant',
+    },
+    {
+      variableName: 'ASTER_CANDIDATE_ADMIN_URL',
+      value: 'https://candidate-admin.example.com?tenant=one',
+    },
+    {
+      variableName: 'ASTER_CANDIDATE_URL',
+      value: 'https://candidate.example.com/#fragment',
+    },
+  ])('rejects non-origin URL in $variableName', ({ variableName, value }) => {
+    expect(() =>
+      resolveTargetConfig('candidate', {
+        ...cliEnvironment,
+        [variableName]: value,
+      })
+    ).toThrow(`${variableName} must not contain a path, query, or fragment`);
+  });
+
+  it('rejects candidate writes even when the manifest write gate is enabled', async () => {
+    await expect(
+      runInventoryCli(
+        ['--target', 'candidate', '--write'],
+        { ...cliEnvironment, ASTER_ALLOW_MANIFEST_WRITE: '1' },
+        createCliDependencies('/unused')
+      )
+    ).rejects.toThrow('--write requires --target oracle');
+  });
+
+  it.each([{ gate: undefined }, { gate: '0' }, { gate: 'true' }])(
+    'rejects oracle writes without the exact gate: $gate',
+    async ({ gate }) => {
+      await expect(
+        runInventoryCli(
+          ['--target', 'oracle', '--write'],
+          { ...cliEnvironment, ASTER_ALLOW_MANIFEST_WRITE: gate },
+          createCliDependencies('/unused')
+        )
+      ).rejects.toThrow('ASTER_ALLOW_MANIFEST_WRITE=1');
+    }
+  );
+
+  it('writes two-space JSON through an exclusive sibling temp file and rename', async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'aster-inventory-write-'));
+    const manifestPath = path.join(temporaryRoot, 'baseline-manifest.json');
+    const temporaryPath = `${manifestPath}.${process.pid}.fixed-id.tmp`;
+
+    try {
+      const exitCode = await runInventoryCli(
+        ['--target', 'oracle', '--write'],
+        { ...cliEnvironment, ASTER_ALLOW_MANIFEST_WRITE: '1' },
+        createCliDependencies(temporaryRoot, {
+          writeManifestFile: async (filePath, contents, options) => {
+            expect(filePath).toBe(temporaryPath);
+            expect(options).toEqual({ encoding: 'utf8', flag: 'wx' });
+            await writeFile(filePath, contents, options);
+          },
+          renameFile: async (oldPath, newPath) => {
+            expect(oldPath).toBe(temporaryPath);
+            expect(newPath).toBe(manifestPath);
+            await rename(oldPath, newPath);
+          },
+        })
+      );
+
+      expect(exitCode).toBe(0);
+      expect(await readFile(manifestPath, 'utf8')).toBe(
+        `${JSON.stringify(sampleManifest, undefined, 2)}\n`
+      );
+      expect(await readdir(temporaryRoot)).toEqual(['baseline-manifest.json']);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves the write error when no temp file was created', async () => {
+    const temporaryRoot = await mkdtemp(
+      path.join(tmpdir(), 'aster-inventory-write-empty-failure-')
+    );
+
+    try {
+      await expect(
+        runInventoryCli(
+          ['--target', 'oracle', '--write'],
+          { ...cliEnvironment, ASTER_ALLOW_MANIFEST_WRITE: '1' },
+          createCliDependencies(temporaryRoot, {
+            writeManifestFile: async () => {
+              throw new Error('write failed before create');
+            },
+          })
+        )
+      ).rejects.toThrow('write failed before create');
+      expect(await readdir(temporaryRoot)).toEqual([]);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([{ failure: 'write' }, { failure: 'rename' }])(
+    'removes its temp file after a $failure failure',
+    async ({ failure }) => {
+      const temporaryRoot = await mkdtemp(
+        path.join(tmpdir(), `aster-inventory-${failure}-failure-`)
+      );
+
+      try {
+        const dependencies = createCliDependencies(
+          temporaryRoot,
+          failure === 'write'
+            ? {
+                writeManifestFile: async (filePath, contents, options) => {
+                  await writeFile(filePath, contents, options);
+                  throw new Error('write failed');
+                },
+              }
+            : {
+                renameFile: async () => {
+                  throw new Error('rename failed');
+                },
+              }
+        );
+
+        await expect(
+          runInventoryCli(
+            ['--target', 'oracle', '--write'],
+            { ...cliEnvironment, ASTER_ALLOW_MANIFEST_WRITE: '1' },
+            dependencies
+          )
+        ).rejects.toThrow(`${failure} failed`);
+        expect(await readdir(temporaryRoot)).toEqual([]);
+      } finally {
+        await rm(temporaryRoot, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it('accepts a semantically matching manifest with different formatting and key order', async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'aster-inventory-check-match-'));
+    const outputPath = path.join(temporaryRoot, 'output.txt');
+
+    try {
+      await writeFile(
+        path.join(temporaryRoot, 'baseline-manifest.json'),
+        `{"capabilities":[{"existingEvidence":[],"source":"compatibility/manual-capabilities.json","surface":"manual","id":"manual.sample"}],"referenceCommit":"${referenceCommit}","schemaVersion":1}`
+      );
+      const exitCode = await runInventoryCli(
+        ['--target', 'oracle', '--check'],
+        cliEnvironment,
+        createCliDependencies(temporaryRoot, {
+          writeOutput: async (message) => appendFile(outputPath, `${message}\n`),
+        })
+      );
+
+      expect(exitCode).toBe(0);
+      expect(await readFile(outputPath, 'utf8')).toBe(
+        'Capability inventory matches (1 capabilities).\n'
+      );
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('returns drift exit 1 with deterministic added and removed diagnostics', async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'aster-inventory-check-drift-'));
+    const diagnosticsPath = path.join(temporaryRoot, 'diagnostics.txt');
+    const removedCapability = { ...sampleCapability, id: 'manual.z-removed' };
+    const addedCapability = { ...sampleCapability, id: 'manual.a-added' };
+
+    try {
+      await writeFile(
+        path.join(temporaryRoot, 'baseline-manifest.json'),
+        JSON.stringify({ ...sampleManifest, capabilities: [removedCapability] })
+      );
+      const exitCode = await runInventoryCli(
+        ['--target', 'oracle', '--check'],
+        cliEnvironment,
+        createCliDependencies(temporaryRoot, {
+          collectManifest: async () => ({ ...sampleManifest, capabilities: [addedCapability] }),
+          writeError: async (message) => appendFile(diagnosticsPath, `${message}\n`),
+        })
+      );
+
+      expect(exitCode).toBe(1);
+      expect(await readFile(diagnosticsPath, 'utf8')).toBe(
+        'Added capability IDs: manual.a-added\nRemoved capability IDs: manual.z-removed\n'
+      );
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { name: 'missing', contents: undefined, error: /Unable to read committed capability manifest/ },
+    { name: 'invalid JSON', contents: '{', error: /Invalid committed capability manifest JSON/ },
+    { name: 'invalid schema', contents: '{}', error: /Invalid committed capability manifest/ },
+  ])('fails clearly for a $name committed manifest', async ({ contents, error }) => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'aster-inventory-invalid-manifest-'));
+
+    try {
+      if (contents !== undefined) {
+        await writeFile(path.join(temporaryRoot, 'baseline-manifest.json'), contents);
+      }
+
+      await expect(
+        runInventoryCli(
+          ['--target', 'oracle', '--check'],
+          cliEnvironment,
+          createCliDependencies(temporaryRoot)
+        )
+      ).rejects.toThrow(error);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
 });
+/* eslint-enable max-lines */

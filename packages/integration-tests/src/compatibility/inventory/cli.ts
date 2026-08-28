@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import {
+  readFile as readFileFromDisk,
+  rename as renameFileOnDisk,
+  unlink as unlinkFileOnDisk,
+  writeFile as writeFileToDisk,
+} from 'node:fs/promises';
+
+import { z } from 'zod';
 
 import { capabilityManifestGuard, targetConfigGuard } from '../model.js';
 import type { CapabilityManifest, TargetConfig } from '../model.js';
 
 import { collectCapabilityManifest, mergeCapabilities } from './collect.js';
 import { resolveCompatibilityPaths } from './paths.js';
+import type { CompatibilityPaths } from './paths.js';
 
 type TargetLabel = TargetConfig['label'];
 type InventoryMode = 'check' | 'write';
@@ -13,6 +21,27 @@ type InventoryMode = 'check' | 'write';
 export type InventoryArguments = {
   target: TargetLabel;
   mode: InventoryMode;
+};
+
+type ManifestWriteOptions = {
+  encoding: 'utf8';
+  flag: 'wx';
+};
+
+export type InventoryCliDependencies = {
+  resolvePaths: (options: { env: NodeJS.ProcessEnv }) => Promise<CompatibilityPaths>;
+  collectManifest: typeof collectCapabilityManifest;
+  readManifestFile: (filePath: string) => Promise<string>;
+  writeManifestFile: (
+    filePath: string,
+    contents: string,
+    options: ManifestWriteOptions
+  ) => Promise<void>;
+  renameFile: (oldPath: string, newPath: string) => Promise<void>;
+  unlinkFile: (filePath: string) => Promise<void>;
+  randomId: () => string;
+  writeOutput: (message: string) => Promise<void>;
+  writeError: (message: string) => Promise<void>;
 };
 
 const usage = 'Usage: compatibility:inventory --target <oracle|candidate> <--check|--write>';
@@ -61,8 +90,16 @@ const parseHttpUrl = (variableName: string, value: string | undefined) => {
       throw new TypeError('Unsupported URL');
     }
 
+    if (url.pathname !== '/' || url.href.includes('?') || url.href.includes('#')) {
+      throw new RangeError(`${variableName} must not contain a path, query, or fragment`);
+    }
+
     return url.href;
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof RangeError) {
+      throw error;
+    }
+
     throw new Error(`${variableName} must be an HTTP(S) URL`);
   }
 };
@@ -91,31 +128,59 @@ const normalizeManifest = (document: unknown): CapabilityManifest => {
   };
 };
 
-const readManifest = async (manifestPath: string) => {
-  const source = await readFile(manifestPath, 'utf8');
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+const hasErrorCode = (error: unknown, code: string) =>
+  typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 
-  return normalizeManifest(JSON.parse(source));
+const readManifest = async (
+  manifestPath: string,
+  readManifestFile: InventoryCliDependencies['readManifestFile']
+) => {
+  const source = await (async () => {
+    try {
+      return await readManifestFile(manifestPath);
+    } catch (error: unknown) {
+      throw new Error(`Unable to read committed capability manifest: ${getErrorMessage(error)}`);
+    }
+  })();
+  const document = (() => {
+    try {
+      return z.unknown().parse(JSON.parse(source));
+    } catch (error: unknown) {
+      throw new Error(`Invalid committed capability manifest JSON: ${getErrorMessage(error)}`);
+    }
+  })();
+
+  try {
+    return normalizeManifest(document);
+  } catch (error: unknown) {
+    throw new Error(`Invalid committed capability manifest: ${getErrorMessage(error)}`);
+  }
 };
 
 const writeManifestAtomically = async (
   manifestPath: string,
-  manifest: CapabilityManifest
+  manifest: CapabilityManifest,
+  dependencies: InventoryCliDependencies
 ): Promise<void> => {
-  const temporaryPath = `${manifestPath}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = `${manifestPath}.${process.pid}.${dependencies.randomId()}.tmp`;
 
   try {
-    await writeFile(temporaryPath, `${JSON.stringify(manifest, undefined, 2)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-    });
-    await rename(temporaryPath, manifestPath);
+    await dependencies.writeManifestFile(
+      temporaryPath,
+      `${JSON.stringify(manifest, undefined, 2)}\n`,
+      {
+        encoding: 'utf8',
+        flag: 'wx',
+      }
+    );
+    await dependencies.renameFile(temporaryPath, manifestPath);
   } catch (error: unknown) {
     try {
-      await unlink(temporaryPath);
+      await dependencies.unlinkFile(temporaryPath);
     } catch (unlinkError: unknown) {
-      if (
-        !(unlinkError instanceof Error && 'code' in unlinkError && unlinkError.code === 'ENOENT')
-      ) {
+      if (!hasErrorCode(unlinkError, 'ENOENT')) {
         throw unlinkError;
       }
     }
@@ -123,7 +188,7 @@ const writeManifestAtomically = async (
   }
 };
 
-const printCapabilityIdDiff = (
+const getCapabilityIdDiff = (
   committedManifest: CapabilityManifest,
   collectedManifest: CapabilityManifest
 ) => {
@@ -132,46 +197,70 @@ const printCapabilityIdDiff = (
   const added = [...collectedIds].filter((id) => !committedIds.has(id)).toSorted();
   const removed = [...committedIds].filter((id) => !collectedIds.has(id)).toSorted();
 
-  console.error(`Added capability IDs: ${added.length === 0 ? '(none)' : added.join(', ')}`);
-  console.error(`Removed capability IDs: ${removed.length === 0 ? '(none)' : removed.join(', ')}`);
+  return { added, removed };
+};
+
+const defaultDependencies: InventoryCliDependencies = {
+  resolvePaths: resolveCompatibilityPaths,
+  collectManifest: collectCapabilityManifest,
+  readManifestFile: async (filePath) => readFileFromDisk(filePath, 'utf8'),
+  writeManifestFile: async (filePath, contents, options) =>
+    writeFileToDisk(filePath, contents, options),
+  renameFile: async (oldPath, newPath) => renameFileOnDisk(oldPath, newPath),
+  unlinkFile: async (filePath) => unlinkFileOnDisk(filePath),
+  randomId: randomUUID,
+  writeOutput: async (message) => {
+    console.log(message);
+  },
+  writeError: async (message) => {
+    console.error(message);
+  },
 };
 
 export const runInventoryCli = async (
   arguments_: readonly string[] = process.argv.slice(2),
-  env: NodeJS.ProcessEnv = process.env
-) => {
+  env: NodeJS.ProcessEnv = process.env,
+  injectedDependencies: Partial<InventoryCliDependencies> = {}
+): Promise<number> => {
   const { target, mode } = parseInventoryArguments(arguments_);
 
   if (mode === 'write' && (target !== 'oracle' || env.ASTER_ALLOW_MANIFEST_WRITE !== '1')) {
     throw new Error('--write requires --target oracle and ASTER_ALLOW_MANIFEST_WRITE=1');
   }
 
-  const paths = await resolveCompatibilityPaths({ env });
+  const dependencies = { ...defaultDependencies, ...injectedDependencies };
+  const paths = await dependencies.resolvePaths({ env });
   const collectedManifest = normalizeManifest(
-    await collectCapabilityManifest(resolveTargetConfig(target, env), {
+    await dependencies.collectManifest(resolveTargetConfig(target, env), {
       testRoot: paths.integrationTestRoot,
       manualCapabilitiesPath: paths.manualCapabilitiesPath,
     })
   );
 
   if (mode === 'write') {
-    await writeManifestAtomically(paths.manifestPath, collectedManifest);
-    console.log(`Wrote ${collectedManifest.capabilities.length} capabilities.`);
-    return;
+    await writeManifestAtomically(paths.manifestPath, collectedManifest, dependencies);
+    await dependencies.writeOutput(`Wrote ${collectedManifest.capabilities.length} capabilities.`);
+    return 0;
   }
 
-  const committedManifest = await readManifest(paths.manifestPath);
+  const committedManifest = await readManifest(paths.manifestPath, dependencies.readManifestFile);
 
   if (JSON.stringify(committedManifest) !== JSON.stringify(collectedManifest)) {
-    printCapabilityIdDiff(committedManifest, collectedManifest);
-    // eslint-disable-next-line @silverhand/fp/no-mutation
-    process.exitCode = 1;
-    return;
+    const { added, removed } = getCapabilityIdDiff(committedManifest, collectedManifest);
+
+    await dependencies.writeError(
+      `Added capability IDs: ${added.length === 0 ? '(none)' : added.join(', ')}`
+    );
+    await dependencies.writeError(
+      `Removed capability IDs: ${removed.length === 0 ? '(none)' : removed.join(', ')}`
+    );
+    return 1;
   }
 
-  console.log(
+  await dependencies.writeOutput(
     `Capability inventory matches (${collectedManifest.capabilities.length} capabilities).`
   );
+  return 0;
 };
 
 const isMainModule =
@@ -179,9 +268,14 @@ const isMainModule =
 
 if (isMainModule) {
   try {
-    await runInventoryCli();
+    const exitCode = await runInventoryCli();
+
+    if (exitCode !== 0) {
+      // eslint-disable-next-line @silverhand/fp/no-mutation
+      process.exitCode = exitCode;
+    }
   } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(getErrorMessage(error));
     // eslint-disable-next-line @silverhand/fp/no-mutation
     process.exitCode = 1;
   }

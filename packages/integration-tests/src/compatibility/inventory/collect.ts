@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -34,17 +35,68 @@ const oidcSource = '/oidc/.well-known/openid-configuration';
 const integrationTestSourcePrefix = 'packages/integration-tests/src/tests/';
 const httpMethods = ['delete', 'get', 'patch', 'post', 'put'] as const;
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+};
+
+const plainRecordGuard = z.custom<Record<string, unknown>>(isPlainRecord, {
+  message: 'Expected a plain object',
+});
+const runtimePathItemGuard = plainRecordGuard.superRefine((pathItem, context) => {
+  for (const method of httpMethods) {
+    if (Object.hasOwn(pathItem, method) && !isPlainRecord(pathItem[method])) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [method],
+        message: `Expected ${method} operation to be a non-null plain object`,
+      });
+    }
+  }
+});
+const runtimeOpenApiDocumentGuard = plainRecordGuard.pipe(
+  z
+    .object({
+      paths: plainRecordGuard
+        .pipe(z.record(runtimePathItemGuard))
+        .refine((paths) => Object.keys(paths).length > 0, 'Expected paths to be nonempty'),
+    })
+    .passthrough()
+);
+const responseTypeGuard = z
+  .string()
+  .min(1)
+  .regex(
+    /^\w+(?: \w+)*$/,
+    'response_types_supported entries must use single-space-separated response type tokens'
+  );
+
 const openApiDocumentGuard = z
   .object({ paths: z.record(z.record(z.unknown())).optional() })
   .passthrough();
 const oidcDocumentGuard = z
   .object({
     grant_types_supported: z.array(z.string().min(1)).optional(),
-    response_types_supported: z.array(z.string().min(1)).optional(),
+    response_types_supported: z.array(responseTypeGuard).optional(),
     response_modes_supported: z.array(z.string().min(1)).optional(),
     token_endpoint_auth_methods_supported: z.array(z.string().min(1)).optional(),
   })
   .passthrough();
+const runtimeOidcDocumentGuard = plainRecordGuard.pipe(
+  z
+    .object({
+      grant_types_supported: z.array(z.string().min(1)).nonempty(),
+      response_types_supported: z.array(responseTypeGuard).nonempty(),
+      response_modes_supported: z.array(z.string().min(1)).nonempty(),
+      token_endpoint_auth_methods_supported: z.array(z.string().min(1)).nonempty(),
+    })
+    .passthrough()
+);
 const connectorFactoryGuard = z.object({
   id: z
     .string()
@@ -108,18 +160,7 @@ const isAsciiWhitespace = (character: string) => {
 
 const canonicalizeOidcValue = (field: (typeof oidcCapabilityFields)[number][0], value: string) => {
   if (field === 'response_types_supported') {
-    const canonicalValue = [...value]
-      .map((character) => (isAsciiWhitespace(character) ? ' ' : character))
-      .join('')
-      .split(' ')
-      .filter((segment) => segment.length > 0)
-      .join('+');
-
-    if (canonicalValue.length === 0) {
-      throw new Error(`${field} entry must not be empty`);
-    }
-
-    return canonicalValue;
+    return value.replaceAll(' ', '+');
   }
 
   if ([...value].some((character) => isAsciiWhitespace(character))) {
@@ -288,10 +329,18 @@ export const collectCapabilityManifest = async (
   const userSource = '/api/.well-known/user.openapi.json';
   const connectorSource = '/api/connector-factories';
 
-  const experienceDocument = await fetchJson(new URL(experienceSource, target.coreUrl));
-  const managementDocument = await fetchJson(new URL(managementSource, target.adminUrl));
-  const userDocument = await fetchJson(new URL(userSource, target.adminUrl));
-  const oidcDocument = await fetchJson(new URL(oidcSource, target.coreUrl));
+  const experienceDocument = runtimeOpenApiDocumentGuard.parse(
+    await fetchJson(new URL(experienceSource, target.coreUrl))
+  );
+  const managementDocument = runtimeOpenApiDocumentGuard.parse(
+    await fetchJson(new URL(managementSource, target.adminUrl))
+  );
+  const userDocument = runtimeOpenApiDocumentGuard.parse(
+    await fetchJson(new URL(userSource, target.adminUrl))
+  );
+  const oidcDocument = runtimeOidcDocumentGuard.parse(
+    await fetchJson(new URL(oidcSource, target.coreUrl))
+  );
   const connectorDocument = await fetchJson(new URL(connectorSource, target.adminUrl), {
     headers: { 'development-user-id': 'integration-test-admin-user' },
   });
@@ -317,3 +366,4 @@ export const collectCapabilityManifest = async (
     capabilities,
   });
 };
+/* eslint-enable max-lines */
