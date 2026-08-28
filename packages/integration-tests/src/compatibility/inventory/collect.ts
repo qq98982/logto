@@ -333,15 +333,15 @@ export const collectCapabilityManifest = async (
     await fetchJson(new URL(experienceSource, target.coreUrl))
   );
   const managementDocument = runtimeOpenApiDocumentGuard.parse(
-    await fetchJson(new URL(managementSource, target.adminUrl))
+    await fetchJson(new URL(managementSource, target.coreUrl))
   );
   const userDocument = runtimeOpenApiDocumentGuard.parse(
-    await fetchJson(new URL(userSource, target.adminUrl))
+    await fetchJson(new URL(userSource, target.coreUrl))
   );
   const oidcDocument = runtimeOidcDocumentGuard.parse(
     await fetchJson(new URL(oidcSource, target.coreUrl))
   );
-  const connectorDocument = await fetchJson(new URL(connectorSource, target.adminUrl), {
+  const connectorDocument = await fetchJson(new URL(connectorSource, target.coreUrl), {
     headers: { 'development-user-id': 'integration-test-admin-user' },
   });
   const integrationTestCapabilities = await collectIntegrationTestCapabilities(testRoot, {

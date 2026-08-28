@@ -9,9 +9,17 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { z } from 'zod';
 
 import {
   parseInventoryArguments,
@@ -50,6 +58,91 @@ const validRuntimeResponses: Readonly<Record<string, unknown>> = {
   '/oidc/.well-known/openid-configuration': validOidcDiscovery,
   '/api/connector-factories': [{ id: 'email' }],
 };
+
+const listenOnLoopback = async (server: Server) => {
+  await new Promise<void>((resolve, reject) => {
+    const handleError = (error: Error) => {
+      reject(error);
+    };
+
+    server.once('error', handleError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', handleError);
+      resolve();
+    });
+  });
+  const address = server.address();
+
+  if (address === null || typeof address === 'string') {
+    throw new Error('Expected an ephemeral TCP server address');
+  }
+
+  return `http://127.0.0.1:${address.port}`;
+};
+
+const closeServer = async (server: Server) => {
+  if (!server.listening) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+    server.closeAllConnections();
+  });
+};
+
+const sendJson = (response: ServerResponse, statusCode: number, value: unknown) => {
+  response.writeHead(statusCode, { 'content-type': 'application/json' });
+  response.end(JSON.stringify(value));
+};
+
+const fetchJsonFromTestServer = async (
+  url: URL,
+  options?: { headers?: Readonly<Record<string, string>> }
+) => {
+  const response = await fetch(url, { headers: options?.headers });
+  const source = await response.text();
+
+  return z.unknown().parse(JSON.parse(source));
+};
+
+const objectRecordGuard = z.custom<Record<string, unknown>>(
+  (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+const nullPrototypePathItem = objectRecordGuard.parse(
+  Object.assign(Object.create(null), { get: {} })
+);
+const extraPrototypeLayerPathItem = objectRecordGuard.parse(
+  // eslint-disable-next-line @silverhand/fp/no-mutating-assign, @typescript-eslint/no-unsafe-argument -- Deliberately construct the rejected two-layer prototype fixture.
+  Object.assign(Object.create(Object.create(null)), { get: {} })
+);
+
+class CustomPrototypePathItem {
+  isCustomPrototype() {
+    return true;
+  }
+}
+
+const createCoreRuntimeServer = (requests: Map<string, IncomingHttpHeaders>) =>
+  createServer((request, response) => {
+    const requestPath = request.url ?? '';
+    const document = validRuntimeResponses[requestPath];
+
+    requests.set(requestPath, request.headers);
+
+    if (document === undefined) {
+      sendJson(response, 404, { error: 'not-found' });
+      return;
+    }
+
+    sendJson(response, 200, document);
+  });
 
 const collectFromRuntimeResponses = async (responseByPath: Readonly<Record<string, unknown>>) =>
   collectCapabilityManifest(
@@ -290,10 +383,114 @@ describe('capability inventory collectors', () => {
     ]);
   });
 
+  it('fetches every live inventory document from core and never sends auth to admin', async () => {
+    const coreRequests = new Map<string, IncomingHttpHeaders>();
+    const adminRequests = new Map<string, IncomingHttpHeaders>();
+    const coreServer = createCoreRuntimeServer(coreRequests);
+    const adminServer = createServer((request, response) => {
+      adminRequests.set(request.url ?? '', request.headers);
+      sendJson(response, 500, { error: 'admin-origin-must-not-be-used' });
+    });
+
+    try {
+      const [coreUrl, adminUrl] = await Promise.all([
+        listenOnLoopback(coreServer),
+        listenOnLoopback(adminServer),
+      ]);
+
+      await collectCapabilityManifest(
+        { label: 'oracle', coreUrl, adminUrl },
+        {
+          testRoot: '/repo/packages/integration-tests/src/tests',
+          manualCapabilitiesPath: '/repo/compatibility/manual-capabilities.json',
+          fetchJson: fetchJsonFromTestServer,
+          readFiles: async () => [],
+          readManualCapabilities: async () => [],
+        }
+      );
+
+      expect(Array.from(coreRequests.keys()).toSorted()).toEqual(
+        Object.keys(validRuntimeResponses).toSorted()
+      );
+      expect(adminRequests.size).toBe(0);
+
+      for (const [requestPath, headers] of coreRequests) {
+        const unexpectedHeaders = Object.keys(headers).filter(
+          (header) =>
+            ![
+              'accept',
+              'accept-encoding',
+              'accept-language',
+              'connection',
+              'development-user-id',
+              'host',
+              'sec-fetch-mode',
+              'user-agent',
+            ].includes(header)
+        );
+
+        expect(unexpectedHeaders).toEqual([]);
+        expect(headers.authorization).toBeUndefined();
+        expect(headers['proxy-authorization']).toBeUndefined();
+        expect(headers.cookie).toBeUndefined();
+        expect(headers['x-api-key']).toBeUndefined();
+        expect(headers['x-auth-token']).toBeUndefined();
+        expect(headers['development-user-id']).toBe(
+          requestPath === '/api/connector-factories' ? 'integration-test-admin-user' : undefined
+        );
+      }
+    } finally {
+      await Promise.all([closeServer(coreServer), closeServer(adminServer)]);
+    }
+  });
+
+  it('collects from core when the distinct admin origin is unreachable', async () => {
+    const coreRequests = new Map<string, IncomingHttpHeaders>();
+    const coreServer = createCoreRuntimeServer(coreRequests);
+    const closedAdminServer = createServer();
+
+    try {
+      const [coreUrl, adminUrl] = await Promise.all([
+        listenOnLoopback(coreServer),
+        listenOnLoopback(closedAdminServer),
+      ]);
+      await closeServer(closedAdminServer);
+
+      const manifest = await collectCapabilityManifest(
+        { label: 'candidate', coreUrl, adminUrl },
+        {
+          testRoot: '/repo/packages/integration-tests/src/tests',
+          manualCapabilitiesPath: '/repo/compatibility/manual-capabilities.json',
+          fetchJson: fetchJsonFromTestServer,
+          readFiles: async () => [],
+          readManualCapabilities: async () => [],
+        }
+      );
+      const capabilityIds = manifest.capabilities.map(({ id }) => id);
+
+      expect(capabilityIds).toContain('connector.email');
+      expect(capabilityIds).toContain('http.management-api.get./api/users');
+      expect(capabilityIds).toContain('http.user-api.patch./api/account');
+      expect(Array.from(coreRequests.keys()).toSorted()).toEqual(
+        Object.keys(validRuntimeResponses).toSorted()
+      );
+    } finally {
+      await Promise.all([closeServer(coreServer), closeServer(closedAdminServer)]);
+    }
+  });
+
   it.each([
     { name: 'a non-object document', document: [] },
     { name: 'a missing paths record', document: {} },
     { name: 'an empty paths record', document: { paths: {} } },
+    {
+      name: 'a path item with a custom prototype layer',
+      document: { paths: { '/api/users': new CustomPrototypePathItem() } },
+    },
+    {
+      name: 'a path item whose prototype has a null prototype',
+      document: { paths: { '/api/users': extraPrototypeLayerPathItem } },
+    },
     { name: 'a null path item', document: { paths: { '/api/users': null } } },
     { name: 'an array path item', document: { paths: { '/api/users': [] } } },
     { name: 'a null operation', document: { paths: { '/api/users': { get: null } } } },
@@ -306,6 +503,22 @@ describe('capability inventory collectors', () => {
         '/api/.well-known/experience.openapi.json': document,
       })
     ).rejects.toThrow(/plain object|paths|operation/i);
+  });
+
+  it('accepts ordinary and null-prototype OpenAPI records', async () => {
+    const manifest = await collectFromRuntimeResponses({
+      ...validRuntimeResponses,
+      '/api/.well-known/experience.openapi.json': {
+        paths: {
+          '/api/ordinary': { get: {} },
+          '/api/null-prototype': nullPrototypePathItem,
+        },
+      },
+    });
+    const capabilityIds = manifest.capabilities.map(({ id }) => id);
+
+    expect(capabilityIds).toContain('http.experience-api.get./api/ordinary');
+    expect(capabilityIds).toContain('http.experience-api.get./api/null-prototype');
   });
 
   it.each([
