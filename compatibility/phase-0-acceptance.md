@@ -2,10 +2,9 @@
 
 ## Status and scope
 
-Local Phase-0 acceptance passed on 2026-08-29 for the runnable open-source repository. The
-compatibility boundary excludes the proprietary Cloud backend. The hosted CI observation remains
-pending because the branch is local and has not been pushed; no GitHub-hosted workflow or artifact
-run is claimed.
+Phase-0 acceptance passed for the runnable open-source repository. Local gates completed on
+2026-08-29, and hosted CI exit criterion 7 completed on 2026-08-30 JST. The compatibility boundary
+excludes the proprietary Cloud backend.
 
 ## Reference and runtime identity
 
@@ -13,10 +12,13 @@ run is claimed.
 | ----------------------------- | ------------------------------------------------------------------------- |
 | Validated implementation HEAD | `28f6237700c6b5a1a5d32d6d9bb9a1d8bb77cdda`                                |
 | Clean regression checkout     | `86bcf75908f34a2af789b77ff36b92730d2f76b4`                                |
+| Hosted CI head                | `5d1fad6a5693e569648a3286af3916caf6ae970f`                                |
 | Acceptance checkout state     | Clean before every final command                                          |
 | Reference commit              | `6852a7b8c8984c5c12b2061e8c51faa310a36412`                                |
 | Oracle image ID               | `sha256:9192b78e3629f1096428b0833bd1b95a2b07f1d041a6da0728dff712c526b9a6` |
 | Candidate image ID            | `sha256:9192b78e3629f1096428b0833bd1b95a2b07f1d041a6da0728dff712c526b9a6` |
+| Hosted oracle image ID        | `sha256:3d13b05097f6aa83c4ef8394b01406793cfd7d49c7a6df9921882265dfe2f865` |
+| Hosted candidate image ID     | `sha256:3d13b05097f6aa83c4ef8394b01406793cfd7d49c7a6df9921882265dfe2f865` |
 
 The oracle and candidate used independent runtime state while running the same reference image.
 
@@ -63,6 +65,7 @@ this acceptance record.
 | `./.scripts/integration/run.sh api`                         | Post-record clean rerun | 176 suites passed, 4 skipped; 1,310 tests passed, 50 skipped; 9 snapshots passed | 575.15 s total; 340.416 s Jest |
 | `./.scripts/integration/run.sh experience`                  | Post-record clean rerun | 26 suites passed, 1 skipped; 129 tests passed, 2 skipped                         | 534.87 s total; 507.454 s Jest |
 | `./.scripts/integration/run.sh console`                     | Post-record clean rerun | 18 suites passed, 3 skipped; 144 tests passed, 9 skipped                         | 480.59 s total; 287.329 s Jest |
+| GitHub Actions run `33262814079`                            | Hosted PR merge ref     | Compatibility lab and sanitized artifact upload passed                           |                      412 s job |
 
 Workstation Podman required active healthcheck polling and a private Compose v5 adapter; repository
 commands were unchanged. The API run required a loopback host database mapping for three direct
@@ -88,15 +91,23 @@ Final sanitized evidence is stored at
 JSON files are each mode `0600`. The structural sanitizer passed. No service, API, browser, or
 Compose logs are embedded in this record.
 
+Hosted run `33262814079` uploaded artifact `9717824231`, named `aster-compatibility-evidence`, from
+head `5d1fad6a5`. The artifact contains exactly `discovery.json`, `password-code.json`,
+`negative-control.json`, and `run.json`; it contains no service logs. After download to a private
+directory, all four files passed the repository Zod guards, the structural sensitive-material
+scanner, JSON parsing, exact scenario/control checks, and a focused raw credential scan. Both hosted
+scenarios have zero differences, the negative-control path is `/observations/0/value/issuer`, and
+the hosted oracle/candidate image IDs are equal.
+
 Lifecycle cleanup passed with no remaining lab listeners or resources. Existing pre-run container
 IDs and states were verified unchanged.
 
 ## CI status
 
-The GitHub workflow is committed and configured, its local lifecycle command passed, and actionlint
-v1.7.12 reported no errors. Because the branch is local and unpushed, a hosted workflow run and
-sanitized artifact upload have not been observed. Phase-0 exit criterion 7 therefore still needs
-that external acceptance observation; it is not Phase 1 work.
+Pull request `qq98982/logto#1` targets the dedicated frozen `aster-phase0-base` branch rather than
+the moving product `master`. Its merge-ref compatibility job and sanitized artifact upload both
+completed successfully in run `33262814079`. Phase-0 exit criterion 7 is satisfied. This record-only
+update changes no runtime or lab input and receives a confirmatory hosted rerun.
 
 ## Remaining Phase 1 prerequisites
 
@@ -108,4 +119,5 @@ that external acceptance observation; it is not Phase 1 work.
 
 - The upstream integration workflow permits up to three attempts, so a passing final Experience
   attempt does not eliminate intermittent browser-suite risk.
-- Hosted cold-run duration and runner-specific behavior remain unmeasured until the branch is pushed.
+- Hosted acceptance covers the dedicated frozen `aster-phase0-base` branch, not subsequent product
+  `master` drift; moving the reference requires the explicit baseline-update process.
