@@ -1,4 +1,4 @@
-# Logto Rust Behavioral-Compatibility Rewrite Design
+# Aster Behavioral-Compatibility Rewrite Design
 
 Date: 2026-08-28
 
@@ -15,6 +15,12 @@ Replace the runnable open-source Logto product at the pinned reference commit wi
 The rewrite is a new implementation of published behavior, not a line-by-line translation of the TypeScript repository. Rust owns identity state, authorization, protocol orchestration, persistence, keys, and the Management API. Restricted Node compatibility hosts initially execute existing npm connectors, selected SAML operations, custom JWT scripts, and Actions. These workloads have separate processes, credentials, and privilege profiles.
 
 The baseline is immutable. Features added to upstream Logto after the reference commit are separate product work and do not silently expand this program.
+
+### 1.1 Project identity
+
+The new implementation's neutral engineering codename is **Aster**. New Rust crates, binaries, container images, Compose services and project names, environment-variable namespaces, runtime directories, logs, metrics, and deployment artifacts use `aster` or `ASTER_`; they do not use the upstream product name.
+
+The upstream name remains only where technical or legal accuracy requires it: license and source attribution, the pinned behavioral oracle, inherited upstream package names or filesystem paths, compatibility statements, and references to existing public APIs or applications. The codename does not change any client-observable issuer, endpoint, API, protocol, Console, or Experience contract.
 
 ## 2. Scope
 

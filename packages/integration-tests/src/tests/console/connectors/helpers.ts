@@ -32,15 +32,19 @@ export const findNextCompatibleConnector = (currentConnector: PasswordlessConnec
   return sameTypeConnectors[(currentIndex + 1) % sameTypeConnectors.length];
 };
 
-type SelectConnectorOption = {
-  groupFactoryId?: string;
+export type ConnectorGroupSelector =
+  | { groupFactoryId: string; groupName?: never }
+  | { groupName: string; groupFactoryId?: never }
+  | { groupFactoryId?: never; groupName?: never };
+
+type SelectConnectorOption = ConnectorGroupSelector & {
   factoryId: string;
   connectorType: ConnectorType;
 };
 
 export const expectToSelectConnector = async (
   page: Page,
-  { groupFactoryId, factoryId, connectorType }: SelectConnectorOption
+  { groupFactoryId, groupName, factoryId, connectorType }: SelectConnectorOption
 ) => {
   await expectModalWithTitle(
     page,
@@ -51,11 +55,15 @@ export const expectToSelectConnector = async (
         : 'Add Social Connector'
   );
 
-  if (groupFactoryId) {
+  if (groupFactoryId ?? groupName) {
     // Platform selector
-    await page.click(
-      `.ReactModalPortal div[role=radio]:has(input[name=group][value=${groupFactoryId}])`
-    );
+    await (groupName
+      ? expect(page).toClick('.ReactModalPortal div[role=radio]:has(input[name=group])', {
+          text: groupName,
+        })
+      : page.click(
+          `.ReactModalPortal div[role=radio]:has(input[name=group][value=${groupFactoryId}])`
+        ));
 
     await page.waitForSelector('.ReactModalPortal div[class$=platforms] div[class$=radioGroup]');
 
