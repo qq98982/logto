@@ -62,22 +62,22 @@ describe('social connectors', () => {
 
   it.each(socialConnectorTestCases)(
     'can create and modify a(n) $factoryId social connector',
-    async ({
-      groupFactoryId,
-      factoryId,
-      name,
-      initialFormData,
-      updateFormData,
-      errorFormData,
-      standardBasicFormData,
-    }: SocialConnectorCase) => {
+    async (connector: SocialConnectorCase) => {
+      const {
+        factoryId,
+        name,
+        initialFormData,
+        updateFormData,
+        errorFormData,
+        standardBasicFormData,
+      } = connector;
+
       await expect(page).toClick('div[class$=headline] button[class$=withIcon] span', {
         text: 'Add Social Connector',
       });
 
       await expectToSelectConnector(page, {
-        groupFactoryId,
-        factoryId,
+        ...connector,
         connectorType: ConnectorType.Social,
       });
 

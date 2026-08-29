@@ -1,5 +1,6 @@
-export type SocialConnectorCase = {
-  groupFactoryId?: string;
+import type { ConnectorGroupSelector } from './helpers.js';
+
+export type SocialConnectorCase = ConnectorGroupSelector & {
   factoryId: string;
   name: string;
   initialFormData: Record<string, string>;
@@ -46,7 +47,7 @@ const feishu: SocialConnectorCase = {
 };
 
 const wechatNative: SocialConnectorCase = {
-  groupFactoryId: 'wechat-native',
+  groupName: 'WeChat',
   factoryId: 'wechat-native',
   name: 'WeChat',
   initialFormData: {
@@ -67,7 +68,7 @@ const wechatNative: SocialConnectorCase = {
 };
 
 const wechatWeb: SocialConnectorCase = {
-  groupFactoryId: 'wechat-native',
+  groupName: 'WeChat',
   factoryId: 'wechat-web',
   name: 'WeChat',
   initialFormData: {
