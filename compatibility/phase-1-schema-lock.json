@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "phase0BaseCommit": "40135e37201f36ac05ece1eff82e37bb6d9649f1",
+  "schemaSourceCommit": "8df96ecd961b8037cba877be1e6a0790f455e8cf",
+  "schemaSha256": "b20b04422432178a9e0b0afda17b529834992255b02a5d0df059b9b04462ffe3",
+  "phase0AuthorityBlobs": {
+    "compatibility/baseline-manifest.json": "783b5487918b86f0d9b21f4ad7c131b49c4362a0",
+    "docker-compose.compatibility.yml": "a34c4faf36bf349c2d77c8dc074683cad8a6035b",
+    ".scripts/compatibility/run.sh": "67361c507c6ac07f3b2c6b5c73893e4d1a2be8d8",
+    "packages/integration-tests/src/compatibility/model.ts": "8f9fdf3f9b94e68b1bd95c6d8b1a09d8c9b8b4fd",
+    "packages/integration-tests/src/compatibility/scenario.ts": "a9491613412a1ef3c5d2c98a800a65d364488977",
+    "packages/integration-tests/src/compatibility/config.ts": "25994f2b266b31a77c53b466bb5bbdbcb9d1cf16",
+    "packages/integration-tests/src/compatibility/target-client.ts": "b5b797974eadd21a446def56ec228ddd91fa5300",
+    "packages/integration-tests/src/compatibility/normalize.ts": "d7077832c65dcc4db1c89723126b4903a675a51b",
+    "packages/integration-tests/src/compatibility/compare.ts": "9b6474c42c91d5a872aaca4e5a43aaebd0b094ef",
+    "packages/integration-tests/src/compatibility/evidence.ts": "1ac942c09cc6b900d18a6aa603118aa3c111ab66",
+    "packages/integration-tests/src/compatibility/cli.ts": "893cb755110211a8e42ed0a951ee4e41436f7eb9",
+    "packages/integration-tests/src/compatibility/scenarios/index.ts": "5cf83da2870665d4fc2d32e9dc223dbe4a10be30"
+  }
+}
