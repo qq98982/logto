@@ -12,6 +12,12 @@ import {
 } from '../model.js';
 import { phase1ScenarioContracts } from '../scenario-contracts.js';
 
+import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runDiscoveryConfig } from './discovery-config.js';
+import { runTokenAuthorizationCode } from './token-authorization-code.js';
+import { runTokenRefreshRotation } from './token-refresh-rotation.js';
+import { runUserInfoOpenId } from './userinfo-openid.js';
+
 const oracle = (path: string): Phase1SourceEvidenceRef => ({ commit: oracleCommit, path });
 const phase0 = (path: string): Phase1SourceEvidenceRef => ({ commit: phase0HarnessCommit, path });
 
@@ -215,6 +221,49 @@ export const pendingPhase1DifferentialScenarioRun: Phase1DifferentialScenario['r
     throw new Error('Phase 1 differential scenario implementation is pending');
   });
 
+const canonicalPhase1ScenarioRuns = Object.freeze({
+  'discovery.config': runDiscoveryConfig,
+  'authorization.password-pkce-consent': runAuthorizationPasswordPkceConsent,
+  'token.authorization-code': runTokenAuthorizationCode,
+  'token.refresh-rotation': runTokenRefreshRotation,
+  'userinfo.openid': runUserInfoOpenId,
+  'management.application-read': pendingPhase1DifferentialScenarioRun,
+  'management.user-read': pendingPhase1DifferentialScenarioRun,
+  'console.admin-auth-resource-refresh': pendingPhase1DifferentialScenarioRun,
+  'console.admin-organization-token-refresh': pendingPhase1DifferentialScenarioRun,
+  'account.admin-operator-read': pendingPhase1DifferentialScenarioRun,
+  'cors.management-list': pendingPhase1DifferentialScenarioRun,
+  'cookie.localhost-port-interleaving': pendingPhase1DifferentialScenarioRun,
+  'authorization.redirect-uri-rejected': pendingPhase1DifferentialScenarioRun,
+  'authorization.pkce-method-rejected': pendingPhase1DifferentialScenarioRun,
+  'token.pkce-verifier-rejected': pendingPhase1DifferentialScenarioRun,
+  'token.code-reuse-rejected': pendingPhase1DifferentialScenarioRun,
+  'interaction.password-rejected': pendingPhase1DifferentialScenarioRun,
+  'interaction.consent-session-boundary': pendingPhase1DifferentialScenarioRun,
+  'token.refresh-reuse-rejected': pendingPhase1DifferentialScenarioRun,
+  'token.issuer-audience-scope-rejected': pendingPhase1DifferentialScenarioRun,
+  'token.concurrent-code-single-winner': pendingPhase1DifferentialScenarioRun,
+  'token.concurrent-refresh-single-winner': pendingPhase1DifferentialScenarioRun,
+} satisfies Readonly<Record<Phase1DifferentialScenario['id'], Phase1DifferentialScenario['run']>>);
+
+const canonicalRunAt = (index: number): Phase1DifferentialScenario['run'] | undefined => {
+  const contract = phase1ScenarioContracts[index];
+
+  return contract ? canonicalPhase1ScenarioRuns[contract.id] : undefined;
+};
+
+const canonicalRunPathPattern = /^\/(0|[1-9]\d*)\/run$/u;
+const isCanonicalRunAtSnapshotPath = (path: string, value: unknown): boolean => {
+  const indexText = canonicalRunPathPattern.exec(path)?.[1];
+
+  if (indexText === undefined) {
+    return false;
+  }
+  const index = Number(indexText);
+
+  return Number.isSafeInteger(index) && value === canonicalRunAt(index);
+};
+
 const buildRegistry = (): readonly Phase1DifferentialScenario[] => {
   if (registryMetadata.length !== phase1ScenarioContracts.length) {
     throw new TypeError('Invalid phase 1 differential scenario registry');
@@ -237,7 +286,7 @@ const buildRegistry = (): readonly Phase1DifferentialScenario[] => {
       normalizablePointers: contract.normalizablePointers,
       semanticProjectionVersion: 1,
       cleanup: 'fresh-fixture-reverse-cleanup',
-      run: pendingPhase1DifferentialScenarioRun,
+      run: canonicalPhase1ScenarioRuns[contract.id],
     });
   });
 };
@@ -330,15 +379,14 @@ const isExactRegistryEntry = (
   equalObservations(candidate.observationContract, expected.observationContract) &&
   equalStrings(candidate.normalizablePointers, expected.normalizablePointers) &&
   candidate.run === expected.run &&
-  candidate.run === pendingPhase1DifferentialScenarioRun;
+  candidate.run === canonicalPhase1ScenarioRuns[candidate.id];
 
 export const assertExactDifferentialScenarioRegistry = (
   registry: readonly Phase1DifferentialScenario[]
 ): void => {
   try {
     const snapshot = snapshotDensePlainArray<Phase1DifferentialScenario>(registry, {
-      allowFunction: (path, value) =>
-        /^\/(?:0|[1-9]\d*)\/run$/u.test(path) && value === pendingPhase1DifferentialScenarioRun,
+      allowFunction: isCanonicalRunAtSnapshotPath,
     });
 
     if (!snapshot || snapshot.length !== phase1DifferentialScenarios.length) {

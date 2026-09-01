@@ -25,7 +25,7 @@ const authToken68Pattern = /^[A-Za-z0-9._~+/-]+={0,}$/u;
 const redirectCredentialKeyPattern =
   /(?:^|[_-])(?:code|state|token|credential|session|interaction|resume|verification|nonce)(?:$|[_-])/iu;
 const boundedTimestampToleranceSeconds = 30;
-const allowedJwtTimestampFields = new Set(['iat', 'exp', 'auth_time']);
+const allowedJwtTimestampFields = new Set(['iat', 'exp', 'auth_time', 'created_at', 'updated_at']);
 const allowedUserInfoTimestampFields = new Set(['created_at', 'updated_at']);
 const entityTimestampFields = new Set(['createdAt', 'created_at', 'updatedAt', 'updated_at']);
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
@@ -783,12 +783,15 @@ const normalizeClaimObject = (
         if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
           return fixedFailure('Invalid phase 1 claims');
         }
+        const timestamp = allowedUserInfoTimestampFields.has(key)
+          ? Math.floor(rawValue / 1000)
+          : rawValue;
 
         return [
           [
             key,
             {
-              $timestamp: rawValue,
+              $timestamp: timestamp,
               $toleranceSeconds: boundedTimestampToleranceSeconds,
             },
           ],

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, no-await-in-loop, unicorn/consistent-function-scoping, unicorn/no-array-for-each -- Complete source-authority mutation tests deliberately bypass readonly types and execute fixed pending functions in order. */
+/* eslint-disable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, no-await-in-loop, unicorn/consistent-function-scoping, unicorn/no-array-for-each -- Complete source-authority mutation tests deliberately bypass readonly types and verify exact canonical function identities. */
 import {
   differentialScenarioIds,
   oracleCommit,
@@ -6,11 +6,16 @@ import {
   type Phase1DifferentialScenario,
 } from '../model.js';
 
+import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runDiscoveryConfig } from './discovery-config.js';
 import {
   assertExactDifferentialScenarioRegistry,
   pendingPhase1DifferentialScenarioRun,
   phase1DifferentialScenarios,
 } from './index.js';
+import { runTokenAuthorizationCode } from './token-authorization-code.js';
+import { runTokenRefreshRotation } from './token-refresh-rotation.js';
+import { runUserInfoOpenId } from './userinfo-openid.js';
 
 const expectedFixtures = [
   'none',
@@ -36,6 +41,21 @@ const expectedFixtures = [
   'dataProtocol',
   'dataProtocol',
 ] as const;
+
+const implementedRuns = Object.freeze([
+  runDiscoveryConfig,
+  runAuthorizationPasswordPkceConsent,
+  runTokenAuthorizationCode,
+  runTokenRefreshRotation,
+  runUserInfoOpenId,
+] as const);
+const expectedRuns = Object.freeze([
+  ...implementedRuns,
+  ...Array.from(
+    { length: differentialScenarioIds.length - implementedRuns.length },
+    () => pendingPhase1DifferentialScenarioRun
+  ),
+]);
 
 type SourceText = `oracle:${string}` | `phase0:${string}`;
 const expectedSources: readonly (readonly SourceText[])[] = [
@@ -302,13 +322,13 @@ describe('phase 1 differential registry', () => {
     ).toEqual(expectedSources);
   });
 
-  it('declares complete contract metadata and honest pending executors', async () => {
-    for (const scenario of phase1DifferentialScenarios) {
+  it('declares complete metadata with five exact implementations and seventeen pending runs', async () => {
+    for (const [index, scenario] of phase1DifferentialScenarios.entries()) {
       expect(scenario.evidenceKind).toBe('differential');
       expect(scenario.orderedSteps.length).toBeGreaterThan(0);
       expect(scenario.semanticProjectionVersion).toBe(1);
       expect(scenario.cleanup).toBe('fresh-fixture-reverse-cleanup');
-      expect(scenario.run).toBe(pendingPhase1DifferentialScenarioRun);
+      expect(scenario.run).toBe(expectedRuns[index]);
       expect(Object.keys(scenario.observationContract)).toEqual([
         'status',
         'mediaType',
@@ -316,6 +336,13 @@ describe('phase 1 differential registry', () => {
         'cookies',
         'redirects',
       ]);
+    }
+    expect(
+      phase1DifferentialScenarios.slice(0, implementedRuns.length).map(({ run }) => run)
+    ).toEqual(implementedRuns);
+    const pending = phase1DifferentialScenarios.slice(implementedRuns.length);
+    expect(pending).toHaveLength(17);
+    for (const scenario of pending) {
       await expect(scenario.run({} as never)).rejects.toThrow(
         /^Phase 1 differential scenario implementation is pending$/u
       );
@@ -323,26 +350,22 @@ describe('phase 1 differential registry', () => {
     expect(Object.isFrozen(pendingPhase1DifferentialScenarioRun)).toBe(true);
   });
 
-  it('rejects every replacement of the canonical pending executor identity', () => {
-    const replacements = [
-      async () => {
-        await Promise.resolve();
-      },
-      async () => {
-        throw new Error('different pending failure');
-      },
-      new Proxy(pendingPhase1DifferentialScenarioRun, {}),
-    ];
+  it('rejects every replacement proxy and wrong-index canonical run identity', () => {
+    phase1DifferentialScenarios.forEach((scenario, index) => {
+      const wrongCanonical =
+        index < implementedRuns.length ? pendingPhase1DifferentialScenarioRun : runDiscoveryConfig;
+      const replacements = [async () => [], wrongCanonical, new Proxy(scenario.run, {})];
 
-    for (const replacement of replacements) {
-      expect(() =>
-        assertExactDifferentialScenarioRegistry(
-          mutateRegistryEntry(0, (copy) => {
-            copy.run = replacement;
-          })
-        )
-      ).toThrow(/^Invalid phase 1 differential scenario registry$/u);
-    }
+      for (const replacement of replacements) {
+        expect(() =>
+          assertExactDifferentialScenarioRegistry(
+            mutateRegistryEntry(index, (copy) => {
+              copy.run = replacement;
+            })
+          )
+        ).toThrow(/^Invalid phase 1 differential scenario registry$/u);
+      }
+    });
   });
 
   it('allows additional oracle citations while keeping every Phase 0 citation on the base commit', () => {

@@ -1,4 +1,5 @@
 /* eslint-disable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/consistent-type-definitions, no-control-regex, unicorn/escape-case, @typescript-eslint/prefer-nullish-coalescing, unicorn/no-array-callback-reference, @typescript-eslint/member-ordering -- This module is the single closed, descriptor-aware runtime boundary for the public fixture map and preserves the plan's exact interface spelling. */
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import { SymbolTable } from '../symbol-table.js';
@@ -1039,6 +1040,109 @@ export const getPhase1FixtureRuntimeId = (
   }
 
   return entity.runtimeId;
+};
+
+export const getPhase1FixtureNamespaceSuffix = (allocationId: string): string =>
+  createHash('sha256').update(assertSafeString(allocationId)).digest('hex').slice(0, 16);
+
+export const getPhase1FixtureRuntimeText = (value: string, allocationId: string): string =>
+  `${assertSafeString(value)}_a_${getPhase1FixtureNamespaceSuffix(allocationId)}`;
+
+export const getPhase1FixtureRuntimeUsername = (value: string, allocationId: string): string => {
+  const normalized = assertSafeString(value).replaceAll(/[^A-Za-z0-9_]/gu, '_');
+  const validPrefix = /^[A-Za-z_]/u.test(normalized) ? normalized : `u_${normalized}`;
+
+  return getPhase1FixtureRuntimeText(validPrefix, allocationId);
+};
+
+export const getPhase1FixtureRuntimeEmail = (value: string, allocationId: string): string => {
+  const email = assertSafeString(value);
+  const separator = email.lastIndexOf('@');
+
+  if (separator <= 0 || separator === email.length - 1) {
+    return fail();
+  }
+
+  return `${email.slice(0, separator)}.a.${getPhase1FixtureNamespaceSuffix(allocationId)}${email.slice(separator)}`;
+};
+
+export const getPhase1FixtureRuntimePhone = (allocationId: string): string => {
+  const digits = BigInt(`0x${getPhase1FixtureNamespaceSuffix(allocationId)}`)
+    .toString(10)
+    .padStart(20, '0')
+    .slice(-7);
+
+  return `1555${digits}`;
+};
+
+export const getPhase1FixtureRuntimeResourceIndicator = (
+  value: string,
+  allocationId: string
+): string => {
+  try {
+    const url = new URL(assertSafeString(value));
+    url.searchParams.set('aster_fixture', getPhase1FixtureNamespaceSuffix(allocationId));
+
+    return url.href;
+  } catch {
+    return fail();
+  }
+};
+
+export const getPhase1FixtureRuntimePublicValues = (
+  profile: Pick<Phase1Profile, 'fixtures'>,
+  map: Phase1FixtureMap
+): readonly string[] => {
+  const values = map.allocations.flatMap((allocation) => {
+    const { allocationId } = allocation;
+
+    if (allocation.role === 'admin') {
+      const { operator } = profile.fixtures.adminTenant;
+
+      return [
+        getPhase1FixtureRuntimeUsername(operator.username, allocationId),
+        getPhase1FixtureRuntimeEmail(operator.primaryEmail, allocationId),
+      ];
+    }
+    const { dataTenant } = profile.fixtures;
+    const standardValues =
+      allocation.role === 'data'
+        ? [
+            getPhase1FixtureRuntimeUsername(dataTenant.subject.username, allocationId),
+            getPhase1FixtureRuntimeEmail(dataTenant.subject.primaryEmail, allocationId),
+            getPhase1FixtureRuntimePhone(allocationId),
+            ...dataTenant.applications.map(({ name }) =>
+              getPhase1FixtureRuntimeText(name, allocationId)
+            ),
+            getPhase1FixtureRuntimeText(dataTenant.resource.name, allocationId),
+            getPhase1FixtureRuntimeResourceIndicator(dataTenant.resource.indicator, allocationId),
+            ...dataTenant.resource.scopes.map(({ name }) =>
+              getPhase1FixtureRuntimeText(name, allocationId)
+            ),
+            getPhase1FixtureRuntimeText(dataTenant.resourceScopeRole.name, allocationId),
+          ]
+        : [];
+    const peerPrefix = allocation.entities.some(
+      ({ logicalId }) => logicalId === 'consent.foreign.user-b'
+    )
+      ? 'consent.foreign'
+      : allocation.entities.some(({ logicalId }) => logicalId === 'consent.primary.user-b')
+        ? 'consent.primary'
+        : undefined;
+    const peerValues = peerPrefix
+      ? [
+          getPhase1FixtureRuntimeUsername(
+            `${dataTenant.subject.username}_boundary_b`,
+            allocationId
+          ),
+          getPhase1FixtureRuntimeText(`${peerPrefix} client B`, allocationId),
+        ]
+      : [];
+
+    return [...standardValues, ...peerValues];
+  });
+
+  return Object.freeze(values.filter((value, index) => values.indexOf(value) === index));
 };
 
 /* eslint-enable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/consistent-type-definitions, no-control-regex, unicorn/escape-case, @typescript-eslint/prefer-nullish-coalescing, unicorn/no-array-callback-reference, @typescript-eslint/member-ordering */

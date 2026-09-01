@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, complexity, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, import/order, no-control-regex, unicorn/escape-case, @typescript-eslint/no-unnecessary-condition, prefer-destructuring, @typescript-eslint/array-type, unicorn/no-array-callback-reference, @typescript-eslint/ban-types, no-await-in-loop, @typescript-eslint/no-non-null-assertion, @silverhand/fp/no-mutation, @silverhand/fp/no-let, unicorn/catch-error-name -- The oracle adapter intentionally keeps its black-box DTOs, sequential dependency order, closed projections, and reverse compensation journal in one private boundary. */
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
@@ -30,6 +30,12 @@ import {
   createPhase1FixtureMap,
   createPhase1FixtureStateProjection,
   getExpectedPhase1FixtureEntityKeys,
+  getPhase1FixtureNamespaceSuffix,
+  getPhase1FixtureRuntimeEmail,
+  getPhase1FixtureRuntimePhone,
+  getPhase1FixtureRuntimeResourceIndicator,
+  getPhase1FixtureRuntimeText,
+  getPhase1FixtureRuntimeUsername,
   phase1FixtureRecipeDefinitions,
   type Phase1FixtureAllocation,
   type Phase1FixtureAllocationRole,
@@ -479,40 +485,19 @@ const entity = (
 ): Phase1FixtureEntityId => Object.freeze({ kind, logicalId, runtimeId });
 
 const namespacedText = (value: string, namespace: AllocationNamespace): string =>
-  `${value}_a_${namespace.suffix}`;
+  getPhase1FixtureRuntimeText(value, namespace.allocationId);
 
-const namespacedUsername = (value: string, namespace: AllocationNamespace): string => {
-  const normalized = value.replaceAll(/[^A-Za-z0-9_]/gu, '_');
-  const validPrefix = /^[A-Za-z_]/u.test(normalized) ? normalized : `u_${normalized}`;
+const namespacedUsername = (value: string, namespace: AllocationNamespace): string =>
+  getPhase1FixtureRuntimeUsername(value, namespace.allocationId);
 
-  return namespacedText(validPrefix, namespace);
-};
+const namespacedEmail = (value: string, namespace: AllocationNamespace): string =>
+  getPhase1FixtureRuntimeEmail(value, namespace.allocationId);
 
-const namespacedEmail = (value: string, namespace: AllocationNamespace): string => {
-  const separator = value.lastIndexOf('@');
+const namespacedPhone = (namespace: AllocationNamespace): string =>
+  getPhase1FixtureRuntimePhone(namespace.allocationId);
 
-  if (separator <= 0 || separator === value.length - 1) {
-    throw new TypeError(invalidReferenceConfiguration);
-  }
-
-  return `${value.slice(0, separator)}.a.${namespace.suffix}${value.slice(separator)}`;
-};
-
-const namespacedPhone = (namespace: AllocationNamespace): string => {
-  const digits = BigInt(`0x${namespace.suffix}`).toString(10).padStart(20, '0').slice(-7);
-
-  return `1555${digits}`;
-};
-
-const namespacedResourceIndicator = (value: string, namespace: AllocationNamespace): string => {
-  try {
-    const url = new URL(value);
-    url.searchParams.set('aster_fixture', namespace.suffix);
-    return url.href;
-  } catch {
-    throw new TypeError(invalidReferenceConfiguration);
-  }
-};
+const namespacedResourceIndicator = (value: string, namespace: AllocationNamespace): string =>
+  getPhase1FixtureRuntimeResourceIndicator(value, namespace.allocationId);
 
 const assertObservedEquals = (actual: unknown, expected: unknown): void => {
   if (!isDeepStrictEqual(responseSnapshot(actual), responseSnapshot(expected))) {
@@ -523,7 +508,7 @@ const assertObservedEquals = (actual: unknown, expected: unknown): void => {
 const allocationNamespace = ({ allocationId }: Phase1FixtureAllocation): AllocationNamespace =>
   Object.freeze({
     allocationId,
-    suffix: createHash('sha256').update(allocationId).digest('hex').slice(0, 16),
+    suffix: getPhase1FixtureNamespaceSuffix(allocationId),
   });
 
 const runtimeIdForLogical = (
@@ -1176,7 +1161,7 @@ export const createReferencePhase1FixtureProvisioner = (
             role,
             Object.freeze({
               allocationId,
-              suffix: createHash('sha256').update(allocationId).digest('hex').slice(0, 16),
+              suffix: getPhase1FixtureNamespaceSuffix(allocationId),
             })
           );
         }

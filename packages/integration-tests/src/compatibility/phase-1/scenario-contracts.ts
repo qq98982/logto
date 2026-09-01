@@ -84,7 +84,7 @@ const rawContracts: readonly RawContract[] = [
     explicit: [
       '/steps/authorize/value/generatedIds/interaction',
       '/steps/consent-post/value/redirect/resumeCredential',
-      '/steps/state/value/session/updatedAt',
+      '/steps/state/value/semanticState/session/updatedAt',
     ],
   },
   {
@@ -97,6 +97,8 @@ const rawContracts: readonly RawContract[] = [
       '/steps/token/value/tokens/*/claims/iat',
       '/steps/token/value/tokens/*/claims/exp',
       '/steps/token/value/tokens/*/claims/auth_time',
+      '/steps/token/value/tokens/*/claims/created_at',
+      '/steps/token/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -110,6 +112,8 @@ const rawContracts: readonly RawContract[] = [
     explicit: [
       '/steps/refresh-token/value/tokens/*/claims/iat',
       '/steps/refresh-token/value/tokens/*/claims/exp',
+      '/steps/refresh-token/value/tokens/*/claims/created_at',
+      '/steps/refresh-token/value/tokens/*/claims/updated_at',
       '/steps/family-state/value/generatedIds/tokenFamily',
     ],
   },
@@ -269,7 +273,7 @@ const rawContracts: readonly RawContract[] = [
     ],
     explicit: [
       '/steps/post-valid-b/value/redirect/resumeCredential',
-      '/steps/state/value/session/updatedAt',
+      '/steps/state/value/semanticState/session/updatedAt',
     ],
   },
   {
@@ -337,17 +341,21 @@ const explicitProjectionLeaves = {
   'authorization.password-pkce-consent': [
     '/steps/authorize/value/generatedIds/interaction',
     '/steps/consent-post/value/redirect/resumeCredential',
-    '/steps/state/value/session/updatedAt',
+    '/steps/state/value/semanticState/session/updatedAt',
   ],
   'token.authorization-code': [
     '/steps/token/value/tokens/0/claims/iat',
     '/steps/token/value/tokens/0/claims/exp',
     '/steps/token/value/tokens/0/claims/auth_time',
+    '/steps/token/value/tokens/0/claims/created_at',
+    '/steps/token/value/tokens/0/claims/updated_at',
     '/steps/state/value/generatedIds/tokenFamily',
   ],
   'token.refresh-rotation': [
     '/steps/refresh-token/value/tokens/0/claims/iat',
     '/steps/refresh-token/value/tokens/0/claims/exp',
+    '/steps/refresh-token/value/tokens/0/claims/created_at',
+    '/steps/refresh-token/value/tokens/0/claims/updated_at',
     '/steps/family-state/value/generatedIds/tokenFamily',
   ],
   'userinfo.openid': [
@@ -398,7 +406,7 @@ const explicitProjectionLeaves = {
   'interaction.password-rejected': ['/steps/experience-bootstrap/value/generatedIds/interaction'],
   'interaction.consent-session-boundary': [
     '/steps/post-valid-b/value/redirect/resumeCredential',
-    '/steps/state/value/session/updatedAt',
+    '/steps/state/value/semanticState/session/updatedAt',
   ],
   'token.refresh-reuse-rejected': [
     '/steps/rotate/value/tokens/0/claims/iat',

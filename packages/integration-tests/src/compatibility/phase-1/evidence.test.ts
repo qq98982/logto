@@ -1,4 +1,5 @@
 import {
+  assertPhase1EvidenceIsSanitized,
   createCandidateInvariantEvidence,
   createDifferentialEvidence,
   phase1EvidenceGuard,
@@ -93,5 +94,14 @@ describe('phase 1 evidence', () => {
         control: 'discovery-extra-field',
       }).differencePath
     ).toBe('/observations/0/value/body/aster_extra_field');
+  });
+
+  it('requires token family generated IDs to remain logical symbols', () => {
+    expect(() => {
+      assertPhase1EvidenceIsSanitized({ generatedIds: { tokenFamily: '<token-family.1>' } });
+    }).not.toThrow();
+    expect(() => {
+      assertPhase1EvidenceIsSanitized({ generatedIds: { tokenFamily: 'runtime-family-value' } });
+    }).toThrow('Invalid phase 1 evidence');
   });
 });

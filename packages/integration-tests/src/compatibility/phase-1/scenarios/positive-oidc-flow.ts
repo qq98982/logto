@@ -1,0 +1,1108 @@
+/* eslint-disable max-lines, complexity, no-restricted-syntax, no-control-regex, @typescript-eslint/ban-types, max-params -- The reviewed positive authorization flow keeps one cookie jar, secret lease, redirect validator, bounded validation expressions, and ordered projection list in a single auditable boundary. */
+import { createHash, randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+
+import { jsonValueGuard } from '../../model.js';
+import type { JsonObject, JsonValue, NormalizationContext } from '../../normalize.js';
+import {
+  getPhase1FixtureRuntimeEmail,
+  getPhase1FixtureRuntimeId,
+  getPhase1FixtureRuntimePhone,
+  getPhase1FixtureRuntimeResourceIndicator,
+  getPhase1FixtureRuntimeText,
+  getPhase1FixtureRuntimeUsername,
+} from '../fixture-map.js';
+import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { normalizeLogicalFixtureIds } from '../normalizers.js';
+import {
+  projectAuthorizationObservation,
+  projectConsentObservation,
+  projectRedirectObservation,
+  projectSemanticStateObservation,
+  type Phase1HttpProjection,
+  type RawHttpObservation,
+} from '../projections/index.js';
+
+const scenarioId = 'authorization.password-pkce-consent';
+const jsonContentType = 'application/json';
+const codeVerifierPattern = /^[A-Za-z0-9._~-]{43,128}$/u;
+
+export type PositiveOidcFlowRandomSource = Readonly<{
+  codeVerifier(): string;
+  state(): string;
+}>;
+
+type PositiveOidcAuthorizationCredentials = Readonly<{
+  clientId: string;
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}>;
+
+const authorizationGrantBrand: unique symbol = Symbol('phase-1-authorization-grant');
+const authorizationGrantCredentials = new WeakMap<
+  PositiveOidcAuthorizationGrant,
+  PositiveOidcAuthorizationCredentials
+>();
+
+export class PositiveOidcAuthorizationGrant {
+  get [authorizationGrantBrand](): true {
+    return true;
+  }
+
+  constructor(credentials: PositiveOidcAuthorizationCredentials) {
+    authorizationGrantCredentials.set(this, Object.freeze({ ...credentials }));
+    Object.freeze(this);
+  }
+
+  toJSON(): never {
+    throw new TypeError('Phase 1 authorization grant is not serializable');
+  }
+}
+
+Object.freeze(PositiveOidcAuthorizationGrant.prototype);
+
+export const createPositiveOidcAuthorizationGrant = (
+  credentials: PositiveOidcAuthorizationCredentials
+): PositiveOidcAuthorizationGrant => new PositiveOidcAuthorizationGrant(credentials);
+
+export const readPositiveOidcAuthorizationGrant = (
+  grant: PositiveOidcAuthorizationGrant
+): PositiveOidcAuthorizationCredentials => {
+  const credentials = authorizationGrantCredentials.get(grant);
+
+  if (!credentials) {
+    throw new TypeError('Invalid Phase 1 authorization grant');
+  }
+
+  return credentials;
+};
+
+export type PositiveOidcFlowOptions = Readonly<{
+  random?: PositiveOidcFlowRandomSource;
+  includeResource?: boolean;
+  captureSteps?: boolean;
+}>;
+
+export type PositiveOidcFlowOutput<Result> = Readonly<{
+  steps: readonly Phase1ScenarioStepResult[];
+  result: Result;
+}>;
+
+const defaultRandomSource: PositiveOidcFlowRandomSource = Object.freeze({
+  codeVerifier: () => randomBytes(48).toString('base64url'),
+  state: () => randomBytes(32).toString('base64url'),
+});
+
+const requireText = (value: unknown, diagnostic: string): string => {
+  if (typeof value !== 'string' || value.length === 0 || /[\u0000-\u001F\u007F]/u.test(value)) {
+    throw new Error(diagnostic);
+  }
+
+  return value;
+};
+
+const requireJsonObject = (value: string, diagnostic: string): JsonObject => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      !jsonValueGuard.safeParse(parsed).success
+    ) {
+      throw new TypeError('invalid JSON object');
+    }
+
+    return parsed as JsonObject;
+  } catch {
+    throw new Error(diagnostic);
+  }
+};
+
+const isJsonObject = (value: unknown): value is JsonObject =>
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value) &&
+  jsonValueGuard.safeParse(value).success;
+
+const requireEmptyBody = (value: string, diagnostic: string): null => {
+  if (value.length > 0) {
+    throw new Error(diagnostic);
+  }
+
+  return null;
+};
+
+const headerValues = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  name: string
+): readonly string[] =>
+  headers.filter(([candidate]) => candidate.toLowerCase() === name).map(([, value]) => value);
+
+const requireStatus = <Response extends Readonly<{ status: number }>>(
+  response: Response,
+  expected: number,
+  diagnostic: string
+): Response => {
+  if (response.status !== expected) {
+    throw new Error(diagnostic);
+  }
+
+  return response;
+};
+
+const requireJsonContentType = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  diagnostic: string
+): void => {
+  const values = headerValues(headers, 'content-type').map(
+    (value) => value.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+  );
+
+  if (values.length !== 1 || values[0] !== jsonContentType) {
+    throw new Error(diagnostic);
+  }
+};
+
+const requireLocation = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  baseUrl: string,
+  diagnostic: string
+): string => {
+  const locations = headerValues(headers, 'location');
+
+  if (locations.length !== 1 || !locations[0]) {
+    throw new Error(diagnostic);
+  }
+  try {
+    const url = new URL(locations[0], baseUrl);
+
+    if (url.username.length > 0 || url.password.length > 0) {
+      throw new TypeError('credential-bearing location');
+    }
+
+    return url.href;
+  } catch {
+    throw new Error(diagnostic);
+  }
+};
+
+const absoluteLocationHeaders = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  baseUrl: string,
+  diagnostic: string
+): ReadonlyArray<readonly [string, string]> => {
+  const absolute = requireLocation(headers, baseUrl, diagnostic);
+
+  return Object.freeze(
+    headers.map(([name, value]) =>
+      name.toLowerCase() === 'location'
+        ? Object.freeze([name, absolute] as const)
+        : Object.freeze([name, value] as const)
+    )
+  );
+};
+
+const replaceLocationHeader = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  location: string
+): ReadonlyArray<readonly [string, string]> =>
+  Object.freeze(
+    headers.map(([name, value]) =>
+      Object.freeze([name, name.toLowerCase() === 'location' ? location : value] as const)
+    )
+  );
+
+const htmlEscape = (value: string): string =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+const normalizeRedirectBody = (
+  body: string,
+  headers: ReadonlyArray<readonly [string, string]>,
+  resolvedLocation: string,
+  diagnostic: string
+): JsonValue => {
+  if (body.length === 0) {
+    return null;
+  }
+  const [rawLocation] = headerValues(headers, 'location');
+
+  if (!rawLocation) {
+    throw new Error(diagnostic);
+  }
+  const decodedLocation = (() => {
+    try {
+      return decodeURI(rawLocation);
+    } catch {
+      return rawLocation;
+    }
+  })();
+  const candidates = [rawLocation, decodedLocation, resolvedLocation]
+    .flatMap((value) => [value, htmlEscape(value)])
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index)
+    .toSorted((left, right) => right.length - left.length);
+  const normalized = candidates.reduce(
+    (value, candidate) => value.replaceAll(candidate, '<response-location>'),
+    body
+  );
+
+  if (normalized === body) {
+    throw new Error(diagnostic);
+  }
+
+  return normalized;
+};
+
+type ParsedSetCookie = Readonly<{
+  name: string;
+  rawValue: string;
+  unquotedValue: string;
+  attributes: string;
+}>;
+
+const parseSetCookieHeader = (header: string): ParsedSetCookie => {
+  if (/[\u0000-\u001F\u007F]/u.test(header)) {
+    throw new Error('Phase 1 response cookie is invalid');
+  }
+  const attributeOffset = header.indexOf(';');
+  const pair = attributeOffset < 0 ? header : header.slice(0, attributeOffset);
+  const attributes = attributeOffset < 0 ? '' : header.slice(attributeOffset);
+  const separator = pair.indexOf('=');
+
+  if (separator < 1) {
+    throw new Error('Phase 1 response cookie is invalid');
+  }
+  const name = pair.slice(0, separator).trim();
+  const rawValue = pair.slice(separator + 1).trim();
+  const unquotedValue =
+    rawValue.startsWith('"') && rawValue.endsWith('"') ? rawValue.slice(1, -1) : rawValue;
+
+  return Object.freeze({ name, rawValue, unquotedValue, attributes });
+};
+
+const encodedCredentialCandidates = (value: string): readonly string[] => {
+  const once = encodeURIComponent(value);
+  const twice = encodeURIComponent(once);
+
+  return [value, once, once.toLowerCase(), twice, twice.toLowerCase()];
+};
+
+const revealsCookieCredential = (value: string, credentials: readonly string[]): boolean => {
+  if (credentials.some((credential) => credential.length > 0 && value.includes(credential))) {
+    return true;
+  }
+  const decoded = value.replaceAll(/%([\dA-F]{2})/giu, (_match, hex: string) =>
+    String.fromCodePoint(Number.parseInt(hex, 16))
+  );
+
+  return decoded !== value && revealsCookieCredential(decoded, credentials);
+};
+
+const sanitizeSetCookieHeaders = (
+  headers: ReadonlyArray<readonly [string, string]>
+): ReadonlyArray<readonly [string, string]> => {
+  const parsedCookies = headers
+    .filter(([name]) => name.toLowerCase() === 'set-cookie')
+    .map(([, value]) => parseSetCookieHeader(value));
+  const candidates = parsedCookies
+    .flatMap(({ rawValue, unquotedValue }) => [rawValue, unquotedValue])
+    .flatMap((value) => encodedCredentialCandidates(value))
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index)
+    .toSorted((left, right) => right.length - left.length);
+
+  const sanitized = Object.freeze(
+    headers.map(([name, value]) => {
+      if (name.toLowerCase() !== 'set-cookie') {
+        return Object.freeze([name, value] as const);
+      }
+      const parsed = parseSetCookieHeader(value);
+      const safeAttributes = candidates.reduce((attributes, candidate) => {
+        if (!attributes.includes(candidate)) {
+          return attributes;
+        }
+        if (candidate.length < 8) {
+          throw new Error('Phase 1 response cookie is invalid');
+        }
+
+        return attributes.replaceAll(candidate, 'aster-cookie-attribute-value');
+      }, parsed.attributes);
+
+      return Object.freeze([
+        name,
+        `${parsed.name}=aster-cookie-pair-value${safeAttributes}`,
+      ] as const);
+    })
+  );
+
+  if (
+    sanitized.some(([name, value]) =>
+      name.toLowerCase() === 'set-cookie'
+        ? revealsCookieCredential(
+            value,
+            parsedCookies.flatMap(({ rawValue, unquotedValue }) => [rawValue, unquotedValue])
+          )
+        : false
+    )
+  ) {
+    throw new Error('Phase 1 response cookie is invalid');
+  }
+
+  return sanitized;
+};
+
+const relativeOidcResumePath = (
+  value: unknown,
+  targetCoreUrl: string,
+  diagnostic: string
+): Readonly<{ path: string; credential: string }> => {
+  try {
+    const raw = requireText(value, diagnostic);
+    const url = new URL(raw);
+    const expectedOrigin = new URL(targetCoreUrl).origin;
+    const segments = url.pathname.split('/');
+
+    if (
+      url.origin !== expectedOrigin ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      url.search.length > 0 ||
+      url.hash.length > 0 ||
+      segments.length !== 4 ||
+      segments[1] !== 'oidc' ||
+      segments[2] !== 'auth' ||
+      !segments[3]
+    ) {
+      throw new TypeError('invalid resume URL');
+    }
+    const credential = decodeURIComponent(segments[3]);
+
+    if (
+      credential.length === 0 ||
+      credential.includes('/') ||
+      credential.includes('\\') ||
+      /[\u0000-\u001F\u007F]/u.test(credential)
+    ) {
+      throw new TypeError('invalid resume credential');
+    }
+
+    return Object.freeze({ path: `oidc/auth/${segments[3]}`, credential });
+  } catch {
+    throw new Error(diagnostic);
+  }
+};
+
+const jsonHeaders = Object.freeze([Object.freeze(['content-type', jsonContentType] as const)]);
+
+const normalizationContext = (
+  context: Phase1ScenarioRunContext,
+  allocationId: string
+): NormalizationContext => {
+  const symbols = context.protocol.symbolsFor(allocationId);
+
+  if (!symbols) {
+    throw new Error('Phase 1 data allocation symbols are unavailable');
+  }
+  const { dataTenant } = context.profile.fixtures;
+  const thirdParty = dataTenant.applications.find(({ isThirdParty }) => isThirdParty);
+  const scope = dataTenant.resource.scopes[0];
+
+  if (!thirdParty || !scope) {
+    throw new Error('Phase 1 data fixture profile is invalid');
+  }
+  const bindings = [
+    [
+      'fixture.data.username',
+      getPhase1FixtureRuntimeUsername(dataTenant.subject.username, allocationId),
+    ],
+    [
+      'fixture.data.email',
+      getPhase1FixtureRuntimeEmail(dataTenant.subject.primaryEmail, allocationId),
+    ],
+    ['fixture.data.phone', getPhase1FixtureRuntimePhone(allocationId)],
+    ['fixture.data.application-name', getPhase1FixtureRuntimeText(thirdParty.name, allocationId)],
+    [
+      'fixture.data.resource-name',
+      getPhase1FixtureRuntimeText(dataTenant.resource.name, allocationId),
+    ],
+    [
+      'fixture.data.resource-indicator',
+      getPhase1FixtureRuntimeResourceIndicator(dataTenant.resource.indicator, allocationId),
+    ],
+    ['fixture.data.scope-name', getPhase1FixtureRuntimeText(scope.name, allocationId)],
+  ] as const;
+
+  for (const [logicalName, runtimeValue] of bindings) {
+    symbols.bind(logicalName, runtimeValue);
+  }
+
+  return { target: context.target, symbols };
+};
+
+const stateInput = async (context: Phase1ScenarioRunContext, stepId: string) =>
+  context.projectScenarioState({ scenarioId, stepId, fixture: context.fixture });
+
+const rawObservation = (
+  response: Readonly<{
+    status: number;
+    headers: ReadonlyArray<readonly [string, string]>;
+  }>,
+  body: JsonValue,
+  state: Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>,
+  overrides: Partial<RawHttpObservation> = {}
+): RawHttpObservation => ({
+  ...state,
+  status: response.status,
+  headers: sanitizeSetCookieHeaders(response.headers),
+  body,
+  ...overrides,
+});
+
+const step = (stepId: string, value: Phase1HttpProjection): Phase1ScenarioStepResult =>
+  Object.freeze({ stepId, value });
+
+const requireThirdPartyApplication = (context: Phase1ScenarioRunContext) => {
+  const configuration = context.profile.fixtures.dataTenant.browserClientConfiguration;
+  const logicalApplicationId = configuration.localStorageValue.appId;
+  const application = context.profile.fixtures.dataTenant.applications.find(
+    ({ id }) => id === logicalApplicationId
+  );
+
+  if (!application?.isThirdParty) {
+    throw new Error('Phase 1 consent application is invalid');
+  }
+  const { redirectUris } = application.oidcClientMetadata;
+  const [redirectUri] = redirectUris;
+
+  if (redirectUris.length !== 1 || !redirectUri) {
+    throw new Error('Phase 1 consent redirect URI is invalid');
+  }
+
+  return Object.freeze({ application, redirectUri });
+};
+
+const authorizationRequestPath = (
+  context: Phase1ScenarioRunContext,
+  clientId: string,
+  redirectUri: string,
+  challenge: string,
+  state: string,
+  resource: Readonly<{ indicator: string; scopeName: string }> | undefined
+): string => {
+  const { authorizationPath } = context.profile.oidc;
+
+  if (!authorizationPath.startsWith('/') || authorizationPath.slice(1).startsWith('/')) {
+    throw new Error('Phase 1 authorization path is invalid');
+  }
+  const configured =
+    context.profile.fixtures.dataTenant.browserClientConfiguration.localStorageValue;
+  const resourceScopeNames = new Set(
+    context.profile.fixtures.dataTenant.resource.scopes.map(({ name }) => name)
+  );
+  const configuredScopes = configured.scope
+    .split(/\s+/u)
+    .filter(Boolean)
+    .filter((scope) => !resourceScopeNames.has(scope));
+  const scopes = Array.from(
+    new Set([
+      'openid',
+      'offline_access',
+      'profile',
+      ...configuredScopes,
+      ...(resource ? [resource.scopeName] : []),
+    ])
+  );
+  const query = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state,
+    response_type: 'code',
+    prompt: configured.prompt,
+    scope: scopes.join(' '),
+  });
+
+  if (resource) {
+    query.append('resource', resource.indicator);
+  }
+
+  return `${authorizationPath.slice(1)}?${query.toString()}`;
+};
+
+const requireConsentBridge = (location: string, targetCoreUrl: string, clientId: string): void => {
+  const url = new URL(location);
+
+  if (
+    url.origin !== new URL(targetCoreUrl).origin ||
+    url.pathname !== '/consent' ||
+    url.hash.length > 0 ||
+    url.searchParams.getAll('app_id').length !== 1 ||
+    url.searchParams.get('app_id') !== clientId ||
+    Array.from(url.searchParams.keys()).some((key) => key !== 'app_id')
+  ) {
+    throw new Error('Phase 1 consent bridge redirect is invalid');
+  }
+};
+
+const requireCallback = (
+  location: string,
+  redirectUri: string,
+  expectedState: string,
+  expectedIssuer: string
+): string => {
+  const callback = new URL(location);
+  const registered = new URL(redirectUri);
+  const codes = callback.searchParams.getAll('code');
+  const states = callback.searchParams.getAll('state');
+  const issuers = callback.searchParams.getAll('iss');
+
+  if (
+    callback.origin !== registered.origin ||
+    callback.pathname !== registered.pathname ||
+    callback.hash !== registered.hash ||
+    codes.length !== 1 ||
+    !codes[0] ||
+    states.length !== 1 ||
+    states[0] !== expectedState ||
+    issuers.length !== 1 ||
+    issuers[0] !== expectedIssuer ||
+    callback.searchParams.has('error')
+  ) {
+    throw new Error('Phase 1 authorization callback is invalid');
+  }
+
+  return codes[0];
+};
+
+const assertFinalAuthorizationState = (
+  state: Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>,
+  input: Readonly<{
+    application: Readonly<{ userConsentScopes: readonly string[] }>;
+    clientId: string;
+    userId: string;
+    resource: Readonly<{ indicator: string; scopeName: string }> | undefined;
+  }>
+): void => {
+  const { semanticState, persistedState, sideEffects } = state;
+
+  if (
+    !isJsonObject(semanticState) ||
+    !isJsonObject(semanticState.session) ||
+    semanticState.session.accountId !== input.userId ||
+    semanticState.session.clientId !== input.clientId ||
+    typeof semanticState.session.updatedAt !== 'number' ||
+    !Number.isFinite(semanticState.session.updatedAt) ||
+    !input.resource ||
+    !isDeepStrictEqual(persistedState, {
+      grant: {
+        applicationId: input.clientId,
+        userId: input.userId,
+        oidcScopes: input.application.userConsentScopes,
+        resource: input.resource.indicator,
+        resourceScopes: [input.resource.scopeName],
+      },
+      userFirstConsentedApplicationId: input.clientId,
+      sessionExtension: {
+        accountId: input.userId,
+        clientId: input.clientId,
+        lastSubmission: { login: { accountId: input.userId } },
+      },
+    }) ||
+    !isDeepStrictEqual(sideEffects, { consentPersisted: true })
+  ) {
+    throw new Error('Phase 1 authorization persisted state is invalid');
+  }
+};
+
+export const withPositiveOidcFlow = async <Result>(
+  context: Phase1ScenarioRunContext,
+  options: PositiveOidcFlowOptions,
+  consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
+): Promise<PositiveOidcFlowOutput<Result>> =>
+  context.fixture.withSecretLease(async (lease) => {
+    const { application, redirectUri } = requireThirdPartyApplication(context);
+    const dataAllocation = context.fixture.public.allocations.find(({ role }) => role === 'data');
+
+    if (!dataAllocation) {
+      throw new Error('Phase 1 data allocation is unavailable');
+    }
+    const clientId = getPhase1FixtureRuntimeId(
+      context.fixture.public,
+      dataAllocation.allocationId,
+      'application',
+      application.id
+    );
+    const userId = getPhase1FixtureRuntimeId(
+      context.fixture.public,
+      dataAllocation.allocationId,
+      'user',
+      context.profile.fixtures.dataTenant.subject.id
+    );
+    const clients = context.protocol.forAllocation('data');
+    const { store } = clients.oidc;
+
+    if (clients.experience.store !== store || clients.consent.store !== store) {
+      throw new Error('Phase 1 authorization clients do not share one secret store');
+    }
+    const resource = (() => {
+      if (options.includeResource === false) {
+        return;
+      }
+      const fixtureResource = context.profile.fixtures.dataTenant.resource;
+      const scope = fixtureResource.scopes[0];
+
+      if (!scope) {
+        throw new Error('Phase 1 authorization resource is invalid');
+      }
+      const runtimeResourceId = getPhase1FixtureRuntimeId(
+        context.fixture.public,
+        dataAllocation.allocationId,
+        'resource',
+        fixtureResource.id
+      );
+      const runtimeScopeId = getPhase1FixtureRuntimeId(
+        context.fixture.public,
+        dataAllocation.allocationId,
+        'scope',
+        scope.id
+      );
+
+      return Object.freeze({
+        id: runtimeResourceId,
+        indicator: getPhase1FixtureRuntimeResourceIndicator(
+          fixtureResource.indicator,
+          dataAllocation.allocationId
+        ),
+        name: getPhase1FixtureRuntimeText(fixtureResource.name, dataAllocation.allocationId),
+        scopeId: runtimeScopeId,
+        scopeName: getPhase1FixtureRuntimeText(scope.name, dataAllocation.allocationId),
+        scopeDescription: scope.description,
+      });
+    })();
+    const projectionContext = normalizationContext(context, dataAllocation.allocationId);
+    const capture = async (
+      stepId: string,
+      project: (
+        state: Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>
+      ) => Phase1HttpProjection
+    ): Promise<Phase1ScenarioStepResult | undefined> =>
+      options.captureSteps === false
+        ? undefined
+        : step(stepId, project(await stateInput(context, stepId)));
+    const random = options.random ?? defaultRandomSource;
+    const codeVerifier = requireText(random.codeVerifier(), 'Phase 1 PKCE verifier is invalid');
+    const expectedState = requireText(random.state(), 'Phase 1 authorization state is invalid');
+
+    if (!codeVerifierPattern.test(codeVerifier)) {
+      throw new Error('Phase 1 PKCE verifier is invalid');
+    }
+    store.registerSecret(codeVerifier);
+    store.registerSecret(expectedState);
+    const challenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const authorizeResponse = requireStatus(
+      await clients.oidc.request(
+        'authorization-start',
+        authorizationRequestPath(
+          context,
+          clientId,
+          redirectUri,
+          challenge,
+          expectedState,
+          resource
+        ),
+        { includeCookies: true }
+      ),
+      303,
+      'Phase 1 authorization start failed'
+    );
+    const authorizeLocation = requireLocation(
+      authorizeResponse.headers,
+      context.target.coreUrl,
+      'Phase 1 authorization start redirect is invalid'
+    );
+
+    const authorizeUrl = new URL(authorizeLocation);
+
+    if (
+      authorizeUrl.origin !== new URL(context.target.coreUrl).origin ||
+      authorizeUrl.pathname !== '/sign-in' ||
+      authorizeUrl.hash.length > 0
+    ) {
+      throw new Error('Phase 1 authorization start redirect is invalid');
+    }
+    const authorizeStep = await capture('authorize', (state) =>
+      projectAuthorizationObservation(
+        rawObservation(
+          {
+            ...authorizeResponse,
+            headers: absoluteLocationHeaders(
+              authorizeResponse.headers,
+              context.target.coreUrl,
+              'Phase 1 authorization start redirect is invalid'
+            ),
+          },
+          normalizeRedirectBody(
+            authorizeResponse.body,
+            authorizeResponse.headers,
+            authorizeLocation,
+            'Phase 1 authorization start body is invalid'
+          ),
+          state,
+          { redirect: authorizeLocation }
+        ),
+        projectionContext
+      )
+    );
+
+    const bootstrapResponse = requireStatus(
+      await clients.experience.requestExperience('experience-bootstrap', 'experience', {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ interactionEvent: 'SignIn' }),
+      }),
+      204,
+      'Phase 1 experience bootstrap failed'
+    );
+    const bootstrapStep = await capture('experience-bootstrap', (state) =>
+      projectAuthorizationObservation(
+        rawObservation(
+          bootstrapResponse,
+          requireEmptyBody(bootstrapResponse.body, 'Phase 1 experience bootstrap body is invalid'),
+          state
+        ),
+        projectionContext
+      )
+    );
+
+    const password = lease.getPassword(context.profile.fixtures.dataTenant.subject.id);
+    store.registerSecret(password);
+    const passwordResponse = requireStatus(
+      await clients.experience.requestExperience(
+        'experience-password',
+        'experience/verification/password',
+        {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            identifier: {
+              type: 'username',
+              value: getPhase1FixtureRuntimeUsername(
+                context.profile.fixtures.dataTenant.subject.username,
+                dataAllocation.allocationId
+              ),
+            },
+            password,
+          }),
+        }
+      ),
+      200,
+      'Phase 1 password verification failed'
+    );
+    requireJsonContentType(passwordResponse.headers, 'Phase 1 password response is invalid');
+    const passwordBody = requireJsonObject(
+      passwordResponse.body,
+      'Phase 1 password response is invalid'
+    );
+    const verificationId = requireText(
+      passwordBody.verificationId,
+      'Phase 1 password response is invalid'
+    );
+    store.registerSecret(verificationId);
+    const passwordStep = await capture('password', (state) =>
+      projectAuthorizationObservation(
+        rawObservation(passwordResponse, { verificationRecordCreated: true }, state),
+        projectionContext
+      )
+    );
+
+    const identifyResponse = requireStatus(
+      await clients.experience.requestExperience(
+        'experience-identify',
+        'experience/identification',
+        {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ verificationId }),
+        }
+      ),
+      204,
+      'Phase 1 user identification failed'
+    );
+    const identifyStep = await capture('identify', (state) =>
+      projectAuthorizationObservation(
+        rawObservation(
+          identifyResponse,
+          requireEmptyBody(identifyResponse.body, 'Phase 1 identification body is invalid'),
+          state
+        ),
+        projectionContext
+      )
+    );
+
+    const submitResponse = requireStatus(
+      await clients.experience.requestExperience('experience-submit', 'experience/submit', {
+        method: 'POST',
+      }),
+      200,
+      'Phase 1 interaction submission failed'
+    );
+    requireJsonContentType(submitResponse.headers, 'Phase 1 interaction submission is invalid');
+    const submitBody = requireJsonObject(
+      submitResponse.body,
+      'Phase 1 interaction submission is invalid'
+    );
+    const bridge = relativeOidcResumePath(
+      submitBody.redirectTo,
+      context.target.coreUrl,
+      'Phase 1 interaction resume redirect is invalid'
+    );
+    store.registerSecret(bridge.credential);
+    const bridgeResponse = requireStatus(
+      await clients.oidc.request('authorization-consent-bridge', bridge.path),
+      303,
+      'Phase 1 consent bridge failed'
+    );
+    const bridgeLocation = requireLocation(
+      bridgeResponse.headers,
+      context.target.coreUrl,
+      'Phase 1 consent bridge redirect is invalid'
+    );
+    requireConsentBridge(bridgeLocation, context.target.coreUrl, clientId);
+    const submitStep = await capture('submit', (state) => {
+      const projectedBridgeLocation = projectionContext.symbols.replace(bridgeLocation);
+      const bridgeProjection = projectAuthorizationObservation(
+        rawObservation(
+          {
+            ...bridgeResponse,
+            headers: replaceLocationHeader(
+              absoluteLocationHeaders(
+                bridgeResponse.headers,
+                context.target.coreUrl,
+                'Phase 1 consent bridge redirect is invalid'
+              ),
+              projectedBridgeLocation
+            ),
+          },
+          normalizeRedirectBody(
+            bridgeResponse.body,
+            bridgeResponse.headers,
+            bridgeLocation,
+            'Phase 1 consent bridge body is invalid'
+          ),
+          state,
+          { redirect: projectedBridgeLocation }
+        ),
+        projectionContext
+      );
+
+      return projectConsentObservation(
+        rawObservation(submitResponse, submitBody, state, {
+          outcomes: [
+            ...(state.outcomes ?? []),
+            { kind: 'unobserved-consent-bridge', response: bridgeProjection },
+          ],
+        }),
+        projectionContext
+      );
+    });
+
+    const consentGetResponse = requireStatus(
+      await clients.consent.requestConsent('consent-get', 'consent', { method: 'GET' }),
+      200,
+      'Phase 1 consent read failed'
+    );
+    requireJsonContentType(consentGetResponse.headers, 'Phase 1 consent response is invalid');
+    const consentGetBody = requireJsonObject(
+      consentGetResponse.body,
+      'Phase 1 consent response is invalid'
+    );
+
+    if (
+      (consentGetBody.application as JsonObject | undefined)?.id !== clientId ||
+      (consentGetBody.user as JsonObject | undefined)?.id !== userId ||
+      consentGetBody.redirectUri !== redirectUri ||
+      !isDeepStrictEqual(consentGetBody.missingOIDCScope, application.userConsentScopes) ||
+      !isDeepStrictEqual(
+        consentGetBody.missingResourceScopes,
+        resource
+          ? [
+              {
+                resource: {
+                  id: resource.id,
+                  name: resource.name,
+                  indicator: resource.indicator,
+                },
+                scopes: [
+                  {
+                    id: resource.scopeId,
+                    name: resource.scopeName,
+                    description: resource.scopeDescription,
+                  },
+                ],
+              },
+            ]
+          : []
+      )
+    ) {
+      throw new Error('Phase 1 consent response is invalid');
+    }
+    const consentGetStep = await capture('consent-get', (state) =>
+      projectConsentObservation(
+        rawObservation(
+          consentGetResponse,
+          normalizeLogicalFixtureIds(consentGetBody, projectionContext),
+          state
+        ),
+        projectionContext
+      )
+    );
+
+    const consentPostResponse = requireStatus(
+      await clients.consent.requestConsent('consent-post', 'consent', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({}),
+      }),
+      200,
+      'Phase 1 consent submission failed'
+    );
+    requireJsonContentType(consentPostResponse.headers, 'Phase 1 consent submission is invalid');
+    const consentPostBody = requireJsonObject(
+      consentPostResponse.body,
+      'Phase 1 consent submission is invalid'
+    );
+    const resume = relativeOidcResumePath(
+      consentPostBody.redirectTo,
+      context.target.coreUrl,
+      'Phase 1 consent resume redirect is invalid'
+    );
+    store.registerSecret(resume.credential);
+    const consentPostStep = await capture('consent-post', (state) =>
+      projectConsentObservation(
+        rawObservation(consentPostResponse, consentPostBody, state),
+        projectionContext
+      )
+    );
+
+    const resumeResponse = requireStatus(
+      await clients.oidc.request('authorization-resume', resume.path),
+      303,
+      'Phase 1 authorization resume failed'
+    );
+    const callbackLocation = requireLocation(
+      resumeResponse.headers,
+      redirectUri,
+      'Phase 1 authorization callback is invalid'
+    );
+    const code = requireCallback(
+      callbackLocation,
+      redirectUri,
+      expectedState,
+      new URL(context.profile.oidc.issuerPath, context.target.coreUrl).href.replace(/\/$/u, '')
+    );
+    store.registerSecret(code);
+    const resumeStep = await capture('resume', (state) =>
+      projectAuthorizationObservation(
+        rawObservation(
+          {
+            ...resumeResponse,
+            headers: absoluteLocationHeaders(
+              resumeResponse.headers,
+              redirectUri,
+              'Phase 1 authorization callback is invalid'
+            ),
+          },
+          normalizeRedirectBody(
+            resumeResponse.body,
+            resumeResponse.headers,
+            callbackLocation,
+            'Phase 1 authorization resume body is invalid'
+          ),
+          state,
+          { redirect: callbackLocation }
+        ),
+        projectionContext
+      )
+    );
+    const callbackStep = await capture('callback', (state) =>
+      projectRedirectObservation(
+        rawObservation(
+          {
+            ...resumeResponse,
+            headers: absoluteLocationHeaders(
+              resumeResponse.headers,
+              redirectUri,
+              'Phase 1 authorization callback is invalid'
+            ),
+          },
+          callbackLocation,
+          state
+        ),
+        projectionContext
+      )
+    );
+    const stateStep = await capture('state', (state) => {
+      assertFinalAuthorizationState(state, {
+        application,
+        clientId,
+        userId,
+        resource,
+      });
+
+      return projectSemanticStateObservation(
+        {
+          ...state,
+          status: 200,
+          headers: [],
+        },
+        projectionContext,
+        { scenarioId, stepId: 'state' }
+      );
+    });
+    const safeSteps = Object.freeze(
+      [
+        authorizeStep,
+        bootstrapStep,
+        passwordStep,
+        identifyStep,
+        submitStep,
+        consentGetStep,
+        consentPostStep,
+        resumeStep,
+        callbackStep,
+        stateStep,
+      ].filter((value): value is Phase1ScenarioStepResult => value !== undefined)
+    );
+
+    store.assertNoCredentialMaterial(safeSteps);
+    const result = await (async () => {
+      const grant = createPositiveOidcAuthorizationGrant({
+        clientId,
+        code,
+        codeVerifier,
+        redirectUri,
+      });
+
+      try {
+        const consumed = await consume(grant);
+        store.assertNoCredentialMaterial(consumed);
+
+        return consumed;
+      } catch {
+        throw new Error('Phase 1 authorization consumer failed');
+      } finally {
+        authorizationGrantCredentials.delete(grant);
+      }
+    })();
+
+    return Object.freeze({ steps: safeSteps, result });
+  });
+
+/* eslint-enable max-lines, complexity, no-restricted-syntax, no-control-regex, @typescript-eslint/ban-types, max-params */

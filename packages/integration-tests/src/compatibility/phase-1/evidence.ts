@@ -221,6 +221,7 @@ const allowedMetadataKeys = new Set([
   'tokentype',
   'tokens',
   'tokenlifetimeseconds',
+  'tokenfamily',
   'resumecredential',
 ]);
 const normalizedKey = (key: string) => key.replaceAll(/[_\s-]/gu, '').toLowerCase();
@@ -234,7 +235,12 @@ const forbiddenEphemeralEvidenceKeys = new Set([
   'verificationcredential',
   'verificationtoken',
 ]);
-const symbolOnlyEvidenceKeys = new Set(['interaction', 'resume', 'resumecredential']);
+const symbolOnlyEvidenceKeys = new Set([
+  'interaction',
+  'resume',
+  'resumecredential',
+  'tokenfamily',
+]);
 const logicalSymbolPattern = /^<[A-Za-z0-9][A-Za-z0-9._-]*>$/u;
 const containsOnlyLogicalSymbols = (value: unknown): boolean =>
   typeof value === 'string'

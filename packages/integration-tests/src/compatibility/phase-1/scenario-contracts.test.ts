@@ -37,7 +37,7 @@ const expectedRows = [
     explicit: [
       '/steps/authorize/value/generatedIds/interaction',
       '/steps/consent-post/value/redirect/resumeCredential',
-      '/steps/state/value/session/updatedAt',
+      '/steps/state/value/semanticState/session/updatedAt',
     ],
   },
   {
@@ -47,6 +47,8 @@ const expectedRows = [
       '/steps/token/value/tokens/*/claims/iat',
       '/steps/token/value/tokens/*/claims/exp',
       '/steps/token/value/tokens/*/claims/auth_time',
+      '/steps/token/value/tokens/*/claims/created_at',
+      '/steps/token/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -60,6 +62,8 @@ const expectedRows = [
     explicit: [
       '/steps/refresh-token/value/tokens/*/claims/iat',
       '/steps/refresh-token/value/tokens/*/claims/exp',
+      '/steps/refresh-token/value/tokens/*/claims/created_at',
+      '/steps/refresh-token/value/tokens/*/claims/updated_at',
       '/steps/family-state/value/generatedIds/tokenFamily',
     ],
   },
@@ -188,7 +192,7 @@ const expectedRows = [
     ],
     explicit: [
       '/steps/post-valid-b/value/redirect/resumeCredential',
-      '/steps/state/value/session/updatedAt',
+      '/steps/state/value/semanticState/session/updatedAt',
     ],
   },
   {
@@ -322,18 +326,18 @@ const goldenDigest = (...parts: readonly string[]) => parts.join('');
 const expectedScenarioAuthorityDigests = {
   'discovery.config': '4c81e3314f3fdee33a7f9b7d0e443ab013f5b0d9adc98c241eaca608cbc81056',
   'authorization.password-pkce-consent':
-    'fb728c6dd3cfbeba3ac276c348ca2cd5c3fd5568b0ee577c757bb9f2d7abab15',
+    'd497886476efea56d4ab9e45828f64b48ade7c90903acdf21cb7065536f67651',
   'token.authorization-code': goldenDigest(
-    'cc81175de94d8141',
-    'dd7e053338978d51',
-    'ae46a9d78429eb99',
-    '3e298ec19785e3dc'
+    '7f6ade1b642dfc43',
+    'e7b2a659260d5c66',
+    'ff076141954081cd',
+    '69d83c0ee5a16faf'
   ),
   'token.refresh-rotation': goldenDigest(
-    '46db13e0234fd551',
-    'cf975ef9a6ffe31d',
-    'd68c32c5daeb8878',
-    'f876c4346364ab7b'
+    '25480c5b3734db7c',
+    '3ae16b94e969e0aa',
+    'f60c4f56a10fde70',
+    '6179d057e12a2125'
   ),
   'userinfo.openid': 'ea14f29a082935dae44dc718d5dc2be3cc43d1371ecbb4d1fc690899dfc15222',
   'management.application-read': '0740e1a9002404bba5464f8d8c54f27f0f166b0e0d5339abe2b89be0f376befa',
@@ -361,7 +365,7 @@ const expectedScenarioAuthorityDigests = {
   'interaction.password-rejected':
     'b8b73a3b521abc41bf6de4ddcf3b620d17cc75b5be4246b101272cc3d2ff5eb8',
   'interaction.consent-session-boundary':
-    '22841b032c4c43ad51290e970642801d6e80e381bcd28d91260fdc2db2140f4c',
+    'ba903c971e14699e982583bc7ca05e138980b02f1c895d63ef88459b511f65be',
   'token.refresh-reuse-rejected':
     'e9438f3f1002b8c202c421fcdd8d551e843e85a081f597aec8d0641594071bc2',
   'token.issuer-audience-scope-rejected':

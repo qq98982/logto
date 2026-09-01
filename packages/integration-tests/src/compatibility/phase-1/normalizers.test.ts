@@ -273,13 +273,24 @@ describe('phase 1 field-specific normalizers', () => {
     ).toEqual(['/created_at']);
     expect(
       normalizers.normalizeClaims(
-        { created_at: 990, updated_at: 1000 },
+        { created_at: 990_000, updated_at: 1_000_000 },
         context(),
         'access-token',
         {
           profile: 'userinfo',
           boundedTimestampPaths: ['/created_at', '/updated_at'],
         }
+      )
+    ).toEqual({
+      created_at: { $timestamp: 990, $toleranceSeconds: 30 },
+      updated_at: { $timestamp: 1000, $toleranceSeconds: 30 },
+    });
+    expect(
+      normalizers.normalizeClaims(
+        { created_at: 990_000, updated_at: 1_000_000 },
+        context(),
+        'id-token',
+        { boundedTimestampPaths: ['/created_at', '/updated_at'] }
       )
     ).toEqual({
       created_at: { $timestamp: 990, $toleranceSeconds: 30 },

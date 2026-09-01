@@ -32,7 +32,7 @@ export const projectTokenObservation = (
         boundedClaimTimestampPaths: boundedTimestampPathsFor(
           options.coordinates,
           ['tokens', '*', 'claims'],
-          new Set(['iat', 'exp', 'auth_time'])
+          new Set(['iat', 'exp', 'auth_time', 'created_at', 'updated_at'])
         ),
         proofs: options.verifiedJwts ?? [],
       });

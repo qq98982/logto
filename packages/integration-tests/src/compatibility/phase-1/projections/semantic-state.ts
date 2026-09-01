@@ -20,7 +20,7 @@ export const projectSemanticStateObservation = (
       semanticState: normalizeLogicalFixtureIds(value.semanticState, context, {
         boundedTimestampPaths: boundedTimestampPathsFor(
           coordinates,
-          [],
+          ['semanticState'],
           new Set(['createdAt', 'created_at', 'updatedAt', 'updated_at'])
         ),
       }),

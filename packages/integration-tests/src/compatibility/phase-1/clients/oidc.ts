@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-let, complexity, max-lines, no-control-regex -- The raw protocol boundary intentionally keeps credential storage, URL confinement, bounded transport state, and duplicate-preserving headers together so validation cannot be bypassed between helpers. */
+/* eslint-disable @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-let, @typescript-eslint/ban-types, complexity, max-lines, no-control-regex -- The raw protocol boundary intentionally keeps credential storage, URL confinement, bounded transport state, and duplicate-preserving headers together so validation cannot be bypassed between helpers. */
 import http, { type ClientRequest } from 'node:http';
 import https from 'node:https';
 
@@ -30,7 +30,7 @@ export type RawProtocolClientOptions = Readonly<{
       allocations: ReadonlyArray<Readonly<{ role: Phase1FixtureAllocationRole }>>;
     }>;
   }>;
-  allocationRole: Phase1FixtureAllocationRole;
+  allocationRole?: Phase1FixtureAllocationRole;
   store: MemoryProtocolSecretStore;
   signal: AbortSignal;
 }>;
@@ -39,6 +39,7 @@ const safeOperationPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const absoluteUrlPattern = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const namespaceProbePath = 'aster-namespace-probe';
 const maximumRawResponseBytes = 8 * 1024 * 1024;
+const maximumCredentialGraphDepth = 32;
 const forbiddenCallerHeaderNames = new Set([
   'host',
   ':authority',
@@ -137,9 +138,75 @@ const cookieName = (setCookie: string): string | undefined => {
   return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ? name : undefined;
 };
 
+const cookieValue = (setCookie: string): string => {
+  const pair = setCookie.split(';', 1)[0] ?? '';
+  const separator = pair.indexOf('=');
+  const value = separator < 0 ? '' : pair.slice(separator + 1).trim();
+
+  return value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+};
+
+const inspectCredentialGraph = (
+  value: unknown,
+  credentials: ReadonlySet<string>,
+  ancestors: WeakSet<object>,
+  depth: number
+): void => {
+  if (depth > maximumCredentialGraphDepth) {
+    throw new TypeError('Protocol output contains credential material');
+  }
+  if (typeof value === 'string') {
+    if (
+      [...credentials].some((credential) => credential.length > 0 && value.includes(credential))
+    ) {
+      throw new TypeError('Protocol output contains credential material');
+    }
+
+    return;
+  }
+  if (value === null || value === undefined || ['number', 'boolean'].includes(typeof value)) {
+    return;
+  }
+  if (typeof value !== 'object' || ancestors.has(value)) {
+    throw new TypeError('Protocol output contains credential material');
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  if (
+    (Array.isArray(value) && prototype !== Array.prototype) ||
+    (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)
+  ) {
+    throw new TypeError('Protocol output contains credential material');
+  }
+  ancestors.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') {
+      throw new TypeError('Protocol output contains credential material');
+    }
+    inspectCredentialGraph(key, credentials, ancestors, depth + 1);
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError('Protocol output contains credential material');
+    }
+    inspectCredentialGraph(descriptor.value, credentials, ancestors, depth + 1);
+  }
+  ancestors.delete(value);
+};
+
 export class MemoryProtocolSecretStore {
   readonly #cookies = new CookieJar(undefined, { allowSpecialUseDomain: true });
   readonly #tokens = new Map<string, string>();
+  readonly #credentials = new Set<string>();
+
+  registerSecret(value: string): void {
+    const credential = requireText(value, 'Invalid protocol secret');
+    this.#credentials.add(credential);
+  }
+
+  assertNoCredentialMaterial(value: unknown): void {
+    inspectCredentialGraph(value, this.#credentials, new WeakSet(), 0);
+  }
 
   setCookie(setCookie: string, url: URL): void {
     const value = requireText(setCookie, 'Invalid protocol cookie');
@@ -149,6 +216,11 @@ export class MemoryProtocolSecretStore {
     }
     try {
       this.#cookies.setCookieSync(value, url.href);
+      const credential = cookieValue(value);
+
+      if (credential.length > 0) {
+        this.registerSecret(credential);
+      }
     } catch {
       throw new TypeError('Invalid protocol cookie');
     }
@@ -167,10 +239,9 @@ export class MemoryProtocolSecretStore {
   }
 
   setToken(name: string, value: string): void {
-    this.#tokens.set(
-      requireText(name, 'Invalid protocol token name'),
-      requireText(value, 'Invalid protocol token')
-    );
+    const token = requireText(value, 'Invalid protocol token');
+    this.registerSecret(token);
+    this.#tokens.set(requireText(name, 'Invalid protocol token name'), token);
   }
 
   getToken(name: string): string | undefined {
@@ -226,7 +297,7 @@ const rawResponseHeaders = (rawHeaders: readonly string[]): RawProtocolHeaders =
 export class OidcClient {
   readonly target: TargetConfig;
   readonly fixture: RawProtocolClientOptions['fixture'];
-  readonly allocationRole: Phase1FixtureAllocationRole;
+  readonly allocationRole: Phase1FixtureAllocationRole | undefined;
   readonly store: MemoryProtocolSecretStore;
   readonly signal: AbortSignal;
 
@@ -236,7 +307,14 @@ export class OidcClient {
     this.allocationRole = options.allocationRole;
     this.store = options.store;
     this.signal = options.signal;
-    if (!this.fixture.public.allocations.some(({ role }) => role === this.allocationRole)) {
+    const hasAllocation = this.fixture.public.allocations.some(
+      ({ role }) => role === this.allocationRole
+    );
+
+    if (
+      (this.allocationRole === undefined && this.fixture.public.allocations.length > 0) ||
+      (this.allocationRole !== undefined && !hasAllocation)
+    ) {
       throw new TypeError('Invalid protocol fixture allocation');
     }
   }
@@ -254,9 +332,7 @@ export class OidcClient {
 
     try {
       const safePath = requireRelativeRequestPath(path);
-      const target = new URL(
-        this.allocationRole === 'admin' ? this.target.adminUrl : this.target.coreUrl
-      );
+      const target = new URL(this.baseUrl());
       const namespace = new URL('.', this.resolve(namespaceProbePath));
       const resolved = this.resolve(safePath);
 
@@ -292,8 +368,16 @@ export class OidcClient {
     const headers = (() => {
       try {
         const pairs = protocolHeaderPairs(options.headers);
+        if (
+          this.allocationRole === undefined &&
+          pairs.some(([name]) => name.toLowerCase() === 'authorization')
+        ) {
+          throw new TypeError('Invalid public protocol request headers');
+        }
         const cookie =
-          options.includeCookies === false ? undefined : this.store.getCookieHeader(url);
+          this.allocationRole === undefined || options.includeCookies === false
+            ? undefined
+            : this.store.getCookieHeader(url);
 
         return Object.fromEntries([
           ...pairs,
@@ -363,7 +447,7 @@ export class OidcClient {
               const responseHeaders = rawResponseHeaders(response.rawHeaders);
 
               for (const [name, value] of responseHeaders) {
-                if (name === 'set-cookie') {
+                if (name === 'set-cookie' && this.allocationRole !== undefined) {
                   try {
                     this.store.setCookie(value, url);
                   } catch {
@@ -404,11 +488,12 @@ export class OidcClient {
   }
 
   protected resolve(path: string): URL {
-    return new URL(
-      requireText(path, 'Invalid protocol request path'),
-      this.allocationRole === 'admin' ? this.target.adminUrl : this.target.coreUrl
-    );
+    return new URL(requireText(path, 'Invalid protocol request path'), this.baseUrl());
+  }
+
+  private baseUrl(): string {
+    return this.allocationRole === 'admin' ? this.target.adminUrl : this.target.coreUrl;
   }
 }
 
-/* eslint-enable @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-let, complexity, max-lines, no-control-regex */
+/* eslint-enable @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-let, @typescript-eslint/ban-types, complexity, max-lines, no-control-regex */

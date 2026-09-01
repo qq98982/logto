@@ -58,7 +58,11 @@ const maximumRuntimeGraphDepth = 24;
 const maximumRuntimeArrayLength = 4096;
 const safeTextPattern = /^[^\u0000-\u001f\u007f]+$/u;
 const runtimeCredentialFailure = 'Phase 1 runtime output contains forbidden credential material';
-const reviewedRuntimeCredentialMetadataKeys = new Set(['cookiekeyid', 'signingkeyid']);
+const reviewedRuntimeCredentialMetadataKeys = new Set([
+  'cookiekeyid',
+  'signingkeyid',
+  'tokenfamily',
+]);
 const standaloneCookiePairPattern =
   /^(?:__Host-|__Secure-)?[!#$%&'*+.^_`|~0-9A-Za-z-]+=[^;\r\n]*(?:;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:=[^;\r\n]*)?)*$/u;
 const nativeErrorToString = Error.prototype.toString;

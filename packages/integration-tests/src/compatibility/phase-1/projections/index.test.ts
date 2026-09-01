@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Projection coverage keeps the complete composite envelope and its security regressions together. */
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
 import { SymbolTable } from '../../symbol-table.js';
@@ -296,6 +297,33 @@ describe('phase 1 projections', () => {
     ]);
   });
 
+  it('permits the contract-declared token family generated-ID metadata', () => {
+    const projection = projectSemanticStateObservation(
+      {
+        ...raw({ families: 1 }),
+        generatedIds: { tokenFamily: '<token-family.1>' },
+      },
+      context
+    );
+
+    expect(projection.generatedIds).toEqual({ tokenFamily: '<token-family.1>' });
+  });
+
+  it('normalizes the authorization session timestamp at its emitted semanticState path', () => {
+    const projection = projectSemanticStateObservation(
+      {
+        ...raw({ observed: true }),
+        semanticState: { session: { updatedAt: 1000 } },
+      },
+      context,
+      { scenarioId: 'authorization.password-pkce-consent', stepId: 'state' }
+    );
+
+    expect(projection.semanticState).toEqual({
+      session: { updatedAt: { $timestamp: 1000, $toleranceSeconds: 30 } },
+    });
+  });
+
   it('verifies and lifts JWT observations while removing raw nonce credentials', async () => {
     const tokenContext = {
       target: context.target,
@@ -405,3 +433,5 @@ describe('phase 1 projections', () => {
     ]);
   });
 });
+
+/* eslint-enable max-lines */

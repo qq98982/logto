@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Transport tests retain unknown rejections and record server-observed request/cookie state. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines -- Transport tests retain unknown rejections and record server-observed request/cookie state across the complete raw-client boundary. */
 import { createServer, type Server } from 'node:http';
 
 import { AccountClient } from './account.js';
@@ -39,6 +39,91 @@ const close = async (server: Server): Promise<void> =>
   });
 
 describe('phase 1 raw protocol client', () => {
+  it('reads public OIDC metadata from core with a none fixture and never selects credentials', async () => {
+    const coreRequests: Array<Readonly<{ url: string; authorization?: string; cookie?: string }>> =
+      [];
+    const adminRequests: string[] = [];
+    const coreServer = createServer((request, response) => {
+      coreRequests.push({
+        url: request.url ?? '',
+        ...(typeof request.headers.authorization === 'string' && {
+          authorization: request.headers.authorization,
+        }),
+        ...(typeof request.headers.cookie === 'string' && { cookie: request.headers.cookie }),
+      });
+      response.setHeader('content-type', 'application/json');
+      response.setHeader('set-cookie', 'unexpected=private-response-cookie; Path=/; HttpOnly');
+      response.end('{"issuer":"public"}');
+    });
+    const adminServer = createServer((request, response) => {
+      adminRequests.push(request.url ?? '');
+      response.end('unexpected');
+    });
+    const corePort = await listen(coreServer);
+    const adminPort = await listen(adminServer);
+    const coreUrl = `http://127.0.0.1:${corePort}/`;
+    const store = new MemoryProtocolSecretStore();
+    store.setCookie('interaction=private-cookie; Path=/; HttpOnly', new URL(coreUrl));
+    store.setToken('management', 'private-management-token');
+    const getCookieHeader = import.meta.jest.spyOn(store, 'getCookieHeader');
+    const setCookie = import.meta.jest.spyOn(store, 'setCookie');
+    const getToken = import.meta.jest.spyOn(store, 'getToken');
+    const client = new OidcClient({
+      target: {
+        label: 'oracle',
+        coreUrl,
+        adminUrl: `http://127.0.0.1:${adminPort}/`,
+      },
+      fixture: fixture(),
+      store,
+      signal: new AbortController().signal,
+    });
+
+    try {
+      await expect(
+        client.request('discovery', 'oidc/.well-known/openid-configuration', {
+          includeCookies: true,
+        })
+      ).resolves.toMatchObject({ status: 200, body: '{"issuer":"public"}' });
+      await expect(
+        client.request('reject-authorization', 'oidc/jwks', {
+          headers: { authorization: 'Bearer caller-controlled' },
+        })
+      ).rejects.toBeInstanceOf(ProtocolClientError);
+
+      expect(coreRequests).toEqual([{ url: '/oidc/.well-known/openid-configuration' }]);
+      expect(adminRequests).toEqual([]);
+      expect(getCookieHeader).not.toHaveBeenCalled();
+      expect(setCookie).not.toHaveBeenCalled();
+      expect(getToken).not.toHaveBeenCalled();
+      expect(client.allocationRole).toBeUndefined();
+    } finally {
+      getCookieHeader.mockRestore();
+      setCookie.mockRestore();
+      getToken.mockRestore();
+      await Promise.all([close(coreServer), close(adminServer)]);
+    }
+  });
+
+  it('requires allocationRole exactly when the fixture contains an allocation', () => {
+    const common = {
+      target: {
+        label: 'oracle' as const,
+        coreUrl: 'http://127.0.0.1:3001/',
+        adminUrl: 'http://127.0.0.1:3002/',
+      },
+      store: new MemoryProtocolSecretStore(),
+      signal: new AbortController().signal,
+    };
+
+    expect(() => new OidcClient({ ...common, fixture: fixture('data') })).toThrow(
+      'Invalid protocol fixture allocation'
+    );
+    expect(() => new OidcClient({ ...common, fixture: fixture(), allocationRole: 'data' })).toThrow(
+      'Invalid protocol fixture allocation'
+    );
+  });
+
   it('keeps cookies and tokens memory-only and returns duplicate raw headers to the closure', async () => {
     const server = createServer((_request, response) => {
       response.setHeader('x-repeat', ['one', 'two']);
@@ -65,6 +150,15 @@ describe('phase 1 raw protocol client', () => {
       expect(response.headers.filter(([name]) => name === 'set-cookie')).toHaveLength(1);
       store.setToken('access', 'private-token');
       expect(() => JSON.stringify(store)).toThrow('Protocol secret store is not serializable');
+      expect(() => {
+        store.assertNoCredentialMaterial({ note: 'prefix private-cookie suffix' });
+      }).toThrow('Protocol output contains credential material');
+      expect(() => {
+        store.assertNoCredentialMaterial({ note: 'prefix private-token suffix' });
+      }).toThrow('Protocol output contains credential material');
+      expect(() => {
+        store.assertNoCredentialMaterial({ note: 'safe projection' });
+      }).not.toThrow();
     } finally {
       await close(server);
     }
@@ -362,4 +456,4 @@ describe('phase 1 raw protocol client', () => {
   });
 });
 
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines */

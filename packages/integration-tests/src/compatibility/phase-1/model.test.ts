@@ -88,9 +88,7 @@ const differentialFixture = (): Phase1DifferentialScenario => ({
   normalizablePointers: ['/steps/*/value/headers/date/*'],
   semanticProjectionVersion: 1,
   cleanup: 'fresh-fixture-reverse-cleanup',
-  run: async () => {
-    await Promise.resolve();
-  },
+  run: async () => [],
 });
 
 const candidateFixture = (): CandidateInvariantContract => ({

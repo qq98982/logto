@@ -3,11 +3,17 @@ import { types as nodeTypes } from 'node:util';
 
 import { z } from 'zod';
 
-import { jsonValueGuard } from '../model.js';
+import { jsonValueGuard, type TargetConfig } from '../model.js';
 import type { JsonObject, JsonValue } from '../normalize.js';
-import type { CompatibilityScenario } from '../scenario.js';
 
+import type { ProvisionedPhase1Fixture, SemanticStateProjection } from './fixtures.js';
 import type { Phase1SourceEvidenceRef as ProfilePhase1SourceEvidenceRef } from './profile-semantics/provenance.js';
+import type { Phase1Profile } from './profile-types.js';
+import type { Phase1HttpProjection } from './projections/http.js';
+import type {
+  Phase1ProtocolSession,
+  Phase1ScenarioStateProjectionInput,
+} from './scenario-runtime.js';
 
 export const oracleCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 export const phase0HarnessCommit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
@@ -98,18 +104,43 @@ export type Phase1ObservationContract = Readonly<{
   redirects: readonly string[];
 }>;
 
-export type Phase1DifferentialScenario = CompatibilityScenario &
-  Readonly<{
-    id: Phase1DifferentialScenarioId;
-    evidenceKind: 'differential';
-    fixture: Phase1FixtureRecipe;
-    sourceEvidence: readonly Phase1SourceEvidenceRef[];
-    orderedSteps: readonly Phase1ScenarioStep[];
-    observationContract: Phase1ObservationContract;
-    normalizablePointers: readonly string[];
-    semanticProjectionVersion: 1;
-    cleanup: 'fresh-fixture-reverse-cleanup';
-  }>;
+export type Phase1ScenarioStepResult = Readonly<{
+  stepId: string;
+  value: Phase1HttpProjection;
+}>;
+
+export type Phase1ScenarioRunContext = Readonly<{
+  profile: Readonly<Phase1Profile>;
+  target: TargetConfig;
+  fixture: ProvisionedPhase1Fixture;
+  signal: AbortSignal;
+  protocol: Phase1ProtocolSession;
+  projectFixtureState(): Promise<SemanticStateProjection>;
+  projectScenarioState(
+    input: Readonly<{
+      scenarioId: Phase1DifferentialScenarioId;
+      stepId: string;
+      fixture: ProvisionedPhase1Fixture;
+    }>
+  ): Promise<Phase1ScenarioStateProjectionInput>;
+}>;
+
+export type Phase1ScenarioRun = (
+  context: Phase1ScenarioRunContext
+) => Promise<readonly Phase1ScenarioStepResult[]>;
+
+export type Phase1DifferentialScenario = Readonly<{
+  id: Phase1DifferentialScenarioId;
+  evidenceKind: 'differential';
+  fixture: Phase1FixtureRecipe;
+  sourceEvidence: readonly Phase1SourceEvidenceRef[];
+  orderedSteps: readonly Phase1ScenarioStep[];
+  observationContract: Phase1ObservationContract;
+  normalizablePointers: readonly string[];
+  semanticProjectionVersion: 1;
+  cleanup: 'fresh-fixture-reverse-cleanup';
+  run: Phase1ScenarioRun;
+}>;
 
 export type CandidateInvariantPrecondition = Readonly<JsonObject>;
 export type CandidateInvariantPerturbation = Readonly<JsonObject>;
@@ -331,7 +362,7 @@ const observationContractGuard = z
     redirects: z.array(z.string().min(1)),
   })
   .strict();
-const runGuard = z.custom<CompatibilityScenario['run']>((value) => typeof value === 'function');
+const runGuard = z.custom<Phase1ScenarioRun>((value) => typeof value === 'function');
 
 const deriveObservationSteps = (
   orderedSteps: readonly Phase1ScenarioStep[],
