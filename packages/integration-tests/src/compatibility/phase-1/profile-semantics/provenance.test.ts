@@ -36,7 +36,7 @@ const harnessCommit = '3333333333333333333333333333333333333333';
 const schemaCommit = '4444444444444444444444444444444444444444';
 const oracleRepository = 'https://example.test/oracle.git';
 const harnessRepository = oracleRepository;
-const profilePaths = Array.from({ length: 27 }, (_, index) => `sources/source-${index}.ts`);
+const profilePaths = Array.from({ length: 31 }, (_, index) => `sources/source-${index}.ts`);
 const createScenarioEvidence = (scenarioId: 'discovery' | 'password-code', marker: string) => {
   const observations = [
     {
@@ -171,36 +171,36 @@ const provenanceProfile = () =>
     },
     browserFlows: [
       { id: 'flow-a', sourceEvidence: profilePaths.slice(0, 8) },
-      { id: 'flow-b', sourceEvidence: profilePaths.slice(8, 14) },
+      { id: 'flow-b', sourceEvidence: profilePaths.slice(8, 19) },
       {
         id: 'flow-c',
-        sourceEvidence: [required(profilePaths.at(8)), ...profilePaths.slice(14, 20)],
+        sourceEvidence: [required(profilePaths.at(8)), ...profilePaths.slice(18, 24)],
       },
       {
         id: 'flow-d',
         sourceEvidence: [
           required(profilePaths.at(8)),
-          required(profilePaths.at(14)),
-          required(profilePaths.at(20)),
+          required(profilePaths.at(18)),
+          required(profilePaths.at(24)),
           required(profilePaths.at(9)),
-          required(profilePaths.at(15)),
-          required(profilePaths.at(16)),
+          required(profilePaths.at(19)),
+          required(profilePaths.at(20)),
         ],
       },
     ],
     consoleOrganizationTokenRequest: {
-      sourceEvidence: profilePaths.slice(21, 24),
+      sourceEvidence: profilePaths.slice(25, 28),
       sourceCapabilities: ['capability-a'],
     },
     interactionOperations: [
       {
         id: 'get',
-        sourceEvidence: profilePaths.slice(23, 26),
+        sourceEvidence: profilePaths.slice(27, 30),
         sourceCapabilities: ['capability-a'],
       },
       {
         id: 'post',
-        sourceEvidence: profilePaths.slice(25, 27),
+        sourceEvidence: profilePaths.slice(29, 31),
         sourceCapabilities: ['capability-a'],
       },
     ],
@@ -376,7 +376,7 @@ const provenanceContext = (
 ): Phase1ProvenanceContext => {
   const { gitReader, githubReader, phase0EvidenceReproducer } = createReaders();
   const browserSourceEvidence: Phase1SourceEvidenceRef[] = profilePaths
-    .slice(0, 21)
+    .slice(0, 25)
     .map((path) => ({
       commit: oracleCommit,
       path,
@@ -635,12 +635,12 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
-  it('accepts four raw browser arrays of 8/6/7/6 with a 21-path first-occurrence union', async () => {
+  it('accepts four raw browser arrays of 8/11/7/6 with a 25-path first-occurrence union', async () => {
     const profile = provenanceProfile();
     expect(profile.browserFlows.map(({ sourceEvidence }) => sourceEvidence.length)).toEqual([
-      8, 6, 7, 6,
+      8, 11, 7, 6,
     ]);
-    expect(profile.browserFlows.flatMap(({ sourceEvidence }) => sourceEvidence)).toHaveLength(27);
+    expect(profile.browserFlows.flatMap(({ sourceEvidence }) => sourceEvidence)).toHaveLength(32);
     await expect(
       verifyPhase1ProfileProvenance(profile, provenanceContext())
     ).resolves.toMatchObject({ kind: 'review-candidate' });
@@ -648,14 +648,14 @@ describe('Phase 1 source and acceptance provenance', () => {
 
   it.each([
     {
-      name: '20 unique paths',
+      name: '24 unique paths',
       mutate: (profile: Phase1Profile) => {
         const flow = required(profile.browserFlows.at(3));
         (flow.sourceEvidence as string[])[2] = required(profilePaths.at(16));
       },
     },
     {
-      name: '22 unique paths',
+      name: '26 unique paths',
       mutate: (profile: Phase1Profile) => {
         const flow = required(profile.browserFlows.at(3));
         (flow.sourceEvidence as string[]).push('sources/browser-extra.ts');
@@ -673,14 +673,14 @@ describe('Phase 1 source and acceptance provenance', () => {
 
   it.each([
     {
-      name: 'all 27 profile paths instead of the browser 21',
+      name: 'all 31 profile paths instead of the browser 25',
       mutate: (context: Phase1ProvenanceContext) => {
         context.browserSourceEvidence = profilePaths.map((path) => ({
           commit: oracleCommit,
           path,
         }));
       },
-      pointer: '/browserSourceEvidence/21',
+      pointer: '/browserSourceEvidence/25',
     },
     {
       name: 'one omitted browser path',
@@ -708,7 +708,7 @@ describe('Phase 1 source and acceptance provenance', () => {
           { commit: oracleCommit, path: 'sources/extra-browser.ts' },
         ];
       },
-      pointer: '/browserSourceEvidence/21',
+      pointer: '/browserSourceEvidence/25',
     },
   ])('rejects browser source evidence with $name', async ({ mutate, pointer }) => {
     const context = provenanceContext();
@@ -723,7 +723,7 @@ describe('Phase 1 source and acceptance provenance', () => {
   it('rejects a registry union that omits one profile-owned oracle source', async () => {
     const context = provenanceContext();
     context.registrySourceEvidence = context.registrySourceEvidence.filter(
-      ({ path }) => path !== required(profilePaths.at(26))
+      ({ path }) => path !== required(profilePaths.at(30))
     );
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
@@ -735,10 +735,10 @@ describe('Phase 1 source and acceptance provenance', () => {
   it.each([
     {
       name: 'duplicate oracle path',
-      expectedIndex: 27,
+      expectedIndex: 31,
       mutate: (context: Phase1ProvenanceContext) => {
         const references = [...context.registrySourceEvidence];
-        references.splice(27, 0, {
+        references.splice(31, 0, {
           commit: oracleCommit,
           path: required(profilePaths.at(0)),
         });
@@ -747,7 +747,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     },
     {
       name: 'duplicate Phase 0 path',
-      expectedIndex: 28,
+      expectedIndex: 32,
       mutate: (context: Phase1ProvenanceContext) => {
         context.registrySourceEvidence = [
           ...context.registrySourceEvidence,
@@ -768,7 +768,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
-  it('accepts and verifies Task 6 extra oracle citations outside the profile-owned 27', async () => {
+  it('accepts and verifies Task 6 extra oracle citations outside the profile-owned 31', async () => {
     const readers = createReaders();
     const context = {
       ...provenanceContext(),
@@ -847,7 +847,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     ];
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
-      '/registrySourceEvidence/28/commit',
+      '/registrySourceEvidence/32/commit',
       'source-evidence-commit'
     );
   });
@@ -882,7 +882,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     ];
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
-      '/registrySourceEvidence/28/path',
+      '/registrySourceEvidence/32/path',
       'phase0-private-evidence-path'
     );
     expect(readers.calls.gitBlobReads).not.toContainEqual({
@@ -928,7 +928,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
-  it('rejects a source union with anything other than 27 unique profile paths', async () => {
+  it('rejects a source union with anything other than 31 unique profile paths', async () => {
     const profile = provenanceProfile();
     const operation = required(profile.interactionOperations.at(1));
     (operation.sourceEvidence as string[])[1] = required(profilePaths.at(25));

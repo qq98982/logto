@@ -428,6 +428,7 @@ const createHarness = (
     cleanupFailureCount?: number;
     createAllocationId?: () => string;
     organizationRoleAssignedToPreexistingMemberOnly?: boolean;
+    userActivityResponses?: Partial<Record<'data' | 'admin', unknown>>;
   } = {}
 ) => {
   const requests: Request[] = [];
@@ -458,6 +459,13 @@ const createHarness = (
       if (input.path === 'organizations/t-default/users/preexisting-admin-id/roles') {
         return [{ id: 'runtime-admin-organization-role' }];
       }
+    }
+    if (
+      input.method === 'GET' &&
+      input.path.startsWith('users/') &&
+      Object.hasOwn(options.userActivityResponses ?? {}, input.targetRole)
+    ) {
+      return options.userActivityResponses?.[input.targetRole as 'data' | 'admin'];
     }
 
     return responseFor(input, requests);
@@ -888,6 +896,84 @@ describe('reference Phase 1 fixture provisioner', () => {
       'GET:roles/data-role-id/scopes',
       'GET:roles/data-role-id/users',
     ]);
+  });
+
+  it('reads only the logical data or admin user last-sign-in state', async () => {
+    const { provisioner, requests } = createHarness({
+      userActivityResponses: {
+        data: { id: 'data-phase1_user-id', lastSignInAt: null },
+        admin: { id: 'admin-phase1_admin-id', lastSignInAt: 1_725_000_000_000 },
+      },
+    });
+    const fixture = await provisioner.provision('fullPhase1');
+    const provisionCount = requests.length;
+
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).resolves.toEqual({
+      lastSignInState: 'never',
+    });
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-admin')).resolves.toEqual({
+      lastSignInState: 'present',
+    });
+    expect(requests.slice(provisionCount)).toEqual([
+      {
+        targetRole: 'data',
+        method: 'GET',
+        path: 'users/data-phase1_user-id',
+      },
+      {
+        targetRole: 'admin',
+        method: 'GET',
+        path: 'users/admin-phase1_admin-id',
+      },
+    ]);
+  });
+
+  it('rejects an unknown reference fixture or logical user before reading activity', async () => {
+    const first = createHarness();
+    const second = createHarness();
+    const fixture = await first.provisioner.provision('dataProtocol');
+    const foreignFixture = await second.provisioner.provision('dataProtocol');
+    const requestCount = first.requests.length;
+
+    await expect(
+      first.provisioner.readUserActivityState(foreignFixture, 'phase1-user')
+    ).rejects.toThrow('Unknown reference fixture');
+    await expect(first.provisioner.readUserActivityState(fixture, 'missing-user')).rejects.toThrow(
+      'Invalid Phase 1 browser activity fixture user'
+    );
+    expect(first.requests).toHaveLength(requestCount);
+  });
+
+  it.each([true, 0, -1, 1.5, '1725000000000'])(
+    'rejects malformed reference lastSignInAt value %p',
+    async (lastSignInAt) => {
+      const { provisioner } = createHarness({
+        userActivityResponses: { data: { lastSignInAt } },
+      });
+      const fixture = await provisioner.provision('dataProtocol');
+
+      await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).rejects.toThrow(
+        'Invalid Phase 1 browser activity state'
+      );
+    }
+  );
+
+  it('rejects a secret-bearing reference activity response without exposing it', async () => {
+    const credential = 'Bearer unrelated-activity-credential';
+    const { provisioner } = createHarness({
+      userActivityResponses: { data: { lastSignInAt: null, note: credential } },
+    });
+    const fixture = await provisioner.provision('dataProtocol');
+    let caught: unknown;
+
+    try {
+      await provisioner.readUserActivityState(fixture, 'phase1-user');
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(String(caught)).toBe('TypeError: Invalid reference fixture response');
+    expect(inspect(caught)).not.toContain(credential);
   });
 
   it.each(['none', 'adminConsole', 'fullPhase1', 'consentBoundary'] as const)(

@@ -5,6 +5,11 @@ import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
+import {
+  parsePhase1UserActivityState,
+  resolvePhase1FixtureUserActivityTarget,
+  type Phase1BrowserFixtureProvisioner,
+} from '../browser/activity-reader.js';
 import { snapshotClosedDataGraph } from '../model.js';
 import type { Phase1Profile } from '../profile-types.js';
 import {
@@ -12,7 +17,6 @@ import {
   createProvisionedPhase1Fixture,
   phase1TargetOriginsArePairwiseDisjoint,
   revokeProvisionedPhase1Fixture,
-  type Phase1FixtureProvisioner,
   type ProvisionedPhase1Fixture,
   type SemanticStateProjection,
 } from '../fixtures.js';
@@ -393,7 +397,7 @@ const seedLogicalIds = (
 
 export const createCommandPhase1FixtureProvisioner = (
   options: CommandProvisionerOptions
-): Phase1FixtureProvisioner => {
+): Phase1BrowserFixtureProvisioner => {
   const target = validateTargetConfig(options.target);
   const foreignTarget = options.foreignTarget
     ? validateTargetConfig(options.foreignTarget)
@@ -423,7 +427,7 @@ export const createCommandPhase1FixtureProvisioner = (
 
   const runDescriptor = async (
     descriptor: Readonly<Record<string, unknown>>,
-    expectedOperation: 'provision' | 'projectState' | 'cleanup',
+    expectedOperation: 'provision' | 'projectState' | 'readUserActivityState' | 'cleanup',
     failureMessage: string,
     secretValues: readonly string[]
   ): Promise<Record<string, unknown>> => {
@@ -459,7 +463,9 @@ export const createCommandPhase1FixtureProvisioner = (
         ? ['schemaVersion', 'operation', 'public']
         : expectedOperation === 'projectState'
           ? ['schemaVersion', 'operation', 'projection']
-          : ['schemaVersion', 'operation', 'ok'];
+          : expectedOperation === 'readUserActivityState'
+            ? ['schemaVersion', 'operation', 'activity']
+            : ['schemaVersion', 'operation', 'ok'];
 
     const parsed = parseOutputRecord(result.stdout, expectedOperation, resultKeys, failureMessage);
     try {
@@ -702,6 +708,40 @@ export const createCommandPhase1FixtureProvisioner = (
       }
 
       return projection;
+    },
+
+    readUserActivityState: async (fixture: ProvisionedPhase1Fixture, logicalUserId: string) => {
+      const state = states.get(fixture as object);
+
+      if (!state) {
+        throw new TypeError(commandFailure);
+      }
+      try {
+        resolvePhase1FixtureUserActivityTarget(fixture, logicalUserId);
+      } catch {
+        throw new TypeError(commandFailure);
+      }
+      const result = await runDescriptor(
+        Object.freeze({
+          schemaVersion: 1,
+          operation: 'readUserActivityState',
+          recipe: state.recipe,
+          allocationId: state.allocationId,
+          public: fixture.public,
+          logicalUserId,
+        }),
+        'readUserActivityState',
+        commandFailure,
+        state.secretValues
+      );
+      try {
+        const activity = parsePhase1UserActivityState(ownValue(result, 'activity'));
+        assertPhase1RuntimeCredentialGraphIsSanitized(activity, state.secretValues);
+
+        return activity;
+      } catch {
+        throw new Error(commandFailure);
+      }
     },
 
     cleanup: async (fixture: ProvisionedPhase1Fixture): Promise<void> => {

@@ -325,6 +325,13 @@ const createHarness = (
         ),
       });
     }
+    if (operation === 'readUserActivityState') {
+      return runnerResult({
+        schemaVersion: 1,
+        operation: 'readUserActivityState',
+        activity: { lastSignInState: 'never' },
+      });
+    }
 
     return runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true });
   }
@@ -460,6 +467,138 @@ describe('candidate fixture command descriptor', () => {
     });
     expect(requests[1]?.stdin).not.toContain(seededPassword);
     expect(requests[2]?.stdin).not.toContain(seededPassword);
+  });
+
+  it('uses an exact closed descriptor and returns only user activity state', async () => {
+    const { provisioner, requests } = createHarness((descriptor) =>
+      descriptor.operation === 'provision'
+        ? runnerResult(provisionResult('fullPhase1'))
+        : descriptor.operation === 'readUserActivityState'
+          ? runnerResult({
+              schemaVersion: 1,
+              operation: 'readUserActivityState',
+              activity: {
+                lastSignInState: descriptor.logicalUserId === 'phase1-user' ? 'never' : 'present',
+              },
+            })
+          : runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true })
+    );
+    const fixture = await provisioner.provision('fullPhase1');
+
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).resolves.toEqual({
+      lastSignInState: 'never',
+    });
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-admin')).resolves.toEqual({
+      lastSignInState: 'present',
+    });
+    const descriptors = requests.slice(1).map(({ stdin }) => JSON.parse(stdin) as object);
+    expect(descriptors).toEqual([
+      {
+        schemaVersion: 1,
+        operation: 'readUserActivityState',
+        recipe: 'fullPhase1',
+        allocationId: 'command-allocation-1',
+        public: fixture.public,
+        logicalUserId: 'phase1-user',
+      },
+      {
+        schemaVersion: 1,
+        operation: 'readUserActivityState',
+        recipe: 'fullPhase1',
+        allocationId: 'command-allocation-1',
+        public: fixture.public,
+        logicalUserId: 'phase1-admin',
+      },
+    ]);
+    expect(requests[1]?.stdin).not.toContain(seededPassword);
+    expect(requests[2]?.stdin).not.toContain(seededPassword);
+  });
+
+  it('rejects an unknown command fixture or logical user before invoking the reader', async () => {
+    const first = createHarness();
+    const second = createHarness();
+    const fixture = await first.provisioner.provision('dataProtocol');
+    const foreignFixture = await second.provisioner.provision('dataProtocol');
+    const requestCount = first.requests.length;
+
+    await expect(
+      first.provisioner.readUserActivityState(foreignFixture, 'phase1-user')
+    ).rejects.toThrow('Candidate fixture command failed');
+    await expect(first.provisioner.readUserActivityState(fixture, 'missing-user')).rejects.toThrow(
+      'Candidate fixture command failed'
+    );
+    expect(first.requests).toHaveLength(requestCount);
+  });
+
+  it.each([
+    {},
+    { lastSignInState: 'unknown' },
+    { lastSignInState: 'never', lastSignInAt: 1_725_000_000_000 },
+    { lastSignInAt: 1_725_000_000_000 },
+  ])('rejects malformed command activity state %p', async (activity) => {
+    const { provisioner } = createHarness((descriptor) =>
+      descriptor.operation === 'provision'
+        ? runnerResult(provisionResult('dataProtocol'))
+        : descriptor.operation === 'readUserActivityState'
+          ? runnerResult({
+              schemaVersion: 1,
+              operation: 'readUserActivityState',
+              activity,
+            })
+          : runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true })
+    );
+    const fixture = await provisioner.provision('dataProtocol');
+
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).rejects.toThrow(
+      'Candidate fixture command failed'
+    );
+  });
+
+  it('rejects a command activity result with an extra envelope field', async () => {
+    const { provisioner } = createHarness((descriptor) =>
+      descriptor.operation === 'provision'
+        ? runnerResult(provisionResult('dataProtocol'))
+        : descriptor.operation === 'readUserActivityState'
+          ? runnerResult({
+              schemaVersion: 1,
+              operation: 'readUserActivityState',
+              activity: { lastSignInState: 'never' },
+              lastSignInAt: 1_725_000_000_000,
+            })
+          : runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true })
+    );
+    const fixture = await provisioner.provision('dataProtocol');
+
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).rejects.toThrow(
+      'Candidate fixture command failed'
+    );
+  });
+
+  it('rejects a secret-bearing command activity result without exposing it', async () => {
+    const credential = 'Bearer unrelated-activity-credential';
+    const { provisioner } = createHarness((descriptor) =>
+      descriptor.operation === 'provision'
+        ? runnerResult(provisionResult('dataProtocol'))
+        : descriptor.operation === 'readUserActivityState'
+          ? runnerResult({
+              schemaVersion: 1,
+              operation: 'readUserActivityState',
+              activity: { lastSignInState: 'never', note: credential },
+            })
+          : runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true })
+    );
+    const fixture = await provisioner.provision('dataProtocol');
+    let caught: unknown;
+
+    try {
+      await provisioner.readUserActivityState(fixture, 'phase1-user');
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(String(caught)).toBe('Error: Candidate fixture command failed');
+    expect(inspect(caught)).not.toContain(credential);
+    expect(JSON.stringify(caught)).not.toContain(credential);
   });
 
   it.each(phase1FixtureEntityKinds)(

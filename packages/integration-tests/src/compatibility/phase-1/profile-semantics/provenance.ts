@@ -301,7 +301,7 @@ const uniqueProfileSources = (sources: readonly ProfileSource[]): readonly Profi
     }
   }
 
-  if (firstByPath.size !== 27) {
+  if (firstByPath.size !== 31) {
     fail(sources.at(-1)?.pointer ?? '/sourceEvidence', 'profile-source-path-count');
   }
 
@@ -429,7 +429,7 @@ const assertProfileSources = async (
   const allProfileSources = collectProfileSources(profile);
   const browserSources = [...new Set(profile.browserFlows.flatMap((flow) => flow.sourceEvidence))];
 
-  if (browserSources.length !== 21) {
+  if (browserSources.length !== 25) {
     fail('/browserFlows', 'browser-source-path-count');
   }
   const browserRefs = context.browserSourceEvidence;

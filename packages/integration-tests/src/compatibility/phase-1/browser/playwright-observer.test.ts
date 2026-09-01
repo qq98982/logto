@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- Browser tests record lifecycle/output state, implement narrow failure fakes, and load Playwright natively outside the tsup ESM bundle. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- Browser tests record lifecycle/output state, implement narrow failure fakes, exercise all fixed failure classes, and load Playwright natively outside the tsup ESM bundle. */
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
@@ -96,9 +96,72 @@ describe('phase 1 Playwright observer', () => {
     expect(launchOptions).toMatchObject({ headless: true });
     expect((launchOptions?.env as Record<string, unknown> | undefined)?.DEBUG).toBeUndefined();
     expect((launchOptions?.env as Record<string, unknown> | undefined)?.PWDEBUG).toBeUndefined();
-    expect(contextOptions).not.toHaveProperty('recordHar');
-    expect(contextOptions).not.toHaveProperty('recordVideo');
+    expect(contextOptions).toEqual({
+      acceptDownloads: false,
+      locale: 'en',
+      serviceWorkers: 'block',
+    });
     expect(closeCalls).toBe(2);
+  });
+
+  it('closes the browser when context creation fails', async () => {
+    let browserClosed = false;
+    const observer = createPlaywrightObserver({
+      scenarioId: 'context-create',
+      browserType: {
+        launch: async () => ({
+          newContext: async () => {
+            throw new Error('private-context-create');
+          },
+          close: async () => {
+            browserClosed = true;
+          },
+        }),
+      } as never,
+    });
+
+    await expect(observer.withContext('context-create', async () => {})).rejects.toMatchObject({
+      errorClass: 'browser-process',
+      scenarioId: 'context-create',
+    });
+    expect(browserClosed).toBe(true);
+  });
+
+  it('preserves fixed primary and cleanup failures in one aggregate', async () => {
+    const observer = createPlaywrightObserver({
+      scenarioId: 'aggregate',
+      browserType: {
+        launch: async () => ({
+          newContext: async () => ({
+            close: async () => {
+              throw new Error('private-context-close');
+            },
+          }),
+          close: async () => {
+            throw new Error('private-browser-close');
+          },
+        }),
+      } as never,
+    });
+    let error: unknown;
+
+    try {
+      await observer.withContext('aggregate', async () => {
+        throw new Error('private-primary');
+      });
+    } catch (error_: unknown) {
+      error = error_;
+    }
+
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toHaveLength(3);
+    expect(String(error)).not.toMatch(/private-(?:primary|context|browser)/u);
+    expect(
+      (error as AggregateError).errors.every(
+        (item) =>
+          item instanceof PlaywrightObservationError && item.errorClass === 'browser-process'
+      )
+    ).toBe(true);
   });
 
   it('rejects a URL or control text passed as a projection pointer without echoing it', () => {
@@ -207,6 +270,127 @@ describe('phase 1 Playwright observer', () => {
       await assertion;
       expect(listenerCount(page, 'console')).toBe(consoleListeners);
       expect(listenerCount(page, 'close')).toBe(closeListeners);
+    });
+  });
+
+  it('projects exactly one console object before exposing it to the caller', async () => {
+    const observer = createPlaywrightObserver({
+      scenarioId: 'console-projection',
+      browserType: chromium,
+    });
+
+    await observer.withContext('console-projection', async (context) => {
+      const page = await context.newPage();
+      await page.setContent('<button id="emit">Emit</button>');
+      await page.locator('#emit').evaluate((button) => {
+        button.addEventListener('click', () => {
+          console.log({ aud: 'https://api.example.com', scope: 'read:profile', iat: 123 });
+          console.log({ ignored: true });
+        });
+      });
+      const projected = await observer.observeConsoleProjection(
+        page,
+        'projected',
+        '/steps/projected/value',
+        (value) => {
+          if (value.aud !== 'https://api.example.com' || value.scope !== 'read:profile') {
+            throw new Error('private-console-value');
+          }
+          return { audience: value.aud, permission: value.scope };
+        },
+        async () => page.locator('#emit').click()
+      );
+
+      expect(projected).toEqual({
+        audience: 'https://api.example.com',
+        permission: 'read:profile',
+      });
+      expect(Object.isFrozen(projected)).toBe(true);
+      expect(listenerCount(page, 'console')).toBe(0);
+    });
+  });
+
+  it.each([
+    ['a string', `console.log('private-token')`],
+    ['multiple arguments', `console.log({ ok: true }, { extra: true })`],
+    [
+      'an over-deep object',
+      `let value = {}; for (let i = 0; i < 20; i += 1) value = { nested: value }; console.log(value)`,
+    ],
+  ])('rejects %s from a console projection without exposing it', async (_name, expression) => {
+    const observer = createPlaywrightObserver({
+      scenarioId: 'console-invalid',
+      browserType: chromium,
+    });
+
+    await observer.withContext('console-invalid', async (context) => {
+      const page = await context.newPage();
+      const observation = observer.observeConsoleProjection(
+        page,
+        'invalid',
+        '/steps/invalid/value',
+        (value) => value
+      );
+      const failures: unknown[] = [];
+      const captured = captureFailure(observation, failures);
+      await page.evaluate(expression);
+      await captured;
+      const [error] = failures;
+
+      expect(error).toMatchObject({ errorClass: 'console-event', stepId: 'invalid' });
+      expect(`${String(error)} ${JSON.stringify(error)}`).not.toContain('private-token');
+      expect(listenerCount(page, 'console')).toBe(0);
+    });
+  });
+
+  it('rejects a sensitive canonical console projection', async () => {
+    const observer = createPlaywrightObserver({
+      scenarioId: 'console-sensitive',
+      browserType: chromium,
+    });
+
+    await observer.withContext('console-sensitive', async (context) => {
+      const page = await context.newPage();
+      const observation = observer.observeConsoleProjection(
+        page,
+        'sensitive',
+        '/steps/sensitive/value',
+        () => ({ access_token: 'private-token' })
+      );
+      const assertion = expect(observation).rejects.toMatchObject({ errorClass: 'console-event' });
+      await page.evaluate(() => {
+        console.log({ safe: true });
+      });
+
+      await assertion;
+    });
+  });
+
+  it('rejects a sensitive raw console object before invoking the projector', async () => {
+    const observer = createPlaywrightObserver({
+      scenarioId: 'console-raw-sensitive',
+      browserType: chromium,
+    });
+    let projectorCalled = false;
+
+    await observer.withContext('console-raw-sensitive', async (context) => {
+      const page = await context.newPage();
+      const observation = observer.observeConsoleProjection(
+        page,
+        'raw-sensitive',
+        '/steps/raw-sensitive/value',
+        () => {
+          projectorCalled = true;
+          return { safe: true };
+        }
+      );
+      const assertion = expect(observation).rejects.toMatchObject({ errorClass: 'console-event' });
+      await page.evaluate(() => {
+        console.log({ aud: 'expected', access_token: 'private-token' });
+      });
+
+      await assertion;
+      expect(projectorCalled).toBe(false);
     });
   });
 
@@ -320,4 +504,4 @@ describe('phase 1 Playwright observer', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */

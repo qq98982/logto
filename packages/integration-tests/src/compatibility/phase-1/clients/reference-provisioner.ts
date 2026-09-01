@@ -13,6 +13,11 @@ import ky, { HTTPError } from 'ky';
 
 import { validateTargetConfig } from '../../config.js';
 import { jsonValueGuard, type TargetConfig } from '../../model.js';
+import {
+  projectPhase1UserActivityTimestamp,
+  resolvePhase1FixtureUserActivityTarget,
+  type Phase1BrowserFixtureProvisioner,
+} from '../browser/activity-reader.js';
 import { snapshotClosedDataGraph } from '../model.js';
 import type { Phase1Profile } from '../profile-types.js';
 import {
@@ -20,7 +25,6 @@ import {
   createProvisionedPhase1Fixture,
   phase1TargetOriginsArePairwiseDisjoint,
   revokeProvisionedPhase1Fixture,
-  type Phase1FixtureProvisioner,
   type ProvisionedPhase1Fixture,
   type SemanticStateProjection,
 } from '../fixtures.js';
@@ -542,7 +546,7 @@ const logicalIdsForRuntimeIds = (
 
 export const createReferencePhase1FixtureProvisioner = (
   options: ReferenceProvisionerOptions
-): Phase1FixtureProvisioner => {
+): Phase1BrowserFixtureProvisioner => {
   const target = validateTargetConfig(options.target);
   const foreignTarget = options.foreignTarget
     ? validateTargetConfig(options.foreignTarget)
@@ -1729,6 +1733,30 @@ export const createReferencePhase1FixtureProvisioner = (
       } catch {
         throw new Error(operationFailure);
       }
+    },
+
+    readUserActivityState: async (fixture: ProvisionedPhase1Fixture, logicalUserId: string) => {
+      if (!states.has(fixture as object)) {
+        throw new TypeError('Unknown reference fixture');
+      }
+      const { targetRole, runtimeUserId } = resolvePhase1FixtureUserActivityTarget(
+        fixture,
+        logicalUserId
+      );
+      const user = responseRecord(
+        await call({
+          targetRole,
+          method: 'GET',
+          path: `users/${encodeURIComponent(runtimeUserId)}`,
+        })
+      );
+      try {
+        assertPhase1RuntimeCredentialGraphIsSanitized(user);
+      } catch {
+        throw new TypeError(invalidReferenceResponse);
+      }
+
+      return projectPhase1UserActivityTimestamp(user.lastSignInAt);
     },
 
     cleanup: async (fixture: ProvisionedPhase1Fixture): Promise<void> => {
