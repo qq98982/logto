@@ -61,13 +61,14 @@ describe('token.authorization-code', () => {
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
       },
     });
-    expect(Object.fromEntries(new URLSearchParams(request?.options?.body))).toEqual({
+    const authorizationForm = Object.fromEntries(new URLSearchParams(request?.options?.body));
+    expect(authorizationForm).toMatchObject({
       grant_type: 'authorization_code',
       client_id: tokenTestCredentials.clientId,
-      code: tokenTestCredentials.code,
-      code_verifier: tokenTestCredentials.codeVerifier,
       redirect_uri: tokenTestCredentials.redirectUri,
     });
+    expect(authorizationForm.code).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(authorizationForm.code_verifier).toMatch(/^[A-Za-z0-9_-]{64}$/u);
     expect(steps[0]?.value).toMatchObject({
       status: 200,
       tokens: [

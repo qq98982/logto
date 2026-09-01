@@ -3,7 +3,11 @@ import { exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
 
 import type { JsonObject } from '../../normalize.js';
 import { SymbolTable } from '../../symbol-table.js';
-import { MemoryProtocolSecretStore, type ProtocolRequestOptions } from '../clients/oidc.js';
+import {
+  MemoryProtocolSecretStore,
+  type ProtocolRequestOptions,
+  type RawProtocolResponse,
+} from '../clients/oidc.js';
 import {
   getPhase1FixtureRuntimeEmail,
   getPhase1FixtureRuntimePhone,
@@ -15,10 +19,10 @@ import type { Phase1ScenarioRunContext } from '../model.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
 import {
-  createPositiveOidcAuthorizationGrant,
   type PositiveOidcAuthorizationGrant,
   type PositiveOidcFlowOptions,
   type PositiveOidcFlowOutput,
+  withSyntheticPositiveOidcAuthorizationGrant,
 } from './positive-oidc-flow.js';
 
 export const tokenTestTarget = Object.freeze({
@@ -152,12 +156,18 @@ export const createTokenScenarioHarness = (
   input: Readonly<{
     jwk: JWK;
     tokenBodies: readonly unknown[];
+    tokenResponses?: readonly RawProtocolResponse[];
     userInfoBody?: unknown;
+    projectScenarioState?: (input: {
+      scenarioId: string;
+      stepId: string;
+    }) => Promise<Phase1ScenarioStateProjectionInput>;
   }>
 ) => {
   const requests: TokenTestRequest[] = [];
   const stateReads: string[] = [];
   const tokenBodies = [...input.tokenBodies];
+  const tokenResponses = [...(input.tokenResponses ?? [])];
   const store = new MemoryProtocolSecretStore();
   const dataSymbols = new SymbolTable();
   dataSymbols.bind('user.phase1-user', 'runtime-subject');
@@ -174,6 +184,11 @@ export const createTokenScenarioHarness = (
         requests.push({ operation, path, options });
         if (operation === 'userinfo-openid') {
           return response(input.userInfoBody);
+        }
+        const tokenResponse = tokenResponses.shift();
+
+        if (tokenResponse) {
+          return tokenResponse;
         }
         const body = tokenBodies.shift();
 
@@ -218,11 +233,15 @@ export const createTokenScenarioHarness = (
       recipe: 'dataProtocol',
       allocations: [],
     }),
+    // eslint-disable-next-line complexity -- The focused harness supplies exact state contracts for the existing positive token scenarios.
     projectScenarioState: async ({
       scenarioId,
       stepId,
     }): Promise<Phase1ScenarioStateProjectionInput> => {
       stateReads.push(stepId);
+      if (input.projectScenarioState) {
+        return input.projectScenarioState({ scenarioId, stepId });
+      }
       const generatedIds: Readonly<Record<string, string>> =
         (scenarioId === 'token.authorization-code' && stepId === 'state') ||
         (scenarioId === 'token.refresh-rotation' && stepId === 'family-state')
@@ -256,7 +275,7 @@ export const createTokenScenarioHarness = (
     consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
   ): Promise<PositiveOidcFlowOutput<Result>> => {
     expect(options.captureSteps).toBe(false);
-    const result = await consume(createPositiveOidcAuthorizationGrant(tokenTestCredentials));
+    const result = await withSyntheticPositiveOidcAuthorizationGrant(tokenTestCredentials, consume);
 
     return Object.freeze({ steps: Object.freeze([]), result });
   };

@@ -35,11 +35,16 @@ export type RawProtocolClientOptions = Readonly<{
   signal: AbortSignal;
 }>;
 
+export type InteractionCookieStoreVariant = 'exact' | 'partial' | 'tampered' | 'spliced';
+
 const safeOperationPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const absoluteUrlPattern = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const namespaceProbePath = 'aster-namespace-probe';
 const maximumRawResponseBytes = 8 * 1024 * 1024;
 const maximumCredentialGraphDepth = 32;
+const maximumCredentialTransformDepth = 6;
+const maximumCredentialVariantLength = 64 * 1024;
+const maximumCredentialVariantCount = 256;
 const forbiddenCallerHeaderNames = new Set([
   'host',
   ':authority',
@@ -146,6 +151,75 @@ const cookieValue = (setCookie: string): string => {
   return value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
 };
 
+const normalizePercentEscapes = (value: string): string =>
+  value.replaceAll(/%[\da-f]{2}/giu, (encoded) => encoded.toUpperCase());
+
+const percentEncodeAll = (value: string): string =>
+  Buffer.from(value, 'utf8')
+    .toString('hex')
+    .match(/.{2}/gu)
+    ?.map((byte) => `%${byte.toUpperCase()}`)
+    .join('') ?? '';
+
+const addCredentialVariant = (variants: Set<string>, next: string[], item: string): void => {
+  if (
+    item.length === 0 ||
+    item.length > maximumCredentialVariantLength ||
+    variants.size >= maximumCredentialVariantCount
+  ) {
+    return;
+  }
+  for (const variant of [item, normalizePercentEscapes(item)]) {
+    if (!variants.has(variant) && variants.size < maximumCredentialVariantCount) {
+      variants.add(variant);
+      next.push(variant);
+    }
+  }
+};
+
+const credentialVariants = (value: string): ReadonlySet<string> => {
+  const variants = new Set<string>([value, normalizePercentEscapes(value)]);
+
+  if (value.length > maximumCredentialVariantLength) {
+    return variants;
+  }
+  let frontier = [value];
+
+  for (let depth = 0; depth < maximumCredentialTransformDepth; depth += 1) {
+    const next: string[] = [];
+
+    for (const candidate of frontier) {
+      const transformed = [
+        (() => {
+          try {
+            return encodeURIComponent(candidate);
+          } catch {
+            return candidate;
+          }
+        })(),
+        percentEncodeAll(candidate),
+        (() => {
+          try {
+            return decodeURIComponent(candidate);
+          } catch {
+            return candidate;
+          }
+        })(),
+      ];
+
+      for (const item of transformed) {
+        addCredentialVariant(variants, next, item);
+      }
+    }
+    if (next.length === 0 || variants.size >= maximumCredentialVariantCount) {
+      break;
+    }
+    frontier = next;
+  }
+
+  return variants;
+};
+
 const inspectCredentialGraph = (
   value: unknown,
   credentials: ReadonlySet<string>,
@@ -156,8 +230,13 @@ const inspectCredentialGraph = (
     throw new TypeError('Protocol output contains credential material');
   }
   if (typeof value === 'string') {
+    const normalized = normalizePercentEscapes(value);
+
     if (
-      [...credentials].some((credential) => credential.length > 0 && value.includes(credential))
+      [...credentials].some(
+        (credential) =>
+          credential.length > 0 && (value.includes(credential) || normalized.includes(credential))
+      )
     ) {
       throw new TypeError('Protocol output contains credential material');
     }
@@ -201,7 +280,10 @@ export class MemoryProtocolSecretStore {
 
   registerSecret(value: string): void {
     const credential = requireText(value, 'Invalid protocol secret');
-    this.#credentials.add(credential);
+
+    for (const variant of credentialVariants(credential)) {
+      this.#credentials.add(variant);
+    }
   }
 
   assertNoCredentialMaterial(value: unknown): void {
@@ -236,6 +318,65 @@ export class MemoryProtocolSecretStore {
     }
 
     return value.length === 0 ? undefined : value;
+  }
+
+  deriveInteractionCookieStore(
+    sourceUrl: URL,
+    destinationUrl: URL,
+    variant: InteractionCookieStoreVariant,
+    peer?: MemoryProtocolSecretStore
+  ): MemoryProtocolSecretStore {
+    const requireHttpUrl = (value: URL): URL => {
+      if (
+        !(value instanceof URL) ||
+        !['http:', 'https:'].includes(value.protocol) ||
+        value.username.length > 0 ||
+        value.password.length > 0
+      ) {
+        throw new TypeError('Invalid protocol cookie derivation');
+      }
+
+      return value;
+    };
+    const readPair = (store: MemoryProtocolSecretStore, url: URL) => {
+      const cookies = store.#cookies.getCookiesSync(requireHttpUrl(url).href, { allPaths: true });
+      const read = (name: '_interaction' | '_interaction.sig') => {
+        const matches = cookies.filter(({ key }) => key === name);
+
+        if (matches.length !== 1 || !matches[0]?.value) {
+          throw new TypeError('Invalid protocol cookie derivation');
+        }
+
+        return matches[0].value;
+      };
+
+      return Object.freeze({
+        interaction: read('_interaction'),
+        signature: read('_interaction.sig'),
+      });
+    };
+    const source = readPair(this, sourceUrl);
+
+    const signature = (() => {
+      if (variant !== 'spliced') {
+        return source.signature;
+      }
+      if (!peer || peer === this) {
+        throw new TypeError('Invalid protocol cookie derivation');
+      }
+
+      return readPair(peer, sourceUrl).signature;
+    })();
+    const derived = new MemoryProtocolSecretStore();
+    const target = requireHttpUrl(destinationUrl);
+    const interaction = variant === 'tampered' ? `${source.interaction}~` : source.interaction;
+    derived.setCookie(`_interaction=${interaction}; Path=/; HttpOnly; SameSite=Lax`, target);
+
+    if (variant !== 'partial') {
+      derived.setCookie(`_interaction.sig=${signature}; Path=/; HttpOnly; SameSite=Lax`, target);
+    }
+
+    return derived;
   }
 
   setToken(name: string, value: string): void {

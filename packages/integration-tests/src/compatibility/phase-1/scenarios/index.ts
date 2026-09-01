@@ -14,13 +14,20 @@ import { phase1ScenarioContracts } from '../scenario-contracts.js';
 
 import { runAccountAdminOperatorRead } from './account-admin-operator-read.js';
 import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runAuthorizationPkceMethodRejected } from './authorization-pkce-method-rejected.js';
+import { runAuthorizationRedirectUriRejected } from './authorization-redirect-uri-rejected.js';
 import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
 import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
+import { runCookieLocalhostPortInterleaving } from './cookie-localhost-port-interleaving.js';
 import { runCorsManagementList } from './cors-management-list.js';
 import { runDiscoveryConfig } from './discovery-config.js';
+import { runInteractionConsentSessionBoundary } from './interaction-consent-session-boundary.js';
+import { runInteractionPasswordRejected } from './interaction-password-rejected.js';
 import { runManagementApplicationRead } from './management-application-read.js';
 import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
+import { runTokenCodeReuseRejected } from './token-code-reuse-rejected.js';
+import { runTokenPkceVerifierRejected } from './token-pkce-verifier-rejected.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
 
@@ -239,13 +246,13 @@ const canonicalPhase1ScenarioRuns = Object.freeze({
   'console.admin-organization-token-refresh': runConsoleAdminOrganizationTokenRefresh,
   'account.admin-operator-read': runAccountAdminOperatorRead,
   'cors.management-list': runCorsManagementList,
-  'cookie.localhost-port-interleaving': pendingPhase1DifferentialScenarioRun,
-  'authorization.redirect-uri-rejected': pendingPhase1DifferentialScenarioRun,
-  'authorization.pkce-method-rejected': pendingPhase1DifferentialScenarioRun,
-  'token.pkce-verifier-rejected': pendingPhase1DifferentialScenarioRun,
-  'token.code-reuse-rejected': pendingPhase1DifferentialScenarioRun,
-  'interaction.password-rejected': pendingPhase1DifferentialScenarioRun,
-  'interaction.consent-session-boundary': pendingPhase1DifferentialScenarioRun,
+  'cookie.localhost-port-interleaving': runCookieLocalhostPortInterleaving,
+  'authorization.redirect-uri-rejected': runAuthorizationRedirectUriRejected,
+  'authorization.pkce-method-rejected': runAuthorizationPkceMethodRejected,
+  'token.pkce-verifier-rejected': runTokenPkceVerifierRejected,
+  'token.code-reuse-rejected': runTokenCodeReuseRejected,
+  'interaction.password-rejected': runInteractionPasswordRejected,
+  'interaction.consent-session-boundary': runInteractionConsentSessionBoundary,
   'token.refresh-reuse-rejected': pendingPhase1DifferentialScenarioRun,
   'token.issuer-audience-scope-rejected': pendingPhase1DifferentialScenarioRun,
   'token.concurrent-code-single-winner': pendingPhase1DifferentialScenarioRun,

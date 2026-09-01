@@ -3,9 +3,12 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
-import { withPositiveOidcFlow, type PositiveOidcFlowOptions } from './positive-oidc-flow.js';
 import {
   exchangePositiveAuthorizationCode,
+  withPositiveOidcFlow,
+  type PositiveOidcFlowOptions,
+} from './positive-oidc-flow.js';
+import {
   exchangePositiveRefreshToken,
   positiveOidcDataNormalizationContext,
   projectPositiveScenarioState,

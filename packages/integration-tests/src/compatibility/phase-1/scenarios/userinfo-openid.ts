@@ -2,9 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { userClaims, UserScope } from '@logto/core-kit';
 
-import { jsonValueGuard } from '../../model.js';
 import type { JsonObject } from '../../normalize.js';
-import type { RawProtocolResponse } from '../clients/oidc.js';
 import {
   getPhase1FixtureRuntimeEmail,
   getPhase1FixtureRuntimeId,
@@ -15,12 +13,15 @@ import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../mode
 import { projectUserInfoObservation } from '../projections/userinfo.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
-import { withPositiveOidcFlow, type PositiveOidcFlowOptions } from './positive-oidc-flow.js';
 import {
   exchangePositiveAuthorizationCode,
+  withPositiveOidcFlow,
+  type PositiveOidcFlowOptions,
+} from './positive-oidc-flow.js';
+import {
   positiveOidcDataNormalizationContext,
   projectPositiveScenarioState,
-  requestPositiveUserInfo,
+  readPositiveUserInfo,
   revokePositiveTokenGrant,
   verifyPositiveTokenGrant,
 } from './positive-oidc-token.js';
@@ -38,34 +39,6 @@ export type UserInfoOpenIdDependencies = Readonly<{
   flowOptions?: PositiveOidcFlowOptions;
   withPositiveOidcFlow?: typeof withPositiveOidcFlow;
 }>;
-
-const isJsonObject = (value: unknown): value is JsonObject =>
-  typeof value === 'object' &&
-  value !== null &&
-  !Array.isArray(value) &&
-  jsonValueGuard.safeParse(value).success;
-
-const requireUserInfoResponse = (response: RawProtocolResponse): JsonObject => {
-  try {
-    const mediaTypes = response.headers
-      .filter(([name]) => name.toLowerCase() === 'content-type')
-      .map(([, value]) => value.split(';', 1)[0]?.trim().toLowerCase());
-    const body: unknown = JSON.parse(response.body);
-
-    if (
-      response.status !== 200 ||
-      mediaTypes.length !== 1 ||
-      mediaTypes[0] !== 'application/json' ||
-      !isJsonObject(body)
-    ) {
-      throw new TypeError('invalid response');
-    }
-
-    return body;
-  } catch {
-    throw new Error('Phase 1 UserInfo response is invalid');
-  }
-};
 
 const assertSeededClaims = (context: Phase1ScenarioRunContext, body: JsonObject): void => {
   const allocation = context.fixture.public.allocations.find(({ role }) => role === 'data');
@@ -137,12 +110,8 @@ export const runUserInfoOpenId = async (
       try {
         await verifyPositiveTokenGrant(context, grant, false);
         const before = await context.projectFixtureState();
-        const userInfoResponse = await requestPositiveUserInfo(
-          context,
-          grant,
-          userinfoPath.slice(1)
-        );
-        const userInfoBody = requireUserInfoResponse(userInfoResponse);
+        const userInfoResponse = await readPositiveUserInfo(context, grant, userinfoPath.slice(1));
+        const userInfoBody = userInfoResponse.body;
         assertSeededClaims(context, userInfoBody);
         const userInfoState = await context.projectScenarioState({
           scenarioId,

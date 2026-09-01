@@ -12,6 +12,13 @@ const fixture = (...roles: Array<'data' | 'admin' | 'foreign'>) => ({
   public: { allocations: roles.map((role) => ({ role })) },
 });
 
+const encodeAll = (value: string) =>
+  Buffer.from(value, 'utf8')
+    .toString('hex')
+    .match(/.{2}/gu)
+    ?.map((byte) => `%${byte}`)
+    .join('') ?? '';
+
 const listen = async (server: Server): Promise<number> => {
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', () => {
@@ -164,6 +171,46 @@ describe('phase 1 raw protocol client', () => {
     }
   });
 
+  it('rejects bounded iterative URI and percent-normalized credential variants', () => {
+    const store = new MemoryProtocolSecretStore();
+    const secret = 'private:/password?value=%2f';
+    store.registerSecret(secret);
+
+    for (const leaked of [
+      encodeURIComponent(secret),
+      encodeURIComponent(encodeURIComponent(secret)),
+      encodeAll(secret),
+      encodeAll(secret).toLowerCase(),
+      `prefix ${encodeAll(encodeURIComponent(secret))} suffix`,
+    ]) {
+      expect(() => {
+        store.assertNoCredentialMaterial({ note: leaked });
+      }).toThrow('Protocol output contains credential material');
+    }
+    expect(() => {
+      store.assertNoCredentialMaterial({ note: 'safe projection' });
+    }).not.toThrow();
+  });
+
+  it('keeps exact matching for oversized and malformed URI inputs without unbounded expansion', () => {
+    const store = new MemoryProtocolSecretStore();
+    const oversized = `private-${'x'.repeat(64 * 1024)}`;
+    const malformed = 'private-\uD800';
+
+    expect(() => {
+      store.registerSecret(oversized);
+    }).not.toThrow();
+    expect(() => {
+      store.registerSecret(malformed);
+    }).not.toThrow();
+    expect(() => {
+      store.assertNoCredentialMaterial({ oversized });
+    }).toThrow('Protocol output contains credential material');
+    expect(() => {
+      store.assertNoCredentialMaterial({ malformed });
+    }).toThrow('Protocol output contains credential material');
+  });
+
   it('shares a host cookie across ports while keeping it out of serializable state', async () => {
     const cookieSource = createServer((_request, response) => {
       response.setHeader('set-cookie', 'interaction=private-cookie; Path=/; HttpOnly');
@@ -197,6 +244,48 @@ describe('phase 1 raw protocol client', () => {
       expect(() => JSON.stringify(store)).toThrow('Protocol secret store is not serializable');
     } finally {
       await Promise.all([close(cookieSource), close(cookieTarget)]);
+    }
+  });
+
+  it('derives fresh interaction cookie variants without exposing the source credentials', () => {
+    const sourceUrl = new URL('http://source.example/consent');
+    const targetUrl = new URL('http://target.example/api/interaction/consent');
+    const source = new MemoryProtocolSecretStore();
+    const peer = new MemoryProtocolSecretStore();
+    source.setCookie('_interaction=source-private; Path=/; HttpOnly', sourceUrl);
+    source.setCookie('_interaction.sig=source-signature-private; Path=/; HttpOnly', sourceUrl);
+    peer.setCookie('_interaction=peer-private; Path=/; HttpOnly', sourceUrl);
+    peer.setCookie('_interaction.sig=peer-signature-private; Path=/; HttpOnly', sourceUrl);
+
+    const exact = source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'exact');
+    const partial = source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'partial');
+    const tampered = source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'tampered');
+    const spliced = source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'spliced', peer);
+
+    expect(() => source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'spliced')).toThrow(
+      'Invalid protocol cookie derivation'
+    );
+    expect(() =>
+      source.deriveInteractionCookieStore(sourceUrl, targetUrl, 'spliced', source)
+    ).toThrow('Invalid protocol cookie derivation');
+
+    expect(exact.getCookieHeader(targetUrl)).toBe(
+      '_interaction=source-private; _interaction.sig=source-signature-private'
+    );
+    expect(partial.getCookieHeader(targetUrl)).toBe('_interaction=source-private');
+    expect(tampered.getCookieHeader(targetUrl)).toBe(
+      '_interaction=source-private~; _interaction.sig=source-signature-private'
+    );
+    expect(spliced.getCookieHeader(targetUrl)).toBe(
+      '_interaction=source-private; _interaction.sig=peer-signature-private'
+    );
+    expect(source.getCookieHeader(sourceUrl)).toBe(
+      '_interaction=source-private; _interaction.sig=source-signature-private'
+    );
+    for (const derived of [exact, partial, tampered, spliced]) {
+      expect(derived).not.toBe(source);
+      expect(derived).not.toBe(peer);
+      expect(() => JSON.stringify(derived)).toThrow('Protocol secret store is not serializable');
     }
   });
 

@@ -1,9 +1,11 @@
 /* eslint-disable complexity, max-lines, max-params -- Token exchange, claim verification, proof ownership, and credential capabilities form one auditable protocol boundary. */
+import { isDeepStrictEqual } from 'node:util';
+
 import { decodeJwt, decodeProtectedHeader, type JSONWebKeySet, type JWTPayload } from 'jose';
 
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue, NormalizationContext } from '../../normalize.js';
-import type { RawProtocolResponse } from '../clients/oidc.js';
+import type { ProtocolRequestOptions, RawProtocolResponse } from '../clients/oidc.js';
 import { verifyObservedJwt, type VerifiedJwtObservation } from '../evidence.js';
 import {
   getPhase1FixtureRuntimeId,
@@ -15,18 +17,21 @@ import { normalizeTokenResponse } from '../normalizers.js';
 import {
   projectHttpObservation,
   projectSemanticStateObservation,
+  projectTokenErrorObservation,
   projectTokenObservation,
   type Phase1HttpProjection,
 } from '../projections/index.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
-import {
-  readPositiveOidcAuthorizationGrant,
-  type PositiveOidcAuthorizationGrant,
-} from './positive-oidc-flow.js';
-
 const formContentType = 'application/x-www-form-urlencoded';
 const jsonMediaTypes = new Set(['application/json', 'application/jwk-set+json']);
+const invalidGrantBody = Object.freeze({
+  code: 'oidc.invalid_grant',
+  message: 'Grant request is invalid.',
+  error_uri: 'https://openid.sh/debug/invalid_grant',
+  error: 'invalid_grant',
+  error_description: 'grant request is invalid',
+});
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 
 type PositiveOidcTokenGrantSecrets = Readonly<{
@@ -38,14 +43,24 @@ type PositiveOidcTokenGrantSecrets = Readonly<{
   clientId: string;
 }>;
 
-const tokenGrantBrand: unique symbol = Symbol('phase-1-token-grant');
+export type PositiveOidcTokenGrant = Readonly<{ toJSON(): never }>;
+
+export type PositiveOidcAuthorizationCodeRequest = Readonly<{ toJSON(): never }>;
+
+type PositiveOidcAuthorizationCodeRequestSecrets = Readonly<{
+  operation: string;
+  path: string;
+  options: ProtocolRequestOptions;
+  clientId: string;
+}>;
+
 const tokenGrantSecrets = new WeakMap<PositiveOidcTokenGrant, PositiveOidcTokenGrantSecrets>();
+const authorizationCodeRequestSecrets = new WeakMap<
+  PositiveOidcAuthorizationCodeRequest,
+  PositiveOidcAuthorizationCodeRequestSecrets
+>();
 
-export class PositiveOidcTokenGrant {
-  get [tokenGrantBrand](): true {
-    return true;
-  }
-
+class PositiveOidcTokenGrantAuthority implements PositiveOidcTokenGrant {
   constructor(secrets: PositiveOidcTokenGrantSecrets) {
     tokenGrantSecrets.set(this, secrets);
     Object.freeze(this);
@@ -56,7 +71,21 @@ export class PositiveOidcTokenGrant {
   }
 }
 
-Object.freeze(PositiveOidcTokenGrant.prototype);
+class PositiveOidcAuthorizationCodeRequestAuthority
+  implements PositiveOidcAuthorizationCodeRequest
+{
+  constructor(secrets: PositiveOidcAuthorizationCodeRequestSecrets) {
+    authorizationCodeRequestSecrets.set(this, secrets);
+    Object.freeze(this);
+  }
+
+  toJSON(): never {
+    throw new TypeError('Phase 1 authorization code request is not serializable');
+  }
+}
+
+Object.freeze(PositiveOidcTokenGrantAuthority.prototype);
+Object.freeze(PositiveOidcAuthorizationCodeRequestAuthority.prototype);
 
 const readTokenGrant = (grant: PositiveOidcTokenGrant): PositiveOidcTokenGrantSecrets => {
   const secrets = tokenGrantSecrets.get(grant);
@@ -70,6 +99,37 @@ const readTokenGrant = (grant: PositiveOidcTokenGrant): PositiveOidcTokenGrantSe
 
 export const revokePositiveTokenGrant = (grant: PositiveOidcTokenGrant): void => {
   tokenGrantSecrets.delete(grant);
+};
+
+export const assertPositiveOidcTokenGrantActive = (grant: PositiveOidcTokenGrant): void => {
+  readTokenGrant(grant);
+};
+
+const readPositiveOidcAuthorizationCodeRequest = (
+  request: PositiveOidcAuthorizationCodeRequest
+): PositiveOidcAuthorizationCodeRequestSecrets => {
+  const secrets = authorizationCodeRequestSecrets.get(request);
+
+  if (!secrets) {
+    throw new TypeError('Invalid Phase 1 authorization code request');
+  }
+
+  return secrets;
+};
+
+const consumePositiveOidcAuthorizationCodeRequest = (
+  request: PositiveOidcAuthorizationCodeRequest
+): PositiveOidcAuthorizationCodeRequestSecrets => {
+  const secrets = readPositiveOidcAuthorizationCodeRequest(request);
+  authorizationCodeRequestSecrets.delete(request);
+
+  return secrets;
+};
+
+export const assertPositiveOidcAuthorizationCodeRequestActive = (
+  request: PositiveOidcAuthorizationCodeRequest
+): void => {
+  readPositiveOidcAuthorizationCodeRequest(request);
 };
 
 export const positiveOidcDataNormalizationContext = (
@@ -118,6 +178,44 @@ const requireJsonResponse = (
   }
 };
 
+const headerValues = (
+  headers: ReadonlyArray<readonly [string, string]>,
+  name: string
+): readonly string[] =>
+  headers.filter(([candidate]) => candidate.toLowerCase() === name).map(([, value]) => value);
+
+const projectPositiveOidcInvalidGrant = (
+  response: RawProtocolResponse,
+  state: Phase1ScenarioStateProjectionInput,
+  normalizationContext: NormalizationContext
+): Phase1HttpProjection => {
+  const body: unknown = (() => {
+    try {
+      const parsed: unknown = JSON.parse(response.body);
+
+      return parsed;
+    } catch {
+      throw new Error('Phase 1 authorization code rejection is invalid');
+    }
+  })();
+  if (
+    response.status !== 400 ||
+    !isDeepStrictEqual(headerValues(response.headers, 'content-type'), [
+      'application/json; charset=utf-8',
+    ]) ||
+    headerValues(response.headers, 'location').length > 0 ||
+    headerValues(response.headers, 'set-cookie').length > 0 ||
+    !isDeepStrictEqual(body, invalidGrantBody)
+  ) {
+    throw new Error('Phase 1 authorization code rejection is invalid');
+  }
+
+  return projectTokenErrorObservation(
+    { ...state, status: response.status, headers: response.headers, body },
+    normalizationContext
+  );
+};
+
 const requireTokenText = (value: unknown, diagnostic: string): string => {
   if (
     typeof value !== 'string' ||
@@ -154,7 +252,7 @@ const requireTokenGrant = (
     throw new Error(diagnostic);
   }
 
-  return new PositiveOidcTokenGrant(
+  return new PositiveOidcTokenGrantAuthority(
     Object.freeze({ response, body, accessToken, idToken, refreshToken, clientId })
   );
 };
@@ -193,28 +291,119 @@ const postToken = async (
   return grant;
 };
 
-export const exchangePositiveAuthorizationCode = async (
+const acceptPositiveAuthorizationCodeResponse = (
   context: Phase1ScenarioRunContext,
-  grant: PositiveOidcAuthorizationGrant
-): Promise<PositiveOidcTokenGrant> => {
-  const credentials = readPositiveOidcAuthorizationGrant(grant);
+  response: RawProtocolResponse,
+  clientId: string,
+  diagnostic = 'Phase 1 authorization code exchange failed'
+): PositiveOidcTokenGrant => {
+  const tokenGrant = requireTokenGrant(response, clientId, diagnostic);
+  const secrets = readTokenGrant(tokenGrant);
   const { store } = context.protocol.forAllocation('data').oidc;
-  store.registerSecret(credentials.code);
-  store.registerSecret(credentials.codeVerifier);
 
-  return postToken(
-    context,
-    'token-authorization-code',
-    new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: credentials.clientId,
-      code: credentials.code,
-      code_verifier: credentials.codeVerifier,
-      redirect_uri: credentials.redirectUri,
-    }),
-    credentials.clientId,
-    'Phase 1 authorization code exchange failed'
+  for (const value of [secrets.accessToken, secrets.idToken, secrets.refreshToken]) {
+    store.registerSecret(value);
+  }
+
+  return tokenGrant;
+};
+
+type PositiveOidcAuthorizationCodeRequestInput = Readonly<{
+  operation: string;
+  clientId: string;
+  code: string;
+  verifier: string;
+  redirectUri: string;
+}>;
+
+export const withPositiveOidcAuthorizationCodeRequest = async <Result>(
+  context: Phase1ScenarioRunContext,
+  input: PositiveOidcAuthorizationCodeRequestInput,
+  consume: (request: PositiveOidcAuthorizationCodeRequest) => Promise<Result>
+): Promise<Result> => {
+  const operation = requireTokenText(
+    input.operation,
+    'Phase 1 authorization code request is invalid'
   );
+  const clientId = requireTokenText(
+    input.clientId,
+    'Phase 1 authorization code request is invalid'
+  );
+  const code = requireTokenText(input.code, 'Phase 1 authorization code request is invalid');
+  const verifier = requireTokenText(
+    input.verifier,
+    'Phase 1 authorization code request is invalid'
+  );
+  const redirectUri = requireTokenText(
+    input.redirectUri,
+    'Phase 1 authorization code request is invalid'
+  );
+  const { oidc } = context.protocol.forAllocation('data');
+  oidc.store.registerSecret(code);
+  oidc.store.registerSecret(verifier);
+  const request = new PositiveOidcAuthorizationCodeRequestAuthority(
+    Object.freeze({
+      operation,
+      path: tokenPath(context),
+      options: Object.freeze({
+        method: 'POST',
+        headers: { 'content-type': formContentType },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          client_id: clientId,
+          code,
+          code_verifier: verifier,
+          redirect_uri: redirectUri,
+        }).toString(),
+        includeCookies: false,
+      }),
+      clientId,
+    })
+  );
+
+  try {
+    return await consume(request);
+  } finally {
+    authorizationCodeRequestSecrets.delete(request);
+  }
+};
+
+const requestPositiveAuthorizationCode = async (
+  context: Phase1ScenarioRunContext,
+  request: PositiveOidcAuthorizationCodeRequest
+): Promise<Readonly<{ response: RawProtocolResponse; clientId: string }>> => {
+  const secrets = consumePositiveOidcAuthorizationCodeRequest(request);
+  const response = await context.protocol
+    .forAllocation('data')
+    .oidc.request(secrets.operation, secrets.path, secrets.options);
+
+  return Object.freeze({ response, clientId: secrets.clientId });
+};
+
+export const exchangePositiveAuthorizationCodeRequest = async (
+  context: Phase1ScenarioRunContext,
+  request: PositiveOidcAuthorizationCodeRequest
+): Promise<PositiveOidcTokenGrant> => {
+  const { response, clientId } = await requestPositiveAuthorizationCode(context, request);
+
+  return acceptPositiveAuthorizationCodeResponse(context, response, clientId);
+};
+
+export const projectRejectedPositiveAuthorizationCodeRequest = async (
+  context: Phase1ScenarioRunContext,
+  request: PositiveOidcAuthorizationCodeRequest,
+  readState: () => Promise<Phase1ScenarioStateProjectionInput>,
+  normalizationContext: NormalizationContext
+): Promise<Phase1HttpProjection> => {
+  const { response } = await requestPositiveAuthorizationCode(context, request);
+  const projection = projectPositiveOidcInvalidGrant(
+    response,
+    await readState(),
+    normalizationContext
+  );
+  context.protocol.forAllocation('data').oidc.store.assertNoCredentialMaterial(projection);
+
+  return projection;
 };
 
 export const exchangePositiveRefreshToken = async (
@@ -405,6 +594,7 @@ export const projectPositiveTokenGrant = async (
     grant: PositiveOidcTokenGrant;
     normalizationContext: NormalizationContext;
     expectAccessJwt: boolean;
+    validate?: (state: Phase1ScenarioStateProjectionInput) => void;
   }>
 ): Promise<Phase1HttpProjection> => {
   const grant = readTokenGrant(input.grant);
@@ -412,6 +602,7 @@ export const projectPositiveTokenGrant = async (
     verifyPositiveTokenGrant(context, input.grant, input.expectAccessJwt),
     stateInput(context, input.scenarioId, input.stepId),
   ]);
+  input.validate?.(state);
 
   return projectTokenObservation(
     {
@@ -450,6 +641,7 @@ export const projectPositiveTokenGrantSummary = async (
     stepId: string;
     grant: PositiveOidcTokenGrant;
     normalizationContext: NormalizationContext;
+    validate?: (state: Phase1ScenarioStateProjectionInput) => void;
   }>
 ): Promise<Phase1HttpProjection> => {
   const grant = readTokenGrant(input.grant);
@@ -462,6 +654,7 @@ export const projectPositiveTokenGrantSummary = async (
     verifyAndNormalize(),
     stateInput(context, input.scenarioId, input.stepId),
   ]);
+  input.validate?.(state);
   const { access, id, refresh, ...metadata } = normalized;
 
   return projectHttpObservation(
@@ -480,17 +673,27 @@ export const projectPositiveTokenGrantSummary = async (
   );
 };
 
-export const requestPositiveUserInfo = async (
+export type PositiveOidcUserInfoResponse = Readonly<{
+  status: number;
+  headers: ReadonlyArray<readonly [string, string]>;
+  body: JsonObject;
+}>;
+
+export const readPositiveUserInfo = async (
   context: Phase1ScenarioRunContext,
   grant: PositiveOidcTokenGrant,
   path: string
-): Promise<RawProtocolResponse> => {
+): Promise<PositiveOidcUserInfoResponse> => {
   const { accessToken } = readTokenGrant(grant);
+  const response = await context.protocol
+    .forAllocation('data')
+    .oidc.request('userinfo-openid', path, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      includeCookies: false,
+    });
+  const body = requireJsonResponse(response, 'Phase 1 UserInfo response is invalid');
 
-  return context.protocol.forAllocation('data').oidc.request('userinfo-openid', path, {
-    headers: { authorization: `Bearer ${accessToken}` },
-    includeCookies: false,
-  });
+  return Object.freeze({ status: response.status, headers: response.headers, body });
 };
 
 export const projectPositiveScenarioState = async (

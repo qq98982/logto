@@ -13,7 +13,7 @@ import {
   getPhase1FixtureRuntimeUsername,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
-import { normalizeLogicalFixtureIds } from '../normalizers.js';
+import { normalizeLogicalFixtureIds, normalizeOAuthError } from '../normalizers.js';
 import {
   projectAuthorizationObservation,
   projectConsentObservation,
@@ -22,6 +22,13 @@ import {
   type Phase1HttpProjection,
   type RawHttpObservation,
 } from '../projections/index.js';
+
+import {
+  exchangePositiveAuthorizationCodeRequest,
+  projectRejectedPositiveAuthorizationCodeRequest,
+  type PositiveOidcTokenGrant,
+  withPositiveOidcAuthorizationCodeRequest,
+} from './positive-oidc-token.js';
 
 const scenarioId = 'authorization.password-pkce-consent';
 const jsonContentType = 'application/json';
@@ -39,17 +46,9 @@ type PositiveOidcAuthorizationCredentials = Readonly<{
   redirectUri: string;
 }>;
 
-const authorizationGrantBrand: unique symbol = Symbol('phase-1-authorization-grant');
-const authorizationGrantCredentials = new WeakMap<
-  PositiveOidcAuthorizationGrant,
-  PositiveOidcAuthorizationCredentials
->();
+export type PositiveOidcAuthorizationGrant = Readonly<{ toJSON(): never }>;
 
-export class PositiveOidcAuthorizationGrant {
-  get [authorizationGrantBrand](): true {
-    return true;
-  }
-
+class PositiveOidcAuthorizationGrantAuthority implements PositiveOidcAuthorizationGrant {
   constructor(credentials: PositiveOidcAuthorizationCredentials) {
     authorizationGrantCredentials.set(this, Object.freeze({ ...credentials }));
     Object.freeze(this);
@@ -60,13 +59,18 @@ export class PositiveOidcAuthorizationGrant {
   }
 }
 
-Object.freeze(PositiveOidcAuthorizationGrant.prototype);
+const authorizationGrantCredentials = new WeakMap<
+  PositiveOidcAuthorizationGrant,
+  PositiveOidcAuthorizationCredentials
+>();
 
-export const createPositiveOidcAuthorizationGrant = (
+Object.freeze(PositiveOidcAuthorizationGrantAuthority.prototype);
+
+const createPositiveOidcAuthorizationGrant = (
   credentials: PositiveOidcAuthorizationCredentials
-): PositiveOidcAuthorizationGrant => new PositiveOidcAuthorizationGrant(credentials);
+): PositiveOidcAuthorizationGrant => new PositiveOidcAuthorizationGrantAuthority(credentials);
 
-export const readPositiveOidcAuthorizationGrant = (
+const readPositiveOidcAuthorizationGrant = (
   grant: PositiveOidcAuthorizationGrant
 ): PositiveOidcAuthorizationCredentials => {
   const credentials = authorizationGrantCredentials.get(grant);
@@ -78,10 +82,105 @@ export const readPositiveOidcAuthorizationGrant = (
   return credentials;
 };
 
+const revokePositiveOidcAuthorizationGrant = (grant: PositiveOidcAuthorizationGrant): void => {
+  authorizationGrantCredentials.delete(grant);
+};
+
+export const assertPositiveOidcAuthorizationGrantActive = (
+  grant: PositiveOidcAuthorizationGrant
+): void => {
+  readPositiveOidcAuthorizationGrant(grant);
+};
+
+export const withSyntheticPositiveOidcAuthorizationGrant = async <Result>(
+  input: Readonly<{ clientId: string; redirectUri: string }>,
+  consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
+): Promise<Result> => {
+  const grant = createPositiveOidcAuthorizationGrant({
+    ...input,
+    code: randomBytes(32).toString('base64url'),
+    codeVerifier: randomBytes(48).toString('base64url'),
+  });
+
+  try {
+    return await consume(grant);
+  } finally {
+    revokePositiveOidcAuthorizationGrant(grant);
+  }
+};
+
+export type PositiveOidcAuthorizationCodeResponseOptions = Readonly<{
+  verifier?: 'correct' | 'mismatch';
+  operation?: string;
+}>;
+
+const mismatchedVerifier = (value: string): string =>
+  `${value.startsWith('x') ? 'y' : 'x'}${value.slice(1)}`;
+
+const positiveOidcAuthorizationCodeRequest = (
+  grant: PositiveOidcAuthorizationGrant,
+  options: PositiveOidcAuthorizationCodeResponseOptions = {}
+) => {
+  const credentials = readPositiveOidcAuthorizationGrant(grant);
+  const verifier =
+    options.verifier === 'mismatch'
+      ? mismatchedVerifier(credentials.codeVerifier)
+      : credentials.codeVerifier;
+
+  return Object.freeze({
+    operation: options.operation ?? 'token-authorization-code',
+    clientId: credentials.clientId,
+    code: credentials.code,
+    verifier,
+    redirectUri: credentials.redirectUri,
+  });
+};
+
+export const exchangePositiveAuthorizationCode = async (
+  context: Phase1ScenarioRunContext,
+  grant: PositiveOidcAuthorizationGrant,
+  options: PositiveOidcAuthorizationCodeResponseOptions = {}
+): Promise<PositiveOidcTokenGrant> => {
+  return withPositiveOidcAuthorizationCodeRequest(
+    context,
+    positiveOidcAuthorizationCodeRequest(grant, options),
+    async (request) => exchangePositiveAuthorizationCodeRequest(context, request)
+  );
+};
+
+export const projectRejectedPositiveAuthorizationCode = async (
+  context: Phase1ScenarioRunContext,
+  grant: PositiveOidcAuthorizationGrant,
+  options: PositiveOidcAuthorizationCodeResponseOptions,
+  readState: () => Promise<Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>>,
+  normalizationContext: NormalizationContext
+): Promise<Phase1HttpProjection> => {
+  return withPositiveOidcAuthorizationCodeRequest(
+    context,
+    positiveOidcAuthorizationCodeRequest(grant, options),
+    async (request) =>
+      projectRejectedPositiveAuthorizationCodeRequest(
+        context,
+        request,
+        readState,
+        normalizationContext
+      )
+  );
+};
+
 export type PositiveOidcFlowOptions = Readonly<{
   random?: PositiveOidcFlowRandomSource;
   includeResource?: boolean;
   captureSteps?: boolean;
+}>;
+
+export type PositiveOidcAuthorizationRequestOptions = Readonly<{
+  random?: PositiveOidcFlowRandomSource;
+  includeResource?: boolean;
+  includeState?: boolean;
+  redirectUri?: string;
+  codeChallengeMethod?: string;
+  operation?: string;
 }>;
 
 export type PositiveOidcFlowOutput<Result> = Readonly<{
@@ -189,7 +288,7 @@ const requireLocation = (
   }
 };
 
-const absoluteLocationHeaders = (
+export const absolutePositiveOidcLocationHeaders = (
   headers: ReadonlyArray<readonly [string, string]>,
   baseUrl: string,
   diagnostic: string
@@ -223,7 +322,7 @@ const htmlEscape = (value: string): string =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
-const normalizeRedirectBody = (
+export const normalizePositiveOidcRedirectBody = (
   body: string,
   headers: ReadonlyArray<readonly [string, string]>,
   resolvedLocation: string,
@@ -445,6 +544,18 @@ const normalizationContext = (
   return { target: context.target, symbols };
 };
 
+export const positiveOidcAuthorizationNormalizationContext = (
+  context: Phase1ScenarioRunContext
+): NormalizationContext => {
+  const allocation = context.fixture.public.allocations.find(({ role }) => role === 'data');
+
+  if (!allocation) {
+    throw new Error('Phase 1 data allocation is unavailable');
+  }
+
+  return normalizationContext(context, allocation.allocationId);
+};
+
 const stateInput = async (context: Phase1ScenarioRunContext, stepId: string) =>
   context.projectScenarioState({ scenarioId, stepId, fixture: context.fixture });
 
@@ -492,7 +603,8 @@ const authorizationRequestPath = (
   clientId: string,
   redirectUri: string,
   challenge: string,
-  state: string,
+  state: string | undefined,
+  codeChallengeMethod: string,
   resource: Readonly<{ indicator: string; scopeName: string }> | undefined
 ): string => {
   const { authorizationPath } = context.profile.oidc;
@@ -522,18 +634,249 @@ const authorizationRequestPath = (
     client_id: clientId,
     redirect_uri: redirectUri,
     code_challenge: challenge,
-    code_challenge_method: 'S256',
-    state,
+    code_challenge_method: codeChallengeMethod,
     response_type: 'code',
     prompt: configured.prompt,
     scope: scopes.join(' '),
   });
+
+  if (state !== undefined) {
+    query.append('state', state);
+  }
 
   if (resource) {
     query.append('resource', resource.indicator);
   }
 
   return `${authorizationPath.slice(1)}?${query.toString()}`;
+};
+
+const preparePositiveOidcAuthorization = (
+  context: Phase1ScenarioRunContext,
+  includeResource: boolean
+) => {
+  const { application, redirectUri } = requireThirdPartyApplication(context);
+  const dataAllocation = context.fixture.public.allocations.find(({ role }) => role === 'data');
+
+  if (!dataAllocation) {
+    throw new Error('Phase 1 data allocation is unavailable');
+  }
+  const clientId = getPhase1FixtureRuntimeId(
+    context.fixture.public,
+    dataAllocation.allocationId,
+    'application',
+    application.id
+  );
+  const userId = getPhase1FixtureRuntimeId(
+    context.fixture.public,
+    dataAllocation.allocationId,
+    'user',
+    context.profile.fixtures.dataTenant.subject.id
+  );
+  const clients = context.protocol.forAllocation('data');
+  const { store } = clients.oidc;
+
+  if (clients.experience.store !== store || clients.consent.store !== store) {
+    throw new Error('Phase 1 authorization clients do not share one secret store');
+  }
+  const resource = (() => {
+    if (!includeResource) {
+      return;
+    }
+    const fixtureResource = context.profile.fixtures.dataTenant.resource;
+    const scope = fixtureResource.scopes[0];
+
+    if (!scope) {
+      throw new Error('Phase 1 authorization resource is invalid');
+    }
+    const runtimeResourceId = getPhase1FixtureRuntimeId(
+      context.fixture.public,
+      dataAllocation.allocationId,
+      'resource',
+      fixtureResource.id
+    );
+    const runtimeScopeId = getPhase1FixtureRuntimeId(
+      context.fixture.public,
+      dataAllocation.allocationId,
+      'scope',
+      scope.id
+    );
+
+    return Object.freeze({
+      id: runtimeResourceId,
+      indicator: getPhase1FixtureRuntimeResourceIndicator(
+        fixtureResource.indicator,
+        dataAllocation.allocationId
+      ),
+      name: getPhase1FixtureRuntimeText(fixtureResource.name, dataAllocation.allocationId),
+      scopeId: runtimeScopeId,
+      scopeName: getPhase1FixtureRuntimeText(scope.name, dataAllocation.allocationId),
+      scopeDescription: scope.description,
+    });
+  })();
+
+  return Object.freeze({
+    application,
+    redirectUri,
+    dataAllocation,
+    clientId,
+    userId,
+    clients,
+    store,
+    resource,
+    projectionContext: normalizationContext(context, dataAllocation.allocationId),
+  });
+};
+
+const requestPositiveOidcAuthorization = async (
+  context: Phase1ScenarioRunContext,
+  options: PositiveOidcAuthorizationRequestOptions = {}
+) => {
+  const prepared = preparePositiveOidcAuthorization(context, options.includeResource !== false);
+  const random = options.random ?? defaultRandomSource;
+  const codeVerifier = requireText(random.codeVerifier(), 'Phase 1 PKCE verifier is invalid');
+  const expectedState =
+    options.includeState === false
+      ? undefined
+      : requireText(random.state(), 'Phase 1 authorization state is invalid');
+
+  if (!codeVerifierPattern.test(codeVerifier)) {
+    throw new Error('Phase 1 PKCE verifier is invalid');
+  }
+  prepared.store.registerSecret(codeVerifier);
+  if (expectedState !== undefined) {
+    prepared.store.registerSecret(expectedState);
+  }
+  const challenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  const requestedRedirectUri = options.redirectUri ?? prepared.redirectUri;
+  const response = await prepared.clients.oidc.request(
+    options.operation ?? 'authorization-start',
+    authorizationRequestPath(
+      context,
+      prepared.clientId,
+      requestedRedirectUri,
+      challenge,
+      expectedState,
+      options.codeChallengeMethod ?? 'S256',
+      prepared.resource
+    ),
+    { includeCookies: true }
+  );
+
+  return Object.freeze({
+    ...prepared,
+    response,
+    requestedRedirectUri,
+    codeVerifier,
+    expectedState,
+  });
+};
+
+export const projectPositiveOidcRedirectUriRejection = async (
+  context: Phase1ScenarioRunContext,
+  options: PositiveOidcAuthorizationRequestOptions,
+  readState: () => ReturnType<Phase1ScenarioRunContext['projectScenarioState']>
+): Promise<Phase1HttpProjection> => {
+  const authorization = await requestPositiveOidcAuthorization(context, options);
+  const { response, projectionContext } = authorization;
+  const issuer = new URL(context.profile.oidc.issuerPath, context.target.coreUrl).href.replace(
+    /\/$/u,
+    ''
+  );
+  const expectedBody = {
+    code: 'oidc.invalid_redirect_uri',
+    message: "`redirect_uri` did not match any of the client's registered `redirect_uris`.",
+    error: 'invalid_redirect_uri',
+    error_description: "redirect_uri did not match any of the client's registered redirect_uris",
+    iss: issuer,
+  };
+  const body = requireJsonObject(response.body, 'Phase 1 rejected redirect response is invalid');
+
+  if (
+    response.status !== 400 ||
+    !isDeepStrictEqual(headerValues(response.headers, 'content-type'), [
+      'application/json; charset=utf-8',
+    ]) ||
+    headerValues(response.headers, 'location').length > 0 ||
+    headerValues(response.headers, 'set-cookie').length > 0 ||
+    !isDeepStrictEqual(body, expectedBody)
+  ) {
+    throw new Error('Phase 1 rejected redirect response is invalid');
+  }
+  const state = await readState();
+
+  return projectAuthorizationObservation(
+    {
+      ...state,
+      status: response.status,
+      headers: response.headers,
+      body: normalizeOAuthError(body),
+    },
+    projectionContext
+  );
+};
+
+export const projectPositiveOidcPkceMethodRejection = async (
+  context: Phase1ScenarioRunContext,
+  options: PositiveOidcAuthorizationRequestOptions,
+  readState: () => ReturnType<Phase1ScenarioRunContext['projectScenarioState']>
+): Promise<Phase1HttpProjection> => {
+  const authorization = await requestPositiveOidcAuthorization(context, options);
+  const { response, projectionContext, redirectUri, expectedState } = authorization;
+  const locations = headerValues(response.headers, 'location');
+  const [location] = locations;
+  const issuer = new URL(context.profile.oidc.issuerPath, context.target.coreUrl).href.replace(
+    /\/$/u,
+    ''
+  );
+
+  if (expectedState === undefined || !location) {
+    throw new Error('Phase 1 rejected PKCE method response is invalid');
+  }
+  const callback = new URL(location);
+  const registered = new URL(redirectUri);
+  const callbackKeys = [...callback.searchParams.keys()];
+  const invalid =
+    response.status !== 303 ||
+    !isDeepStrictEqual(headerValues(response.headers, 'content-type'), [
+      'text/html; charset=utf-8',
+    ]) ||
+    locations.length !== 1 ||
+    headerValues(response.headers, 'set-cookie').length > 0 ||
+    callback.origin !== registered.origin ||
+    callback.pathname !== registered.pathname ||
+    callback.hash !== registered.hash ||
+    !isDeepStrictEqual(callbackKeys, ['error', 'error_description', 'state', 'iss']) ||
+    callback.searchParams.get('error') !== 'invalid_request' ||
+    callback.searchParams.get('error_description') !==
+      'not supported value of code_challenge_method' ||
+    callback.searchParams.get('state') !== expectedState ||
+    callback.searchParams.get('iss') !== issuer;
+
+  if (invalid) {
+    throw new Error('Phase 1 rejected PKCE method response is invalid');
+  }
+  const state = await readState();
+
+  return projectAuthorizationObservation(
+    {
+      ...state,
+      status: response.status,
+      headers: absolutePositiveOidcLocationHeaders(
+        response.headers,
+        redirectUri,
+        'Phase 1 rejected PKCE method response is invalid'
+      ),
+      body: normalizePositiveOidcRedirectBody(
+        response.body,
+        response.headers,
+        callback.href,
+        'Phase 1 rejected PKCE method response is invalid'
+      ),
+      redirect: callback.href,
+    },
+    projectionContext
+  );
 };
 
 const requireConsentBridge = (location: string, targetCoreUrl: string, clientId: string): void => {
@@ -627,66 +970,26 @@ export const withPositiveOidcFlow = async <Result>(
   consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
 ): Promise<PositiveOidcFlowOutput<Result>> =>
   context.fixture.withSecretLease(async (lease) => {
-    const { application, redirectUri } = requireThirdPartyApplication(context);
-    const dataAllocation = context.fixture.public.allocations.find(({ role }) => role === 'data');
-
-    if (!dataAllocation) {
-      throw new Error('Phase 1 data allocation is unavailable');
+    const authorization = await requestPositiveOidcAuthorization(context, {
+      random: options.random,
+      includeResource: options.includeResource,
+    });
+    const {
+      application,
+      redirectUri,
+      dataAllocation,
+      clientId,
+      userId,
+      clients,
+      store,
+      resource,
+      projectionContext,
+      codeVerifier,
+      expectedState,
+    } = authorization;
+    if (expectedState === undefined) {
+      throw new Error('Phase 1 authorization state is invalid');
     }
-    const clientId = getPhase1FixtureRuntimeId(
-      context.fixture.public,
-      dataAllocation.allocationId,
-      'application',
-      application.id
-    );
-    const userId = getPhase1FixtureRuntimeId(
-      context.fixture.public,
-      dataAllocation.allocationId,
-      'user',
-      context.profile.fixtures.dataTenant.subject.id
-    );
-    const clients = context.protocol.forAllocation('data');
-    const { store } = clients.oidc;
-
-    if (clients.experience.store !== store || clients.consent.store !== store) {
-      throw new Error('Phase 1 authorization clients do not share one secret store');
-    }
-    const resource = (() => {
-      if (options.includeResource === false) {
-        return;
-      }
-      const fixtureResource = context.profile.fixtures.dataTenant.resource;
-      const scope = fixtureResource.scopes[0];
-
-      if (!scope) {
-        throw new Error('Phase 1 authorization resource is invalid');
-      }
-      const runtimeResourceId = getPhase1FixtureRuntimeId(
-        context.fixture.public,
-        dataAllocation.allocationId,
-        'resource',
-        fixtureResource.id
-      );
-      const runtimeScopeId = getPhase1FixtureRuntimeId(
-        context.fixture.public,
-        dataAllocation.allocationId,
-        'scope',
-        scope.id
-      );
-
-      return Object.freeze({
-        id: runtimeResourceId,
-        indicator: getPhase1FixtureRuntimeResourceIndicator(
-          fixtureResource.indicator,
-          dataAllocation.allocationId
-        ),
-        name: getPhase1FixtureRuntimeText(fixtureResource.name, dataAllocation.allocationId),
-        scopeId: runtimeScopeId,
-        scopeName: getPhase1FixtureRuntimeText(scope.name, dataAllocation.allocationId),
-        scopeDescription: scope.description,
-      });
-    })();
-    const projectionContext = normalizationContext(context, dataAllocation.allocationId);
     const capture = async (
       stepId: string,
       project: (
@@ -696,29 +999,8 @@ export const withPositiveOidcFlow = async <Result>(
       options.captureSteps === false
         ? undefined
         : step(stepId, project(await stateInput(context, stepId)));
-    const random = options.random ?? defaultRandomSource;
-    const codeVerifier = requireText(random.codeVerifier(), 'Phase 1 PKCE verifier is invalid');
-    const expectedState = requireText(random.state(), 'Phase 1 authorization state is invalid');
-
-    if (!codeVerifierPattern.test(codeVerifier)) {
-      throw new Error('Phase 1 PKCE verifier is invalid');
-    }
-    store.registerSecret(codeVerifier);
-    store.registerSecret(expectedState);
-    const challenge = createHash('sha256').update(codeVerifier).digest('base64url');
     const authorizeResponse = requireStatus(
-      await clients.oidc.request(
-        'authorization-start',
-        authorizationRequestPath(
-          context,
-          clientId,
-          redirectUri,
-          challenge,
-          expectedState,
-          resource
-        ),
-        { includeCookies: true }
-      ),
+      authorization.response,
       303,
       'Phase 1 authorization start failed'
     );
@@ -742,13 +1024,13 @@ export const withPositiveOidcFlow = async <Result>(
         rawObservation(
           {
             ...authorizeResponse,
-            headers: absoluteLocationHeaders(
+            headers: absolutePositiveOidcLocationHeaders(
               authorizeResponse.headers,
               context.target.coreUrl,
               'Phase 1 authorization start redirect is invalid'
             ),
           },
-          normalizeRedirectBody(
+          normalizePositiveOidcRedirectBody(
             authorizeResponse.body,
             authorizeResponse.headers,
             authorizeLocation,
@@ -882,7 +1164,7 @@ export const withPositiveOidcFlow = async <Result>(
           {
             ...bridgeResponse,
             headers: replaceLocationHeader(
-              absoluteLocationHeaders(
+              absolutePositiveOidcLocationHeaders(
                 bridgeResponse.headers,
                 context.target.coreUrl,
                 'Phase 1 consent bridge redirect is invalid'
@@ -890,7 +1172,7 @@ export const withPositiveOidcFlow = async <Result>(
               projectedBridgeLocation
             ),
           },
-          normalizeRedirectBody(
+          normalizePositiveOidcRedirectBody(
             bridgeResponse.body,
             bridgeResponse.headers,
             bridgeLocation,
@@ -1013,13 +1295,13 @@ export const withPositiveOidcFlow = async <Result>(
         rawObservation(
           {
             ...resumeResponse,
-            headers: absoluteLocationHeaders(
+            headers: absolutePositiveOidcLocationHeaders(
               resumeResponse.headers,
               redirectUri,
               'Phase 1 authorization callback is invalid'
             ),
           },
-          normalizeRedirectBody(
+          normalizePositiveOidcRedirectBody(
             resumeResponse.body,
             resumeResponse.headers,
             callbackLocation,
@@ -1036,7 +1318,7 @@ export const withPositiveOidcFlow = async <Result>(
         rawObservation(
           {
             ...resumeResponse,
-            headers: absoluteLocationHeaders(
+            headers: absolutePositiveOidcLocationHeaders(
               resumeResponse.headers,
               redirectUri,
               'Phase 1 authorization callback is invalid'
@@ -1098,7 +1380,7 @@ export const withPositiveOidcFlow = async <Result>(
       } catch {
         throw new Error('Phase 1 authorization consumer failed');
       } finally {
-        authorizationGrantCredentials.delete(grant);
+        revokePositiveOidcAuthorizationGrant(grant);
       }
     })();
 

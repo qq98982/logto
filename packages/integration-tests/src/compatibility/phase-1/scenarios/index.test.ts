@@ -8,8 +8,11 @@ import {
 
 import { runAccountAdminOperatorRead } from './account-admin-operator-read.js';
 import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runAuthorizationPkceMethodRejected } from './authorization-pkce-method-rejected.js';
+import { runAuthorizationRedirectUriRejected } from './authorization-redirect-uri-rejected.js';
 import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
 import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
+import { runCookieLocalhostPortInterleaving } from './cookie-localhost-port-interleaving.js';
 import { runCorsManagementList } from './cors-management-list.js';
 import { runDiscoveryConfig } from './discovery-config.js';
 import {
@@ -17,9 +20,13 @@ import {
   pendingPhase1DifferentialScenarioRun,
   phase1DifferentialScenarios,
 } from './index.js';
+import { runInteractionConsentSessionBoundary } from './interaction-consent-session-boundary.js';
+import { runInteractionPasswordRejected } from './interaction-password-rejected.js';
 import { runManagementApplicationRead } from './management-application-read.js';
 import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
+import { runTokenCodeReuseRejected } from './token-code-reuse-rejected.js';
+import { runTokenPkceVerifierRejected } from './token-pkce-verifier-rejected.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
 
@@ -60,6 +67,13 @@ const implementedRuns = Object.freeze([
   runConsoleAdminOrganizationTokenRefresh,
   runAccountAdminOperatorRead,
   runCorsManagementList,
+  runCookieLocalhostPortInterleaving,
+  runAuthorizationRedirectUriRejected,
+  runAuthorizationPkceMethodRejected,
+  runTokenPkceVerifierRejected,
+  runTokenCodeReuseRejected,
+  runInteractionPasswordRejected,
+  runInteractionConsentSessionBoundary,
 ] as const);
 const expectedRuns = Object.freeze([
   ...implementedRuns,
@@ -334,7 +348,7 @@ describe('phase 1 differential registry', () => {
     ).toEqual(expectedSources);
   });
 
-  it('declares complete metadata with eleven exact implementations and eleven pending runs', async () => {
+  it('declares complete metadata with eighteen exact implementations and four pending runs', async () => {
     for (const [index, scenario] of phase1DifferentialScenarios.entries()) {
       expect(scenario.evidenceKind).toBe('differential');
       expect(scenario.orderedSteps.length).toBeGreaterThan(0);
@@ -353,7 +367,7 @@ describe('phase 1 differential registry', () => {
       phase1DifferentialScenarios.slice(0, implementedRuns.length).map(({ run }) => run)
     ).toEqual(implementedRuns);
     const pending = phase1DifferentialScenarios.slice(implementedRuns.length);
-    expect(pending).toHaveLength(11);
+    expect(pending).toHaveLength(4);
     for (const scenario of pending) {
       await expect(scenario.run({} as never)).rejects.toThrow(
         /^Phase 1 differential scenario implementation is pending$/u

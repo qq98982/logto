@@ -17,9 +17,9 @@ import type { Phase1ScenarioRunContext } from '../model.js';
 
 import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
 import {
-  PositiveOidcAuthorizationGrant,
-  readPositiveOidcAuthorizationGrant,
+  assertPositiveOidcAuthorizationGrantActive,
   withPositiveOidcFlow,
+  type PositiveOidcAuthorizationGrant,
   type PositiveOidcFlowRandomSource,
 } from './positive-oidc-flow.js';
 
@@ -443,7 +443,9 @@ describe('authorization.password-pkce-consent', () => {
   it('preserves state cookie continuity consent and one callback code', async () => {
     const harness = createHarness();
     const consume = import.meta.jest.fn(async (grant: PositiveOidcAuthorizationGrant) => {
-      expect(grant).toBeInstanceOf(PositiveOidcAuthorizationGrant);
+      expect(() => {
+        assertPositiveOidcAuthorizationGrantActive(grant);
+      }).not.toThrow();
       expect(() => JSON.stringify(grant)).toThrow(
         'Phase 1 authorization grant is not serializable'
       );
@@ -597,7 +599,9 @@ describe('authorization.password-pkce-consent', () => {
       harness.context,
       { random: harness.random, captureSteps: false, includeResource: false },
       async (grant) => {
-        expect(grant).toBeInstanceOf(PositiveOidcAuthorizationGrant);
+        expect(() => {
+          assertPositiveOidcAuthorizationGrantActive(grant);
+        }).not.toThrow();
         return { exchanged: true };
       }
     );
@@ -658,9 +662,17 @@ describe('authorization.password-pkce-consent', () => {
       }
     );
     const retained = await retainedPromise;
-    expect(() => readPositiveOidcAuthorizationGrant(retained)).toThrow(
-      'Invalid Phase 1 authorization grant'
-    );
+    expect(() => {
+      assertPositiveOidcAuthorizationGrantActive(retained);
+    }).toThrow('Invalid Phase 1 authorization grant');
+    const forged = Object.freeze({
+      toJSON: () => {
+        throw new TypeError('forged');
+      },
+    }) as PositiveOidcAuthorizationGrant;
+    expect(() => {
+      assertPositiveOidcAuthorizationGrantActive(forged);
+    }).toThrow('Invalid Phase 1 authorization grant');
 
     const escapedCapability = createHarness();
     await expect(
