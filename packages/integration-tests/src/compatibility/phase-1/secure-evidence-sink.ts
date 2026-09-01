@@ -1,0 +1,482 @@
+/* eslint-disable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function -- Linux open flags, fd lifecycle state, fixed failure guards, sequential identity checks, and best-effort cleanup are intrinsic to this atomic sink. */
+import { randomBytes } from 'node:crypto';
+import { constants } from 'node:fs';
+import { link, lstat, open, readdir, realpath, rm, unlink } from 'node:fs/promises';
+import path from 'node:path';
+
+import type { JsonValue } from '../normalize.js';
+
+import {
+  assertPhase1EvidenceIsSanitized,
+  assertSerializedPhase1EvidenceIsSanitized,
+} from './evidence.js';
+
+type DirectoryIdentity = Readonly<{
+  dev: bigint | number;
+  ino: bigint | number;
+  uid: number;
+  realPath: string;
+}>;
+type FileIdentity = Readonly<{
+  dev: bigint | number;
+  ino: bigint | number;
+}>;
+type FileState = FileIdentity &
+  Readonly<{
+    uid: bigint | number;
+    mode: bigint | number;
+    nlink: bigint | number;
+    isFile(): boolean;
+  }>;
+
+export type SecureEvidenceSinkTestHooks = Readonly<{
+  beforeLink?: () => Promise<void>;
+  afterLink?: () => Promise<void>;
+}>;
+
+export type SecureEvidenceSink = Readonly<{
+  write(name: string, value: JsonValue): Promise<string>;
+  scan(): Promise<readonly string[]>;
+}>;
+
+const safeArtifactName = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/u;
+const safeDiagnosticArtifact = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u;
+const maximumArtifactBytes = 8 * 1024 * 1024;
+
+class SecureEvidenceSinkError extends Error {
+  constructor(artifact: string, rule: string) {
+    const safeArtifact = safeDiagnosticArtifact.test(artifact) ? artifact : '.';
+    super(`${safeArtifact}: ${rule}`);
+    this.stack = this.message;
+  }
+}
+
+const fail = (artifact: string, rule: string): never => {
+  throw new SecureEvidenceSinkError(artifact, rule);
+};
+
+const guardFailure = async <Result>(
+  artifact: string,
+  rule: string,
+  run: () => Promise<Result>
+): Promise<Result> => {
+  try {
+    return await run();
+  } catch (error: unknown) {
+    if (error instanceof SecureEvidenceSinkError) {
+      throw error;
+    }
+
+    return fail(artifact, rule);
+  }
+};
+
+const guardSynchronousFailure = <Result>(
+  artifact: string,
+  rule: string,
+  run: () => Result
+): Result => {
+  try {
+    return run();
+  } catch (error: unknown) {
+    if (error instanceof SecureEvidenceSinkError) {
+      throw error;
+    }
+
+    return fail(artifact, rule);
+  }
+};
+
+const modeBits = (mode: number) => mode & 0o777;
+
+const currentUid = (): number => {
+  const uid = process.getuid?.();
+
+  return typeof uid === 'number' ? uid : fail('.', 'owner-unavailable');
+};
+
+const readDirectoryIdentity = async (root: string): Promise<DirectoryIdentity> => {
+  let state;
+  let resolved;
+
+  try {
+    state = await lstat(root, { bigint: true });
+    resolved = await realpath(root);
+  } catch {
+    return fail('.', 'directory-unavailable');
+  }
+  if (state.isSymbolicLink() || !state.isDirectory()) {
+    return fail('.', 'directory-not-real');
+  }
+  if (resolved !== root) {
+    return fail('.', 'directory-not-real');
+  }
+  if (Number(state.uid) !== currentUid()) {
+    return fail('.', 'directory-owner');
+  }
+  if (modeBits(Number(state.mode)) !== 0o700) {
+    return fail('.', 'directory-mode');
+  }
+
+  return Object.freeze({
+    dev: state.dev,
+    ino: state.ino,
+    uid: Number(state.uid),
+    realPath: resolved,
+  });
+};
+
+const sameIdentity = (left: DirectoryIdentity, right: DirectoryIdentity): boolean =>
+  left.dev === right.dev &&
+  left.ino === right.ino &&
+  left.uid === right.uid &&
+  left.realPath === right.realPath;
+
+const isSecureFileState = (state: FileState, expected?: FileIdentity): boolean =>
+  state.isFile() &&
+  Number(state.uid) === currentUid() &&
+  modeBits(Number(state.mode)) === 0o600 &&
+  Number(state.nlink) === 1 &&
+  (expected === undefined || (state.dev === expected.dev && state.ino === expected.ino));
+
+const requireDirectoryIdentity = async (
+  root: string,
+  expected: DirectoryIdentity
+): Promise<void> => {
+  const actual = await readDirectoryIdentity(root);
+
+  if (!sameIdentity(actual, expected)) {
+    fail('.', 'directory-identity');
+  }
+};
+
+const fileExists = async (filePath: string, artifact: string): Promise<boolean> => {
+  try {
+    await lstat(filePath);
+    return true;
+  } catch (error: unknown) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ENOENT'
+    ) {
+      return false;
+    }
+    return fail(artifact, 'final-path-state');
+  }
+};
+
+const validateFinal = async (
+  filePath: string,
+  artifact: string,
+  expected?: FileIdentity
+): Promise<FileIdentity> => {
+  let state;
+
+  try {
+    state = await lstat(filePath, { bigint: true });
+  } catch {
+    return fail(artifact, 'final-unavailable');
+  }
+  if (state.isSymbolicLink() || !state.isFile()) {
+    fail(artifact, 'non-regular-entry');
+  }
+  if (Number(state.uid) !== currentUid()) {
+    fail(artifact, 'owner');
+  }
+  if (modeBits(Number(state.mode)) !== 0o600) {
+    fail(artifact, 'mode');
+  }
+  if (Number(state.nlink) !== 1) {
+    fail(artifact, 'link-count');
+  }
+  if (expected && (state.dev !== expected.dev || state.ino !== expected.ino)) {
+    fail(artifact, 'final-identity');
+  }
+
+  return Object.freeze({ dev: state.dev, ino: state.ino });
+};
+
+const readAndSanitizeArtifact = async (
+  filePath: string,
+  artifact: string,
+  expected?: FileIdentity
+): Promise<void> => {
+  let file;
+
+  try {
+    file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    return fail(artifact, 'content-open');
+  }
+  try {
+    const openedState = await guardFailure(artifact, 'content-stat', async () =>
+      file.stat({ bigint: true })
+    );
+
+    if (!isSecureFileState(openedState, expected)) {
+      return fail(artifact, 'final-identity');
+    }
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    let position = 0;
+
+    while (totalBytes <= maximumArtifactBytes) {
+      const buffer = new Uint8Array(Math.min(64 * 1024, maximumArtifactBytes + 1 - totalBytes));
+      // The position argument is evaluated before the read promise can yield.
+      // eslint-disable-next-line @typescript-eslint/no-loop-func
+      const { bytesRead } = await guardFailure(artifact, 'content-read', async () =>
+        file.read(buffer, 0, buffer.byteLength, position)
+      );
+
+      if (bytesRead === 0) {
+        break;
+      }
+      totalBytes += bytesRead;
+      position += bytesRead;
+      chunks.push(buffer.subarray(0, bytesRead));
+    }
+    if (totalBytes > maximumArtifactBytes) {
+      return fail(artifact, 'content-size');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(Buffer.concat(chunks)));
+    } catch {
+      return fail(artifact, 'content-json');
+    }
+    try {
+      assertSerializedPhase1EvidenceIsSanitized(parsed);
+    } catch {
+      return fail(artifact, 'sanitizer');
+    }
+  } finally {
+    await guardFailure(artifact, 'content-close', async () => file.close());
+  }
+  await validateFinal(filePath, artifact, expected);
+};
+
+const validateAllowlist = (names: readonly string[]): readonly string[] => {
+  if (
+    names.length === 0 ||
+    new Set(names).size !== names.length ||
+    names.some(
+      (name) =>
+        !safeArtifactName.test(name) ||
+        path.basename(name) !== name ||
+        name === '.' ||
+        name === '..'
+    )
+  ) {
+    throw new TypeError('Invalid phase 1 evidence allowlist');
+  }
+
+  return Object.freeze(names.toSorted());
+};
+
+export const createSecureEvidenceSink = async (
+  root: string,
+  allowlist: readonly string[],
+  hooks: SecureEvidenceSinkTestHooks = {}
+): Promise<SecureEvidenceSink> => {
+  if (!path.isAbsolute(root) || path.resolve(root) !== root) {
+    throw new TypeError('Invalid phase 1 evidence directory');
+  }
+  const names = validateAllowlist(allowlist);
+  const allowed = new Set(names);
+  const publishedIdentities = new Map<string, FileIdentity>();
+  const initialIdentity = await readDirectoryIdentity(root);
+
+  const withDirectory = async <Result>(
+    use: (directoryPath: string, identity: DirectoryIdentity) => Promise<Result>
+  ): Promise<Result> => {
+    await requireDirectoryIdentity(root, initialIdentity);
+    const directory = await guardFailure('.', 'directory-open', async () =>
+      open(root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    );
+
+    try {
+      const state = await guardFailure('.', 'directory-stat', async () =>
+        directory.stat({ bigint: true })
+      );
+      const identity = Object.freeze({
+        dev: state.dev,
+        ino: state.ino,
+        uid: Number(state.uid),
+        realPath: initialIdentity.realPath,
+      });
+
+      if (!sameIdentity(identity, initialIdentity)) {
+        return fail('.', 'directory-identity');
+      }
+
+      return await use(`/proc/self/fd/${directory.fd}`, identity);
+    } finally {
+      await guardFailure('.', 'directory-close', async () => directory.close());
+    }
+  };
+
+  const scan = async (): Promise<readonly string[]> =>
+    withDirectory(async (directoryPath, identity) => {
+      const entries = await guardFailure('.', 'directory-read', async () =>
+        readdir(directoryPath, { withFileTypes: true })
+      );
+
+      for (const name of names) {
+        const entry = entries.find((candidate) => candidate.name === name);
+
+        if (entry) {
+          if (!entry.isFile() || entry.isSymbolicLink()) {
+            return fail(name, 'non-regular-entry');
+          }
+          const filePath = path.join(directoryPath, name);
+          const publishedIdentity = publishedIdentities.get(name);
+          const expected = await validateFinal(filePath, name, publishedIdentity);
+          await readAndSanitizeArtifact(filePath, name, expected);
+        }
+      }
+      const unexpected = entries
+        .map(({ name }) => name)
+        .filter((name) => !allowed.has(name))
+        .toSorted()[0];
+
+      if (unexpected) {
+        return fail(unexpected, 'unexpected-entry');
+      }
+      await requireDirectoryIdentity(root, identity);
+
+      return Object.freeze(entries.map(({ name }) => path.join(root, name)).toSorted());
+    });
+
+  return Object.freeze({
+    write: async (name: string, value: JsonValue): Promise<string> => {
+      if (!allowed.has(name)) {
+        return fail(name, 'not-allowlisted');
+      }
+      try {
+        assertPhase1EvidenceIsSanitized(value);
+      } catch {
+        return fail(name, 'sanitizer');
+      }
+      const bytes = guardSynchronousFailure(
+        name,
+        'serialization',
+        () => `${JSON.stringify(value)}\n`
+      );
+
+      if (Buffer.byteLength(bytes) > maximumArtifactBytes) {
+        return fail(name, 'content-size');
+      }
+
+      const finalPath = await withDirectory(async (directoryPath, identity) => {
+        const finalViaDirectory = path.join(directoryPath, name);
+        const publishedPath = path.join(root, name);
+
+        if (await fileExists(finalViaDirectory, name)) {
+          return fail(name, 'final-path-exists');
+        }
+        const temporaryName = guardSynchronousFailure(
+          name,
+          'temporary-name',
+          () => `.${name}.${randomBytes(12).toString('hex')}.tmp`
+        );
+        const temporaryPath = path.join(directoryPath, temporaryName);
+        let temporaryPresent = false;
+        let finalPublished = false;
+        let completed = false;
+
+        try {
+          const temporary = await guardFailure(name, 'temporary-open', async () =>
+            open(
+              temporaryPath,
+              constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | constants.O_WRONLY,
+              0o600
+            )
+          );
+          temporaryPresent = true;
+
+          const temporaryIdentity = await (async (): Promise<FileIdentity> => {
+            try {
+              await guardFailure(name, 'temporary-write', async () =>
+                temporary.writeFile(bytes, 'utf8')
+              );
+              await guardFailure(name, 'temporary-sync', async () => temporary.sync());
+              const state = await guardFailure(name, 'temporary-stat', async () =>
+                temporary.stat({ bigint: true })
+              );
+
+              if (
+                !state.isFile() ||
+                Number(state.uid) !== currentUid() ||
+                modeBits(Number(state.mode)) !== 0o600
+              ) {
+                return fail(name, 'temporary-state');
+              }
+              return Object.freeze({ dev: state.dev, ino: state.ino });
+            } finally {
+              await guardFailure(name, 'temporary-close', async () => temporary.close());
+            }
+          })();
+          await guardFailure(name, 'before-link', async () => hooks.beforeLink?.());
+          await requireDirectoryIdentity(root, identity);
+          try {
+            await link(temporaryPath, finalViaDirectory);
+          } catch (error: unknown) {
+            if (
+              typeof error === 'object' &&
+              error !== null &&
+              Object.getOwnPropertyDescriptor(error, 'code')?.value === 'EEXIST'
+            ) {
+              return fail(name, 'final-path-exists');
+            }
+            return fail(name, 'publish');
+          }
+          finalPublished = true;
+          await guardFailure(name, 'after-link', async () => hooks.afterLink?.());
+          await guardFailure(name, 'temporary-unlink', async () => unlink(temporaryPath));
+          temporaryPresent = false;
+          const directory = await guardFailure(name, 'directory-sync-open', async () =>
+            open(directoryPath, constants.O_RDONLY | constants.O_DIRECTORY)
+          );
+          try {
+            await guardFailure(name, 'directory-sync', async () => directory.sync());
+          } finally {
+            await guardFailure(name, 'directory-sync-close', async () => directory.close());
+          }
+          await validateFinal(finalViaDirectory, name, temporaryIdentity);
+          await readAndSanitizeArtifact(finalViaDirectory, name, temporaryIdentity);
+          publishedIdentities.set(name, temporaryIdentity);
+          await requireDirectoryIdentity(root, identity);
+          completed = true;
+
+          return publishedPath;
+        } finally {
+          if (temporaryPresent) {
+            await unlink(temporaryPath).catch(() => {});
+          }
+          if (finalPublished && !completed) {
+            publishedIdentities.delete(name);
+            await rm(finalViaDirectory, { force: true, recursive: true }).catch(() => {});
+          }
+        }
+      });
+      try {
+        await scan();
+      } catch (error: unknown) {
+        publishedIdentities.delete(name);
+        await withDirectory(async (directoryPath) => {
+          await rm(path.join(directoryPath, name), { force: true, recursive: true }).catch(
+            () => {}
+          );
+        }).catch(() => {});
+        throw error;
+      }
+
+      return finalPath;
+    },
+
+    scan,
+  });
+};
+
+/* eslint-enable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function */
