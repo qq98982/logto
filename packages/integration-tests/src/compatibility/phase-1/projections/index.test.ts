@@ -283,7 +283,7 @@ describe('phase 1 projections', () => {
 
   it('applies only caller-declared entity timestamp pointers', () => {
     const projection = projectManagementObservation(
-      raw([{ createdAt: 1000, updatedAt: 1030, metadata: { createdAt: 990 } }]),
+      raw([{ createdAt: 1_000_000, updatedAt: 1_030_000, metadata: { createdAt: 990_000 } }]),
       context,
       { scenarioId: 'management.application-read', stepId: 'first-party' }
     );
@@ -291,8 +291,8 @@ describe('phase 1 projections', () => {
     expect(projection.body).toEqual([
       {
         createdAt: { $timestamp: 1000, $toleranceSeconds: 30 },
-        updatedAt: 1030,
-        metadata: { createdAt: 990 },
+        updatedAt: 1_030_000,
+        metadata: { createdAt: 990_000 },
       },
     ]);
   });
@@ -313,7 +313,7 @@ describe('phase 1 projections', () => {
     const projection = projectSemanticStateObservation(
       {
         ...raw({ observed: true }),
-        semanticState: { session: { updatedAt: 1000 } },
+        semanticState: { session: { updatedAt: 1_000_000 } },
       },
       context,
       { scenarioId: 'authorization.password-pkce-consent', stepId: 'state' }

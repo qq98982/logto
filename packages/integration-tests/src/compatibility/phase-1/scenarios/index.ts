@@ -12,8 +12,14 @@ import {
 } from '../model.js';
 import { phase1ScenarioContracts } from '../scenario-contracts.js';
 
+import { runAccountAdminOperatorRead } from './account-admin-operator-read.js';
 import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
+import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
+import { runCorsManagementList } from './cors-management-list.js';
 import { runDiscoveryConfig } from './discovery-config.js';
+import { runManagementApplicationRead } from './management-application-read.js';
+import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
@@ -227,12 +233,12 @@ const canonicalPhase1ScenarioRuns = Object.freeze({
   'token.authorization-code': runTokenAuthorizationCode,
   'token.refresh-rotation': runTokenRefreshRotation,
   'userinfo.openid': runUserInfoOpenId,
-  'management.application-read': pendingPhase1DifferentialScenarioRun,
-  'management.user-read': pendingPhase1DifferentialScenarioRun,
-  'console.admin-auth-resource-refresh': pendingPhase1DifferentialScenarioRun,
-  'console.admin-organization-token-refresh': pendingPhase1DifferentialScenarioRun,
-  'account.admin-operator-read': pendingPhase1DifferentialScenarioRun,
-  'cors.management-list': pendingPhase1DifferentialScenarioRun,
+  'management.application-read': runManagementApplicationRead,
+  'management.user-read': runManagementUserRead,
+  'console.admin-auth-resource-refresh': runConsoleAdminAuthResourceRefresh,
+  'console.admin-organization-token-refresh': runConsoleAdminOrganizationTokenRefresh,
+  'account.admin-operator-read': runAccountAdminOperatorRead,
+  'cors.management-list': runCorsManagementList,
   'cookie.localhost-port-interleaving': pendingPhase1DifferentialScenarioRun,
   'authorization.redirect-uri-rejected': pendingPhase1DifferentialScenarioRun,
   'authorization.pkce-method-rejected': pendingPhase1DifferentialScenarioRun,

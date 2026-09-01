@@ -6,13 +6,19 @@ import {
   type Phase1DifferentialScenario,
 } from '../model.js';
 
+import { runAccountAdminOperatorRead } from './account-admin-operator-read.js';
 import { runAuthorizationPasswordPkceConsent } from './authorization-password-pkce-consent.js';
+import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
+import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
+import { runCorsManagementList } from './cors-management-list.js';
 import { runDiscoveryConfig } from './discovery-config.js';
 import {
   assertExactDifferentialScenarioRegistry,
   pendingPhase1DifferentialScenarioRun,
   phase1DifferentialScenarios,
 } from './index.js';
+import { runManagementApplicationRead } from './management-application-read.js';
+import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
@@ -48,6 +54,12 @@ const implementedRuns = Object.freeze([
   runTokenAuthorizationCode,
   runTokenRefreshRotation,
   runUserInfoOpenId,
+  runManagementApplicationRead,
+  runManagementUserRead,
+  runConsoleAdminAuthResourceRefresh,
+  runConsoleAdminOrganizationTokenRefresh,
+  runAccountAdminOperatorRead,
+  runCorsManagementList,
 ] as const);
 const expectedRuns = Object.freeze([
   ...implementedRuns,
@@ -322,7 +334,7 @@ describe('phase 1 differential registry', () => {
     ).toEqual(expectedSources);
   });
 
-  it('declares complete metadata with five exact implementations and seventeen pending runs', async () => {
+  it('declares complete metadata with eleven exact implementations and eleven pending runs', async () => {
     for (const [index, scenario] of phase1DifferentialScenarios.entries()) {
       expect(scenario.evidenceKind).toBe('differential');
       expect(scenario.orderedSteps.length).toBeGreaterThan(0);
@@ -341,7 +353,7 @@ describe('phase 1 differential registry', () => {
       phase1DifferentialScenarios.slice(0, implementedRuns.length).map(({ run }) => run)
     ).toEqual(implementedRuns);
     const pending = phase1DifferentialScenarios.slice(implementedRuns.length);
-    expect(pending).toHaveLength(17);
+    expect(pending).toHaveLength(11);
     for (const scenario of pending) {
       await expect(scenario.run({} as never)).rejects.toThrow(
         /^Phase 1 differential scenario implementation is pending$/u

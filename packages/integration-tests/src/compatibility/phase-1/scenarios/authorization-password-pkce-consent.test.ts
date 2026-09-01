@@ -359,7 +359,7 @@ const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> =
     body: { observed: true },
     semanticState: {
       session: {
-        updatedAt: 1_700_000_000,
+        updatedAt: 1_700_000_000_000,
         accountId: runtimeUserId,
         clientId: runtimeApplicationId,
       },

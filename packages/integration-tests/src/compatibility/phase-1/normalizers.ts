@@ -188,8 +188,11 @@ const normalizeExactLogicalJson = (
     if (!Number.isFinite(value)) {
       return fixedFailure('Invalid phase 1 bounded timestamp');
     }
+    const terminal = path.at(-1);
+    const timestamp =
+      terminal && entityTimestampFields.has(terminal) ? Math.floor(value / 1000) : value;
 
-    return { $timestamp: value, $toleranceSeconds: boundedTimestampToleranceSeconds };
+    return { $timestamp: timestamp, $toleranceSeconds: boundedTimestampToleranceSeconds };
   }
   if (Array.isArray(value)) {
     return value.map((item, index) =>
