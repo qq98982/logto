@@ -27,7 +27,11 @@ import { runManagementApplicationRead } from './management-application-read.js';
 import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
 import { runTokenCodeReuseRejected } from './token-code-reuse-rejected.js';
+import { runTokenConcurrentCodeSingleWinner } from './token-concurrent-code-single-winner.js';
+import { runTokenConcurrentRefreshSingleWinner } from './token-concurrent-refresh-single-winner.js';
+import { runTokenIssuerAudienceScopeRejected } from './token-issuer-audience-scope-rejected.js';
 import { runTokenPkceVerifierRejected } from './token-pkce-verifier-rejected.js';
+import { runTokenRefreshReuseRejected } from './token-refresh-reuse-rejected.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
 
@@ -201,6 +205,7 @@ const registryMetadata: readonly RegistryMetadata[] = [
     sourceEvidence: [
       oracle('packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts'),
       oracle('packages/core/src/oidc/grants/refresh-token.ts'),
+      oracle('packages/core/src/queries/oidc-model-instance.ts'),
     ],
   },
   {
@@ -210,6 +215,16 @@ const registryMetadata: readonly RegistryMetadata[] = [
       oracle('packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts'),
       oracle('packages/integration-tests/src/tests/api/oidc/organization-api-resource.test.ts'),
       oracle('packages/core/src/routes/applications/application.ts'),
+      oracle('packages/core/src/middleware/koa-auth/index.ts'),
+      oracle('packages/core/src/middleware/koa-auth/koa-oidc-auth.ts'),
+      oracle('packages/core/src/errors/RequestError/index.ts'),
+      oracle('packages/core/src/middleware/koa-error-handler.ts'),
+      oracle('packages/core/src/middleware/koa-oidc-error-handler.ts'),
+      oracle('packages/core/src/i18n/init.ts'),
+      oracle('packages/phrases/src/locales/en/errors/oidc.ts'),
+      oracle('packages/core/src/oidc/grants/refresh-token.ts'),
+      oracle('packages/core/src/oidc/init.ts'),
+      oracle('pnpm-lock.yaml'),
     ],
   },
   {
@@ -217,6 +232,9 @@ const registryMetadata: readonly RegistryMetadata[] = [
     sourceEvidence: [
       oracle('packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts'),
       oracle('packages/integration-tests/src/client/index.ts'),
+      oracle('packages/core/src/oidc/adapter.ts'),
+      oracle('packages/core/src/queries/oidc-model-instance.ts'),
+      oracle('pnpm-lock.yaml'),
     ],
   },
   {
@@ -225,14 +243,12 @@ const registryMetadata: readonly RegistryMetadata[] = [
       oracle('packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts'),
       oracle('packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts'),
       oracle('packages/core/src/oidc/grants/refresh-token.ts'),
+      oracle('packages/core/src/oidc/adapter.ts'),
+      oracle('packages/core/src/queries/oidc-model-instance.ts'),
+      oracle('pnpm-lock.yaml'),
     ],
   },
 ];
-
-export const pendingPhase1DifferentialScenarioRun: Phase1DifferentialScenario['run'] =
-  Object.freeze(async () => {
-    throw new Error('Phase 1 differential scenario implementation is pending');
-  });
 
 const canonicalPhase1ScenarioRuns = Object.freeze({
   'discovery.config': runDiscoveryConfig,
@@ -253,10 +269,10 @@ const canonicalPhase1ScenarioRuns = Object.freeze({
   'token.code-reuse-rejected': runTokenCodeReuseRejected,
   'interaction.password-rejected': runInteractionPasswordRejected,
   'interaction.consent-session-boundary': runInteractionConsentSessionBoundary,
-  'token.refresh-reuse-rejected': pendingPhase1DifferentialScenarioRun,
-  'token.issuer-audience-scope-rejected': pendingPhase1DifferentialScenarioRun,
-  'token.concurrent-code-single-winner': pendingPhase1DifferentialScenarioRun,
-  'token.concurrent-refresh-single-winner': pendingPhase1DifferentialScenarioRun,
+  'token.refresh-reuse-rejected': runTokenRefreshReuseRejected,
+  'token.issuer-audience-scope-rejected': runTokenIssuerAudienceScopeRejected,
+  'token.concurrent-code-single-winner': runTokenConcurrentCodeSingleWinner,
+  'token.concurrent-refresh-single-winner': runTokenConcurrentRefreshSingleWinner,
 } satisfies Readonly<Record<Phase1DifferentialScenario['id'], Phase1DifferentialScenario['run']>>);
 
 const canonicalRunAt = (index: number): Phase1DifferentialScenario['run'] | undefined => {

@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- The focused admin protocol harness records one complete credential-bearing flow while keeping secrets inside the shared memory store. */
+/* eslint-disable complexity, max-lines, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- The focused admin protocol harness records one complete credential-bearing flow while keeping secrets inside the shared memory store. */
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTHeaderParameters } from 'jose';
 
 import type { JsonObject } from '../../normalize.js';
@@ -36,6 +36,7 @@ export const adminSecrets = Object.freeze({
   initialAccess: 'private-admin-opaque-access',
   initialRefresh: 'private-admin-initial-refresh',
   managementRefresh: 'private-admin-management-refresh',
+  accountAuthorityRefresh: 'private-admin-account-authority-refresh',
   organizationRefresh: 'private-admin-organization-refresh',
 });
 
@@ -67,7 +68,10 @@ export const createAdminTestSigner = async (): Promise<AdminTestSigner> => {
 export type AdminTokenBodies = Readonly<{
   initial: Readonly<Record<string, unknown>>;
   management?: Readonly<Record<string, unknown>>;
+  managementMissingScope?: Readonly<Record<string, unknown>>;
+  accountAuthority?: Readonly<Record<string, unknown>>;
   organization?: Readonly<Record<string, unknown>>;
+  userinfoMissingOpenId?: Readonly<Record<string, unknown>>;
 }>;
 
 export type AdminRecordedRequest = Readonly<{
@@ -374,9 +378,15 @@ export const createAdminScenarioHarness = (
             ? input.tokens.initial
             : operation === 'admin-token-management-refresh'
               ? input.tokens.management
-              : operation === 'admin-token-organization-refresh'
-                ? input.tokens.organization
-                : undefined;
+              : operation === 'admin-token-management-missing-scope-refresh'
+                ? input.tokens.managementMissingScope
+                : operation === 'admin-token-account-authority-refresh'
+                  ? input.tokens.accountAuthority
+                  : operation === 'admin-token-organization-refresh'
+                    ? input.tokens.organization
+                    : operation === 'admin-token-userinfo-missing-openid-refresh'
+                      ? input.tokens.userinfoMissingOpenId
+                      : undefined;
 
         if (tokenBody) {
           return response(200, tokenBody, [['content-type', 'application/json']]);
@@ -565,4 +575,4 @@ export const requestForm = (record: AdminRecordedRequest | undefined) =>
 export const requestContentType = (record: AdminRecordedRequest | undefined) =>
   headerValue(record?.options?.headers, 'content-type');
 
-/* eslint-enable max-lines, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions */
+/* eslint-enable complexity, max-lines, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions */

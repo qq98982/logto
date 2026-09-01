@@ -4,6 +4,7 @@ import { exchangePositiveAuthorizationCode } from './positive-oidc-flow.js';
 import * as positiveOidcFlow from './positive-oidc-flow.js';
 import {
   assertPositiveOidcAuthorizationCodeRequestActive,
+  assertPositiveOidcTokenGrantIncludesScope,
   assertPositiveOidcTokenGrantActive,
   exchangePositiveAuthorizationCodeRequest,
   revokePositiveTokenGrant,
@@ -286,6 +287,9 @@ describe('token.pkce-verifier-rejected', () => {
       try {
         expect(() => {
           assertPositiveOidcTokenGrantActive(tokenGrant);
+        }).not.toThrow();
+        expect(() => {
+          assertPositiveOidcTokenGrantIncludesScope(tokenGrant, 'openid');
         }).not.toThrow();
         expect(() => JSON.stringify(tokenGrant)).toThrow('Phase 1 token grant is not serializable');
       } finally {

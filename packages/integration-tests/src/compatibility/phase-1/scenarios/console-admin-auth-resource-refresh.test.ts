@@ -1,7 +1,12 @@
+/* eslint-disable max-lines -- The focused admin authorization and refresh security matrix stays in one harness. */
 import { createHash } from 'node:crypto';
 
 import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
-import { readPositiveAdminSession, withPositiveAdminSession } from './positive-admin-flow.js';
+import {
+  assertPositiveAdminRefreshTokenIsFresh,
+  readPositiveAdminSession,
+  withPositiveAdminSession,
+} from './positive-admin-flow.js';
 import {
   adminRuntime,
   adminSecrets,
@@ -12,12 +17,371 @@ import {
   requestForm,
   tokenBody,
 } from './positive-admin-flow.test-helpers.js';
-import { refreshPositiveAdminManagementToken } from './positive-admin-token.js';
+import {
+  refreshPositiveAdminAccountResourceToken,
+  refreshPositiveAdminManagementToken,
+  refreshPositiveAdminManagementTokenWithoutAllScope,
+  refreshPositiveAdminUserInfoTokenWithoutOpenId,
+} from './positive-admin-token.js';
 
 const effectiveScope =
   'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
 
 describe('console.admin-auth-resource-refresh', () => {
+  it('issues, rotates, and privately installs a signature-valid Account-resource token', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const accountAccess = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'https://admin.logto.app/me',
+      client_id: 'admin-console',
+      scope: 'all',
+      iat: now + 1,
+      exp: now + 3601,
+    });
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+        accountAuthority: tokenBody(
+          accountAccess,
+          idToken,
+          adminSecrets.accountAuthorityRefresh,
+          'all'
+        ),
+      },
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async (session) => {
+        await refreshPositiveAdminAccountResourceToken(harness.context, session);
+        expect(readPositiveAdminSession(session).refreshToken).toBe(
+          adminSecrets.accountAuthorityRefresh
+        );
+
+        return null;
+      }
+    );
+
+    const refresh = harness.records.find(
+      ({ operation }) => operation === 'admin-token-account-authority-refresh'
+    );
+    expect(requestForm(refresh)).toEqual({
+      client_id: 'admin-console',
+      refresh_token: adminSecrets.initialRefresh,
+      grant_type: 'refresh_token',
+      resource: 'https://admin.logto.app/me',
+    });
+    expect(requestContentType(refresh)).toBe('application/x-www-form-urlencoded');
+    expect(harness.store.getToken('authority-wrong-audience')).toBe(accountAccess);
+    expect(harness.dataStore.getToken('authority-wrong-audience')).toBeUndefined();
+  });
+
+  it.each(['signature', 'issuer', 'audience', 'scope'] as const)(
+    'rejects an Account-resource authority token with invalid %s',
+    async (invalidField) => {
+      const signer = await createAdminTestSigner();
+      const foreignSigner = await createAdminTestSigner();
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await signer.sign({
+        iss: `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud: 'admin-console',
+        iat: now,
+        exp: now + 3600,
+      });
+      const accountAccess = await (invalidField === 'signature' ? foreignSigner : signer).sign({
+        iss:
+          invalidField === 'issuer'
+            ? `${adminTestTarget.coreUrl}oidc`
+            : `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud:
+          invalidField === 'audience'
+            ? 'https://default.logto.app/api'
+            : 'https://admin.logto.app/me',
+        client_id: 'admin-console',
+        scope: invalidField === 'scope' ? '' : 'all',
+        iat: now + 1,
+        exp: now + 3601,
+      });
+      const harness = createAdminScenarioHarness({
+        jwk: signer.jwk,
+        tokens: {
+          initial: tokenBody(
+            adminSecrets.initialAccess,
+            idToken,
+            adminSecrets.initialRefresh,
+            effectiveScope
+          ),
+          accountAuthority: tokenBody(
+            accountAccess,
+            idToken,
+            adminSecrets.accountAuthorityRefresh,
+            'all'
+          ),
+        },
+      });
+
+      await withPositiveAdminSession(
+        harness.context,
+        { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+        async (session) => {
+          const before = readPositiveAdminSession(session);
+
+          await expect(
+            refreshPositiveAdminAccountResourceToken(harness.context, session)
+          ).rejects.toThrow();
+          expect(readPositiveAdminSession(session)).toEqual(before);
+          expect(harness.store.getToken('authority-wrong-audience')).toBeUndefined();
+
+          return null;
+        }
+      );
+    }
+  );
+
+  it('issues, rotates, and installs a signature-valid empty-scope Management token', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const managementAccess = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'https://default.logto.app/api',
+      client_id: 'admin-console',
+      scope: '',
+      iat: now + 1,
+      exp: now + 3601,
+    });
+    const replacementRefresh = 'private-admin-management-missing-scope-refresh';
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      includeDataAllocation: true,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+        managementMissingScope: tokenBody(managementAccess, idToken, replacementRefresh, ''),
+      },
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async (session) => {
+        await refreshPositiveAdminManagementTokenWithoutAllScope(harness.context, session);
+        expect(readPositiveAdminSession(session).refreshToken).toBe(replacementRefresh);
+
+        return null;
+      }
+    );
+
+    const refresh = harness.records.find(
+      ({ operation }) => operation === 'admin-token-management-missing-scope-refresh'
+    );
+    expect(requestForm(refresh)).toEqual({
+      client_id: 'admin-console',
+      refresh_token: adminSecrets.initialRefresh,
+      grant_type: 'refresh_token',
+      resource: 'https://default.logto.app/api',
+      scope: 'openid',
+    });
+    expect(requestContentType(refresh)).toBe('application/x-www-form-urlencoded');
+    expect(harness.store.getToken('management-missing-scope')).toBeUndefined();
+    expect(harness.dataStore.getToken('management-missing-scope')).toBe(managementAccess);
+  });
+
+  it.each(['signature', 'issuer', 'audience', 'claim-scope', 'response-scope'] as const)(
+    'rejects a missing-scope Management token with invalid %s authority',
+    async (invalidField) => {
+      const signer = await createAdminTestSigner();
+      const foreignSigner = await createAdminTestSigner();
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await signer.sign({
+        iss: `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud: 'admin-console',
+        iat: now,
+        exp: now + 3600,
+      });
+      const managementAccess = await (invalidField === 'signature' ? foreignSigner : signer).sign({
+        iss:
+          invalidField === 'issuer'
+            ? `${adminTestTarget.coreUrl}oidc`
+            : `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud:
+          invalidField === 'audience'
+            ? 'https://admin.logto.app/me'
+            : 'https://default.logto.app/api',
+        client_id: 'admin-console',
+        scope: invalidField === 'claim-scope' ? 'all' : '',
+        iat: now + 1,
+        exp: now + 3601,
+      });
+      const harness = createAdminScenarioHarness({
+        jwk: signer.jwk,
+        includeDataAllocation: true,
+        tokens: {
+          initial: tokenBody(
+            adminSecrets.initialAccess,
+            idToken,
+            adminSecrets.initialRefresh,
+            effectiveScope
+          ),
+          managementMissingScope: tokenBody(
+            managementAccess,
+            idToken,
+            'private-admin-invalid-management-refresh',
+            invalidField === 'response-scope' ? 'all' : ''
+          ),
+        },
+      });
+
+      await expect(
+        withPositiveAdminSession(
+          harness.context,
+          {
+            random: {
+              codeVerifier: () => adminSecrets.verifier,
+              state: () => adminSecrets.state,
+            },
+          },
+          async (session) => {
+            await refreshPositiveAdminManagementTokenWithoutAllScope(harness.context, session);
+
+            return null;
+          }
+        )
+      ).rejects.toThrow('Phase 1 admin session consumer failed');
+      expect(harness.dataStore.getToken('management-missing-scope')).toBeUndefined();
+    }
+  );
+
+  it('rotates an access-only downscoped UserInfo token and rejects stale reuse', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const opaqueAccess = 'opaque-profile-only-access';
+    const replacementRefresh = 'profile-only-refresh';
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+        userinfoMissingOpenId: {
+          access_token: opaqueAccess,
+          refresh_token: replacementRefresh,
+          token_type: 'Bearer',
+          expires_in: 3600,
+          scope: 'profile',
+        },
+      },
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async (session) => {
+        await refreshPositiveAdminUserInfoTokenWithoutOpenId(harness.context, session);
+        expect(readPositiveAdminSession(session).refreshToken).toBe(replacementRefresh);
+        expect(harness.store.getToken('userinfo-missing-openid')).toBe(opaqueAccess);
+        expect(() => {
+          assertPositiveAdminRefreshTokenIsFresh(session, replacementRefresh, [opaqueAccess]);
+        }).toThrow('Phase 1 admin refresh token was not rotated');
+
+        return null;
+      }
+    );
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['zero', 0],
+    ['noninteger', 1.5],
+    ['wrong type', '3600'],
+  ] as const)('rejects a UserInfo token response with %s expires_in', async (_name, expiresIn) => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const invalidTokenBody = {
+      access_token: 'opaque-profile-only-access',
+      refresh_token: 'profile-only-refresh',
+      token_type: 'Bearer',
+      scope: 'profile',
+      ...(expiresIn === undefined ? {} : { expires_in: expiresIn }),
+    };
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+        userinfoMissingOpenId: invalidTokenBody,
+      },
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async (session) => {
+        const before = readPositiveAdminSession(session);
+
+        await expect(
+          refreshPositiveAdminUserInfoTokenWithoutOpenId(harness.context, session)
+        ).rejects.toThrow('Phase 1 admin UserInfo missing-openid refresh failed');
+        expect(readPositiveAdminSession(session)).toEqual(before);
+        expect(harness.store.getToken('userinfo-missing-openid')).toBeUndefined();
+
+        return null;
+      }
+    );
+  });
+
   it('refreshes the exact default Management resource token', async () => {
     const signer = await createAdminTestSigner();
     const now = Math.floor(Date.now() / 1000);
@@ -372,3 +736,5 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(harness.dataStore.getToken('management')).toBeUndefined();
   });
 });
+
+/* eslint-enable max-lines */

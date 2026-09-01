@@ -1,4 +1,5 @@
 import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
+import { readPositiveAdminSession, withPositiveAdminSession } from './positive-admin-flow.js';
 import {
   adminRuntime,
   adminSecrets,
@@ -8,8 +9,70 @@ import {
   requestForm,
   tokenBody,
 } from './positive-admin-flow.test-helpers.js';
+import { refreshPositiveAdminOrganizationToken } from './positive-admin-token.js';
 
 describe('console.admin-organization-token-refresh', () => {
+  it('issues and installs the organization token without projection coordinates', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const organizationAccess = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'urn:logto:organization:t-default',
+      client_id: 'admin-console',
+      scope: '',
+      iat: now + 1,
+      exp: now + 3601,
+    });
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all'
+        ),
+        organization: tokenBody(organizationAccess, idToken, adminSecrets.organizationRefresh, ''),
+      },
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async (session) => {
+        await expect(
+          refreshPositiveAdminOrganizationToken(harness.context, session)
+        ).resolves.toBeUndefined();
+        expect(readPositiveAdminSession(session).refreshToken).toBe(
+          adminSecrets.organizationRefresh
+        );
+
+        return null;
+      }
+    );
+
+    const organizationRequest = harness.records.find(
+      ({ operation }) => operation === 'admin-token-organization-refresh'
+    );
+    expect(requestForm(organizationRequest)).toEqual({
+      client_id: 'admin-console',
+      refresh_token: adminSecrets.initialRefresh,
+      grant_type: 'refresh_token',
+      organization_id: 't-default',
+    });
+    expect(organizationRequest?.options?.body).not.toMatch(/(?:^|&)resource=|(?:^|&)scope=/u);
+    expect(harness.stateReads).toEqual([]);
+    expect(harness.store.getToken('organization')).toBe(organizationAccess);
+  });
+
   it('issues the fixed t-default empty-scope organization JWT', async () => {
     const signer = await createAdminTestSigner();
     const now = Math.floor(Date.now() / 1000);

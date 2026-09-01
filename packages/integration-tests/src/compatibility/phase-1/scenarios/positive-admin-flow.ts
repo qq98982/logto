@@ -110,7 +110,7 @@ const requireRotatablePositiveAdminRefreshToken = (
     typeof refreshToken !== 'string' ||
     refreshToken.length === 0 ||
     /[\u0000-\u001F\u007F]/u.test(refreshToken) ||
-    accompanyingCredentials.length !== 2 ||
+    ![1, 2].includes(accompanyingCredentials.length) ||
     accompanyingCredentials.some(
       (credential) =>
         typeof credential !== 'string' ||

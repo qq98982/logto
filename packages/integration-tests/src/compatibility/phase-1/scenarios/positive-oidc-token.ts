@@ -105,6 +105,24 @@ export const assertPositiveOidcTokenGrantActive = (grant: PositiveOidcTokenGrant
   readTokenGrant(grant);
 };
 
+export const assertPositiveOidcTokenGrantIncludesScope = (
+  grant: PositiveOidcTokenGrant,
+  requiredScope: string
+): void => {
+  const { body } = readTokenGrant(grant);
+  const { scope } = body;
+
+  if (
+    typeof requiredScope !== 'string' ||
+    requiredScope.length === 0 ||
+    /\s/u.test(requiredScope) ||
+    typeof scope !== 'string' ||
+    !scope.split(/\s+/u).filter(Boolean).includes(requiredScope)
+  ) {
+    throw new Error('Phase 1 token grant scope is invalid');
+  }
+};
+
 const readPositiveOidcAuthorizationCodeRequest = (
   request: PositiveOidcAuthorizationCodeRequest
 ): PositiveOidcAuthorizationCodeRequestSecrets => {
@@ -187,7 +205,8 @@ const headerValues = (
 const projectPositiveOidcInvalidGrant = (
   response: RawProtocolResponse,
   state: Phase1ScenarioStateProjectionInput,
-  normalizationContext: NormalizationContext
+  normalizationContext: NormalizationContext,
+  diagnostic = 'Phase 1 authorization code rejection is invalid'
 ): Phase1HttpProjection => {
   const body: unknown = (() => {
     try {
@@ -195,7 +214,7 @@ const projectPositiveOidcInvalidGrant = (
 
       return parsed;
     } catch {
-      throw new Error('Phase 1 authorization code rejection is invalid');
+      throw new Error(diagnostic);
     }
   })();
   if (
@@ -207,7 +226,7 @@ const projectPositiveOidcInvalidGrant = (
     headerValues(response.headers, 'set-cookie').length > 0 ||
     !isDeepStrictEqual(body, invalidGrantBody)
   ) {
-    throw new Error('Phase 1 authorization code rejection is invalid');
+    throw new Error(diagnostic);
   }
 
   return projectTokenErrorObservation(
@@ -408,12 +427,13 @@ export const projectRejectedPositiveAuthorizationCodeRequest = async (
 
 export const exchangePositiveRefreshToken = async (
   context: Phase1ScenarioRunContext,
-  initialGrant: PositiveOidcTokenGrant
+  initialGrant: PositiveOidcTokenGrant,
+  operation = 'token-refresh'
 ): Promise<PositiveOidcTokenGrant> => {
   const initial = readTokenGrant(initialGrant);
   const rotated = await postToken(
     context,
-    'token-refresh',
+    operation,
     new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: initial.clientId,
@@ -429,6 +449,37 @@ export const exchangePositiveRefreshToken = async (
   }
 
   return rotated;
+};
+
+export const projectRejectedPositiveRefreshToken = async (
+  context: Phase1ScenarioRunContext,
+  grant: PositiveOidcTokenGrant,
+  operation: string,
+  readState: () => Promise<Phase1ScenarioStateProjectionInput>,
+  normalizationContext: NormalizationContext
+): Promise<Phase1HttpProjection> => {
+  const secrets = readTokenGrant(grant);
+  const { oidc } = context.protocol.forAllocation('data');
+  oidc.store.registerSecret(secrets.refreshToken);
+  const response = await oidc.request(operation, tokenPath(context), {
+    method: 'POST',
+    headers: { 'content-type': formContentType },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: secrets.clientId,
+      refresh_token: secrets.refreshToken,
+    }).toString(),
+    includeCookies: false,
+  });
+  const projection = projectPositiveOidcInvalidGrant(
+    response,
+    await readState(),
+    normalizationContext,
+    'Phase 1 refresh token rejection is invalid'
+  );
+  oidc.store.assertNoCredentialMaterial(projection);
+
+  return projection;
 };
 
 const requireJwks = async (context: Phase1ScenarioRunContext): Promise<JSONWebKeySet> => {
@@ -694,6 +745,15 @@ export const readPositiveUserInfo = async (
   const body = requireJsonResponse(response, 'Phase 1 UserInfo response is invalid');
 
   return Object.freeze({ status: response.status, headers: response.headers, body });
+};
+
+export const installPositiveOidcAccessToken = (
+  context: Phase1ScenarioRunContext,
+  grant: PositiveOidcTokenGrant,
+  name: string
+): void => {
+  const { accessToken } = readTokenGrant(grant);
+  context.protocol.forAllocation('data').oidc.store.setToken(name, accessToken);
 };
 
 export const projectPositiveScenarioState = async (

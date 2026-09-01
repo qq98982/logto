@@ -369,11 +369,147 @@ export const refreshPositiveAdminManagementToken = async (
   return projection;
 };
 
-export const refreshPositiveAdminOrganizationToken = async (
+export const refreshPositiveAdminManagementTokenWithoutAllScope = async (
+  context: Phase1ScenarioRunContext,
+  session: PositiveAdminSession
+): Promise<void> => {
+  const resource = context.profile.consoleAuthentication.configuredResources[0];
+
+  if (!resource) {
+    throw new Error('Phase 1 admin Management resource is invalid');
+  }
+  const grant = await postRefresh(
+    context,
+    'admin-token-management-missing-scope-refresh',
+    session,
+    { resource, scope: 'openid' },
+    '',
+    'Phase 1 admin Management missing-scope refresh failed'
+  );
+  await assertJwtPair(context, grant, {
+    audience: resource,
+    scope: '',
+    forbidOrganizationId: true,
+    diagnostic: 'Phase 1 admin Management missing-scope token claims are invalid',
+  });
+  replacePositiveAdminRefreshToken(session, grant.refreshToken, [grant.accessToken, grant.idToken]);
+  context.protocol
+    .forAllocation('data')
+    .oidc.store.setToken('management-missing-scope', grant.accessToken);
+};
+
+export const refreshPositiveAdminAccountResourceToken = async (
+  context: Phase1ScenarioRunContext,
+  session: PositiveAdminSession
+): Promise<void> => {
+  const resource = context.profile.consoleAuthentication.configuredResources[1];
+  const resourceContract = context.profile.fixtures.adminTenant.resources.find(
+    ({ indicator }) => indicator === resource
+  );
+
+  if (!resource || !resourceContract || resourceContract.scopes.join(' ') !== 'all') {
+    throw new Error('Phase 1 admin Account resource is invalid');
+  }
+  const grant = await postRefresh(
+    context,
+    'admin-token-account-authority-refresh',
+    session,
+    { resource },
+    'all',
+    'Phase 1 admin Account authority refresh failed'
+  );
+  await assertJwtPair(context, grant, {
+    audience: resource,
+    scope: 'all',
+    forbidOrganizationId: true,
+    diagnostic: 'Phase 1 admin Account authority token claims are invalid',
+  });
+  replacePositiveAdminRefreshToken(session, grant.refreshToken, [grant.accessToken, grant.idToken]);
+  context.protocol
+    .forAllocation('admin')
+    .oidc.store.setToken('authority-wrong-audience', grant.accessToken);
+};
+
+export const refreshPositiveAdminUserInfoTokenWithoutOpenId = async (
+  context: Phase1ScenarioRunContext,
+  session: PositiveAdminSession
+): Promise<void> => {
+  const current = readPositiveAdminSession(session);
+  const { oidc } = context.protocol.forAllocation('admin');
+  const response = await oidc.request(
+    'admin-token-userinfo-missing-openid-refresh',
+    tokenPath(context),
+    {
+      method: 'POST',
+      headers: { 'content-type': formContentType },
+      body: new URLSearchParams({
+        client_id: current.clientId,
+        refresh_token: current.refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'profile',
+      }).toString(),
+      includeCookies: false,
+    }
+  );
+  try {
+    const mediaTypes = headerValues(response.headers, 'content-type').map(
+      (value) => value.split(';', 1)[0]?.trim().toLowerCase() ?? ''
+    );
+    const body: unknown = JSON.parse(response.body);
+
+    if (
+      response.status !== 200 ||
+      mediaTypes.length !== 1 ||
+      mediaTypes[0] !== jsonContentType ||
+      !isJsonObject(body) ||
+      body.token_type !== 'Bearer' ||
+      body.scope !== 'profile' ||
+      typeof body.expires_in !== 'number' ||
+      !Number.isSafeInteger(body.expires_in) ||
+      body.expires_in <= 0 ||
+      Object.hasOwn(body, 'id_token')
+    ) {
+      throw new TypeError('invalid token response');
+    }
+    const accessToken = requireText(
+      body.access_token,
+      'Phase 1 admin UserInfo missing-openid refresh failed'
+    );
+    const refreshToken = requireText(
+      body.refresh_token,
+      'Phase 1 admin UserInfo missing-openid refresh failed'
+    );
+
+    if (
+      accessToken.includes('.') ||
+      refreshToken === current.refreshToken ||
+      accessToken === refreshToken
+    ) {
+      throw new TypeError('invalid token credentials');
+    }
+    oidc.store.registerSecret(accessToken);
+    oidc.store.registerSecret(refreshToken);
+    replacePositiveAdminRefreshToken(session, refreshToken, [accessToken]);
+    oidc.store.setToken('userinfo-missing-openid', accessToken);
+  } catch {
+    throw new Error('Phase 1 admin UserInfo missing-openid refresh failed');
+  }
+};
+
+export function refreshPositiveAdminOrganizationToken(
   context: Phase1ScenarioRunContext,
   session: PositiveAdminSession,
   coordinates: PositiveAdminProjectionCoordinates
-): Promise<Phase1HttpProjection> => {
+): Promise<Phase1HttpProjection>;
+export function refreshPositiveAdminOrganizationToken(
+  context: Phase1ScenarioRunContext,
+  session: PositiveAdminSession
+): Promise<void>;
+export async function refreshPositiveAdminOrganizationToken(
+  context: Phase1ScenarioRunContext,
+  session: PositiveAdminSession,
+  coordinates?: PositiveAdminProjectionCoordinates
+): Promise<Phase1HttpProjection | void> {
   const request = context.profile.consoleOrganizationTokenRequest;
   const organizationId = request.form.organization_id;
 
@@ -402,20 +538,24 @@ export const refreshPositiveAdminOrganizationToken = async (
     diagnostic: 'Phase 1 admin organization token claims are invalid',
   });
   replacePositiveAdminRefreshToken(session, grant.refreshToken, [grant.accessToken, grant.idToken]);
-  const projection = await projectRefresh(
-    context,
-    grant,
-    coordinates,
-    proofs,
-    positiveAdminNormalizationContext(context),
-    true
-  );
+  const projection = coordinates
+    ? await projectRefresh(
+        context,
+        grant,
+        coordinates,
+        proofs,
+        positiveAdminNormalizationContext(context),
+        true
+      )
+    : undefined;
   const { store } = context.protocol.forAllocation('admin').oidc;
   store.setToken('organization', grant.accessToken);
-  store.assertNoCredentialMaterial(projection);
+  if (projection) {
+    store.assertNoCredentialMaterial(projection);
+  }
 
   return projection;
-};
+}
 
 export const installPositiveAdminAccountToken = (
   context: Phase1ScenarioRunContext,

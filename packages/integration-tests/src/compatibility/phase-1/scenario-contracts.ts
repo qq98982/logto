@@ -309,12 +309,7 @@ const rawContracts: readonly RawContract[] = [
       ['race', ['semantic-state']],
       ['state', ['semantic-state']],
     ],
-    explicit: [
-      '/steps/race/value/outcomes',
-      '/steps/state/value/generatedIds/tokenFamily',
-      '/steps/*/value/tokens/*/claims/iat',
-      '/steps/*/value/tokens/*/claims/exp',
-    ],
+    explicit: ['/steps/race/value/outcomes'],
   },
   {
     id: 'token.concurrent-refresh-single-winner',
@@ -414,14 +409,7 @@ const explicitProjectionLeaves = {
     '/steps/state/value/generatedIds/tokenFamily',
   ],
   'token.issuer-audience-scope-rejected': [],
-  'token.concurrent-code-single-winner': [
-    '/steps/race/value/outcomes',
-    '/steps/state/value/generatedIds/tokenFamily',
-    '/steps/attempt-a/value/tokens/0/claims/iat',
-    '/steps/attempt-b/value/tokens/0/claims/iat',
-    '/steps/attempt-a/value/tokens/0/claims/exp',
-    '/steps/attempt-b/value/tokens/0/claims/exp',
-  ],
+  'token.concurrent-code-single-winner': ['/steps/race/value/outcomes'],
   'token.concurrent-refresh-single-winner': [
     '/steps/race/value/outcomes',
     '/steps/state/value/generatedIds/tokenFamily',

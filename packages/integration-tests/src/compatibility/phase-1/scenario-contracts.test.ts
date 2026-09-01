@@ -223,12 +223,7 @@ const expectedRows = [
   {
     id: 'token.concurrent-code-single-winner',
     steps: ['attempt-a:http', 'attempt-b:http', 'race:semantic-state', 'state:semantic-state'],
-    explicit: [
-      '/steps/race/value/outcomes',
-      '/steps/state/value/generatedIds/tokenFamily',
-      '/steps/*/value/tokens/*/claims/iat',
-      '/steps/*/value/tokens/*/claims/exp',
-    ],
+    explicit: ['/steps/race/value/outcomes'],
   },
   {
     id: 'token.concurrent-refresh-single-winner',
@@ -371,7 +366,7 @@ const expectedScenarioAuthorityDigests = {
   'token.issuer-audience-scope-rejected':
     'f9710a27167379e161a8f5fcc4515e0a5e0929a07788115055b564b2305b69b6',
   'token.concurrent-code-single-winner':
-    '40367f055e5939e95790fffda076a478789824cd175fed0caaed66315ece0dd6',
+    '3fea7681d96701d472f1135f16fa628a5539b2a84a565f2c4c729197f165940b',
   'token.concurrent-refresh-single-winner':
     '5d06cb9754010d871bf08b2d957265e4f218794e75a23dcdbfe688819bba2c5e',
 } as const satisfies Record<Phase1ScenarioContract['id'], string>;

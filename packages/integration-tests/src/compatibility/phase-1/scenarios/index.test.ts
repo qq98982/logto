@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, no-await-in-loop, unicorn/consistent-function-scoping, unicorn/no-array-for-each -- Complete source-authority mutation tests deliberately bypass readonly types and verify exact canonical function identities. */
+/* eslint-disable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, unicorn/consistent-function-scoping, unicorn/no-array-for-each -- Complete source-authority mutation tests deliberately bypass readonly types and verify exact canonical function identities. */
 import {
   differentialScenarioIds,
   oracleCommit,
@@ -15,18 +15,18 @@ import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organiz
 import { runCookieLocalhostPortInterleaving } from './cookie-localhost-port-interleaving.js';
 import { runCorsManagementList } from './cors-management-list.js';
 import { runDiscoveryConfig } from './discovery-config.js';
-import {
-  assertExactDifferentialScenarioRegistry,
-  pendingPhase1DifferentialScenarioRun,
-  phase1DifferentialScenarios,
-} from './index.js';
+import { assertExactDifferentialScenarioRegistry, phase1DifferentialScenarios } from './index.js';
 import { runInteractionConsentSessionBoundary } from './interaction-consent-session-boundary.js';
 import { runInteractionPasswordRejected } from './interaction-password-rejected.js';
 import { runManagementApplicationRead } from './management-application-read.js';
 import { runManagementUserRead } from './management-user-read.js';
 import { runTokenAuthorizationCode } from './token-authorization-code.js';
 import { runTokenCodeReuseRejected } from './token-code-reuse-rejected.js';
+import { runTokenConcurrentCodeSingleWinner } from './token-concurrent-code-single-winner.js';
+import { runTokenConcurrentRefreshSingleWinner } from './token-concurrent-refresh-single-winner.js';
+import { runTokenIssuerAudienceScopeRejected } from './token-issuer-audience-scope-rejected.js';
 import { runTokenPkceVerifierRejected } from './token-pkce-verifier-rejected.js';
+import { runTokenRefreshReuseRejected } from './token-refresh-reuse-rejected.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
 import { runUserInfoOpenId } from './userinfo-openid.js';
 
@@ -74,14 +74,11 @@ const implementedRuns = Object.freeze([
   runTokenCodeReuseRejected,
   runInteractionPasswordRejected,
   runInteractionConsentSessionBoundary,
+  runTokenRefreshReuseRejected,
+  runTokenIssuerAudienceScopeRejected,
+  runTokenConcurrentCodeSingleWinner,
+  runTokenConcurrentRefreshSingleWinner,
 ] as const);
-const expectedRuns = Object.freeze([
-  ...implementedRuns,
-  ...Array.from(
-    { length: differentialScenarioIds.length - implementedRuns.length },
-    () => pendingPhase1DifferentialScenarioRun
-  ),
-]);
 
 type SourceText = `oracle:${string}` | `phase0:${string}`;
 const expectedSources: readonly (readonly SourceText[])[] = [
@@ -188,21 +185,38 @@ const expectedSources: readonly (readonly SourceText[])[] = [
   [
     'oracle:packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts',
     'oracle:packages/core/src/oidc/grants/refresh-token.ts',
+    'oracle:packages/core/src/queries/oidc-model-instance.ts',
   ],
   [
     'oracle:packages/console/src/hooks/use-api.ts',
     'oracle:packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts',
     'oracle:packages/integration-tests/src/tests/api/oidc/organization-api-resource.test.ts',
     'oracle:packages/core/src/routes/applications/application.ts',
+    'oracle:packages/core/src/middleware/koa-auth/index.ts',
+    'oracle:packages/core/src/middleware/koa-auth/koa-oidc-auth.ts',
+    'oracle:packages/core/src/errors/RequestError/index.ts',
+    'oracle:packages/core/src/middleware/koa-error-handler.ts',
+    'oracle:packages/core/src/middleware/koa-oidc-error-handler.ts',
+    'oracle:packages/core/src/i18n/init.ts',
+    'oracle:packages/phrases/src/locales/en/errors/oidc.ts',
+    'oracle:packages/core/src/oidc/grants/refresh-token.ts',
+    'oracle:packages/core/src/oidc/init.ts',
+    'oracle:pnpm-lock.yaml',
   ],
   [
     'oracle:packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts',
     'oracle:packages/integration-tests/src/client/index.ts',
+    'oracle:packages/core/src/oidc/adapter.ts',
+    'oracle:packages/core/src/queries/oidc-model-instance.ts',
+    'oracle:pnpm-lock.yaml',
   ],
   [
     'oracle:packages/integration-tests/src/tests/api/oidc/get-access-token.test.ts',
     'oracle:packages/integration-tests/src/tests/api/oidc/provider-semantics.test.ts',
     'oracle:packages/core/src/oidc/grants/refresh-token.ts',
+    'oracle:packages/core/src/oidc/adapter.ts',
+    'oracle:packages/core/src/queries/oidc-model-instance.ts',
+    'oracle:pnpm-lock.yaml',
   ],
 ];
 
@@ -348,13 +362,13 @@ describe('phase 1 differential registry', () => {
     ).toEqual(expectedSources);
   });
 
-  it('declares complete metadata with eighteen exact implementations and four pending runs', async () => {
+  it('declares complete metadata with twenty-two exact implementations and no pending runs', () => {
     for (const [index, scenario] of phase1DifferentialScenarios.entries()) {
       expect(scenario.evidenceKind).toBe('differential');
       expect(scenario.orderedSteps.length).toBeGreaterThan(0);
       expect(scenario.semanticProjectionVersion).toBe(1);
       expect(scenario.cleanup).toBe('fresh-fixture-reverse-cleanup');
-      expect(scenario.run).toBe(expectedRuns[index]);
+      expect(scenario.run).toBe(implementedRuns[index]);
       expect(Object.keys(scenario.observationContract)).toEqual([
         'status',
         'mediaType',
@@ -363,23 +377,14 @@ describe('phase 1 differential registry', () => {
         'redirects',
       ]);
     }
-    expect(
-      phase1DifferentialScenarios.slice(0, implementedRuns.length).map(({ run }) => run)
-    ).toEqual(implementedRuns);
-    const pending = phase1DifferentialScenarios.slice(implementedRuns.length);
-    expect(pending).toHaveLength(4);
-    for (const scenario of pending) {
-      await expect(scenario.run({} as never)).rejects.toThrow(
-        /^Phase 1 differential scenario implementation is pending$/u
-      );
-    }
-    expect(Object.isFrozen(pendingPhase1DifferentialScenarioRun)).toBe(true);
+    expect(phase1DifferentialScenarios.map(({ run }) => run)).toEqual(implementedRuns);
+    expect(implementedRuns).toHaveLength(differentialScenarioIds.length);
   });
 
   it('rejects every replacement proxy and wrong-index canonical run identity', () => {
     phase1DifferentialScenarios.forEach((scenario, index) => {
       const wrongCanonical =
-        index < implementedRuns.length ? pendingPhase1DifferentialScenarioRun : runDiscoveryConfig;
+        implementedRuns[(index + 1) % implementedRuns.length] ?? runDiscoveryConfig;
       const replacements = [async () => [], wrongCanonical, new Proxy(scenario.run, {})];
 
       for (const replacement of replacements) {
@@ -493,4 +498,4 @@ describe('phase 1 differential registry', () => {
   });
 });
 
-/* eslint-enable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, no-await-in-loop, unicorn/consistent-function-scoping, unicorn/no-array-for-each */
+/* eslint-enable @typescript-eslint/array-type, @typescript-eslint/ban-types, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/restrict-plus-operands, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, unicorn/consistent-function-scoping, unicorn/no-array-for-each */

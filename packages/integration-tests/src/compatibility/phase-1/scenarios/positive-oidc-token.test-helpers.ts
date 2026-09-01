@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-mutating-methods, no-restricted-syntax, @typescript-eslint/consistent-type-assertions -- The focused protocol harness records ordered requests and consumes queued responses while structurally replacing live clients. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-restricted-syntax, @typescript-eslint/consistent-type-assertions -- The focused protocol harness records ordered requests, owns a concurrent in-flight witness, and consumes queued responses while structurally replacing live clients. */
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
 
 import type { JsonObject } from '../../normalize.js';
@@ -14,6 +14,7 @@ import {
   getPhase1FixtureRuntimeResourceIndicator,
   getPhase1FixtureRuntimeText,
   getPhase1FixtureRuntimeUsername,
+  type Phase1FixtureAllocationRole,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
@@ -142,6 +143,7 @@ export const tokenGrantBody = (
     accessToken: string;
     idToken: string;
     refreshToken: string;
+    scope?: string;
   }>
 ) => ({
   access_token: input.accessToken,
@@ -149,8 +151,85 @@ export const tokenGrantBody = (
   refresh_token: input.refreshToken,
   token_type: 'Bearer',
   expires_in: 3600,
-  scope: 'openid offline_access profile email address phone',
+  scope: input.scope ?? 'openid offline_access profile email address phone',
 });
+
+export const requireConcurrentTokenTransport = (
+  context: Phase1ScenarioRunContext,
+  operations: readonly [string, string]
+): Readonly<{
+  context: Phase1ScenarioRunContext;
+  assertWitness(): void;
+}> => {
+  const operationSet = new Set(operations);
+  const gate =
+    // eslint-disable-next-line no-use-extend-native/no-use-extend-native -- Promise.withResolvers is the standard ES2024 deferred primitive.
+    Promise.withResolvers<void>();
+  let arrivals = 0;
+  let inFlight = 0;
+  let maximumInFlight = 0;
+  const baseProtocol = context.protocol;
+  const witnessedContext: Phase1ScenarioRunContext = Object.freeze({
+    ...context,
+    protocol: Object.freeze({
+      ...baseProtocol,
+      forAllocation: (role: Phase1FixtureAllocationRole) => {
+        const clients = baseProtocol.forAllocation(role);
+
+        if (role !== 'data') {
+          return clients;
+        }
+
+        return Object.freeze({
+          ...clients,
+          oidc: Object.freeze({
+            ...clients.oidc,
+            request: async (
+              operation: string,
+              path: string,
+              options: ProtocolRequestOptions = {}
+            ) => {
+              if (!operationSet.has(operation)) {
+                return clients.oidc.request(operation, path, options);
+              }
+              arrivals += 1;
+              inFlight += 1;
+              maximumInFlight = Math.max(maximumInFlight, inFlight);
+              if (arrivals === operations.length) {
+                gate.resolve();
+              } else {
+                queueMicrotask(() => {
+                  if (arrivals < operations.length) {
+                    gate.reject(new Error('Phase 1 concurrent transport witness failed'));
+                  }
+                });
+              }
+              try {
+                await gate.promise;
+                return await clients.oidc.request(operation, path, options);
+              } finally {
+                inFlight -= 1;
+              }
+            },
+          }),
+        });
+      },
+    }),
+  });
+
+  return Object.freeze({
+    context: witnessedContext,
+    assertWitness: () => {
+      if (
+        arrivals !== operations.length ||
+        maximumInFlight !== operations.length ||
+        inFlight !== 0
+      ) {
+        throw new Error('Phase 1 concurrent transport witness failed');
+      }
+    },
+  });
+};
 
 export const createTokenScenarioHarness = (
   input: Readonly<{
@@ -283,4 +362,4 @@ export const createTokenScenarioHarness = (
   return Object.freeze({ context, flow, requests, stateReads, dataSymbols });
 };
 
-/* eslint-enable @silverhand/fp/no-mutating-methods, no-restricted-syntax, @typescript-eslint/consistent-type-assertions */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-restricted-syntax, @typescript-eslint/consistent-type-assertions */
