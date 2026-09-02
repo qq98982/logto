@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-delete, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Each hostile fixture mutates one isolated workflow copy and records literal GitHub expressions. */
+import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import type * as Yaml from 'yaml';
 
@@ -14,11 +16,13 @@ import {
 } from './workflow-policy.js';
 
 const require = createRequire(import.meta.url);
+const executeFile = promisify(execFile);
 const yamlPackage = ['ya', 'ml'].join('');
 const { parse: parseYaml, stringify: stringifyYaml } = require(yamlPackage) as typeof Yaml;
 const encoder = new TextEncoder();
 const repositoryRoot = path.resolve(process.cwd(), '../..');
 const workflowDirectory = path.join(repositoryRoot, '.github/workflows');
+const phase0Commit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
 const phase1WorkflowPath = '.github/workflows/phase1-compatibility-test.yml';
 const compatibilityWorkflowPath = '.github/workflows/compatibility-test.yml';
 const source = (yaml: string, workflowPath = phase1WorkflowPath): Phase1WorkflowSource =>
@@ -58,6 +62,47 @@ const readWorkflowSources = async (): Promise<Phase1WorkflowSource[]> => {
   );
 };
 
+const readPhase0CompatibilityWorkflow = async (): Promise<Phase1WorkflowSource> => {
+  const { stdout } = await executeFile(
+    'git',
+    ['--no-replace-objects', 'show', `${phase0Commit}:${compatibilityWorkflowPath}`],
+    {
+      cwd: repositoryRoot,
+      encoding: 'buffer',
+      maxBuffer: 1024 * 1024,
+      timeout: 30_000,
+    }
+  );
+
+  return Object.freeze({ path: compatibilityWorkflowPath, bytes: Buffer.from(stdout) });
+};
+
+const liveGovernanceMode = (
+  workflows: readonly Phase1WorkflowSource[]
+): 'prebootstrap' | 'locked' => {
+  const paths = workflows.map(({ path: workflowPath }) => workflowPath).toSorted();
+  const prebootstrapPaths = [
+    ...Object.keys(phase1LegacyWorkflowSha256),
+    phase1WorkflowPath,
+  ].toSorted();
+  const lockedPaths = [compatibilityWorkflowPath, phase1WorkflowPath];
+
+  if (
+    paths.length === prebootstrapPaths.length &&
+    paths.every((value, index) => value === prebootstrapPaths[index])
+  ) {
+    return 'prebootstrap';
+  }
+  if (
+    paths.length === lockedPaths.length &&
+    paths.every((value, index) => value === lockedPaths[index])
+  ) {
+    return 'locked';
+  }
+
+  throw new Error('unexpected live workflow tree');
+};
+
 const parsedPhase1Workflow = async (): Promise<MutableWorkflow> =>
   parseYaml(
     await readFile(path.join(repositoryRoot, phase1WorkflowPath), 'utf8')
@@ -77,15 +122,9 @@ const evaluateMutation = async (mutate: (workflow: MutableWorkflow) => void) => 
   const values = workflows.map((workflow) =>
     workflow.path === phase1WorkflowPath ? mutated : workflow
   );
-  const phase0 = values.find(
-    ({ path: workflowPath }) => workflowPath === compatibilityWorkflowPath
-  );
-
-  if (!phase0) {
-    throw new Error('missing compatibility workflow fixture');
-  }
+  const phase0 = await readPhase0CompatibilityWorkflow();
   return evaluatePhase1WorkflowPolicy({
-    governanceMode: 'prebootstrap',
+    governanceMode: liveGovernanceMode(values),
     workflows: values,
     phase0CompatibilityWorkflow: phase0,
   });
@@ -181,36 +220,35 @@ describe('Phase 1 workflow policy', () => {
     }
   });
 
-  it('records only the exact current tree as prebootstrap without granting governance', async () => {
+  it('accepts only the exact live prebootstrap or locked workflow tree', async () => {
     const workflows = await readWorkflowSources();
-    const phase0 = workflows.find(
-      ({ path: workflowPath }) => workflowPath === compatibilityWorkflowPath
-    );
-    if (!phase0) {
-      throw new Error('missing compatibility workflow');
-    }
+    const phase0 = await readPhase0CompatibilityWorkflow();
+    const governanceMode = liveGovernanceMode(workflows);
+    const expectedPaths =
+      governanceMode === 'prebootstrap'
+        ? [...Object.keys(phase1LegacyWorkflowSha256), phase1WorkflowPath].toSorted()
+        : [compatibilityWorkflowPath, phase1WorkflowPath];
     expect(
       evaluatePhase1WorkflowPolicy({
-        governanceMode: 'prebootstrap',
+        governanceMode,
         workflows,
         phase0CompatibilityWorkflow: phase0,
       })
     ).toEqual({
-      governanceMode: 'prebootstrap',
-      governanceSatisfied: false,
-      activeWorkflowPaths: [
-        ...Object.keys(phase1LegacyWorkflowSha256),
-        phase1WorkflowPath,
-      ].toSorted(),
+      governanceMode,
+      governanceSatisfied: governanceMode === 'locked',
+      activeWorkflowPaths: expectedPaths,
     });
+    const mutatedPath =
+      governanceMode === 'prebootstrap' ? '.github/workflows/main.yml' : phase1WorkflowPath;
     const mutated = workflows.map((workflow) =>
-      workflow.path === '.github/workflows/main.yml'
+      workflow.path === mutatedPath
         ? Object.freeze({ ...workflow, bytes: encoder.encode('name: changed\n') })
         : workflow
     );
     expect(() =>
       evaluatePhase1WorkflowPolicy({
-        governanceMode: 'prebootstrap',
+        governanceMode,
         workflows: mutated,
         phase0CompatibilityWorkflow: phase0,
       })
@@ -219,11 +257,9 @@ describe('Phase 1 workflow policy', () => {
 
   it('accepts only the normalized seven-change Phase 0 workflow when locked', async () => {
     const workflows = await readWorkflowSources();
-    const phase0 = workflows.find(
-      ({ path: workflowPath }) => workflowPath === compatibilityWorkflowPath
-    );
+    const phase0 = await readPhase0CompatibilityWorkflow();
     const phase1 = workflows.find(({ path: workflowPath }) => workflowPath === phase1WorkflowPath);
-    if (!phase0 || !phase1) {
+    if (!phase1) {
       throw new Error('missing workflow fixture');
     }
     const hardened = source(
