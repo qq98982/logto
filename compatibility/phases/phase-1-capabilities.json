@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "referenceCommit": "6852a7b8c8984c5c12b2061e8c51faa310a36412",
+  "baselineCapabilityIds": [
+    "http.experience-api.get./api/experience/interaction",
+    "http.experience-api.post./api/experience/identification",
+    "http.experience-api.post./api/experience/submit",
+    "http.experience-api.post./api/experience/verification/password",
+    "http.experience-api.put./api/experience",
+    "http.experience-api.put./api/experience/interaction-event",
+    "http.management-api.get./api/.well-known/phrases",
+    "http.management-api.get./api/.well-known/sign-in-exp",
+    "http.management-api.get./api/applications",
+    "http.management-api.get./api/users",
+    "http.user-api.get./api/my-account",
+    "test.api/interaction/consent/happy-path.test.ts",
+    "test.api/oidc/organization-token.test.ts",
+    "oidc.grant.authorization_code",
+    "oidc.grant.refresh_token",
+    "oidc.response_type.code",
+    "oidc.response_mode.query",
+    "oidc.token_endpoint_auth_method.client_secret_basic",
+    "oidc.token_endpoint_auth_method.client_secret_post",
+    "oidc.token_endpoint_auth_method.none"
+  ],
+  "fixtureSetupCapabilityIds": [
+    "http.management-api.get./api/sign-in-exp",
+    "http.management-api.patch./api/sign-in-exp",
+    "http.management-api.post./api/users",
+    "http.management-api.patch./api/users/{userId}",
+    "http.management-api.delete./api/users/{userId}",
+    "http.management-api.post./api/applications",
+    "http.management-api.delete./api/applications/{id}",
+    "http.management-api.post./api/applications/{applicationId}/user-consent-scopes",
+    "http.management-api.post./api/resources",
+    "http.management-api.delete./api/resources/{id}",
+    "http.management-api.post./api/resources/{resourceId}/scopes",
+    "http.management-api.delete./api/resources/{resourceId}/scopes/{scopeId}",
+    "http.management-api.post./api/roles",
+    "http.management-api.delete./api/roles/{id}",
+    "http.management-api.get./api/roles",
+    "http.management-api.post./api/roles/{id}/users",
+    "http.management-api.get./api/organization-roles",
+    "http.management-api.post./api/organizations/{id}/users",
+    "http.management-api.post./api/organizations/{id}/users/{userId}/roles",
+    "http.management-api.delete./api/organizations/{id}/users/{userId}"
+  ],
+  "profileOwnedContracts": [
+    "GET http://localhost:3002/api/.well-known/endpoints/default",
+    "phase1.http.interaction.get./api/interaction/consent",
+    "phase1.http.interaction.post./api/interaction/consent"
+  ]
+}

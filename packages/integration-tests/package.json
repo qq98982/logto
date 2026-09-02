@@ -14,9 +14,11 @@
     "check": "tsc --noEmit",
     "build": "tsup",
     "compatibility:inventory": "node ./lib/compatibility/inventory/cli.js",
+    "compatibility:phase1": "node ./lib/compatibility/phase-1/cli.js",
     "compatibility:run": "node ./lib/compatibility/cli.js",
     "test:only": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:compatibility": "pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/",
+    "test:compatibility:phase1": "pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/phase-1/",
     "test": "pnpm build && pnpm test:api && pnpm test:experience && pnpm test:console && pnpm test:well-known",
     "test:api": "pnpm test:only -i ./lib/tests/api/",
     "test:experience": "pnpm test:only -i --config=jest.config.ui.js ./lib/tests/experience/",
@@ -64,6 +66,7 @@
     "tough-cookie": "5.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.5.3",
+    "yaml": "2.9.0",
     "zod": "3.24.3"
   },
   "engines": {

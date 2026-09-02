@@ -379,21 +379,6 @@ describe('assertEvidenceIsSanitized', () => {
     }
   );
 
-  it.each(['tokenSigning', 'cookieSealing', 'cookieVerification'])(
-    'accepts only booleans for reviewed availability key %s',
-    (key) => {
-      expect(() => {
-        assertEvidenceIsSanitized({ [key]: true });
-      }).not.toThrow();
-
-      for (const invalid of ['opaque-private-value', 1, null, { state: true }]) {
-        expect(() => {
-          assertEvidenceIsSanitized({ [key]: invalid });
-        }).toThrow(`Evidence contains forbidden key: ${key}`);
-      }
-    }
-  );
-
   // Extra suffixes prove that reviewed metadata uses exact normalized-set membership.
   it.each(Object.keys(reviewedMetadata).map((key) => `${key}_extra`))(
     'rejects reviewed metadata key typo %s',

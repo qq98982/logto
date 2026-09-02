@@ -68,6 +68,31 @@ const containsPrivateJwk = (value: unknown): boolean => {
   );
 };
 
+const assertGenericEvidenceSafety = (value: unknown): void => {
+  if (typeof value === 'string') {
+    assertEvidenceIsSanitized({ value });
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertGenericEvidenceSafety(item);
+    }
+    return;
+  }
+  if (!isRecord(value)) {
+    return;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const normalized = normalizeKey(key);
+
+    assertEvidenceIsSanitized({
+      [safeBooleanMetadataKeys.has(normalized) ? 'metadata' : key]: null,
+    });
+    assertGenericEvidenceSafety(nested);
+  }
+};
+
 const containsForbiddenProjectionStructure = (value: unknown): boolean => {
   if (Array.isArray(value)) {
     return value.some((item) => containsForbiddenProjectionStructure(item));
@@ -167,7 +192,7 @@ export const assertCandidateInvariantProjectionIsSanitized = (value: unknown): v
     if (snapshot === undefined || !candidateInvariantProjectionGuard.safeParse(snapshot).success) {
       throw new TypeError(diagnostic);
     }
-    assertEvidenceIsSanitized(snapshot);
+    assertGenericEvidenceSafety(snapshot);
   } catch {
     throw new TypeError(diagnostic);
   }
@@ -186,7 +211,7 @@ export const createCandidateInvariantEvidence = (
     if (snapshot === undefined) {
       throw new TypeError(diagnostic);
     }
-    assertEvidenceIsSanitized(snapshot);
+    assertGenericEvidenceSafety(snapshot);
     const parsed = candidateInvariantEvidenceGuard.safeParse(snapshot);
 
     if (!parsed.success) {
@@ -197,7 +222,7 @@ export const createCandidateInvariantEvidence = (
     if (result === undefined) {
       throw new TypeError(diagnostic);
     }
-    assertEvidenceIsSanitized(result);
+    assertGenericEvidenceSafety(result);
 
     return result;
   } catch {

@@ -11,7 +11,11 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 
-import { createSecureEvidenceSink } from './secure-evidence-sink.js';
+import {
+  createSecureEvidenceSink,
+  rollbackSecureJsonArtifact,
+  writeSecureJsonArtifact,
+} from './secure-evidence-sink.js';
 
 const roots = new Set<string>();
 
@@ -29,6 +33,44 @@ afterEach(async () => {
 });
 
 describe('phase 1 secure evidence sink', () => {
+  it('exposes generic JSON publication without importing profile-bundle authority', async () => {
+    const source = await readFile(
+      path.resolve(process.cwd(), 'src/compatibility/phase-1/secure-evidence-sink.ts'),
+      'utf8'
+    );
+
+    expect(source).not.toContain('Phase1ProfileBundle');
+    expect(source).not.toContain('writeSecureReviewProfile');
+    expect(source).not.toContain('assertValidatedPhase1ProfileBundle');
+  });
+
+  it('publishes and rolls back generic faithful JSON without review-profile authority', async () => {
+    const root = await createRoot();
+    const output = path.join(root, 'generic.json');
+    const value = { schemaVersion: 1, value: 'safe' };
+    const publication = await writeSecureJsonArtifact(output, value);
+    const written = JSON.parse(await readFile(output, 'utf8')) as unknown;
+    const state = await lstat(output);
+
+    expect(written).toEqual(value);
+    expect(state.mode % 0o1000).toBe(0o600);
+    expect(state.nlink).toBe(1);
+    await rollbackSecureJsonArtifact(publication);
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects non-JSON input and forged rollback publications', async () => {
+    const root = await createRoot();
+    const output = path.join(root, 'generic.json');
+
+    await expect(writeSecureJsonArtifact(output, { value: undefined } as never)).rejects.toThrow(
+      'generic.json: json'
+    );
+    await expect(rollbackSecureJsonArtifact(Object.freeze({ path: output }))).rejects.toThrow(
+      'Invalid secure JSON publication'
+    );
+  });
+
   it('writes an exclusive regular 0600 single-link JSON artifact and scans the allowlist', async () => {
     const root = await createRoot();
     const sink = await createSecureEvidenceSink(root, ['scenario.json']);

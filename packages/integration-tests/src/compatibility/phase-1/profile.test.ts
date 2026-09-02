@@ -31,6 +31,8 @@ import type {
 } from './profile-types.js';
 import {
   createLockedPhase1ProfileLoader,
+  createPhase1DesignProfileBundleFromBytes,
+  createPhase1ProfileBundleLoader,
   createPhase1ProfileLoader,
   parsePhase1SchemaLockDocument,
   Phase1ProfileValidationError,
@@ -482,6 +484,49 @@ describe('Phase 1 profile type boundary', () => {
 });
 
 describe('createPhase1ProfileLoader', () => {
+  it('validates a design profile from captured bytes without requiring embedded locks', async () => {
+    const paths = await createFixturePaths();
+    const profileBytes = Buffer.from(`${JSON.stringify(createDesignSyntheticProfile())}\n`);
+    const schemaBytes = await readFile(paths.schemaPath);
+    const events: string[] = [];
+    const bundle = await createPhase1DesignProfileBundleFromBytes<SyntheticProfile>(
+      profileBytes,
+      schemaBytes,
+      syntheticSchemaLock,
+      createDependencies(events)
+    );
+
+    expect(bundle.profile.profileSchema.sourceCommit).toBeNull();
+    expect(bundle.profile.phase1Harness.commit).toBeNull();
+    expect(events).toEqual(['semantic', 'provenance']);
+    expect(bundle.readProfileBytes()).toEqual(profileBytes);
+  });
+
+  it('returns exact immutable-read byte snapshots and hashes from the validated descriptors', async () => {
+    const paths = await createFixturePaths();
+    const expectedProfileBytes = await readFile(paths.profilePath);
+    const expectedSchemaBytes = await readFile(paths.schemaPath);
+    const bundle = await createPhase1ProfileBundleLoader<SyntheticProfile>(
+      syntheticSchemaLock,
+      createDependencies()
+    )(paths);
+    const firstProfileRead = bundle.readProfileBytes();
+    const firstSchemaRead = bundle.readSchemaBytes();
+
+    expect(firstProfileRead).toEqual(expectedProfileBytes);
+    expect(firstSchemaRead).toEqual(expectedSchemaBytes);
+    expect(bundle.profileSha256).toBe(
+      createHash('sha256').update(expectedProfileBytes).digest('hex')
+    );
+    expect(bundle.schemaSha256).toBe(syntheticSchemaSha256);
+    firstProfileRead.fill(0);
+    firstSchemaRead.fill(0);
+    expect(bundle.readProfileBytes()).toEqual(expectedProfileBytes);
+    expect(bundle.readSchemaBytes()).toEqual(expectedSchemaBytes);
+    expect(Object.isFrozen(bundle)).toBe(true);
+    expect(Object.isFrozen(bundle.profile)).toBe(true);
+  });
+
   it('loads the locked synthetic contract and recursively freezes it after provenance', async () => {
     const paths = await createFixturePaths();
     const events: string[] = [];

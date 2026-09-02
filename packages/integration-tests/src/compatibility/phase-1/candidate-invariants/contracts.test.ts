@@ -1,5 +1,4 @@
 /* eslint-disable @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/consistent-type-assertions -- Contract controls intentionally inject forbidden vocabulary and recursively inspect mixed object/array graphs. */
-import { assertEvidenceIsSanitized } from '../../evidence.js';
 import {
   candidateInvariantContractGuard,
   candidateInvariantNegativeControlPointers,
@@ -9,6 +8,7 @@ import {
 } from '../model.js';
 
 import { databaseOwnerRoleMembershipBoundary } from './database-owner-role-membership-boundary.js';
+import { assertCandidateInvariantProjectionIsSanitized } from './evidence.js';
 import { hostsUnavailablePkceIndependent } from './hosts-unavailable-pkce-independent.js';
 import { candidateInvariantContracts } from './index.js';
 import { keystoreForcedRlsOwnerBoundary } from './keystore-forced-rls-owner-boundary.js';
@@ -123,7 +123,7 @@ describe('phase 1 candidate invariant contracts', () => {
       expect(Object.keys(contract.sanitizedProjection).length).toBeGreaterThan(0);
       expect(recursivelyFrozen(contract)).toBe(true);
       expect(() => {
-        assertEvidenceIsSanitized(contract);
+        assertCandidateInvariantProjectionIsSanitized(contract);
       }).not.toThrow();
     }
   });

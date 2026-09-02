@@ -26,7 +26,6 @@ const safeMetadataKeys = new Set([
   'tokenlifetimeseconds',
   'tokentype',
 ]);
-const safeBooleanMetadataKeys = new Set(['cookiesealing', 'cookieverification', 'tokensigning']);
 const reviewedPublicProtocolMetadataKeys = new Set([
   'authorizationendpoint',
   'authorizationresponseissparametersupported',
@@ -128,7 +127,6 @@ const isForbiddenKey = (key: string) => {
 
   if (
     safeMetadataKeys.has(normalizedKey) ||
-    safeBooleanMetadataKeys.has(normalizedKey) ||
     reviewedPublicProtocolMetadataKeys.has(normalizedKey)
   ) {
     return false;
@@ -196,18 +194,6 @@ const containsCredentialMaterial = (value: string) =>
   cookieHeaderPattern.test(value) ||
   setCookieValuePattern.test(value);
 
-const assertEvidenceEntryIsSanitized = (key: string, nested: unknown): void => {
-  if (containsCredentialMaterial(key)) {
-    throw new Error('Evidence contains forbidden credential material');
-  }
-  if (safeBooleanMetadataKeys.has(normalizeEvidenceKey(key)) && typeof nested !== 'boolean') {
-    throw new Error(`Evidence contains forbidden key: ${key}`);
-  }
-  if (isForbiddenKey(key)) {
-    throw new Error(`Evidence contains forbidden key: ${key}`);
-  }
-};
-
 const inspectEvidenceValue = (value: unknown): void => {
   if (typeof value === 'string') {
     if (containsCredentialMaterial(value)) {
@@ -227,12 +213,16 @@ const inspectEvidenceValue = (value: unknown): void => {
 
   if (isRecord(value)) {
     for (const key of Object.keys(value)) {
-      const nested = value[key];
+      if (containsCredentialMaterial(key)) {
+        throw new Error('Evidence contains forbidden credential material');
+      }
 
-      assertEvidenceEntryIsSanitized(key, nested);
+      if (isForbiddenKey(key)) {
+        throw new Error(`Evidence contains forbidden key: ${key}`);
+      }
 
       if (Object.hasOwn(value, key)) {
-        inspectEvidenceValue(nested);
+        inspectEvidenceValue(value[key]);
       }
     }
   }

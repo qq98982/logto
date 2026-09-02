@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types -- This bounded parser and file-identity boundary is cohesive, and its explicit nulls model the JSON lock contract. */
+/* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types -- This bounded parser and file-identity boundary is cohesive, and its explicit nulls model the JSON lock contract. */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { constants, existsSync, readFileSync, realpathSync, type Stats } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
@@ -95,6 +95,24 @@ export type Phase1ProfileLoaderDependencies<Profile extends LockBearingProfile =
     assertProvenance: (profile: Profile) => Promise<void>;
     fileSystem: Partial<Phase1ProfileFileSystem>;
   }>;
+
+export type Phase1ProfileBundle<Profile extends LockBearingProfile = Phase1Profile> = Readonly<{
+  profile: Readonly<Profile>;
+  profileSha256: string;
+  schemaSha256: string;
+  readProfileBytes: () => Uint8Array;
+  readSchemaBytes: () => Uint8Array;
+}>;
+
+const validatedPhase1ProfileBundles = new WeakSet<object>();
+
+export function assertValidatedPhase1ProfileBundle(
+  value: unknown
+): asserts value is Phase1ProfileBundle {
+  if (typeof value !== 'object' || value === null || !validatedPhase1ProfileBundles.has(value)) {
+    throw new TypeError('Invalid Phase 1 profile bundle');
+  }
+}
 
 export type Phase1SchemaLockDocument = Readonly<{
   schemaVersion: 1;
@@ -818,10 +836,103 @@ const acceptProvenance = async () => {
   acceptSemantics();
 };
 
-export const createPhase1ProfileLoader = <Profile extends LockBearingProfile = Phase1Profile>(
+const validateProfileBundleBytes = async <Profile extends LockBearingProfile>(
+  profileBytes: Uint8Array,
+  schemaBytes: Uint8Array,
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Phase1ProfileLoaderDependencies<Profile>,
+  requireEmbeddedLocks: boolean
+): Promise<Phase1ProfileBundle<Profile>> => {
+  const schemaHash = hashSha256(schemaBytes);
+
+  if (!fixedLengthHexEqual(schemaHash, lock.sha256, 64)) {
+    fail('schema-hash', ['/'], ['sha256']);
+  }
+
+  const schema = parseStrictJson(schemaBytes, maximumSchemaBytes);
+  const parsedProfile = parseStrictJson(profileBytes, maximumProfileBytes);
+  validateProfile(schema, parsedProfile);
+  // Ajv has validated the unknown JSON against the caller-pinned schema before this type boundary.
+  // eslint-disable-next-line no-restricted-syntax
+  const profile = parsedProfile as Profile;
+
+  if (requireEmbeddedLocks) {
+    assertEmbeddedProfileLocks(profile, lock);
+  }
+
+  try {
+    dependencies.assertSemantics(profile);
+  } catch (error: unknown) {
+    throw sanitizeCallbackValidationError(error, 'semantic', 'semantic-validator');
+  }
+
+  try {
+    await dependencies.assertProvenance(profile);
+  } catch (error: unknown) {
+    throw sanitizeCallbackValidationError(error, 'provenance', 'provenance-validator');
+  }
+
+  const frozenProfile = deepFreeze(profile);
+  const preservedProfileBytes = Buffer.from(profileBytes);
+  const preservedSchemaBytes = Buffer.from(schemaBytes);
+
+  const bundle = Object.freeze({
+    profile: frozenProfile,
+    profileSha256: hashSha256(preservedProfileBytes),
+    schemaSha256: schemaHash,
+    readProfileBytes: () => Buffer.from(preservedProfileBytes),
+    readSchemaBytes: () => Buffer.from(preservedSchemaBytes),
+  });
+  validatedPhase1ProfileBundles.add(bundle);
+
+  return bundle;
+};
+
+export const createPhase1ProfileBundleFromBytes = async <
+  Profile extends LockBearingProfile = Phase1Profile,
+>(
+  profileBytes: Uint8Array,
+  schemaBytes: Uint8Array,
   lock: Phase1ProfileSchemaLock,
   dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>> = {}
-): ((paths: Phase1ProfilePaths) => Promise<Readonly<Profile>>) => {
+): Promise<Phase1ProfileBundle<Profile>> =>
+  validateProfileBundleBytes(
+    Buffer.from(profileBytes),
+    Buffer.from(schemaBytes),
+    lock,
+    {
+      assertSemantics: dependencies.assertSemantics ?? acceptSemantics,
+      assertProvenance: dependencies.assertProvenance ?? acceptProvenance,
+      fileSystem: dependencies.fileSystem ?? {},
+    },
+    true
+  );
+
+export const createPhase1DesignProfileBundleFromBytes = async <
+  Profile extends LockBearingProfile = Phase1Profile,
+>(
+  profileBytes: Uint8Array,
+  schemaBytes: Uint8Array,
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>> = {}
+): Promise<Phase1ProfileBundle<Profile>> =>
+  validateProfileBundleBytes(
+    Buffer.from(profileBytes),
+    Buffer.from(schemaBytes),
+    lock,
+    {
+      assertSemantics: dependencies.assertSemantics ?? acceptSemantics,
+      assertProvenance: dependencies.assertProvenance ?? acceptProvenance,
+      fileSystem: dependencies.fileSystem ?? {},
+    },
+    false
+  );
+
+const createProfileBundleLoader = <Profile extends LockBearingProfile = Phase1Profile>(
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>>,
+  requireEmbeddedLocks: boolean
+): ((paths: Phase1ProfilePaths) => Promise<Phase1ProfileBundle<Profile>>) => {
   const resolvedDependencies: Phase1ProfileLoaderDependencies<Profile> = {
     assertSemantics: dependencies.assertSemantics ?? acceptSemantics,
     assertProvenance: dependencies.assertProvenance ?? acceptProvenance,
@@ -854,33 +965,40 @@ export const createPhase1ProfileLoader = <Profile extends LockBearingProfile = P
       resolvedDependencies.fileSystem
     );
 
-    const schemaHash = hashSha256(schemaBytes);
+    return validateProfileBundleBytes(
+      profileBytes,
+      schemaBytes,
+      lock,
+      resolvedDependencies,
+      requireEmbeddedLocks
+    );
+  };
+};
 
-    if (!fixedLengthHexEqual(schemaHash, lock.sha256, 64)) {
-      fail('schema-hash', ['/'], ['sha256']);
-    }
+export const createPhase1ProfileBundleLoader = <Profile extends LockBearingProfile = Phase1Profile>(
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>> = {}
+): ((paths: Phase1ProfilePaths) => Promise<Phase1ProfileBundle<Profile>>) =>
+  createProfileBundleLoader(lock, dependencies, true);
 
-    const schema = parseStrictJson(schemaBytes, maximumSchemaBytes);
-    const parsedProfile = parseStrictJson(profileBytes, maximumProfileBytes);
-    validateProfile(schema, parsedProfile);
-    // Ajv has validated the unknown JSON against the caller-pinned schema before this type boundary.
-    // eslint-disable-next-line no-restricted-syntax
-    const profile = parsedProfile as Profile;
-    assertEmbeddedProfileLocks(profile, lock);
+export const createPhase1DesignProfileBundleLoader = <
+  Profile extends LockBearingProfile = Phase1Profile,
+>(
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>> = {}
+): ((paths: Phase1ProfilePaths) => Promise<Phase1ProfileBundle<Profile>>) =>
+  createProfileBundleLoader(lock, dependencies, false);
 
-    try {
-      resolvedDependencies.assertSemantics(profile);
-    } catch (error: unknown) {
-      throw sanitizeCallbackValidationError(error, 'semantic', 'semantic-validator');
-    }
+export const createPhase1ProfileLoader = <Profile extends LockBearingProfile = Phase1Profile>(
+  lock: Phase1ProfileSchemaLock,
+  dependencies: Partial<Phase1ProfileLoaderDependencies<Profile>> = {}
+): ((paths: Phase1ProfilePaths) => Promise<Readonly<Profile>>) => {
+  const loadBundle = createPhase1ProfileBundleLoader(lock, dependencies);
 
-    try {
-      await resolvedDependencies.assertProvenance(profile);
-    } catch (error: unknown) {
-      throw sanitizeCallbackValidationError(error, 'provenance', 'provenance-validator');
-    }
+  return async (paths) => {
+    const bundle = await loadBundle(paths);
 
-    return deepFreeze(profile);
+    return bundle.profile;
   };
 };
 
@@ -994,4 +1112,4 @@ assertSchemaLockConsistency(phase1SchemaLockDocument, phase1ProfileSchemaLock);
 export const loadPhase1Profile: (paths: Phase1ProfilePaths) => Promise<Readonly<Phase1Profile>> =
   createPhase1ProfileLoader(phase1ProfileSchemaLock);
 
-/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */
+/* eslint-enable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */
