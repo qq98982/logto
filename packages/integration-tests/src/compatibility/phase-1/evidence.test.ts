@@ -17,6 +17,18 @@ const target = <Label extends 'oracle' | 'candidate'>(label: Label) => ({
   observations: [{ stepId: 'request', kind: 'http' as const, value: { status: 200 } }],
 });
 
+const createCandidateEvidenceForOutcome = (outcome: unknown) =>
+  createCandidateInvariantEvidence({
+    scenarioId: 'keystore.unwrap-failure-rolls-back-code',
+    provenance,
+    candidate: { outcome },
+    positiveControl: { passed: true, differences: [] },
+    negativeControl: {
+      passed: true,
+      differences: [{ path: '/semanticState/code/consumed', actual: true }],
+    },
+  });
+
 describe('phase 1 evidence', () => {
   it('creates strict sanitized differential evidence', () => {
     const evidence = createDifferentialEvidence({
@@ -37,7 +49,7 @@ describe('phase 1 evidence', () => {
     expect(Reflect.set(observedValue, 'accessToken', 'private-token')).toBe(false);
   });
 
-  it('candidate evidence can never parse an oracle field', () => {
+  it('candidate evidence rejects every nested comparison vocabulary', () => {
     const evidence = createCandidateInvariantEvidence({
       scenarioId: 'tenant.cross-tenant-read-rejected',
       provenance,
@@ -45,14 +57,19 @@ describe('phase 1 evidence', () => {
       positiveControl: { passed: true, differences: [] },
       negativeControl: {
         passed: true,
-        differences: [{ path: '/control/accepted', expected: false, actual: true }],
+        differences: [{ path: '/outcome/crossTenantRows/0', expected: false, actual: true }],
       },
     });
 
     expect(phase1EvidenceGuard.safeParse(evidence).success).toBe(true);
+    const forbiddenPayloads = ['oracle', 'candidate', 'differences', 'compare', 'oracleComparison'];
+    const hostileValues = forbiddenPayloads.map((field) => ({
+      ...evidence,
+      candidate: { outcome: { nested: { [field]: 'forbidden' } } },
+    }));
     for (const hostile of [
       { ...evidence, oracle: {} },
-      { ...evidence, candidate: { outcome: { nested: { oracle: 'forbidden' } } } },
+      ...hostileValues,
       {
         ...evidence,
         negativeControl: {
@@ -69,6 +86,103 @@ describe('phase 1 evidence', () => {
       },
     ]) {
       expect(phase1EvidenceGuard.safeParse(hostile).success).toBe(false);
+    }
+  });
+
+  it('accepts only bounded boolean signing sealing and consumed-code state metadata', () => {
+    const safe = createCandidateEvidenceForOutcome({
+      semanticState: { code: { consumed: false } },
+      availability: { tokenSigning: true, cookieSealing: true, cookieVerification: true },
+    });
+
+    expect(() => {
+      assertPhase1EvidenceIsSanitized(safe);
+    }).not.toThrow();
+    expect(() => {
+      assertPhase1EvidenceIsSanitized({
+        semanticState: { code: { consumed: false } },
+        availability: { tokenSigning: 'opaque-private-value' },
+      });
+    }).toThrow('Invalid phase 1 evidence');
+    for (const invalid of [
+      { semanticState: { code: 'raw-value' } },
+      { availability: { tokenSigning: 'yes' } },
+      { availability: { cookieSealing: 'yes' } },
+      { jwk: { kty: 'EC', crv: 'P-256', x: 'public-x', y: 'public-y', d: 'private' } },
+      { kty: 'oct', k: 'private' },
+      { keys: [{ kty: 'EC', crv: 'P-256', x: 'public-x', y: 'public-y', d: 'private' }] },
+      [{ kty: 'RSA', n: 'public-n', e: 'AQAB', p: 'private' }],
+      { jwk: { nested: { kty: 'EC', d: 'private' } } },
+      { state: 'oauth-state-value' },
+      { nonce: 'oauth-nonce-value' },
+      { codeVerifier: 'oauth-verifier-value' },
+      { codeChallenge: 'oauth-challenge-value' },
+      { verificationId: 'verification-id-value' },
+      { verificationCredential: 'verification-credential-value' },
+      { verificationToken: 'verification-token-value' },
+      { nested: [{ code_verifier: 'oauth-verifier-value' }] },
+    ]) {
+      expect(() => createCandidateEvidenceForOutcome(invalid)).toThrow(
+        'Invalid phase 1 candidate invariant evidence'
+      );
+    }
+
+    expect(() =>
+      createCandidateEvidenceForOutcome({
+        jwk: { kty: 'EC', crv: 'P-256', x: 'public-x', y: 'public-y' },
+        measurement: { d: 1, p: 2, q: 3 },
+      })
+    ).not.toThrow();
+  });
+
+  it('requires one successful positive control and one scenario-bound negative difference', () => {
+    const valid: Parameters<typeof createCandidateInvariantEvidence>[0] = {
+      scenarioId: 'tenant.cross-tenant-read-rejected',
+      provenance,
+      candidate: { outcome: { accepted: false } },
+      positiveControl: { passed: true, differences: [] },
+      negativeControl: {
+        passed: true,
+        differences: [{ path: '/outcome/crossTenantRows/0', expected: false, actual: true }],
+      },
+    };
+
+    expect(() => createCandidateInvariantEvidence(valid)).not.toThrow();
+    for (const invalid of [
+      { ...valid, positiveControl: { passed: false, differences: [] } },
+      {
+        ...valid,
+        positiveControl: {
+          passed: true,
+          differences: [{ path: '/outcome/crossTenantRows/0', actual: true }],
+        },
+      },
+      {
+        ...valid,
+        negativeControl: { passed: false, differences: valid.negativeControl.differences },
+      },
+      { ...valid, negativeControl: { passed: true, differences: [] } },
+      {
+        ...valid,
+        negativeControl: {
+          passed: true,
+          differences: [
+            ...valid.negativeControl.differences,
+            { path: '/outcome/crossTenantRows/1', actual: true },
+          ],
+        },
+      },
+      {
+        ...valid,
+        negativeControl: {
+          passed: true,
+          differences: [{ path: '/activation/accepted', expected: false, actual: true }],
+        },
+      },
+    ]) {
+      expect(() => createCandidateInvariantEvidence(invalid as never)).toThrow(
+        'Invalid phase 1 candidate invariant evidence'
+      );
     }
   });
 

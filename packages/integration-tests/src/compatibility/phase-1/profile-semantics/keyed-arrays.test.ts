@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-mutation, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/consistent-type-assertions -- The keyed-array matrix deliberately mutates one key or registry projection per case. */
+/* eslint-disable @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/consistent-type-assertions -- The keyed-array matrix deliberately mutates descriptors, keys, and registry projections per case. */
 import type { Phase1Profile, Phase1ProfileSemanticContext } from '../profile-types.js';
 import { Phase1ProfileValidationError } from '../profile.js';
 
@@ -215,7 +215,18 @@ describe('Phase 1 keyed-array semantics', () => {
     );
   });
 
-  it.each(['oracle', 'target', 'compare', 'differences', 'oracleComparison'])(
+  it('rejects a reordered candidate registry at the first displaced pointer', () => {
+    const context = semanticContext();
+    context.candidateInvariantRegistryIds = ['invariant-b', 'invariant-a'];
+
+    expectSemanticFailure(
+      () => assertKeyedArraySemantics(keyedProfile(), context),
+      '/candidateInvariantScenarios/0',
+      'registry-exact-order'
+    );
+  });
+
+  it.each(['oracle', 'candidate', 'target', 'compare', 'differences', 'oracleComparison'])(
     'rejects the forbidden candidate-invariant %s structure',
     (field) => {
       const context = semanticContext();
@@ -231,6 +242,27 @@ describe('Phase 1 keyed-array semantics', () => {
       );
     }
   );
+
+  it('rejects candidate registry proxies and accessors before reading IDs', () => {
+    const variants = [
+      new Proxy({ id: 'invariant-a' }, {}),
+      Object.defineProperty({}, 'id', {
+        configurable: true,
+        enumerable: true,
+        get: () => 'invariant-a',
+      }),
+    ];
+
+    for (const entry of variants) {
+      const context = semanticContext();
+      context.candidateInvariantRegistryIds = [entry, { id: 'invariant-b' }] as unknown as string[];
+      expectSemanticFailure(
+        () => assertKeyedArraySemantics(keyedProfile(), context),
+        '/candidateInvariantScenarios/0',
+        'registry-entry'
+      );
+    }
+  });
 });
 
-/* eslint-enable @silverhand/fp/no-mutation, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/consistent-type-assertions */
+/* eslint-enable @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-confusing-void-expression, @typescript-eslint/consistent-type-assertions */

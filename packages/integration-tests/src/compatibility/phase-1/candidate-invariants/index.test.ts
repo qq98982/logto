@@ -1,222 +1,132 @@
-/* eslint-disable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-array-for-each -- Exact registry mutation tests intentionally cross readonly and literal-type boundaries. */
+/* eslint-disable @silverhand/fp/no-mutating-methods -- Registry controls deliberately construct hostile arrays, clones, descriptors, and cross-kind records. */
+import { candidateInvariantScenarioIds, differentialScenarioIds } from '../model.js';
+
 import {
-  candidateInvariantScenarioIds,
-  defineCandidateInvariant,
-  differentialScenarioIds,
-  type CandidateInvariantContract,
-} from '../model.js';
+  assertExactCandidateInvariantRegistry,
+  candidateInvariantAuthorities,
+  candidateInvariantContracts,
+  candidateInvariantRegistryIds,
+  getCandidateInvariantContract,
+} from './index.js';
 
-import { assertExactCandidateInvariantRegistry, candidateInvariantAuthorities } from './index.js';
+const diagnostic = /^Invalid phase 1 candidate invariant registry$/u;
 
-const contractFor = (
-  id: (typeof candidateInvariantScenarioIds)[number]
-): CandidateInvariantContract => ({
-  id,
-  evidenceKind: 'candidate-invariant',
-  executor: 'aster',
-  livePrecondition: { description: 'Task 14 live precondition' },
-  perturbation: { description: 'Task 14 deterministic perturbation' },
-  expectedPublicOutcome: { accepted: false },
-  expectedPersistedOutcome: { mutationCount: 0 },
-  forbiddenOutcome: { accepted: true },
-  cleanup: { description: 'Task 14 deterministic cleanup' },
-  sanitizedProjection: { fields: ['accepted', 'mutationCount'] },
-  projectionVersion: 1,
-  positiveControl: {
-    kind: 'positive',
-    name: 'positive control',
-    input: { fault: false },
-    expectedProjection: { accepted: false },
-    expectedDifferencePointer: null,
-  },
-  negativeControl: {
-    kind: 'negative',
-    name: 'negative control',
-    input: { fault: true },
-    expectedProjection: { accepted: true },
-    expectedDifferencePointer: '/control/accepted',
-  },
-});
+describe('phase 1 candidate invariant registry', () => {
+  it('contains the exact ordered eighteen canonical module identities', () => {
+    expect(candidateInvariantContracts.map(({ id }) => id)).toEqual(candidateInvariantScenarioIds);
+    expect(candidateInvariantRegistryIds).toEqual(candidateInvariantScenarioIds);
+    expect(candidateInvariantAuthorities).toBe(candidateInvariantContracts);
+    expect(new Set(candidateInvariantContracts).size).toBe(18);
+    expect(() => {
+      assertExactCandidateInvariantRegistry(candidateInvariantContracts);
+    }).not.toThrow();
 
-const mutate = (index: number, update: (copy: any) => void) =>
-  candidateInvariantAuthorities.map((authority, authorityIndex) => {
-    if (authorityIndex !== index) {
-      return authority;
-    }
-    const copy = { ...authority };
-    update(copy);
-    return copy;
-  });
-
-describe('phase 1 candidate invariant authority registry', () => {
-  it('rejects sparse array-like accessor proxy extra-key and wrong-prototype registries', () => {
-    const valid = candidateInvariantAuthorities;
-    const holeAt = (index: number) => {
-      const value = [...valid];
-      Reflect.deleteProperty(value, String(index));
-      return value;
-    };
-    const extra = [...valid];
-    Object.defineProperty(extra, 'extra', { enumerable: true, value: true });
-    const symbol = [...valid];
-    Object.defineProperty(symbol, Symbol('extra'), { enumerable: true, value: true });
-    const accessor = [...valid];
-    Object.defineProperty(accessor, '0', { enumerable: true, get: () => valid[0] });
-    const wrongPrototype = [...valid];
-    Object.setPrototypeOf(wrongPrototype, null);
-    const invalid = [
-      holeAt(0),
-      holeAt(Math.floor(valid.length / 2)),
-      holeAt(valid.length - 1),
-      { 0: valid[0], length: valid.length, some: Array.prototype.some },
-      extra,
-      symbol,
-      accessor,
-      new Proxy([...valid], {
-        ownKeys: () => {
-          throw new Error('must not escape');
-        },
-      }),
-      new Proxy([...valid], {
-        getOwnPropertyDescriptor: () => {
-          throw new Error('must not escape');
-        },
-      }),
-      wrongPrototype,
-    ];
-
-    expect(() => assertExactCandidateInvariantRegistry(Object.freeze([...valid]))).not.toThrow();
-    for (const registry of invalid) {
-      expect(() => assertExactCandidateInvariantRegistry(registry as never)).toThrow(
-        /^Invalid phase 1 candidate invariant registry$/u
-      );
+    for (const [index, id] of candidateInvariantScenarioIds.entries()) {
+      expect(getCandidateInvariantContract(id)).toBe(candidateInvariantContracts[index]);
     }
   });
 
-  it('rejects unsafe authority records before Zod or equality reads them', () => {
-    const canonical = candidateInvariantAuthorities[0]!;
-    const nonEnumerable = { ...canonical };
-    Object.defineProperty(nonEnumerable, 'injected', { enumerable: false, value: true });
-    const symbol = { ...canonical };
-    Object.defineProperty(symbol, Symbol('injected'), { enumerable: true, value: true });
-    const accessor = { ...canonical };
-    Object.defineProperty(accessor, 'id', { enumerable: true, get: () => canonical.id });
-    const wrongPrototype = { ...canonical };
-    Object.setPrototypeOf(wrongPrototype, null);
-    const invalid = [
-      { ...canonical, injected: true },
-      nonEnumerable,
-      symbol,
-      accessor,
-      new Proxy({ ...canonical }, {}),
-      new Proxy(
-        { ...canonical },
-        {
-          getOwnPropertyDescriptor: () => {
-            throw new Error('must not escape');
-          },
-        }
-      ),
-      wrongPrototype,
-    ];
-
-    for (const malformed of invalid) {
-      expect(() =>
-        assertExactCandidateInvariantRegistry([
-          malformed,
-          ...candidateInvariantAuthorities.slice(1),
-        ] as never)
-      ).toThrow(/^Invalid phase 1 candidate invariant registry$/u);
-    }
-  });
-
-  it('contains the exact ordered 18 candidate-only IDs', () => {
-    expect(candidateInvariantAuthorities.map(({ id }) => id)).toEqual(
-      candidateInvariantScenarioIds
-    );
-    expect(new Set(candidateInvariantAuthorities.map(({ id }) => id)).size).toBe(18);
-    expect(
-      candidateInvariantAuthorities.every(
-        ({ evidenceKind, implementation }) =>
-          evidenceKind === 'candidate-invariant' && implementation === 'contract-pending'
-      )
-    ).toBe(true);
-  });
-
-  it('does not represent pending authorities as implemented live invariants', () => {
-    for (const authority of candidateInvariantAuthorities) {
-      expect(Object.keys(authority)).toEqual(['id', 'evidenceKind', 'implementation']);
-      expect(authority).not.toHaveProperty('executor');
-      expect(authority).not.toHaveProperty('livePrecondition');
-      expect(authority).not.toHaveProperty('positiveControl');
-      expect(authority).not.toHaveProperty('negativeControl');
-    }
-  });
-
-  it('keeps every exact ID compatible with the Task 14 full contract constructor', () => {
-    for (const id of candidateInvariantScenarioIds) {
-      const contract = defineCandidateInvariant(contractFor(id));
-
-      expect(contract.id).toBe(id);
+  it('replaces every pending authority with a complete frozen contract', () => {
+    for (const contract of candidateInvariantContracts) {
+      expect(Object.keys(contract)).toEqual([
+        'id',
+        'evidenceKind',
+        'executor',
+        'livePrecondition',
+        'perturbation',
+        'expectedPublicOutcome',
+        'expectedPersistedOutcome',
+        'forbiddenOutcome',
+        'cleanup',
+        'sanitizedProjection',
+        'projectionVersion',
+        'positiveControl',
+        'negativeControl',
+      ]);
+      expect(contract.evidenceKind).toBe('candidate-invariant');
       expect(contract.executor).toBe('aster');
       expect(contract.projectionVersion).toBe(1);
       expect(Object.isFrozen(contract)).toBe(true);
+      expect(Object.isFrozen(contract.positiveControl.expectedProjection)).toBe(true);
+      expect(Object.isFrozen(contract.negativeControl.expectedProjection)).toBe(true);
     }
   });
 
-  it('rejects every ID evidence-kind and implementation mutation', () => {
-    candidateInvariantAuthorities.forEach((_authority, index) => {
-      const mutations: Array<(copy: any) => void> = [
-        (copy) => {
-          copy.id = `${copy.id}.mutated`;
-        },
-        (copy) => {
-          copy.evidenceKind = 'differential';
-        },
-        (copy) => {
-          copy.implementation = 'live';
-        },
-      ];
-
-      for (const update of mutations) {
-        expect(() => assertExactCandidateInvariantRegistry(mutate(index, update))).toThrow(
-          /^Invalid phase 1 candidate invariant registry$/u
-        );
-      }
-    });
+  it.each([
+    ['empty', () => []],
+    ['missing', () => candidateInvariantContracts.slice(0, -1)],
+    ['extra', () => [...candidateInvariantContracts, candidateInvariantContracts[0]]],
+    [
+      'duplicate',
+      () => [
+        candidateInvariantContracts[0],
+        candidateInvariantContracts[0],
+        ...candidateInvariantContracts.slice(2),
+      ],
+    ],
+    [
+      'reordered',
+      () => [
+        candidateInvariantContracts[1],
+        candidateInvariantContracts[0],
+        ...candidateInvariantContracts.slice(2),
+      ],
+    ],
+    [
+      'cloned-contract',
+      () => [{ ...candidateInvariantContracts[0] }, ...candidateInvariantContracts.slice(1)],
+    ],
+    [
+      'cross-kind',
+      () => [
+        { ...candidateInvariantContracts[0], id: differentialScenarioIds[0] },
+        ...candidateInvariantContracts.slice(1),
+      ],
+    ],
+  ] as const)('rejects the %s registry', (_name, create) => {
+    expect(() => {
+      assertExactCandidateInvariantRegistry(create());
+    }).toThrow(diagnostic);
   });
 
-  it('rejects empty missing duplicate extra reordered and cross-kind registries', () => {
-    const first = candidateInvariantAuthorities[0]!;
-    const second = candidateInvariantAuthorities[1]!;
-    const crossKind = mutate(0, (copy) => {
-      copy.id = differentialScenarioIds[0];
-      copy.evidenceKind = 'differential';
-    })[0]!;
-    const variants = [
-      [],
-      candidateInvariantAuthorities.slice(0, -1),
-      [...candidateInvariantAuthorities, first],
-      [first, first, ...candidateInvariantAuthorities.slice(2)],
-      [second, first, ...candidateInvariantAuthorities.slice(2)],
-      [crossKind, ...candidateInvariantAuthorities.slice(1)],
+  it('rejects sparse array-like extra-key symbol accessor proxy and wrong-prototype registries', () => {
+    const hole = [...candidateInvariantContracts];
+    Reflect.deleteProperty(hole, '8');
+    const extra = [...candidateInvariantContracts];
+    Object.defineProperty(extra, 'extra', { enumerable: true, value: true });
+    const symbol = [...candidateInvariantContracts];
+    Object.defineProperty(symbol, Symbol('extra'), { enumerable: true, value: true });
+    const accessor = [...candidateInvariantContracts];
+    Object.defineProperty(accessor, '0', {
+      enumerable: true,
+      get: () => candidateInvariantContracts[0],
+    });
+    const wrongPrototype = [...candidateInvariantContracts];
+    Object.setPrototypeOf(wrongPrototype, null);
+    const invalid = [
+      hole,
+      { 0: candidateInvariantContracts[0], length: candidateInvariantContracts.length },
+      extra,
+      symbol,
+      accessor,
+      new Proxy([...candidateInvariantContracts], {}),
+      wrongPrototype,
     ];
 
-    for (const variant of variants) {
-      expect(() => assertExactCandidateInvariantRegistry(variant)).toThrow(
-        /^Invalid phase 1 candidate invariant registry$/u
-      );
+    for (const registry of invalid) {
+      expect(() => {
+        assertExactCandidateInvariantRegistry(registry);
+      }).toThrow(diagnostic);
     }
   });
 
-  it('is recursively frozen', () => {
-    expect(Object.isFrozen(candidateInvariantAuthorities)).toBe(true);
-    expect(candidateInvariantAuthorities.every((authority) => Object.isFrozen(authority))).toBe(
-      true
-    );
+  it('rejects unknown and cross-kind lookups with a fixed diagnostic', () => {
+    for (const id of ['unknown', differentialScenarioIds[0]]) {
+      expect(() => getCandidateInvariantContract(id)).toThrow(diagnostic);
+    }
   });
 
-  it('does not alter a fresh Phase 0 registry identity or content on import', async () => {
+  it('does not alter the Phase 0 scenario registry on import', async () => {
     await import.meta.jest.isolateModulesAsync(async () => {
       const beforeModule = await import('../../scenarios/index.js');
       const before = beforeModule.defaultCompatibilityScenarios;
@@ -232,4 +142,4 @@ describe('phase 1 candidate invariant authority registry', () => {
   });
 });
 
-/* eslint-enable @typescript-eslint/no-confusing-void-expression, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-array-for-each */
+/* eslint-enable @silverhand/fp/no-mutating-methods */

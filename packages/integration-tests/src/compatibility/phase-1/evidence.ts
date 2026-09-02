@@ -14,8 +14,8 @@ import {
 } from '../model.js';
 import type { JsonObject, JsonValue, NormalizationContext } from '../normalize.js';
 
+import * as candidateEvidence from './candidate-invariants/evidence.js';
 import {
-  candidateInvariantScenarioIdGuard,
   differentialScenarioIdGuard,
   oracleCommit,
   phase0HarnessCommit,
@@ -28,49 +28,12 @@ const strictTargetEvidenceGuard = targetEvidenceGuard
   .extend({ observations: z.array(strictObservationGuard) })
   .strict();
 const strictDifferenceGuard = differenceGuard.strict();
-const containsOracleField = (value: unknown): boolean => {
-  if (Array.isArray(value)) {
-    return value.some((item) => containsOracleField(item));
-  }
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  return Object.entries(value).some(
-    ([key, nested]) =>
-      key.replaceAll(/[_\s-]/gu, '').toLowerCase() === 'oracle' || containsOracleField(nested)
-  );
-};
-const oracleFreeJsonGuard = jsonValueGuard.superRefine((value, context) => {
-  if (containsOracleField(value)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Oracle fields are forbidden' });
-  }
-});
-const candidateDifferenceGuard = z
-  .object({
-    path: z.string().startsWith('/'),
-    expected: oracleFreeJsonGuard.optional(),
-    actual: oracleFreeJsonGuard.optional(),
-  })
-  .strict()
-  .superRefine(({ expected, actual }, context) => {
-    if (expected === undefined && actual === undefined) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Difference must contain a value' });
-    }
-  });
 const provenanceGuard = z
   .object({
     referenceCommit: z.literal(oracleCommit),
     harnessCommit: z.literal(phase0HarnessCommit),
   })
   .strict();
-const controlGuard = z
-  .object({
-    passed: z.boolean(),
-    differences: z.array(candidateDifferenceGuard),
-  })
-  .strict();
-
 export const differentialEvidenceGuard = z
   .object({
     schemaVersion: z.literal(1),
@@ -83,26 +46,19 @@ export const differentialEvidenceGuard = z
   })
   .strict();
 
-export const candidateInvariantEvidenceGuard = z
-  .object({
-    schemaVersion: z.literal(1),
-    evidenceKind: z.literal('candidate-invariant'),
-    scenarioId: candidateInvariantScenarioIdGuard,
-    provenance: provenanceGuard,
-    candidate: z.object({ outcome: oracleFreeJsonGuard }).strict(),
-    positiveControl: controlGuard,
-    negativeControl: controlGuard,
-  })
-  .strict();
-
-export const phase1EvidenceGuard = z.discriminatedUnion('evidenceKind', [
+export const phase1EvidenceGuard = z.union([
   differentialEvidenceGuard,
-  candidateInvariantEvidenceGuard,
+  candidateEvidence.candidateInvariantEvidenceGuard,
 ]);
 
 export type DifferentialEvidence = z.infer<typeof differentialEvidenceGuard>;
-export type CandidateInvariantEvidence = z.infer<typeof candidateInvariantEvidenceGuard>;
 export type Phase1Evidence = z.infer<typeof phase1EvidenceGuard>;
+
+export {
+  candidateInvariantEvidenceGuard,
+  createCandidateInvariantEvidence,
+  type CandidateInvariantEvidence,
+} from './candidate-invariants/evidence.js';
 
 const verifiedJwtBrand: unique symbol = Symbol('verified-phase-1-jwt');
 const verifiedJwtValues = new WeakMap<VerifiedJwtObservation, string>();
@@ -224,6 +180,7 @@ const allowedMetadataKeys = new Set([
   'tokenfamily',
   'resumecredential',
 ]);
+const safeBooleanMetadataKeys = new Set(['cookiesealing', 'cookieverification', 'tokensigning']);
 const normalizedKey = (key: string) => key.replaceAll(/[_\s-]/gu, '').toLowerCase();
 const forbiddenEphemeralEvidenceKeys = new Set([
   'code',
@@ -253,6 +210,11 @@ const isPlainJsonObject = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+const isSafeConsumedCodeProjection = (value: unknown): boolean =>
+  isPlainJsonObject(value) &&
+  Object.keys(value).length === 1 &&
+  Object.keys(value)[0] === 'consumed' &&
+  typeof value.consumed === 'boolean';
 const privateJwkMemberNames = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const containsUnsafeJwk = (value: unknown): boolean => {
   if (Array.isArray(value)) {
@@ -346,7 +308,9 @@ const assertPhase1EvidenceIsSanitizedInternal = (
         const evidenceKey = normalizedKey(key);
 
         if (
-          forbiddenEphemeralEvidenceKeys.has(evidenceKey) ||
+          (forbiddenEphemeralEvidenceKeys.has(evidenceKey) &&
+            !(evidenceKey === 'code' && isSafeConsumedCodeProjection(nested))) ||
+          (safeBooleanMetadataKeys.has(evidenceKey) && typeof nested !== 'boolean') ||
           (evidenceKey === 'verificationcode' && typeof nested !== 'boolean') ||
           (symbolOnlyEvidenceKeys.has(evidenceKey) && !containsOnlyLogicalSymbols(nested)) ||
           (evidenceKey === 'tokens' &&
@@ -359,7 +323,9 @@ const assertPhase1EvidenceIsSanitizedInternal = (
           throw new TypeError('Invalid phase 1 evidence');
         }
         assertEvidenceIsSanitized({
-          [allowedMetadataKeys.has(normalizedKey(key)) ? 'metadata' : key]: null,
+          [allowedMetadataKeys.has(evidenceKey) || safeBooleanMetadataKeys.has(evidenceKey)
+            ? 'metadata'
+            : key]: null,
         });
         visit(nested);
       }
@@ -421,15 +387,6 @@ export const createDifferentialEvidence = (
   parseEvidence<DifferentialEvidence>({
     schemaVersion: 1,
     evidenceKind: 'differential',
-    ...input,
-  });
-
-export const createCandidateInvariantEvidence = (
-  input: Omit<CandidateInvariantEvidence, 'schemaVersion' | 'evidenceKind'>
-): CandidateInvariantEvidence =>
-  parseEvidence<CandidateInvariantEvidence>({
-    schemaVersion: 1,
-    evidenceKind: 'candidate-invariant',
     ...input,
   });
 

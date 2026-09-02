@@ -1,8 +1,24 @@
-/* eslint-disable no-restricted-syntax, unicorn/no-array-for-each, prefer-destructuring -- Runtime registry inputs are untrusted and checked field by field before their typed boundary. */
+/* eslint-disable unicorn/no-array-for-each, prefer-destructuring -- Runtime registry inputs are untrusted and checked field by field before their typed boundary. */
+import { snapshotClosedDataGraph } from '../model.js';
 import type { Phase1Profile, Phase1ProfileSemanticContext } from '../profile-types.js';
 import { Phase1ProfileValidationError } from '../profile.js';
 
 type KeyedValue = Readonly<Record<string, unknown>>;
+
+const isRegistryObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const requireRegistryObject = (
+  value: unknown,
+  index: number,
+  pointer: string
+): Readonly<Record<string, unknown>> => {
+  if (!isRegistryObject(value)) {
+    return fail(`${pointer}/${index}`, 'registry-entry');
+  }
+
+  return value;
+};
 
 const fail = (pointer: string, rule: string): never => {
   throw new Phase1ProfileValidationError('semantic', [pointer], [rule]);
@@ -30,16 +46,23 @@ const readRegistryEntry = (
   pointer: string,
   rejectOracleStructures: boolean
 ): string => {
-  if (typeof entry === 'string') {
-    return entry;
-  }
+  const snapshot = snapshotClosedDataGraph<unknown>(entry);
 
-  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+  if (snapshot === undefined) {
     fail(`${pointer}/${index}`, 'registry-entry');
   }
+  if (typeof snapshot === 'string') {
+    return snapshot;
+  }
 
-  const definition = entry as Readonly<Record<string, unknown>>;
-  const forbiddenFields = ['oracle', 'compare', 'differences', 'oracleComparison'] as const;
+  const definition = requireRegistryObject(snapshot, index, pointer);
+  const forbiddenFields = [
+    'oracle',
+    'candidate',
+    'compare',
+    'differences',
+    'oracleComparison',
+  ] as const;
 
   if (rejectOracleStructures) {
     for (const field of forbiddenFields) {
@@ -66,8 +89,9 @@ const assertExactRegistrySet = (
   profileIds: readonly string[],
   registryEntries: readonly unknown[],
   pointer: string,
-  rejectOracleStructures = false
+  options: Readonly<{ rejectOracleStructures?: boolean; requireOrder?: boolean }> = {}
 ): void => {
+  const { rejectOracleStructures = false, requireOrder = false } = options;
   const profileSet = new Set(profileIds);
 
   if (profileSet.size !== profileIds.length) {
@@ -92,6 +116,13 @@ const assertExactRegistrySet = (
 
   if (registryIds.some((id) => !profileSet.has(id))) {
     fail(pointer, 'registry-exact-set');
+  }
+  if (requireOrder) {
+    registryIds.forEach((id, index) => {
+      if (id !== profileIds[index]) {
+        fail(`${pointer}/${index}`, 'registry-exact-order');
+      }
+    });
   }
 };
 
@@ -129,8 +160,8 @@ export const assertKeyedArraySemantics = (
     profile.candidateInvariantScenarios,
     context.candidateInvariantRegistryIds,
     '/candidateInvariantScenarios',
-    true
+    { rejectOracleStructures: true, requireOrder: true }
   );
 };
 
-/* eslint-enable no-restricted-syntax, unicorn/no-array-for-each, prefer-destructuring */
+/* eslint-enable unicorn/no-array-for-each, prefer-destructuring */

@@ -64,6 +64,27 @@ export const candidateInvariantScenarioIds = Object.freeze([
   'hosts.unavailable-pkce-independent',
 ] as const);
 
+export const candidateInvariantNegativeControlPointers = Object.freeze([
+  '/outcome/crossTenantRows/0',
+  '/activation/accepted',
+  '/mutations/1/tenantId',
+  '/matrix/deleted/provision',
+  '/roles/aster_request/memberOf/0',
+  '/observations/0/queryText',
+  '/artifacts/0/matches/0',
+  '/semanticState/code/consumed',
+  '/semanticState/material/oldKeyReferences',
+  '/availability/tokenSigning',
+  '/semanticState/keyMetadata/activeGeneration',
+  '/semanticState/crossTenantRows/0',
+  '/ledger/mismatches/0/count',
+  '/verifier/disclosedTenantIds/0',
+  '/liveLedger/reusedTombstoneId',
+  '/replica/readiness',
+  '/replica/missingRequired/0',
+  '/protocol/pkce/available',
+] as const);
+
 export type Phase1DifferentialScenarioId = (typeof differentialScenarioIds)[number];
 export type CandidateInvariantScenarioId = (typeof candidateInvariantScenarioIds)[number];
 
@@ -176,11 +197,8 @@ export type CandidateInvariantContract = Readonly<{
   oracleComparison?: never;
 }>;
 
-export type CandidateInvariantAuthority = Readonly<{
-  id: CandidateInvariantScenarioId;
-  evidenceKind: 'candidate-invariant';
-  implementation: 'contract-pending';
-}>;
+/** Compatibility alias retained for callers that imported the pre-Task-14 registry type. */
+export type CandidateInvariantAuthority = CandidateInvariantContract;
 
 const maximumDenseArrayLength = 4096;
 const denseArrayIndexPattern = /^(?:0|[1-9]\d*)$/u;
@@ -457,13 +475,8 @@ export const candidateInvariantContractGuard = z
     }
   });
 
-export const candidateInvariantAuthorityGuard = z
-  .object({
-    id: candidateInvariantScenarioIdGuard,
-    evidenceKind: z.literal('candidate-invariant'),
-    implementation: z.literal('contract-pending'),
-  })
-  .strict();
+/** Compatibility alias retained for callers that imported the pre-Task-14 registry guard. */
+export const candidateInvariantAuthorityGuard = candidateInvariantContractGuard;
 
 const differentialKeys = new Set<string>([
   'id',
@@ -497,7 +510,7 @@ const forbiddenCandidateKeys = new Set<string>([
   'candidate',
   'differences',
   'compare',
-  'oracleComparison',
+  'oraclecomparison',
 ]);
 
 const hasExactOwnKeys = (value: unknown, allowed: ReadonlySet<string>): value is object => {
@@ -508,10 +521,39 @@ const hasExactOwnKeys = (value: unknown, allowed: ReadonlySet<string>): value is
   return Reflect.ownKeys(value).every((key) => typeof key === 'string' && allowed.has(key));
 };
 
-const hasForbiddenCandidateKey = (value: unknown): boolean =>
-  typeof value === 'object' &&
-  value !== null &&
-  Reflect.ownKeys(value).some((key) => typeof key !== 'string' || forbiddenCandidateKeys.has(key));
+const normalizeCandidateKey = (key: string) => key.replaceAll(/[_\s-]/gu, '').toLowerCase();
+
+const hasForbiddenCandidateKey = (
+  value: unknown,
+  ancestors: WeakSet<object> = new WeakSet()
+): boolean => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  if (nodeTypes.isProxy(value) || ancestors.has(value)) {
+    return true;
+  }
+  ancestors.add(value);
+
+  const forbidden = Reflect.ownKeys(value).some((key) => {
+    if (typeof key !== 'string') {
+      return true;
+    }
+    if (key !== 'length' && forbiddenCandidateKeys.has(normalizeCandidateKey(key))) {
+      return true;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+
+    return (
+      !descriptor ||
+      !Object.hasOwn(descriptor, 'value') ||
+      hasForbiddenCandidateKey(descriptor.value, ancestors)
+    );
+  });
+  ancestors.delete(value);
+
+  return forbidden;
+};
 
 const arrayIndexPattern = /^(?:0|[1-9]\d*)$/u;
 
