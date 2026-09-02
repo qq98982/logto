@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { getNodeValue, parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
+import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import type { CapabilityManifest } from '../model.js';
 
@@ -507,7 +507,19 @@ const parseStrictAuthorityJson = (source: string): unknown => {
   }
   visit(root);
 
-  return getNodeValue(root) as unknown;
+  try {
+    return JSON.parse(source) as unknown;
+  } catch {
+    throw new Error(runFailureDiagnostic);
+  }
+};
+
+export const parseStrictAuthorityJsonForTesting = (source: string): unknown => {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error(runFailureDiagnostic);
+  }
+
+  return parseStrictAuthorityJson(source);
 };
 
 const readCapabilityAuthority = async (profile: Readonly<Phase1Profile>) => {

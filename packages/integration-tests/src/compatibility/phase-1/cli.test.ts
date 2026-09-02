@@ -10,6 +10,7 @@ import {
   consumePreparedReviewCapabilityForTesting,
   inspectGitFileForTesting,
   parsePhase1Arguments,
+  parseStrictAuthorityJsonForTesting,
   phase1ReviewSourceCommit,
   preparePhase1ReviewProfileForTesting,
   runPhase1Cli,
@@ -18,6 +19,7 @@ import {
   type Phase1ReviewPreparationDependencies,
   type Phase1RunAuthorization,
 } from './cli.js';
+import { snapshotClosedDataGraph } from './model.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
 import type { Phase1Profile } from './profile-types.js';
 import type { Phase1ProfileBundle } from './profile.js';
@@ -160,6 +162,16 @@ const createCliHarness = (
 };
 
 describe('Phase 1 CLI grammar', () => {
+  it('returns a plain closed graph after strict duplicate-key validation', () => {
+    const source = '{"nested":{"value":1},"items":[{"id":"fixture"}]}';
+    const parsed = parseStrictAuthorityJsonForTesting(source);
+
+    expect(snapshotClosedDataGraph(parsed)).toEqual(JSON.parse(source));
+    expect(() => parseStrictAuthorityJsonForTesting('{"value":1,"value":2}')).toThrow(
+      'Phase 1 run failed.'
+    );
+  });
+
   it('contains no private Aster Phase 0 evidence path or reader', async () => {
     const source = await readFile(
       path.resolve(process.cwd(), 'src/compatibility/phase-1/cli.ts'),
