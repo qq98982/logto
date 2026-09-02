@@ -1,19 +1,29 @@
 /* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax, no-await-in-loop, unicorn/prevent-abbreviations, unicorn/no-array-for-each, unicorn/escape-case, unicorn/explicit-length-check, @typescript-eslint/consistent-type-definitions, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/promise-function-async, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- This is the closed bounded provenance boundary; sequential Git object checks and exact external field names are part of the audited contract. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 
 import { getNodeValue, parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import { compareJson } from '../../compare.js';
 import { assertEvidenceIsSanitized, negativeControlEvidenceGuard } from '../../evidence.js';
 import { runEvidenceGuard, scenarioEvidenceGuard } from '../../model.js';
+import {
+  assertPhase1CodeownersGovernanceAuthority,
+  Phase1GovernanceAuthorityError,
+} from '../governance-authority.js';
+import {
+  assertPhase1IntegrationLockAuthority,
+  assertPhase1IntegrationManifestDelta,
+  Phase1PackageAuthorityError,
+} from '../package-authority.js';
 import type {
   Phase1Profile,
   Phase1ProfileSchemaLock,
   Phase1ProvenanceMode,
 } from '../profile-types.js';
 import { Phase1ProfileValidationError, type Phase1SchemaLockDocument } from '../profile.js';
+import { evaluatePhase1WorkflowPolicy, Phase1WorkflowPolicyError } from '../workflow-policy.js';
 
 const oracleCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 const phase0HarnessCommit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
@@ -23,6 +33,54 @@ const commitPattern = /^[\da-f]{40}$/u;
 const sha256Pattern = /^[\da-f]{64}$/u;
 const repositoryPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[\u0000-\u001f\u007f]).+$/u;
 const privatePhase0EvidencePath = 'compatibility/phase-0-evidence';
+const regularFileMode = '100644';
+const executableFileMode = '100755';
+const missingFileMode = '000000';
+const integrationManifestPath = 'packages/integration-tests/package.json';
+const integrationLockPath = 'pnpm-lock.yaml';
+const codeownersPath = '.github/CODEOWNERS';
+const compatibilityWorkflowPath = '.github/workflows/compatibility-test.yml';
+const phase1WorkflowPath = '.github/workflows/phase1-compatibility-test.yml';
+
+const governanceDeltaPaths = Object.freeze([
+  '.github/CODEOWNERS',
+  '.github/workflows/alteration-compatibility-integration-test.yml',
+  '.github/workflows/changesets.yml',
+  '.github/workflows/close-stale.yml',
+  '.github/workflows/codeql-analysis.yml',
+  '.github/workflows/commitlint.yml',
+  '.github/workflows/compatibility-test.yml',
+  '.github/workflows/integration-test.yml',
+  '.github/workflows/main.yml',
+  '.github/workflows/master-codecov-report.yml',
+  '.github/workflows/pen-tests.yml',
+  '.github/workflows/release.yml',
+  '.github/workflows/repository-dispatch.yml',
+  '.github/workflows/rerun.yml',
+  '.github/workflows/update-pr-metadata.yml',
+] as const);
+const deletedGovernanceWorkflowPaths: ReadonlySet<string> = new Set(
+  governanceDeltaPaths
+    .slice(1)
+    .filter((path) => path !== '.github/workflows/compatibility-test.yml')
+);
+const governanceDeltaPathSet: ReadonlySet<string> = new Set(governanceDeltaPaths);
+const requiredFeaturePaths = Object.freeze({
+  '.github/workflows/phase1-compatibility-test.yml': 'regular-added',
+  '.scripts/compatibility/phase1-conformance-driver.sh': 'executable-added',
+  '.scripts/compatibility/phase1-reference-state-driver.sh': 'executable-added',
+  '.scripts/compatibility/run-phase1-conformance.sh': 'executable-added',
+  '.scripts/compatibility/run-phase1.sh': 'executable-added',
+  'compatibility/phase-1-schema-lock.json': 'regular-added',
+  'compatibility/phases/phase-1-capabilities.json': 'regular-added',
+  'docker-compose.phase1-compatibility.yml': 'regular-added',
+  [integrationManifestPath]: 'regular-modified',
+  [integrationLockPath]: 'regular-modified',
+} as const);
+const featurePrefixes = Object.freeze([
+  'compatibility/phase-1-acceptance/',
+  'packages/integration-tests/src/compatibility/phase-1/',
+]);
 
 export type Phase1SourceEvidenceRef = Readonly<{
   commit: typeof oracleCommit | typeof phase0HarnessCommit;
@@ -50,6 +108,33 @@ export type Phase0EvidenceReproducer = (
 
 export type Phase1CommitAvailability = 'complete' | 'shallow' | 'missing';
 export type Phase1GitObjectKind = 'blob' | 'tree' | 'missing';
+export type Phase1GitDeltaEntry = Readonly<{
+  status: 'added' | 'modified' | 'deleted' | 'type-changed';
+  path: string;
+  oldMode: string;
+  newMode: string;
+}>;
+
+const expectedGovernanceDelta = Object.freeze(
+  governanceDeltaPaths.map(
+    (path): Phase1GitDeltaEntry =>
+      Object.freeze(
+        deletedGovernanceWorkflowPaths.has(path)
+          ? {
+              status: 'deleted' as const,
+              path,
+              oldMode: regularFileMode,
+              newMode: missingFileMode,
+            }
+          : {
+              status: 'modified' as const,
+              path,
+              oldMode: regularFileMode,
+              newMode: regularFileMode,
+            }
+      )
+  )
+);
 
 export interface Phase1GitReader {
   ensureFullCommit: (repository: string, commit: string) => Promise<Phase1CommitAvailability>;
@@ -60,6 +145,11 @@ export interface Phase1GitReader {
   isAncestor: (repository: string, ancestor: string, descendant: string) => Promise<boolean>;
   localState: (repository: string) => Promise<Readonly<{ head: string; clean: boolean }>>;
   remoteContains: (repository: string, branch: string, commit: string) => Promise<boolean>;
+  diffEntries: (
+    repository: string,
+    fromCommit: string,
+    toCommit: string
+  ) => Promise<readonly Phase1GitDeltaEntry[]>;
 }
 
 export type Phase1Approval = Readonly<{
@@ -160,6 +250,7 @@ const gitEnvironment = Object.freeze({
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_SYSTEM: '/dev/null',
   GIT_CONFIG_VALUE_0: '',
+  GIT_NO_REPLACE_OBJECTS: '1',
   GIT_TERMINAL_PROMPT: '0',
   LC_ALL: 'C',
   SSH_ASKPASS: '/bin/false',
@@ -212,6 +303,141 @@ const assertPublicGitObjectPath = (path: string, pointer: string): void => {
   }
 
   assertRepositoryPath(path, pointer);
+};
+
+const snapshotGitDeltaEntries = (
+  value: unknown,
+  pointer: string,
+  rule: string
+): readonly Phase1GitDeltaEntry[] => {
+  if (!Array.isArray(value) || value.length > maximumAuthorityItems) {
+    return fail(pointer, rule);
+  }
+  const entries: Phase1GitDeltaEntry[] = [];
+  const paths = new Set<string>();
+  const candidates = value as unknown[];
+
+  for (const candidate of candidates) {
+    if (
+      typeof candidate !== 'object' ||
+      candidate === null ||
+      Array.isArray(candidate) ||
+      !exactKeys(candidate, ['status', 'path', 'oldMode', 'newMode'])
+    ) {
+      return fail(pointer, rule);
+    }
+    const entry = candidate as Record<string, unknown>;
+
+    if (
+      (entry.status !== 'added' &&
+        entry.status !== 'modified' &&
+        entry.status !== 'deleted' &&
+        entry.status !== 'type-changed') ||
+      typeof entry.path !== 'string' ||
+      typeof entry.oldMode !== 'string' ||
+      typeof entry.newMode !== 'string' ||
+      !/^[0-7]{6}$/u.test(entry.oldMode) ||
+      !/^[0-7]{6}$/u.test(entry.newMode) ||
+      paths.has(entry.path)
+    ) {
+      return fail(pointer, rule);
+    }
+    assertRepositoryPath(entry.path, pointer);
+    paths.add(entry.path);
+    entries.push(
+      Object.freeze({
+        status: entry.status,
+        path: entry.path,
+        oldMode: entry.oldMode,
+        newMode: entry.newMode,
+      })
+    );
+  }
+  entries.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+
+  return Object.freeze(entries);
+};
+
+type FeaturePathContract = (typeof requiredFeaturePaths)[keyof typeof requiredFeaturePaths];
+
+const matchesFeaturePathContract = (
+  entry: Phase1GitDeltaEntry,
+  contract: FeaturePathContract
+): boolean =>
+  contract === 'executable-added'
+    ? entry.status === 'added' &&
+      entry.oldMode === missingFileMode &&
+      entry.newMode === executableFileMode
+    : contract === 'regular-added'
+      ? entry.status === 'added' &&
+        entry.oldMode === missingFileMode &&
+        entry.newMode === regularFileMode
+      : entry.status === 'modified' &&
+        entry.oldMode === regularFileMode &&
+        entry.newMode === regularFileMode;
+
+const featureDeltaIsValid = (entries: readonly Phase1GitDeltaEntry[]): boolean => {
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+
+  if (
+    Object.entries(requiredFeaturePaths).some(([path, contract]) => {
+      const entry = byPath.get(path);
+
+      return !entry || !matchesFeaturePathContract(entry, contract);
+    })
+  ) {
+    return false;
+  }
+
+  return entries.every((entry) => {
+    const contract = requiredFeaturePaths[entry.path as keyof typeof requiredFeaturePaths];
+
+    if (contract !== undefined) {
+      return matchesFeaturePathContract(entry, contract);
+    }
+
+    return (
+      featurePrefixes.some((prefix) => entry.path.startsWith(prefix)) &&
+      entry.status === 'added' &&
+      entry.oldMode === missingFileMode &&
+      entry.newMode === regularFileMode
+    );
+  });
+};
+
+const assertReviewHarnessDelta = (value: unknown): 'prebootstrap' | 'rebased' => {
+  const entries = snapshotGitDeltaEntries(value, '/phase1Harness/commit', 'review-harness-delta');
+  const governance = entries.filter(({ path }) => governanceDeltaPathSet.has(path));
+  const feature = entries.filter(({ path }) => !governanceDeltaPathSet.has(path));
+
+  if (
+    !featureDeltaIsValid(feature) ||
+    (governance.length > 0 && !isDeepStrictEqual(governance, expectedGovernanceDelta))
+  ) {
+    fail('/phase1Harness/commit', 'review-harness-delta');
+  }
+
+  return governance.length === 0 ? 'prebootstrap' : 'rebased';
+};
+
+const assertExactGovernanceDelta = (value: unknown): void => {
+  const entries = snapshotGitDeltaEntries(
+    value,
+    '/phase1Harness/commit',
+    'accepted-governance-delta'
+  );
+
+  if (!isDeepStrictEqual(entries, expectedGovernanceDelta)) {
+    fail('/phase1Harness/commit', 'accepted-governance-delta');
+  }
+};
+
+const assertAcceptedHarnessDelta = (value: unknown): void => {
+  const entries = snapshotGitDeltaEntries(value, '/phase1Harness/commit', 'accepted-harness-delta');
+
+  if (!featureDeltaIsValid(entries)) {
+    fail('/phase1Harness/commit', 'accepted-harness-delta');
+  }
 };
 
 const readBoundedBlob = async ({
@@ -1029,6 +1255,131 @@ const assertArtifactsAndAuthority = async (
   }
 };
 
+const assertHarnessPackageAuthority = async (
+  profile: Phase1Profile,
+  context: Phase1ProvenanceContext,
+  harnessCommit: string
+): Promise<void> => {
+  const [baseManifest, harnessManifest, lockBytes] = await Promise.all([
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: profile.phase1Harness.baseCommit,
+      path: integrationManifestPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: harnessCommit,
+      path: integrationManifestPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: harnessCommit,
+      path: integrationLockPath,
+      pointer: '/phase1Harness/commit',
+    }),
+  ]);
+
+  try {
+    assertPhase1IntegrationManifestDelta(baseManifest, harnessManifest);
+    assertPhase1IntegrationLockAuthority(lockBytes);
+  } catch (error: unknown) {
+    if (error instanceof Phase1PackageAuthorityError) {
+      fail('/phase1Harness/commit', 'harness-package-authority');
+    }
+
+    throw error;
+  }
+};
+
+const assertHarnessGovernanceAuthority = async (
+  profile: Phase1Profile,
+  context: Phase1ProvenanceContext,
+  governanceCommit: string,
+  harnessCommit: string
+): Promise<string> => {
+  const [
+    phase0Codeowners,
+    governanceCodeowners,
+    phase0Workflow,
+    governanceWorkflow,
+    phase1Workflow,
+  ] = await Promise.all([
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: profile.phase1Harness.baseCommit,
+      path: codeownersPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: governanceCommit,
+      path: codeownersPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: profile.phase1Harness.baseCommit,
+      path: compatibilityWorkflowPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: governanceCommit,
+      path: compatibilityWorkflowPath,
+      pointer: '/phase1Harness/commit',
+    }),
+    readBoundedBlob({
+      gitReader: context.gitReader,
+      repository: profile.phase1Harness.repository,
+      commit: harnessCommit,
+      path: phase1WorkflowPath,
+      pointer: '/phase1Harness/commit',
+    }),
+  ]);
+
+  try {
+    const reviewer = assertPhase1CodeownersGovernanceAuthority(
+      phase0Codeowners,
+      governanceCodeowners
+    );
+    const policy = evaluatePhase1WorkflowPolicy({
+      governanceMode: 'locked',
+      workflows: Object.freeze([
+        Object.freeze({ path: compatibilityWorkflowPath, bytes: governanceWorkflow }),
+        Object.freeze({ path: phase1WorkflowPath, bytes: phase1Workflow }),
+      ]),
+      phase0CompatibilityWorkflow: Object.freeze({
+        path: compatibilityWorkflowPath,
+        bytes: phase0Workflow,
+      }),
+    });
+
+    if (!policy.governanceSatisfied) {
+      fail('/phase1Harness/commit', 'harness-governance-authority');
+    }
+
+    return reviewer;
+  } catch (error: unknown) {
+    if (
+      error instanceof Phase1GovernanceAuthorityError ||
+      error instanceof Phase1WorkflowPolicyError
+    ) {
+      fail('/phase1Harness/commit', 'harness-governance-authority');
+    }
+
+    throw error;
+  }
+};
+
 const readClosedAuthorityArray = (value: unknown, pointer: string): readonly unknown[] => {
   if (!Array.isArray(value)) {
     fail(pointer, 'accepted-authority-projection');
@@ -1338,6 +1689,45 @@ const verifyAcceptedHarness = async (
   }
 
   if (
+    (await context.gitReader.ensureFullCommit(
+      profile.phase1Harness.repository,
+      pullRequest.baseCommit
+    )) !== 'complete' ||
+    !(await context.gitReader.isAncestor(
+      profile.phase1Harness.repository,
+      profile.phase1Harness.baseCommit,
+      pullRequest.baseCommit
+    )) ||
+    !(await context.gitReader.isAncestor(
+      profile.phase1Harness.repository,
+      pullRequest.baseCommit,
+      harnessCommit
+    ))
+  ) {
+    fail('/phase1Harness/commit', 'accepted-governance-history');
+  }
+  assertExactGovernanceDelta(
+    await context.gitReader.diffEntries(
+      profile.phase1Harness.repository,
+      profile.phase1Harness.baseCommit,
+      pullRequest.baseCommit
+    )
+  );
+  assertAcceptedHarnessDelta(
+    await context.gitReader.diffEntries(
+      profile.phase1Harness.repository,
+      pullRequest.baseCommit,
+      harnessCommit
+    )
+  );
+  const governanceReviewer = await assertHarnessGovernanceAuthority(
+    profile,
+    context,
+    pullRequest.baseCommit,
+    harnessCommit
+  );
+
+  if (
     !commitPattern.test(pullRequest.headCommit) ||
     !commitPattern.test(pullRequest.evaluatedCommit) ||
     pullRequest.evaluatedCommit === harnessCommit
@@ -1368,6 +1758,18 @@ const verifyAcceptedHarness = async (
 
   if (!approved) {
     fail('/phase1Harness/commit', 'accepted-codeowner-approval');
+  }
+  if (
+    !pullRequest.approvals.some(
+      (approval) =>
+        approval.state === 'APPROVED' &&
+        approval.codeOwner &&
+        approval.reviewer === governanceReviewer &&
+        approval.reviewer !== pullRequest.author &&
+        approval.commit === pullRequest.headCommit
+    )
+  ) {
+    fail('/phase1Harness/commit', 'harness-governance-authority');
   }
 
   if (pullRequest.bypassActors.length !== 0) {
@@ -1449,6 +1851,16 @@ const verifyReviewCandidate = async (
   if (!localState.clean) {
     fail('/phase1Harness/commit', 'review-candidate-clean');
   }
+  const deltaKind = assertReviewHarnessDelta(
+    await context.gitReader.diffEntries(
+      profile.phase1Harness.repository,
+      profile.phase1Harness.baseCommit,
+      harnessCommit
+    )
+  );
+  if (deltaKind === 'rebased') {
+    await assertHarnessGovernanceAuthority(profile, context, harnessCommit, harnessCommit);
+  }
 
   return Object.freeze({
     kind: 'review-candidate',
@@ -1473,6 +1885,7 @@ const verifyProvenance = async (
   await assertUiObjects(profile, context.gitReader);
   await assertPhase0Evidence(profile, context);
   await assertArtifactsAndAuthority(profile, context, harnessCommit);
+  await assertHarnessPackageAuthority(profile, context, harnessCommit);
 
   return context.mode === 'accepted-harness'
     ? verifyAcceptedHarness(profile, context, harnessCommit)
@@ -1558,6 +1971,99 @@ const decodeBoundedAscii = (bytes: Uint8Array): string => {
   }
 
   return value;
+};
+
+const rawDeltaHeaderPattern =
+  /^:(?<oldMode>[0-7]{6}) (?<newMode>[0-7]{6}) (?<oldObject>[0-9a-f]{40}) (?<newObject>[0-9a-f]{40}) (?<status>[AMDT])$/u;
+const gitDeltaStatus = Object.freeze({
+  A: 'added',
+  M: 'modified',
+  D: 'deleted',
+  T: 'type-changed',
+} as const);
+
+const parseRawGitDelta = (bytes: Uint8Array): readonly Phase1GitDeltaEntry[] => {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength > maximumReaderBytes) {
+    return fail('/git', 'git-delta-bound');
+  }
+  let source: string;
+
+  try {
+    source = new TextDecoder('utf8', { fatal: true }).decode(bytes);
+  } catch {
+    return fail('/git', 'git-delta-encoding');
+  }
+  if (source.length === 0) {
+    return Object.freeze([]);
+  }
+  const fields = source.split('\0');
+
+  if (fields.at(-1) !== '' || (fields.length - 1) % 2 !== 0) {
+    return fail('/git', 'git-delta-format');
+  }
+  fields.pop();
+  const entries: Phase1GitDeltaEntry[] = [];
+  const paths = new Set<string>();
+
+  for (let index = 0; index < fields.length; index += 2) {
+    const header = fields[index] ?? '';
+    const path = fields[index + 1] ?? '';
+    const match = rawDeltaHeaderPattern.exec(header);
+
+    if (!match?.groups) {
+      return fail('/git', 'git-delta-format');
+    }
+    assertRepositoryPath(path, '/git');
+    const {
+      oldMode = '',
+      newMode = '',
+      oldObject = '',
+      newObject = '',
+      status = '',
+    } = match.groups;
+    const zeroObject = '0'.repeat(40);
+    const statusIsConsistent =
+      (status === 'A' &&
+        oldMode === '000000' &&
+        oldObject === zeroObject &&
+        newMode !== '000000' &&
+        newObject !== zeroObject) ||
+      (status === 'D' &&
+        newMode === '000000' &&
+        newObject === zeroObject &&
+        oldMode !== '000000' &&
+        oldObject !== zeroObject) ||
+      (status === 'M' &&
+        oldMode !== '000000' &&
+        newMode !== '000000' &&
+        oldObject !== zeroObject &&
+        newObject !== zeroObject) ||
+      (status === 'T' &&
+        oldMode !== '000000' &&
+        newMode !== '000000' &&
+        oldMode !== newMode &&
+        oldObject !== zeroObject &&
+        newObject !== zeroObject);
+
+    if (!statusIsConsistent || paths.has(path)) {
+      return fail('/git', 'git-delta-format');
+    }
+    paths.add(path);
+    entries.push(
+      Object.freeze({
+        status: gitDeltaStatus[status],
+        path,
+        oldMode,
+        newMode,
+      })
+    );
+    if (entries.length > maximumAuthorityItems) {
+      return fail('/git', 'git-delta-bound');
+    }
+  }
+  entries.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+
+  return Object.freeze(entries);
 };
 
 const assertGitCommit = (commit: string): void => {
@@ -1707,6 +2213,29 @@ export const createProductionPhase1GitReader = (
       } catch {
         return false;
       }
+    },
+    diffEntries: async (repository, fromCommit, toCommit) => {
+      assertGitCommit(fromCommit);
+      assertGitCommit(toCommit);
+
+      return parseRawGitDelta(
+        await run(
+          repository,
+          [
+            'diff-tree',
+            '--no-commit-id',
+            '-r',
+            '--raw',
+            '-z',
+            '--no-renames',
+            '--abbrev=40',
+            fromCommit,
+            toCommit,
+            '--',
+          ],
+          maximumReaderBytes
+        )
+      );
     },
   };
 };

@@ -1,9 +1,17 @@
 /* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-await-in-loop, unicorn/prevent-abbreviations -- The provenance matrix mutates injected readers and authority projections without touching a worktree or network. */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { inspect } from 'node:util';
 
+import type * as Yaml from 'yaml';
+
+import { phase1CodeownersCoveragePaths } from '../governance-authority.js';
 import type { Phase1Profile, Phase1SchemaLockDocument } from '../profile.js';
 import { Phase1ProfileValidationError } from '../profile.js';
+import { phase1WorkflowActionPins } from '../workflow-policy.js';
 
 import {
   assertPhase1ProfileProvenance,
@@ -13,6 +21,7 @@ import {
   verifyPhase1ProfileProvenance,
   type Phase1AcceptedHarnessAuthority,
   type Phase1CommandRequest,
+  type Phase1GitDeltaEntry,
   type Phase1GitReader,
   type Phase1GithubReader,
   type Phase1ProvenanceContext,
@@ -30,10 +39,17 @@ const required = <Value>(value: Value | undefined): Value => {
   return value;
 };
 
+const require = createRequire(import.meta.url);
+const yamlPackage = ['ya', 'ml'].join('');
+const { parse: parseYaml, stringify: stringifyYaml } = require(yamlPackage) as typeof Yaml;
+const repositoryRoot = path.resolve(process.cwd(), '../..');
+
 const oracleCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 const phase0Commit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
 const harnessCommit = '3333333333333333333333333333333333333333';
 const schemaCommit = '4444444444444444444444444444444444444444';
+const governanceCommit = '7777777777777777777777777777777777777777';
+const governanceReviewer = 'reviewer';
 const oracleRepository = 'https://example.test/oracle.git';
 const harnessRepository = oracleRepository;
 const profilePaths = Array.from({ length: 31 }, (_, index) => `sources/source-${index}.ts`);
@@ -137,6 +153,132 @@ const authorityBlobs = Object.fromEntries(
   authorityPaths.map((path, index) => [path, `${index.toString(16).padStart(40, 'a')}`.slice(-40)])
 ) as unknown as Phase1SchemaLockDocument['phase0AuthorityBlobs'];
 
+const deltaEntry = (
+  status: Phase1GitDeltaEntry['status'],
+  path: string,
+  oldMode: string,
+  newMode: string
+): Phase1GitDeltaEntry => Object.freeze({ status, path, oldMode, newMode });
+const addedFile = (path: string) => deltaEntry('added', path, '000000', '100644');
+const addedScript = (path: string) => deltaEntry('added', path, '000000', '100755');
+const modifiedFile = (path: string) => deltaEntry('modified', path, '100644', '100644');
+const deletedFile = (path: string) => deltaEntry('deleted', path, '100644', '000000');
+const sortDelta = (entries: readonly Phase1GitDeltaEntry[]) => {
+  const sorted = [...entries];
+  sorted.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+
+  return Object.freeze(sorted);
+};
+const governanceDelta = sortDelta([
+  modifiedFile('.github/CODEOWNERS'),
+  deletedFile('.github/workflows/alteration-compatibility-integration-test.yml'),
+  deletedFile('.github/workflows/changesets.yml'),
+  deletedFile('.github/workflows/close-stale.yml'),
+  deletedFile('.github/workflows/codeql-analysis.yml'),
+  deletedFile('.github/workflows/commitlint.yml'),
+  modifiedFile('.github/workflows/compatibility-test.yml'),
+  deletedFile('.github/workflows/integration-test.yml'),
+  deletedFile('.github/workflows/main.yml'),
+  deletedFile('.github/workflows/master-codecov-report.yml'),
+  deletedFile('.github/workflows/pen-tests.yml'),
+  deletedFile('.github/workflows/release.yml'),
+  deletedFile('.github/workflows/repository-dispatch.yml'),
+  deletedFile('.github/workflows/rerun.yml'),
+  deletedFile('.github/workflows/update-pr-metadata.yml'),
+]);
+const featureDelta = sortDelta([
+  addedFile('.github/workflows/phase1-compatibility-test.yml'),
+  addedScript('.scripts/compatibility/phase1-conformance-driver.sh'),
+  addedScript('.scripts/compatibility/phase1-reference-state-driver.sh'),
+  addedScript('.scripts/compatibility/run-phase1-conformance.sh'),
+  addedScript('.scripts/compatibility/run-phase1.sh'),
+  addedFile('compatibility/phase-1-acceptance/README.md'),
+  addedFile('compatibility/phase-1-schema-lock.json'),
+  addedFile('compatibility/phases/phase-1-capabilities.json'),
+  addedFile('docker-compose.phase1-compatibility.yml'),
+  addedFile('packages/integration-tests/src/compatibility/phase-1/profile.ts'),
+  modifiedFile('packages/integration-tests/package.json'),
+  modifiedFile('pnpm-lock.yaml'),
+]);
+const rebasedReviewDelta = sortDelta([...governanceDelta, ...featureDelta]);
+const phase0CodeownersBytes = Buffer.from(
+  execFileSync('git', ['show', `${phase0Commit}:.github/CODEOWNERS`], {
+    cwd: repositoryRoot,
+  })
+);
+const governanceCodeownersFor = (reviewer: string) =>
+  Buffer.concat([
+    phase0CodeownersBytes,
+    Buffer.from(
+      `\n# Aster Phase 1 acceptance authority\n${phase1CodeownersCoveragePaths
+        .map((coveragePath) => `${coveragePath} @qq98982 @${reviewer}`)
+        .join('\n')}\n`
+    ),
+  ]);
+const governanceCodeownersBytes = governanceCodeownersFor(governanceReviewer);
+const phase0CompatibilityWorkflowBytes = Buffer.from(
+  execFileSync('git', ['show', `${phase0Commit}:.github/workflows/compatibility-test.yml`], {
+    cwd: repositoryRoot,
+  })
+);
+const hardenedCompatibilityWorkflowBytes = (() => {
+  const workflow = parseYaml(phase0CompatibilityWorkflowBytes.toString('utf8')) as {
+    jobs: Record<string, { steps: Array<{ uses?: string; with?: Record<string, unknown> }> }>;
+  };
+
+  for (const job of Object.values(workflow.jobs)) {
+    for (const step of job.steps) {
+      if (!step.uses) {
+        continue;
+      }
+      const [action] = step.uses.split('@');
+      const pin = phase1WorkflowActionPins[action as keyof typeof phase1WorkflowActionPins];
+
+      step.uses = `${action}@${pin}`;
+      if (action === 'pnpm/action-setup') {
+        step.with = { version: '10.15.1' };
+      } else if (action === 'actions/setup-node') {
+        step.with = { 'node-version': '22.23.2' };
+      }
+    }
+  }
+
+  return Buffer.from(stringifyYaml(workflow));
+})();
+const phase1WorkflowBytes = readFileSync(
+  path.join(repositoryRoot, '.github/workflows/phase1-compatibility-test.yml')
+);
+const integrationLockBytes = readFileSync(path.join(repositoryRoot, 'pnpm-lock.yaml'));
+const packageAuthorityBase = {
+  name: '@logto/integration-tests',
+  private: true,
+  type: 'module',
+  scripts: { build: 'tsup' },
+  devDependencies: { typescript: '^5.5.3' },
+  dependencies: { otplib: '^12.0.1' },
+};
+const packageAuthorityHarness = {
+  ...packageAuthorityBase,
+  scripts: {
+    ...packageAuthorityBase.scripts,
+    'compatibility:phase1': 'node ./lib/compatibility/phase-1/cli.js',
+    'test:compatibility:phase1':
+      'pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/phase-1/',
+  },
+  devDependencies: {
+    ...packageAuthorityBase.devDependencies,
+    '@playwright/test': '1.62.1',
+    ajv: '8.20.0',
+    'ajv-formats': '3.0.1',
+    'jsonc-parser': '3.3.1',
+    parse5: '7.2.1',
+    'tough-cookie': '5.1.2',
+    yaml: '2.9.0',
+  },
+};
+const packageAuthorityBaseBytes = Buffer.from(`${JSON.stringify(packageAuthorityBase)}\n`);
+const packageAuthorityHarnessBytes = Buffer.from(`${JSON.stringify(packageAuthorityHarness)}\n`);
+
 const provenanceProfile = () =>
   ({
     reference: {
@@ -215,7 +357,7 @@ const acceptedAuthority = (): Phase1AcceptedHarnessAuthority => ({
       mergeCommit: harnessCommit,
       headCommit: '5555555555555555555555555555555555555555',
       evaluatedCommit: '6666666666666666666666666666666666666666',
-      baseCommit: '7777777777777777777777777777777777777777',
+      baseCommit: governanceCommit,
       baseBranch: 'aster-phase1-harness',
       codeOwnerReviewRequired: true,
       bypassActors: [],
@@ -307,12 +449,14 @@ const createReaders = () => {
     prepared: [] as string[],
     reproductions: [] as Phase0EvidenceReproductionRequest[],
     gitBlobReads: [] as Array<Readonly<{ commit: string; path: string }>>,
+    gitDeltas: [] as Array<Readonly<{ fromCommit: string; toCommit: string }>>,
   };
   const gitReader: Phase1GitReader = {
     ensureFullCommit: async (repository, commit) => {
       calls.prepared.push(`${repository}:${commit}`);
       return 'complete';
     },
+    // eslint-disable-next-line complexity -- The fake reader dispatches exact immutable fixture blobs by commit/path.
     readBlob: async (_repository, commit, path) => {
       calls.gitBlobReads.push({ commit, path });
 
@@ -324,6 +468,25 @@ const createReaders = () => {
 
       if (Object.hasOwn(phase0EvidenceBytes, evidenceName)) {
         return phase0EvidenceBytes[evidenceName as keyof typeof phase0EvidenceBytes];
+      }
+
+      if (path === '.github/CODEOWNERS') {
+        return commit === phase0Commit ? phase0CodeownersBytes : governanceCodeownersBytes;
+      }
+      if (path === '.github/workflows/compatibility-test.yml') {
+        return commit === phase0Commit
+          ? phase0CompatibilityWorkflowBytes
+          : hardenedCompatibilityWorkflowBytes;
+      }
+      if (path === '.github/workflows/phase1-compatibility-test.yml') {
+        return phase1WorkflowBytes;
+      }
+
+      if (path === 'packages/integration-tests/package.json') {
+        return commit === phase0Commit ? packageAuthorityBaseBytes : packageAuthorityHarnessBytes;
+      }
+      if (path === 'pnpm-lock.yaml' && commit === harnessCommit) {
+        return integrationLockBytes;
       }
 
       return Buffer.from('synthetic source');
@@ -355,6 +518,21 @@ const createReaders = () => {
     isAncestor: async () => true,
     localState: async () => ({ head: harnessCommit, clean: true }),
     remoteContains: async () => true,
+    diffEntries: async (_repository, fromCommit, toCommit) => {
+      calls.gitDeltas.push({ fromCommit, toCommit });
+
+      if (fromCommit === phase0Commit && toCommit === governanceCommit) {
+        return governanceDelta;
+      }
+      if (fromCommit === governanceCommit && toCommit === harnessCommit) {
+        return featureDelta;
+      }
+      if (fromCommit === phase0Commit && toCommit === harnessCommit) {
+        return featureDelta;
+      }
+
+      return [];
+    },
   };
   const githubReader: Phase1GithubReader = {
     acceptedHarnessAuthority: async () => {
@@ -444,6 +622,9 @@ describe('Phase 1 source and acceptance provenance', () => {
       publishable: false,
     });
     expect(readers.calls.github).toBe(0);
+    expect(readers.calls.gitDeltas).toEqual([
+      { fromCommit: phase0Commit, toCommit: harnessCommit },
+    ]);
     expect(readers.calls.reproductions).toEqual([
       {
         repository: oracleRepository,
@@ -464,11 +645,144 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
-  it('returns accepted evidence only for the protected reviewed merge', async () => {
-    const result = await verifyPhase1ProfileProvenance(
-      provenanceProfile(),
-      provenanceContext('accepted-harness')
+  it('review-candidate accepts only the exact prebootstrap feature delta or rebased union', async () => {
+    const prebootstrap = provenanceContext('review-candidate');
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), prebootstrap)
+    ).resolves.toMatchObject({ kind: 'review-candidate', publishable: false });
+
+    const rebased = provenanceContext('review-candidate');
+    rebased.gitReader.diffEntries = async (_repository, fromCommit, toCommit) =>
+      fromCommit === phase0Commit && toCommit === harnessCommit ? rebasedReviewDelta : [];
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), rebased)
+    ).resolves.toMatchObject({ kind: 'review-candidate', publishable: false });
+  });
+
+  it('prebootstrap review does not claim or read governance content', async () => {
+    const context = provenanceContext('review-candidate');
+    const originalReadBlob = context.gitReader.readBlob;
+    context.gitReader.readBlob = async (repository, commit, path) => {
+      if (path === '.github/CODEOWNERS' || path.startsWith('.github/workflows/')) {
+        throw new Error('prebootstrap must not read governance content');
+      }
+
+      return originalReadBlob(repository, commit, path);
+    };
+
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context)
+    ).resolves.toMatchObject({ kind: 'review-candidate', publishable: false });
+  });
+
+  it.each(['CODEOWNERS', 'compatibility workflow', 'Phase 1 workflow'])(
+    'rebased review rejects arbitrary %s content',
+    async (target) => {
+      const context = provenanceContext('review-candidate');
+      context.gitReader.diffEntries = async () => rebasedReviewDelta;
+      const originalReadBlob = context.gitReader.readBlob;
+      context.gitReader.readBlob = async (repository, commit, path) => {
+        if (
+          (target === 'CODEOWNERS' && path === '.github/CODEOWNERS' && commit === harnessCommit) ||
+          (target === 'compatibility workflow' &&
+            path === '.github/workflows/compatibility-test.yml' &&
+            commit === harnessCommit) ||
+          (target === 'Phase 1 workflow' &&
+            path === '.github/workflows/phase1-compatibility-test.yml' &&
+            commit === harnessCommit)
+        ) {
+          return Buffer.from('unreviewed governance content\n');
+        }
+
+        return originalReadBlob(repository, commit, path);
+      };
+      await expectProvenanceFailure(
+        verifyPhase1ProfileProvenance(provenanceProfile(), context),
+        '/phase1Harness/commit',
+        'harness-governance-authority'
+      );
+    }
+  );
+
+  it.each([
+    {
+      name: 'unrelated source addition',
+      entries: sortDelta([...featureDelta, addedFile('packages/core/unsafe.ts')]),
+    },
+    {
+      name: 'required helper omission',
+      entries: featureDelta.filter(
+        ({ path }) => path !== '.scripts/compatibility/phase1-reference-state-driver.sh'
+      ),
+    },
+    {
+      name: 'script regular-file mode',
+      entries: featureDelta.map((entry) =>
+        entry.path === '.scripts/compatibility/phase1-conformance-driver.sh'
+          ? addedFile(entry.path)
+          : entry
+      ),
+    },
+    {
+      name: 'feature deletion',
+      entries: featureDelta.map((entry) =>
+        entry.path === 'compatibility/phase-1-schema-lock.json' ? deletedFile(entry.path) : entry
+      ),
+    },
+    {
+      name: 'partial governance bootstrap',
+      entries: sortDelta([...governanceDelta.slice(1), ...featureDelta]),
+    },
+    {
+      name: 'extra workflow in rebased union',
+      entries: sortDelta([...rebasedReviewDelta, addedFile('.github/workflows/unreviewed.yml')]),
+    },
+    {
+      name: 'malformed injected delta entry',
+      entries: [
+        ...featureDelta,
+        { ...addedFile('packages/core/unsafe.ts'), extra: true },
+      ] as unknown as readonly Phase1GitDeltaEntry[],
+    },
+  ])('review-candidate rejects $name', async ({ entries }) => {
+    const context = provenanceContext('review-candidate');
+    context.gitReader.diffEntries = async () => entries;
+    await expectProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context),
+      '/phase1Harness/commit',
+      'review-harness-delta'
     );
+  });
+
+  it('keeps hostile changed paths out of provenance diagnostics', async () => {
+    const marker = 'private-delta-path-marker';
+    const context = provenanceContext('review-candidate');
+    context.gitReader.diffEntries = async () =>
+      sortDelta([...featureDelta, addedFile(`packages/core/${marker}.ts`)]);
+
+    try {
+      await verifyPhase1ProfileProvenance(provenanceProfile(), context);
+      throw new Error('Expected delta rejection');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({
+        message: 'Invalid Phase 1 provenance',
+        pointers: ['/phase1Harness/commit'],
+        rules: ['review-harness-delta'],
+      });
+      expect(String(error)).not.toContain(marker);
+      expect((error as Error).stack).not.toContain(marker);
+    }
+  });
+
+  it('returns accepted evidence only for the protected reviewed merge', async () => {
+    const readers = createReaders();
+    const context = {
+      ...provenanceContext('accepted-harness'),
+      gitReader: readers.gitReader,
+      githubReader: readers.githubReader,
+      phase0EvidenceReproducer: readers.phase0EvidenceReproducer,
+    };
+    const result = await verifyPhase1ProfileProvenance(provenanceProfile(), context);
     expect(requireAcceptedPhase1Provenance(result)).toEqual({
       kind: 'accepted-harness',
       harnessCommit,
@@ -501,7 +815,149 @@ describe('Phase 1 source and acceptance provenance', () => {
     await expect(
       assertPhase1ProfileProvenance(provenanceProfile(), provenanceContext('accepted-harness'))
     ).resolves.toBeUndefined();
+    expect(readers.calls.gitDeltas).toEqual([
+      { fromCommit: phase0Commit, toCommit: governanceCommit },
+      { fromCommit: governanceCommit, toCommit: harnessCommit },
+    ]);
+    expect(readers.calls.prepared).toContain(`${harnessRepository}:${governanceCommit}`);
   });
+
+  it.each([
+    {
+      name: 'missing governance workflow deletion',
+      entries: governanceDelta.slice(1),
+      rule: 'accepted-governance-delta',
+      target: 'governance',
+    },
+    {
+      name: 'governance workflow added instead of deleted',
+      entries: governanceDelta.map((entry) =>
+        entry.path === '.github/workflows/main.yml' ? addedFile(entry.path) : entry
+      ),
+      rule: 'accepted-governance-delta',
+      target: 'governance',
+    },
+    {
+      name: 'extra governance path',
+      entries: sortDelta([...governanceDelta, modifiedFile('README.md')]),
+      rule: 'accepted-governance-delta',
+      target: 'governance',
+    },
+    {
+      name: 'H modifies CODEOWNERS',
+      entries: sortDelta([...featureDelta, modifiedFile('.github/CODEOWNERS')]),
+      rule: 'accepted-harness-delta',
+      target: 'feature',
+    },
+    {
+      name: 'H omits conformance driver',
+      entries: featureDelta.filter(
+        ({ path }) => path !== '.scripts/compatibility/phase1-conformance-driver.sh'
+      ),
+      rule: 'accepted-harness-delta',
+      target: 'feature',
+    },
+    {
+      name: 'H adds executable TypeScript',
+      entries: featureDelta.map((entry) =>
+        entry.path === 'packages/integration-tests/src/compatibility/phase-1/profile.ts'
+          ? deltaEntry('added', entry.path, '000000', '100755')
+          : entry
+      ),
+      rule: 'accepted-harness-delta',
+      target: 'feature',
+    },
+  ])('accepted-harness rejects $name', async ({ entries, rule, target }) => {
+    const context = provenanceContext('accepted-harness');
+    context.gitReader.diffEntries = async (_repository, fromCommit, toCommit) => {
+      if (fromCommit === phase0Commit && toCommit === governanceCommit) {
+        return target === 'governance' ? entries : governanceDelta;
+      }
+
+      return target === 'feature' ? entries : featureDelta;
+    };
+    await expectProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context),
+      '/phase1Harness/commit',
+      rule
+    );
+  });
+
+  it.each(['CODEOWNERS', 'compatibility workflow', 'Phase 1 workflow'])(
+    'accepted-harness rejects arbitrary G_H/H %s content',
+    async (target) => {
+      const context = provenanceContext('accepted-harness');
+      const originalReadBlob = context.gitReader.readBlob;
+      context.gitReader.readBlob = async (repository, commit, path) => {
+        if (
+          (target === 'CODEOWNERS' &&
+            path === '.github/CODEOWNERS' &&
+            commit === governanceCommit) ||
+          (target === 'compatibility workflow' &&
+            path === '.github/workflows/compatibility-test.yml' &&
+            commit === governanceCommit) ||
+          (target === 'Phase 1 workflow' &&
+            path === '.github/workflows/phase1-compatibility-test.yml' &&
+            commit === harnessCommit)
+        ) {
+          return Buffer.from('unreviewed governance content\n');
+        }
+
+        return originalReadBlob(repository, commit, path);
+      };
+      await expectProvenanceFailure(
+        verifyPhase1ProfileProvenance(provenanceProfile(), context),
+        '/phase1Harness/commit',
+        'harness-governance-authority'
+      );
+    }
+  );
+
+  it('accepted-harness requires the canonical CODEOWNERS reviewer to approve H', async () => {
+    const context = provenanceContext('accepted-harness');
+    const originalReadBlob = context.gitReader.readBlob;
+    context.gitReader.readBlob = async (repository, commit, path) =>
+      commit === governanceCommit && path === '.github/CODEOWNERS'
+        ? governanceCodeownersFor('different-reviewer')
+        : originalReadBlob(repository, commit, path);
+    await expectProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context),
+      '/phase1Harness/commit',
+      'harness-governance-authority'
+    );
+  });
+
+  it.each(['missing governance commit', 'Phase 0 is not an ancestor', 'H is not a descendant'])(
+    'accepted-harness rejects when %s',
+    async (name) => {
+      const context = provenanceContext('accepted-harness');
+      const originalEnsure = context.gitReader.ensureFullCommit;
+      const originalAncestor = context.gitReader.isAncestor;
+      context.gitReader.ensureFullCommit = async (repository, commit) =>
+        name === 'missing governance commit' && commit === governanceCommit
+          ? 'missing'
+          : originalEnsure(repository, commit);
+      context.gitReader.isAncestor = async (repository, ancestor, descendant) => {
+        if (
+          (name === 'Phase 0 is not an ancestor' &&
+            ancestor === phase0Commit &&
+            descendant === governanceCommit) ||
+          (name === 'H is not a descendant' &&
+            ancestor === governanceCommit &&
+            descendant === harnessCommit)
+        ) {
+          return false;
+        }
+
+        return originalAncestor(repository, ancestor, descendant);
+      };
+      await expectProvenanceFailure(
+        verifyPhase1ProfileProvenance(provenanceProfile(), context),
+        '/phase1Harness/commit',
+        'accepted-governance-history'
+      );
+    }
+  );
 
   it('accepts required checks evaluated directly on the reviewed PR head', async () => {
     const context = provenanceContext('accepted-harness');
@@ -1494,6 +1950,40 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
+  it('translates package manifest and lockfile authority failures to one static provenance rule', async () => {
+    const marker = 'private-package-delta-marker';
+    const manifest = provenanceContext();
+    const originalReadBlob = manifest.gitReader.readBlob;
+    manifest.gitReader.readBlob = async (repository, commit, path) =>
+      commit === harnessCommit && path === 'packages/integration-tests/package.json'
+        ? Buffer.from(`${JSON.stringify({ ...packageAuthorityHarness, [marker]: true })}\n`)
+        : originalReadBlob(repository, commit, path);
+    try {
+      await verifyPhase1ProfileProvenance(provenanceProfile(), manifest);
+      throw new Error('Expected package authority failure');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({
+        message: 'Invalid Phase 1 provenance',
+        pointers: ['/phase1Harness/commit'],
+        rules: ['harness-package-authority'],
+      });
+      expect(String(error)).not.toContain(marker);
+      expect((error as Error).stack).not.toContain(marker);
+    }
+
+    const lock = provenanceContext();
+    const originalLockReadBlob = lock.gitReader.readBlob;
+    lock.gitReader.readBlob = async (repository, commit, path) =>
+      commit === harnessCommit && path === 'pnpm-lock.yaml'
+        ? Buffer.concat([integrationLockBytes, Buffer.from('\n')])
+        : originalLockReadBlob(repository, commit, path);
+    await expectProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), lock),
+      '/phase1Harness/commit',
+      'harness-package-authority'
+    );
+  });
+
   it('review-candidate requires exact clean local HEAD', async () => {
     const wrongHead = provenanceContext();
     wrongHead.gitReader.localState = async () => ({ head: phase0Commit, clean: true });
@@ -2085,6 +2575,19 @@ describe('Phase 1 source and acceptance provenance', () => {
     }
   });
 
+  it('sanitizes Git delta reader failures without exposing raw output', async () => {
+    const marker = 'private-git-delta-reader-sentinel';
+    const context = provenanceContext();
+    context.gitReader.diffEntries = async () => {
+      throw new Error(marker);
+    };
+
+    await expectGenericSanitizedProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context),
+      marker
+    );
+  });
+
   it.each([
     {
       name: 'Git reader',
@@ -2285,6 +2788,151 @@ describe('Phase 1 source and acceptance provenance', () => {
         ({ args }) => args.includes('source/file.ts') && !args.join(' ').includes(oracleCommit)
       )
     ).toBe(false);
+  });
+
+  it('the production Git reader parses a bounded exact raw delta without replacement objects', async () => {
+    const calls: Phase1CommandRequest[] = [];
+    const zero = '0'.repeat(40);
+    const first = '1'.repeat(40);
+    const second = '2'.repeat(40);
+    const raw = Buffer.from(
+      `:100644 000000 ${first} ${zero} D\0z/deleted.json\0` +
+        `:000000 100755 ${zero} ${second} A\0a/script.sh\0` +
+        `:100644 100644 ${first} ${second} M\0m/modified.json\0` +
+        `:120000 100644 ${first} ${second} T\0t/type-changed.json\0`
+    );
+    const reader = createProductionPhase1GitReader(
+      { [oracleRepository]: '/synthetic/oracle' },
+      async (request) => {
+        calls.push(request);
+        return raw;
+      }
+    );
+
+    await expect(
+      reader.diffEntries(oracleRepository, phase0Commit, harnessCommit)
+    ).resolves.toEqual([
+      {
+        status: 'added',
+        path: 'a/script.sh',
+        oldMode: '000000',
+        newMode: '100755',
+      },
+      {
+        status: 'modified',
+        path: 'm/modified.json',
+        oldMode: '100644',
+        newMode: '100644',
+      },
+      {
+        status: 'type-changed',
+        path: 't/type-changed.json',
+        oldMode: '120000',
+        newMode: '100644',
+      },
+      {
+        status: 'deleted',
+        path: 'z/deleted.json',
+        oldMode: '100644',
+        newMode: '000000',
+      },
+    ] satisfies Phase1GitDeltaEntry[]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      args: [
+        'diff-tree',
+        '--no-commit-id',
+        '-r',
+        '--raw',
+        '-z',
+        '--no-renames',
+        '--abbrev=40',
+        phase0Commit,
+        harnessCommit,
+        '--',
+      ],
+    });
+    expect(calls[0]?.maximumBytes).toBeLessThanOrEqual(1024 * 1024);
+    expect(calls[0]?.environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
+  });
+
+  it.each([
+    [
+      'missing terminal NUL',
+      Buffer.from(':000000 100644 ' + '0'.repeat(40) + ' ' + '1'.repeat(40) + ' A\0safe.json'),
+    ],
+    [
+      'rename status',
+      Buffer.from(
+        ':100644 100644 ' + '1'.repeat(40) + ' ' + '2'.repeat(40) + ' R100\0old.json\0new.json\0'
+      ),
+    ],
+    [
+      'duplicate path',
+      Buffer.from(
+        ':000000 100644 ' +
+          '0'.repeat(40) +
+          ' ' +
+          '1'.repeat(40) +
+          ' A\0safe.json\0:100644 100644 ' +
+          '1'.repeat(40) +
+          ' ' +
+          '2'.repeat(40) +
+          ' M\0safe.json\0'
+      ),
+    ],
+    [
+      'unsafe path',
+      Buffer.from(
+        ':000000 100644 ' + '0'.repeat(40) + ' ' + '1'.repeat(40) + ' A\0../escape.json\0'
+      ),
+    ],
+    ['invalid UTF-8', Buffer.from([0xff, 0x00])],
+    [
+      'inconsistent add mode',
+      Buffer.from(':100644 100644 ' + '1'.repeat(40) + ' ' + '2'.repeat(40) + ' A\0safe.json\0'),
+    ],
+    [
+      'zero object for an addition',
+      Buffer.from(':000000 100644 ' + '0'.repeat(40) + ' ' + '0'.repeat(40) + ' A\0safe.json\0'),
+    ],
+  ] as const)('the production Git reader rejects a raw delta with %s', async (_name, raw) => {
+    const reader = createProductionPhase1GitReader(
+      { [oracleRepository]: '/synthetic/oracle' },
+      async () => raw
+    );
+
+    await expect(
+      reader.diffEntries(oracleRepository, phase0Commit, harnessCommit)
+    ).rejects.toMatchObject({
+      stage: 'provenance',
+      pointers: ['/git'],
+    });
+  });
+
+  it('the production Git reader bounds raw delta bytes and entry count', async () => {
+    const zero = '0'.repeat(40);
+    const object = '1'.repeat(40);
+    const excessiveEntries = Buffer.from(
+      Array.from(
+        { length: 1001 },
+        (_value, index) =>
+          `:000000 100644 ${zero} ${object} A\0generated/${index.toString().padStart(4, '0')}.json\0`
+      ).join('')
+    );
+
+    for (const raw of [excessiveEntries, Buffer.alloc(1024 * 1024 + 1)]) {
+      const reader = createProductionPhase1GitReader(
+        { [oracleRepository]: '/synthetic/oracle' },
+        async () => raw
+      );
+      await expect(
+        reader.diffEntries(oracleRepository, phase0Commit, harnessCommit)
+      ).rejects.toMatchObject({
+        stage: 'provenance',
+        pointers: ['/git'],
+      });
+    }
   });
 
   it('the production Git reader unshallows and verifies the exact fetched commit', async () => {
