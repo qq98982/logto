@@ -195,6 +195,43 @@ describe('Phase 1 CLI grammar', () => {
     expect(Object.isFrozen(command.command === 'run' ? command.controls : null)).toBe(true);
   });
 
+  it('accepts one pnpm script delimiter only before an exact subcommand', async () => {
+    const run = createCliHarness();
+    let prepared = false;
+    const prepare = createCliHarness({
+      prepareReviewProfile: async () => {
+        prepared = true;
+      },
+    });
+    const repeated = createCliHarness();
+    let misplacedTouched = false;
+    const misplaced = createCliHarness({
+      loadRunBundle: async () => {
+        misplacedTouched = true;
+        throw new Error('misplaced delimiter reached dependencies');
+      },
+    });
+
+    await expect(runPhase1Cli(['--', ...runArguments], run.dependencies)).resolves.toBe(0);
+    await expect(runPhase1Cli(['--', ...prepareArguments], prepare.dependencies)).resolves.toBe(0);
+    await expect(
+      runPhase1Cli(['--', '--', ...prepareArguments], repeated.dependencies)
+    ).resolves.toBe(1);
+    await expect(
+      runPhase1Cli(['run', '--', ...runArguments.slice(1)], misplaced.dependencies)
+    ).resolves.toBe(1);
+
+    expect(() => parsePhase1Arguments(['--', ...prepareArguments])).toThrow(
+      'Invalid Phase 1 arguments.'
+    );
+    expect(prepared).toBe(true);
+    expect(misplacedTouched).toBe(false);
+    expect(run.stdout).toEqual(['Phase 1 run authorized.']);
+    expect(prepare.stdout).toEqual(['Phase 1 review profile prepared.']);
+    expect(repeated.stderr).toEqual(['Invalid Phase 1 arguments.']);
+    expect(misplaced.stderr).toEqual(['Invalid Phase 1 arguments.']);
+  });
+
   it('rejects hostile unknown repeated positional equals and cross-command arguments before dependencies', async () => {
     const marker = 'private-cli-marker';
     let touched = false;

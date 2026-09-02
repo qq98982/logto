@@ -790,7 +790,7 @@ export const runPhase1Cli = async (
   let command: Phase1CliCommand;
 
   try {
-    command = parsePhase1Arguments(arguments_);
+    command = parsePhase1Arguments(arguments_[0] === '--' ? arguments_.slice(1) : arguments_);
   } catch {
     await writeStatus(
       injectedDependencies.stderr ?? defaultDependencies.stderr,
