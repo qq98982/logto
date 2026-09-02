@@ -6,6 +6,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import { jsonValueGuard } from '../../model.js';
+import {
+  asterPhase1BuildRootEnvironmentVariable,
+  requireAsterPhase1BuildPath,
+} from '../build-root.js';
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
 import { cloneAndDeepFreeze, snapshotClosedDataGraph } from '../model.js';
 import { assertConformanceExecution } from '../profile-semantics/conformance.js';
@@ -123,6 +127,11 @@ const processResultKeys = Object.freeze([
 ] as const);
 const resultAuthorities = new WeakSet<object>();
 const productionRequests = new WeakSet<object>();
+const activeProcessGroups = new Set<number>();
+const interruptionSignals = Object.freeze(['SIGINT', 'SIGTERM', 'SIGHUP'] as const);
+const interruptionExitCodes = Object.freeze({ SIGINT: 130, SIGTERM: 143, SIGHUP: 129 } as const);
+let processCleanupInstalled = false;
+let processCleanupRunning = false;
 
 type OwnedProcessRequest = Omit<
   Phase1ConformanceProcessRequest,
@@ -211,6 +220,59 @@ const fenceGroup = async (pid: number | undefined, force: boolean): Promise<bool
   return !groupExists(pid);
 };
 
+const killActiveProcessGroups = (): void => {
+  for (const processGroupId of activeProcessGroups) {
+    signalGroup(processGroupId, 'SIGKILL');
+  }
+};
+
+const processExitCleanup = () => {
+  killActiveProcessGroups();
+};
+
+const removeProcessCleanup = (): void => {
+  if (!processCleanupInstalled) return;
+  for (const signal of interruptionSignals) {
+    process.removeListener(signal, processSignalHandlers[signal]);
+  }
+  process.removeListener('exit', processExitCleanup);
+  processCleanupInstalled = false;
+};
+
+const relayProcessSignal = (signal: (typeof interruptionSignals)[number]): void => {
+  if (processCleanupRunning) return;
+  processCleanupRunning = true;
+  killActiveProcessGroups();
+  removeProcessCleanup();
+  process.exitCode = interruptionExitCodes[signal];
+};
+
+const processSignalHandlers = Object.freeze({
+  SIGHUP: () => relayProcessSignal('SIGHUP'),
+  SIGINT: () => relayProcessSignal('SIGINT'),
+  SIGTERM: () => relayProcessSignal('SIGTERM'),
+});
+
+const installProcessCleanup = (): void => {
+  if (processCleanupInstalled) return;
+  for (const signal of interruptionSignals) {
+    process.on(signal, processSignalHandlers[signal]);
+  }
+  process.on('exit', processExitCleanup);
+  processCleanupInstalled = true;
+};
+
+const registerProcessGroup = (processGroupId: number | undefined): void => {
+  if (!processGroupId || processGroupId <= 0) return;
+  activeProcessGroups.add(processGroupId);
+  installProcessCleanup();
+};
+
+const releaseProcessGroup = (processGroupId: number | undefined): void => {
+  if (processGroupId) activeProcessGroups.delete(processGroupId);
+  if (activeProcessGroups.size === 0 && !processCleanupRunning) removeProcessCleanup();
+};
+
 const runOwnedProcess = async (
   request: OwnedProcessRequest
 ): Promise<Phase1ConformanceProcessResult> =>
@@ -232,6 +294,7 @@ const runOwnedProcess = async (
     let terminating = false;
     let forceKillTimer: NodeJS.Timeout | undefined;
     const pid = child.pid;
+    registerProcessGroup(pid);
     const terminate = (timeout: boolean) => {
       timedOut ||= timeout;
       killed = true;
@@ -265,6 +328,7 @@ const runOwnedProcess = async (
       if (forceKillTimer) clearTimeout(forceKillTimer);
       void (async () => {
         const reaped = await fenceGroup(pid, killed);
+        releaseProcessGroup(pid);
         const decode = (chunks: readonly Buffer[]) => {
           try {
             return new TextDecoder('utf8', { fatal: true }).decode(Buffer.concat(chunks));
@@ -429,20 +493,24 @@ const requireDependencies = (dependencies: RunPhase1ConformanceDependencies): vo
     Array.isArray(environment) ||
     !exactKeys(environment, [
       'PATH',
+      'ASTER_PHASE1_BUILD_ROOT',
       'ASTER_PHASE1_HARNESS_COMMIT',
       'ASTER_PHASE1_CONFORMANCE_ROOT',
       'ASTER_PHASE1_CONFORMANCE_DRIVER',
     ]) ||
     environment.PATH !== '/usr/bin:/bin' ||
+    typeof environment.ASTER_PHASE1_BUILD_ROOT !== 'string' ||
     typeof environment.ASTER_PHASE1_HARNESS_COMMIT !== 'string' ||
     !/^[0-9a-f]{40}$/u.test(environment.ASTER_PHASE1_HARNESS_COMMIT) ||
     typeof environment.ASTER_PHASE1_CONFORMANCE_ROOT !== 'string' ||
-    !environment.ASTER_PHASE1_CONFORMANCE_ROOT.startsWith('/var/tmp/henry-build/') ||
     typeof environment.ASTER_PHASE1_CONFORMANCE_DRIVER !== 'string' ||
     environment.ASTER_PHASE1_CONFORMANCE_DRIVER !==
       `${dependencies.repositoryRoot}/.scripts/compatibility/phase1-conformance-driver.sh`
   )
     throw new TypeError(diagnostic);
+  requireAsterPhase1BuildPath(environment.ASTER_PHASE1_CONFORMANCE_ROOT, {
+    [asterPhase1BuildRootEnvironmentVariable]: environment.ASTER_PHASE1_BUILD_ROOT,
+  });
 };
 const runRequest = async (
   request: Phase1ConformanceProcessRequest,
@@ -520,6 +588,19 @@ const runPlan = async (
     plan
   );
 
+const runSequentially = async <Input, Result>(
+  inputs: readonly Input[],
+  run: (input: Input) => Promise<Result>
+): Promise<readonly Result[]> => {
+  const results: Result[] = [];
+
+  for (const input of inputs) {
+    results.push(await run(input));
+  }
+
+  return Object.freeze(results);
+};
+
 export const runPhase1Conformance = async (
   profile: Readonly<Phase1Profile>,
   mode: Phase1ConformanceMode,
@@ -533,16 +614,12 @@ export const runPhase1Conformance = async (
       checkedOutSuiteCommit: dependencies.checkedOutSuiteCommit,
     });
     const config = createPhase1ConformanceConfig(profile);
-    const adapterControls = Object.freeze(
-      await Promise.all(
-        config.staticClients.map(async (client) => runAdapterControl(config, client, dependencies))
-      )
+    const adapterControls = await runSequentially(config.staticClients, async (client) =>
+      runAdapterControl(config, client, dependencies)
     );
     const officialResults =
       mode === 'runtime-candidate'
-        ? Object.freeze(
-            await Promise.all(config.plans.map(async (plan) => runPlan(config, plan, dependencies)))
-          )
+        ? await runSequentially(config.plans, async (plan) => runPlan(config, plan, dependencies))
         : Object.freeze([]);
     const officialResultIds = officialResults.map(({ resultId }) => resultId);
 

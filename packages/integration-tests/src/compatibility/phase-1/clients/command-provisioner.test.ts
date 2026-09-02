@@ -1342,7 +1342,10 @@ describe('default candidate command process-group fencing', () => {
         'setInterval(() => undefined, 1000);',
       ].join('\n'),
       async (commandPath, directory) => {
-        const result = await runPhase1FixtureCommand(runnerRequest(commandPath, { timeoutMs: 50 }));
+        const result = await runPhase1FixtureCommand(
+          // Leave enough scheduler headroom for the helper to publish its owned PIDs under a loaded suite.
+          runnerRequest(commandPath, { timeoutMs: 250 })
+        );
         const pids = await readOwnedPids(directory);
 
         expect(result).toMatchObject({ timedOut: true, killed: true, reaped: true });

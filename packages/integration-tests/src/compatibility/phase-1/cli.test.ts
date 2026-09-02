@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import {
+  assertAuthorizedPhase1Run,
   consumePreparedReviewCapabilityForTesting,
   inspectGitFileForTesting,
   parsePhase1Arguments,
@@ -240,6 +241,12 @@ describe('Phase 1 CLI grammar', () => {
       provenance: { kind: 'review-candidate', publishable: false },
     });
     expect(Object.isFrozen(review.authorizations[0])).toBe(true);
+    expect(() => {
+      assertAuthorizedPhase1Run(review.authorizations[0]);
+    }).not.toThrow();
+    expect(() => {
+      assertAuthorizedPhase1Run({ ...review.authorizations[0] });
+    }).toThrow('Phase 1 run authorization failed.');
 
     const forged = createCliHarness({
       verifyRunProvenance: async () => ({

@@ -59,6 +59,8 @@ const maximumRuntimeArrayLength = 4096;
 const safeTextPattern = /^[^\u0000-\u001f\u007f]+$/u;
 const runtimeCredentialFailure = 'Phase 1 runtime output contains forbidden credential material';
 const reviewedRuntimeCredentialMetadataKeys = new Set([
+  'authorizationcodeconsumed',
+  'authorizationcodepresent',
   'cookiekeyid',
   'signingkeyid',
   'tokenfamily',

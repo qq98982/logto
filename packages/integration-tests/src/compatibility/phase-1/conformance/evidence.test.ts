@@ -125,6 +125,7 @@ const brandedRunResult = async (
     workingDirectory: '/repo',
     environment: {
       PATH: '/usr/bin:/bin',
+      ASTER_PHASE1_BUILD_ROOT: '/var/tmp/henry-build',
       ASTER_PHASE1_HARNESS_COMMIT: 'a'.repeat(40),
       ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/evidence-test',
       ASTER_PHASE1_CONFORMANCE_DRIVER: '/repo/.scripts/compatibility/phase1-conformance-driver.sh',

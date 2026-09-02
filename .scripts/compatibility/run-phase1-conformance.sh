@@ -4,7 +4,9 @@ umask 077
 
 readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'
 readonly SUITE_COMMIT='0dc0e3a21ec411e92c808e5b2e2258592c22b594'
-readonly BUILD_ROOT='/var/tmp/henry-build'
+readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
+BUILD_ROOT="${ASTER_PHASE1_BUILD_ROOT:-${DEFAULT_BUILD_ROOT}}"
+readonly BUILD_ROOT
 readonly DEFAULT_ROOT="${BUILD_ROOT}/aster-phase1-conformance"
 readonly TRUSTED_PATH='/usr/bin:/bin'
 readonly DRIVER_RELATIVE='.scripts/compatibility/phase1-conformance-driver.sh'
@@ -19,6 +21,46 @@ readonly DRIVER_PATH="${REPO_ROOT}/${DRIVER_RELATIVE}"
 fail() {
   printf '%s\n' 'phase 1 conformance wrapper failed' >&2
   exit 1
+}
+
+require_safe_build_root() {
+  local value=$1
+
+  [[ "${value}" == /* && "${value}" != */ && "${value}" != *'//'* ]] || fail
+  [[ "${value}" != *'/./'* && "${value}" != *'/../'* && ! "${value}" =~ [[:cntrl:]] ]] || fail
+  case "${value}" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/proc|/root|/run|/sbin|/sys|/tmp|/usr|/var|/var/tmp|/dev/*|/proc/*|/sys/*) fail ;;
+  esac
+}
+
+BUILD_ROOT_DEVICE=''
+BUILD_ROOT_INODE=''
+
+capture_build_root_identity() {
+  local resolved owner mode
+
+  require_safe_build_root "${BUILD_ROOT}"
+  [[ -d "${BUILD_ROOT}" && ! -L "${BUILD_ROOT}" ]] || fail
+  resolved="$(/usr/bin/realpath -e -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  owner="$(/usr/bin/stat -c %u -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${BUILD_ROOT}" && "${owner}" == "$(/usr/bin/id -u)" && "${mode}" == 700 ]] || fail
+  BUILD_ROOT_DEVICE="$(/usr/bin/stat -c %d -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  BUILD_ROOT_INODE="$(/usr/bin/stat -c %i -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${BUILD_ROOT_DEVICE}" =~ ^[0-9]+$ && "${BUILD_ROOT_INODE}" =~ ^[0-9]+$ ]] || fail
+}
+
+assert_build_root_identity() {
+  local resolved owner mode device inode
+
+  [[ -d "${BUILD_ROOT}" && ! -L "${BUILD_ROOT}" ]] || fail
+  resolved="$(/usr/bin/realpath -e -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  owner="$(/usr/bin/stat -c %u -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  device="$(/usr/bin/stat -c %d -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  inode="$(/usr/bin/stat -c %i -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${BUILD_ROOT}" && "${owner}" == "$(/usr/bin/id -u)" && "${mode}" == 700 ]] || fail
+  [[ "${device}" == "${BUILD_ROOT_DEVICE}" && "${inode}" == "${BUILD_ROOT_INODE}" ]] || fail
 }
 
 root="${ASTER_PHASE1_CONFORMANCE_ROOT:-${DEFAULT_ROOT}}"
@@ -72,11 +114,14 @@ for repository_file in "${WRAPPER_RELATIVE}" "${DRIVER_RELATIVE}"; do
   fi
 done
 
+capture_build_root_identity
+readonly BUILD_ROOT_DEVICE BUILD_ROOT_INODE
+
 if [[ "${root}" != "${BUILD_ROOT}/"* || "${root}" == "${BUILD_ROOT}" || "${root}" == */../* ]]; then
   fail
 fi
 if [[ ! -e "${root}" ]]; then
-  mkdir -m 700 -- "${root}" || fail
+  /usr/bin/mkdir -m 700 -- "${root}" || fail
 fi
 if [[ ! -d "${root}" || -L "${root}" ]] || \
   [[ "$(realpath -e -- "${root}" 2>/dev/null || true)" != "${root}" ]] || \
@@ -84,6 +129,7 @@ if [[ ! -d "${root}" || -L "${root}" ]] || \
   [[ "$(stat -c %a -- "${root}" 2>/dev/null || true)" != 700 ]]; then
   fail
 fi
+assert_build_root_identity
 if [[ "${driver}" != "${DRIVER_PATH}" || \
   ! -f "${driver}" || -L "${driver}" || ! -x "${driver}" ]] || \
   [[ "$(realpath -e -- "${driver}" 2>/dev/null || true)" != "${driver}" ]] || \
@@ -95,11 +141,13 @@ if [[ ! "${driver_mode}" =~ ^[0-7]{3,4}$ ]] || ((8#${driver_mode} & 8#022)); the
   fail
 fi
 
-work="$(mktemp -d "${root}/run.XXXXXX")"
+work="$(/usr/bin/mktemp -d "${root}/run.XXXXXX")"
+assert_build_root_identity
 checkout="${work}/suite"
 private_home="${work}/home"
 private_tmp="${work}/tmp"
-mkdir -m 700 -- "${private_home}" "${private_tmp}"
+/usr/bin/mkdir -m 700 -- "${private_home}" "${private_tmp}"
+assert_build_root_identity
 
 cleanup() {
   local exit_code=$?

@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function -- Linux open flags, fd lifecycle state, fixed failure guards, sequential identity checks, and best-effort cleanup are intrinsic to this atomic sink. */
+/* eslint-disable max-lines, max-params, complexity, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function -- Linux open flags, fd lifecycle state, transactional rollback, fixed guards, and sequential identity checks are intrinsic to this atomic sink. */
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { link, lstat, open, readdir, realpath, rm, unlink } from 'node:fs/promises';
@@ -7,10 +7,14 @@ import path from 'node:path';
 import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 
+import { canonicalPhase1ArtifactBytes } from './artifact-contract.js';
 import {
   assertPhase1EvidenceIsSanitized,
   assertSerializedPhase1EvidenceIsSanitized,
+  assertSerializedPhase1ArtifactEvidenceIsSanitized,
+  snapshotPhase1EvidencePreservingVerifiedTokens,
 } from './evidence.js';
+import { snapshotClosedDataGraph } from './model.js';
 
 type DirectoryIdentity = Readonly<{
   dev: bigint | number;
@@ -36,16 +40,28 @@ export type SecureEvidenceSinkTestHooks = Readonly<{
 }>;
 
 export type SecureEvidenceSink = Readonly<{
-  write(name: string, value: JsonValue): Promise<string>;
+  write(name: string, value: unknown): Promise<string>;
+  rollback(name: string): Promise<void>;
   scan(): Promise<readonly string[]>;
+}>;
+
+export type SecureEvidenceInputAuthority = Readonly<{
+  consume(input: SecureEvidenceAuthorizedInput): void;
+}>;
+
+export type SecureEvidenceAuthorizedInput = Readonly<{
+  name: string;
+  source: unknown;
+  snapshot: Readonly<JsonValue>;
+  serialized: string;
 }>;
 
 export type SecureJsonPublication = Readonly<{ path: string }>;
 
 type ArtifactPolicy = Readonly<{
   failureRule: string;
-  assertInput(value: unknown): void;
-  assertSerialized(value: unknown): void;
+  prepareInput(name: string, value: unknown): Readonly<{ serialized: string }>;
+  assertSerialized(name: string, value: unknown): void;
 }>;
 
 const safeArtifactName = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/u;
@@ -97,19 +113,52 @@ const guardSynchronousFailure = <Result>(
   }
 };
 
-const evidencePolicy: ArtifactPolicy = {
-  assertInput: assertPhase1EvidenceIsSanitized,
-  assertSerialized: assertSerializedPhase1EvidenceIsSanitized,
+const serializeClosedJson = (value: unknown): string =>
+  Buffer.from(canonicalPhase1ArtifactBytes(value)).toString('utf8');
+const serializedTokenEvidenceName = 'phase-1-differential.json';
+
+const evidencePolicy = (authority?: SecureEvidenceInputAuthority): ArtifactPolicy => ({
+  prepareInput: (name, value) => {
+    assertPhase1EvidenceIsSanitized(value);
+    const snapshot = snapshotPhase1EvidencePreservingVerifiedTokens<JsonValue>(value);
+    assertPhase1EvidenceIsSanitized(snapshot);
+    if (!authority) {
+      const authorityFreeSnapshot = snapshotClosedDataGraph<JsonValue>(snapshot);
+
+      if (authorityFreeSnapshot === undefined) {
+        throw new TypeError('Invalid evidence publication');
+      }
+      assertSerializedPhase1EvidenceIsSanitized(authorityFreeSnapshot);
+    }
+    const serialized = serializeClosedJson(snapshot);
+    authority?.consume(Object.freeze({ name, source: value, snapshot, serialized }));
+
+    return Object.freeze({ serialized });
+  },
+  assertSerialized: (name, value) => {
+    if (name === serializedTokenEvidenceName) {
+      assertSerializedPhase1ArtifactEvidenceIsSanitized(value);
+      return;
+    }
+    assertSerializedPhase1EvidenceIsSanitized(value);
+  },
   failureRule: 'sanitizer',
-};
+});
 
 const jsonPolicy: ArtifactPolicy = {
-  assertInput: (value) => {
+  prepareInput: (_name, value) => {
     if (!jsonValueGuard.safeParse(value).success) {
       throw new TypeError('Invalid JSON publication');
     }
+    const snapshot = snapshotClosedDataGraph<JsonValue>(value);
+
+    if (snapshot === undefined || !jsonValueGuard.safeParse(snapshot).success) {
+      throw new TypeError('Invalid JSON publication');
+    }
+
+    return Object.freeze({ serialized: serializeClosedJson(snapshot) });
   },
-  assertSerialized: (value) => {
+  assertSerialized: (_name, value) => {
     if (!jsonValueGuard.safeParse(value).success) {
       throw new TypeError('Invalid JSON publication');
     }
@@ -231,7 +280,8 @@ const readAndSanitizeArtifact = async (
   filePath: string,
   artifact: string,
   policy: ArtifactPolicy,
-  expected?: FileIdentity
+  expected?: FileIdentity,
+  expectedSerialized?: string
 ): Promise<void> => {
   let file;
 
@@ -270,14 +320,22 @@ const readAndSanitizeArtifact = async (
     if (totalBytes > maximumArtifactBytes) {
       return fail(artifact, 'content-size');
     }
+    const bytes = Buffer.concat(chunks);
+
+    if (
+      expectedSerialized !== undefined &&
+      !bytes.equals(Buffer.from(expectedSerialized, 'utf8'))
+    ) {
+      return fail(artifact, 'content-mismatch');
+    }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(Buffer.concat(chunks)));
+      parsed = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
     } catch {
       return fail(artifact, 'content-json');
     }
     try {
-      policy.assertSerialized(parsed);
+      policy.assertSerialized(artifact, parsed);
     } catch {
       return fail(artifact, policy.failureRule);
     }
@@ -309,7 +367,8 @@ const createSecureArtifactSink = async (
   root: string,
   allowlist: readonly string[],
   hooks: SecureEvidenceSinkTestHooks,
-  policy: ArtifactPolicy
+  policy: ArtifactPolicy,
+  closedDirectory: boolean
 ): Promise<SecureEvidenceSink> => {
   if (!path.isAbsolute(root) || path.resolve(root) !== root) {
     throw new TypeError('Invalid phase 1 evidence directory');
@@ -317,6 +376,7 @@ const createSecureArtifactSink = async (
   const names = validateAllowlist(allowlist);
   const allowed = new Set(names);
   const publishedIdentities = new Map<string, FileIdentity>();
+  const publishedSerialized = new Map<string, string>();
   const initialIdentity = await readDirectoryIdentity(root);
 
   const withDirectory = async <Result>(
@@ -364,7 +424,13 @@ const createSecureArtifactSink = async (
           const filePath = path.join(directoryPath, name);
           const publishedIdentity = publishedIdentities.get(name);
           const expected = await validateFinal(filePath, name, publishedIdentity);
-          await readAndSanitizeArtifact(filePath, name, policy, expected);
+          await readAndSanitizeArtifact(
+            filePath,
+            name,
+            policy,
+            expected,
+            publishedSerialized.get(name)
+          );
         }
       }
       const unexpected = entries
@@ -372,7 +438,7 @@ const createSecureArtifactSink = async (
         .filter((name) => !allowed.has(name))
         .toSorted()[0];
 
-      if (unexpected) {
+      if (closedDirectory && unexpected) {
         return fail(unexpected, 'unexpected-entry');
       }
       await requireDirectoryIdentity(root, identity);
@@ -381,22 +447,16 @@ const createSecureArtifactSink = async (
     });
 
   return Object.freeze({
-    write: async (name: string, value: JsonValue): Promise<string> => {
+    write: async (name: string, value: unknown): Promise<string> => {
       if (!allowed.has(name)) {
         return fail(name, 'not-allowlisted');
       }
-      try {
-        policy.assertInput(value);
-      } catch {
-        return fail(name, policy.failureRule);
-      }
-      const bytes = guardSynchronousFailure(
-        name,
-        'serialization',
-        () => `${JSON.stringify(value)}\n`
+      const prepared = guardSynchronousFailure(name, policy.failureRule, () =>
+        policy.prepareInput(name, value)
       );
+      const { serialized } = prepared;
 
-      if (Buffer.byteLength(bytes) > maximumArtifactBytes) {
+      if (Buffer.byteLength(serialized) > maximumArtifactBytes) {
         return fail(name, 'content-size');
       }
 
@@ -430,7 +490,7 @@ const createSecureArtifactSink = async (
           const temporaryIdentity = await (async (): Promise<FileIdentity> => {
             try {
               await guardFailure(name, 'temporary-write', async () =>
-                temporary.writeFile(bytes, 'utf8')
+                temporary.writeFile(serialized, 'utf8')
               );
               await guardFailure(name, 'temporary-sync', async () => temporary.sync());
               const state = await guardFailure(name, 'temporary-stat', async () =>
@@ -476,8 +536,15 @@ const createSecureArtifactSink = async (
             await guardFailure(name, 'directory-sync-close', async () => directory.close());
           }
           await validateFinal(finalViaDirectory, name, temporaryIdentity);
-          await readAndSanitizeArtifact(finalViaDirectory, name, policy, temporaryIdentity);
+          await readAndSanitizeArtifact(
+            finalViaDirectory,
+            name,
+            policy,
+            temporaryIdentity,
+            serialized
+          );
           publishedIdentities.set(name, temporaryIdentity);
+          publishedSerialized.set(name, serialized);
           await requireDirectoryIdentity(root, identity);
           completed = true;
 
@@ -488,6 +555,7 @@ const createSecureArtifactSink = async (
           }
           if (finalPublished && !completed) {
             publishedIdentities.delete(name);
+            publishedSerialized.delete(name);
             await rm(finalViaDirectory, { force: true, recursive: true }).catch(() => {});
           }
         }
@@ -496,6 +564,7 @@ const createSecureArtifactSink = async (
         await scan();
       } catch (error: unknown) {
         publishedIdentities.delete(name);
+        publishedSerialized.delete(name);
         await withDirectory(async (directoryPath) => {
           await rm(path.join(directoryPath, name), { force: true, recursive: true }).catch(
             () => {}
@@ -507,6 +576,44 @@ const createSecureArtifactSink = async (
       return finalPath;
     },
 
+    rollback: async (name: string): Promise<void> => {
+      if (!allowed.has(name)) {
+        return fail(name, 'not-allowlisted');
+      }
+      const expected = publishedIdentities.get(name);
+
+      if (!expected) {
+        return fail(name, 'publication-identity');
+      }
+      await withDirectory(async (directoryPath) => {
+        const publishedPath = path.join(directoryPath, name);
+        const state = await lstat(publishedPath, { bigint: true }).catch(() => {});
+
+        if (state) {
+          if (
+            !state.isFile() ||
+            state.isSymbolicLink() ||
+            state.dev !== expected.dev ||
+            state.ino !== expected.ino
+          ) {
+            return fail(name, 'publication-identity');
+          }
+          await unlink(publishedPath);
+        }
+        if (await fileExists(publishedPath, name)) {
+          return fail(name, 'rollback-presence');
+        }
+        const directory = await open(directoryPath, constants.O_RDONLY | constants.O_DIRECTORY);
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
+      });
+      publishedIdentities.delete(name);
+      publishedSerialized.delete(name);
+    },
+
     scan,
   });
 };
@@ -514,8 +621,10 @@ const createSecureArtifactSink = async (
 export const createSecureEvidenceSink = async (
   root: string,
   allowlist: readonly string[],
-  hooks: SecureEvidenceSinkTestHooks = {}
-): Promise<SecureEvidenceSink> => createSecureArtifactSink(root, allowlist, hooks, evidencePolicy);
+  hooks: SecureEvidenceSinkTestHooks = {},
+  authority?: SecureEvidenceInputAuthority
+): Promise<SecureEvidenceSink> =>
+  createSecureArtifactSink(root, allowlist, hooks, evidencePolicy(authority), true);
 
 export const writeSecureJsonArtifact = async (
   outputPath: string,
@@ -528,7 +637,7 @@ export const writeSecureJsonArtifact = async (
   if (!path.isAbsolute(outputPath) || path.resolve(outputPath) !== outputPath) {
     throw new TypeError('Invalid secure JSON output');
   }
-  const sink = await createSecureArtifactSink(root, [name], hooks, jsonPolicy);
+  const sink = await createSecureArtifactSink(root, [name], hooks, jsonPolicy, false);
   const publishedPath = await sink.write(name, value);
   const identity = await validateFinal(publishedPath, name);
   const publication = Object.freeze({ path: publishedPath });
@@ -545,18 +654,67 @@ export const rollbackSecureJsonArtifact = async (
   if (!authority) {
     throw new TypeError('Invalid secure JSON publication');
   }
-  jsonPublications.delete(publication);
   const state = await lstat(publication.path, { bigint: true }).catch(() => {});
 
+  if (!state) {
+    jsonPublications.delete(publication);
+    return;
+  }
   if (
-    state &&
-    !state.isSymbolicLink() &&
-    state.isFile() &&
-    state.dev === authority.identity.dev &&
-    state.ino === authority.identity.ino
+    state.isSymbolicLink() ||
+    !state.isFile() ||
+    state.dev !== authority.identity.dev ||
+    state.ino !== authority.identity.ino
   ) {
-    await unlink(publication.path).catch(() => {});
+    throw new TypeError('Invalid secure JSON publication');
+  }
+  await unlink(publication.path);
+  if (await lstat(publication.path).catch(() => {})) {
+    throw new TypeError('Invalid secure JSON publication');
+  }
+  jsonPublications.delete(publication);
+};
+
+export const setSecureJsonArtifactMode = async (
+  publication: SecureJsonPublication,
+  mode: 0o400 | 0o600
+): Promise<void> => {
+  const authority = jsonPublications.get(publication);
+
+  if (!authority) {
+    throw new TypeError('Invalid secure JSON publication');
+  }
+  const handle = await open(publication.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+
+  try {
+    const before = await handle.stat({ bigint: true });
+
+    if (
+      !before.isFile() ||
+      before.dev !== authority.identity.dev ||
+      before.ino !== authority.identity.ino
+    ) {
+      throw new TypeError('Invalid secure JSON publication');
+    }
+    await handle.chmod(mode);
+    await handle.sync();
+    const after = await handle.stat({ bigint: true });
+    const pathState = await lstat(publication.path, { bigint: true });
+
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      modeBits(Number(after.mode)) !== mode ||
+      pathState.dev !== after.dev ||
+      pathState.ino !== after.ino ||
+      pathState.ctimeNs !== after.ctimeNs ||
+      pathState.size !== after.size
+    ) {
+      throw new TypeError('Invalid secure JSON publication');
+    }
+  } finally {
+    await handle.close();
   }
 };
 
-/* eslint-enable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines, max-params, complexity, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, no-bitwise, no-await-in-loop, @typescript-eslint/no-empty-function */

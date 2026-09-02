@@ -1,9 +1,13 @@
-/* eslint-disable complexity, no-restricted-syntax, @silverhand/fp/no-mutating-methods -- The evidence boundary validates and hashes the exact downstream assembler contract. */
-import { createHash } from 'node:crypto';
+/* eslint-disable complexity, no-restricted-syntax -- The evidence boundary validates the exact downstream assembler contract. */
 import { isDeepStrictEqual } from 'node:util';
 
-import { jsonValueGuard } from '../../model.js';
-import type { JsonObject, JsonValue } from '../../normalize.js';
+import {
+  createPhase1EvidenceProvenance,
+  createPhase1ProjectionEnvelope,
+  hashCanonicalPhase1Json,
+  type Phase1EvidenceProvenance,
+  type Phase1ProjectionEnvelope,
+} from '../evidence-envelope.js';
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
 import { cloneAndDeepFreeze, snapshotClosedDataGraph } from '../model.js';
 
@@ -14,18 +18,9 @@ import {
   type Phase1ConformanceRunResult,
 } from './runner.js';
 
-export type Phase1ConformanceEvidenceProvenance = Readonly<{
-  harnessCommit: string;
-  profileSha256: string;
-  schemaSha256: string;
-  imageDigest: string;
-}>;
+export type Phase1ConformanceEvidenceProvenance = Phase1EvidenceProvenance;
 
-export type Phase1ConformanceProjectionEnvelope = Readonly<{
-  label: string;
-  projectionSha256: string;
-  value: Readonly<JsonObject>;
-}>;
+export type Phase1ConformanceProjectionEnvelope = Phase1ProjectionEnvelope;
 
 export type Phase1ConformanceEvidence = Readonly<{
   schemaVersion: 1;
@@ -51,9 +46,6 @@ export type Phase1ConformanceEvidence = Readonly<{
 }>;
 
 const diagnostic = 'Invalid phase 1 conformance evidence';
-const sha256Pattern = /^[0-9a-f]{64}$/u;
-const gitObjectPattern = /^[0-9a-f]{40}$/u;
-const imageDigestPattern = /^sha256:[0-9a-f]{64}$/u;
 const resultIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/u;
 const planIds = Object.freeze([
   'oidcc-basic-certification-test-plan',
@@ -76,38 +68,9 @@ const expectedVariants = Object.freeze({
 const bytewiseCompare = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
 
-const canonicalValue = (value: JsonValue): JsonValue => {
-  if (Array.isArray(value)) {
-    return value.map((item) => canonicalValue(item));
-  }
-  if (typeof value !== 'object' || value === null) {
-    return value;
-  }
-  const result = Object.create(null) as Record<string, JsonValue>;
-
-  for (const key of Object.keys(value).toSorted(bytewiseCompare)) {
-    Object.defineProperty(result, key, {
-      configurable: false,
-      enumerable: true,
-      value: canonicalValue(value[key] as JsonValue),
-      writable: false,
-    });
-  }
-
-  return result;
-};
-
 export const hashCanonicalConformanceJson = (value: unknown): string => {
   try {
-    const snapshot = snapshotClosedDataGraph<unknown>(value);
-
-    if (snapshot === undefined || !jsonValueGuard.safeParse(snapshot).success) {
-      throw new TypeError(diagnostic);
-    }
-
-    return createHash('sha256')
-      .update(`${JSON.stringify(canonicalValue(snapshot as JsonValue))}\n`, 'utf8')
-      .digest('hex');
+    return hashCanonicalPhase1Json(value);
   } catch {
     throw new TypeError(diagnostic);
   }
@@ -125,59 +88,17 @@ const exactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly stri
   );
 };
 
-const requireProjection = (value: unknown): Readonly<JsonObject> => {
-  const snapshot = snapshotClosedDataGraph<JsonObject>(value);
-
-  if (
-    snapshot === undefined ||
-    Array.isArray(snapshot) ||
-    !jsonValueGuard.safeParse(snapshot).success
-  ) {
-    throw new TypeError(diagnostic);
-  }
-  assertPhase1EvidenceIsSanitized(snapshot);
-
-  return snapshot;
-};
-
 const projectionEnvelope = (
   label: 'adapter-control' | 'official-plan-result',
   value: unknown
-): Phase1ConformanceProjectionEnvelope => {
-  const projection = requireProjection(value);
-
-  return cloneAndDeepFreeze({
-    label,
-    projectionSha256: hashCanonicalConformanceJson(projection),
-    value: projection,
-  });
-};
+): Phase1ConformanceProjectionEnvelope => createPhase1ProjectionEnvelope(label, value);
 
 const requireProvenance = (value: unknown): Phase1ConformanceEvidenceProvenance => {
-  const snapshot = snapshotClosedDataGraph<Record<string, unknown>>(value);
-
-  if (
-    !snapshot ||
-    Array.isArray(snapshot) ||
-    !exactKeys(snapshot, ['harnessCommit', 'profileSha256', 'schemaSha256', 'imageDigest']) ||
-    typeof snapshot.harnessCommit !== 'string' ||
-    !gitObjectPattern.test(snapshot.harnessCommit) ||
-    typeof snapshot.profileSha256 !== 'string' ||
-    !sha256Pattern.test(snapshot.profileSha256) ||
-    typeof snapshot.schemaSha256 !== 'string' ||
-    !sha256Pattern.test(snapshot.schemaSha256) ||
-    typeof snapshot.imageDigest !== 'string' ||
-    !imageDigestPattern.test(snapshot.imageDigest)
-  ) {
+  try {
+    return createPhase1EvidenceProvenance(value);
+  } catch {
     throw new TypeError(diagnostic);
   }
-
-  return cloneAndDeepFreeze({
-    harnessCommit: snapshot.harnessCommit,
-    profileSha256: snapshot.profileSha256,
-    schemaSha256: snapshot.schemaSha256,
-    imageDigest: snapshot.imageDigest,
-  });
 };
 
 export const createPhase1ConformanceEvidence = (
@@ -283,4 +204,4 @@ export const createPhase1ConformanceEvidence = (
   }
 };
 
-/* eslint-enable complexity, no-restricted-syntax, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, no-restricted-syntax */

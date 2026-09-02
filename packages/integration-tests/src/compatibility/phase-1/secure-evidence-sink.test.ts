@@ -1,3 +1,4 @@
+/* eslint-disable max-lines, no-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Adversarial publication tests deliberately mutate prototypes, input graphs, and one-use observation state inside isolated test boundaries. */
 import {
   chmod,
   link,
@@ -10,14 +11,43 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
+import { SymbolTable } from '../symbol-table.js';
+
+import { canonicalPhase1ArtifactBytes } from './artifact-contract.js';
+import { createVerifiedTokenObservations } from './evidence.js';
 import {
   createSecureEvidenceSink,
   rollbackSecureJsonArtifact,
+  type SecureEvidenceInputAuthority,
   writeSecureJsonArtifact,
 } from './secure-evidence-sink.js';
 
 const roots = new Set<string>();
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const oneUseAuthority = (
+  expected: Record<string, unknown>,
+  expectedName = 'scenario.json'
+): SecureEvidenceInputAuthority => {
+  const values = new WeakSet([expected]);
+
+  return Object.freeze({
+    consume: ({ name, source, snapshot, serialized }) => {
+      if (
+        name !== expectedName ||
+        !isRecord(source) ||
+        !values.delete(source) ||
+        !isDeepStrictEqual(snapshot, expected) ||
+        serialized !== Buffer.from(canonicalPhase1ArtifactBytes(snapshot)).toString('utf8')
+      ) {
+        throw new TypeError('Invalid test evidence authority');
+      }
+    },
+  });
+};
 
 const createRoot = async () => {
   const root = path.join('/var/tmp/henry-build', `task8-sink-${process.pid}-${Date.now()}`);
@@ -84,6 +114,39 @@ describe('phase 1 secure evidence sink', () => {
     expect(state.mode % 0o1000).toBe(0o600);
     expect(state.nlink).toBe(1);
     await expect(sink.scan()).resolves.toEqual([finalPath]);
+    await expect(sink.rollback('scenario.json')).resolves.toBeUndefined();
+    await expect(lstat(finalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('never deletes a replacement inode during evidence rollback', async () => {
+    const root = await createRoot();
+    const finalPath = path.join(root, 'scenario.json');
+    const originalPath = path.join(root, 'original.json');
+    const sink = await createSecureEvidenceSink(root, ['scenario.json']);
+    await sink.write('scenario.json', { schemaVersion: 1, value: 'original' });
+    await rename(finalPath, originalPath);
+    await writeFile(finalPath, '{"schemaVersion":1,"value":"replacement"}\n', { mode: 0o600 });
+
+    await expect(sink.rollback('scenario.json')).rejects.toThrow(
+      'scenario.json: publication-identity'
+    );
+    await expect(readFile(finalPath, 'utf8')).resolves.toContain('replacement');
+    await expect(readFile(originalPath, 'utf8')).resolves.toContain('original');
+  });
+
+  it('never deletes a replacement inode during generic JSON rollback', async () => {
+    const root = await createRoot();
+    const finalPath = path.join(root, 'generic.json');
+    const originalPath = path.join(root, 'original.json');
+    const publication = await writeSecureJsonArtifact(finalPath, { value: 'original' });
+    await rename(finalPath, originalPath);
+    await writeFile(finalPath, '{"value":"replacement"}\n', { mode: 0o600 });
+
+    await expect(rollbackSecureJsonArtifact(publication)).rejects.toThrow(
+      'Invalid secure JSON publication'
+    );
+    await expect(readFile(finalPath, 'utf8')).resolves.toContain('replacement');
+    await expect(readFile(originalPath, 'utf8')).resolves.toContain('original');
   });
 
   it('refuses existing final paths without replacing bytes', async () => {
@@ -242,6 +305,194 @@ describe('phase 1 secure evidence sink', () => {
     await expect(sink.scan()).rejects.toThrow('scenario.json: sanitizer');
   });
 
+  it('publishes verified token artifacts only as an authority-bound differential file', async () => {
+    const verified = createVerifiedTokenObservations(
+      { refresh_token: 'runtime-refresh-value' },
+      {
+        target: {
+          label: 'candidate',
+          coreUrl: 'https://candidate.example/',
+          adminUrl: 'https://candidate-admin.example/',
+        },
+        symbols: new SymbolTable(),
+      },
+      { boundedClaimTimestampPaths: [], proofs: [] }
+    );
+    const value = { schemaVersion: 1, tokens: verified.tokens };
+    const unauthorizedRoot = await createRoot();
+    const unauthorized = await createSecureEvidenceSink(unauthorizedRoot, [
+      'phase-1-differential.json',
+    ]);
+
+    await expect(unauthorized.write('phase-1-differential.json', value)).rejects.toThrow(
+      'phase-1-differential.json: sanitizer'
+    );
+
+    const authorizedRoot = await createRoot();
+    const authorized = await createSecureEvidenceSink(
+      authorizedRoot,
+      ['phase-1-differential.json'],
+      {},
+      oneUseAuthority(value, 'phase-1-differential.json')
+    );
+
+    await expect(authorized.write('phase-1-differential.json', value)).resolves.toBe(
+      path.join(authorizedRoot, 'phase-1-differential.json')
+    );
+
+    const wrongNameRoot = await createRoot();
+    const wrongName = await createSecureEvidenceSink(
+      wrongNameRoot,
+      ['phase-1-browser.json'],
+      {},
+      oneUseAuthority(value, 'phase-1-differential.json')
+    );
+    await expect(wrongName.write('phase-1-browser.json', value)).rejects.toThrow(
+      'phase-1-browser.json: sanitizer'
+    );
+    await expect(lstat(path.join(wrongNameRoot, 'phase-1-browser.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('serializes authority-approved evidence independently of inherited toJSON hooks', async () => {
+    const root = await createRoot();
+    const value = { schemaVersion: 1, items: [{ safe: true }] };
+    const sink = await createSecureEvidenceSink(
+      root,
+      ['scenario.json'],
+      {},
+      oneUseAuthority(value)
+    );
+    const objectToJson = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+    const arrayToJson = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
+
+    try {
+      Object.defineProperty(Object.prototype, 'toJSON', {
+        configurable: true,
+        enumerable: false,
+        value: () => ({ forgedByObjectPrototype: true }),
+      });
+      Object.defineProperty(Array.prototype, 'toJSON', {
+        configurable: true,
+        enumerable: false,
+        value: () => [{ forgedByArrayPrototype: true }],
+      });
+
+      const published = await sink.write('scenario.json', value);
+
+      await expect(readFile(published, 'utf8')).resolves.toBe(
+        '{"schemaVersion":1,"items":[{"safe":true}]}\n'
+      );
+    } finally {
+      if (objectToJson) {
+        Object.defineProperty(Object.prototype, 'toJSON', objectToJson);
+      } else {
+        Reflect.deleteProperty(Object.prototype, 'toJSON');
+      }
+      if (arrayToJson) {
+        Object.defineProperty(Array.prototype, 'toJSON', arrayToJson);
+      } else {
+        Reflect.deleteProperty(Array.prototype, 'toJSON');
+      }
+    }
+  });
+
+  it('rejects a non-enumerable own toJSON before consuming authority', async () => {
+    const root = await createRoot();
+    const value = { schemaVersion: 1, safe: true };
+    let consumed = false;
+    Object.defineProperty(value, 'toJSON', {
+      configurable: false,
+      enumerable: false,
+      value: () => ({ forged: true }),
+    });
+    const sink = await createSecureEvidenceSink(
+      root,
+      ['scenario.json'],
+      {},
+      {
+        consume: () => {
+          consumed = true;
+        },
+      }
+    );
+
+    await expect(sink.write('scenario.json', value)).rejects.toThrow('scenario.json: sanitizer');
+    expect(consumed).toBe(false);
+    await expect(lstat(path.join(root, 'scenario.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('publishes the strict snapshot captured before authority consumption', async () => {
+    const root = await createRoot();
+    const value = { schemaVersion: 1, value: 'approved' };
+    const sink = await createSecureEvidenceSink(
+      root,
+      ['scenario.json'],
+      {},
+      {
+        consume: ({ name, source, snapshot, serialized }) => {
+          expect(name).toBe('scenario.json');
+          expect(source).toBe(value);
+          expect(snapshot).toEqual(value);
+          expect(serialized).toBe('{"schemaVersion":1,"value":"approved"}\n');
+          value.value = 'forged-after-authority';
+        },
+      }
+    );
+
+    const published = await sink.write('scenario.json', value);
+
+    await expect(readFile(published, 'utf8')).resolves.toBe(
+      '{"schemaVersion":1,"value":"approved"}\n'
+    );
+  });
+
+  it('rejects in-place replacement with different valid bytes before publication completes', async () => {
+    const root = await createRoot();
+    const finalPath = path.join(root, 'scenario.json');
+    const value = { schemaVersion: 1, value: 'approved' };
+    const sink = await createSecureEvidenceSink(
+      root,
+      ['scenario.json'],
+      {
+        afterLink: async () =>
+          writeFile(finalPath, '{"schemaVersion":1,"value":"forged"}\n', { mode: 0o600 }),
+      },
+      oneUseAuthority(value)
+    );
+
+    await expect(sink.write('scenario.json', value)).rejects.toThrow(
+      'scenario.json: content-mismatch'
+    );
+    await expect(lstat(finalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not use coordinator authority as a fallback for invalid token evidence', async () => {
+    const root = await createRoot();
+    const value = {
+      schemaVersion: 1,
+      tokens: [
+        {
+          kind: 'access',
+          format: 'jwt',
+          signatureVerified: true,
+          header: { alg: 'RS256' },
+          claims: { iss: 'https://issuer.example', aud: 'urn:api' },
+        },
+      ],
+    };
+    const sink = await createSecureEvidenceSink(
+      root,
+      ['scenario.json'],
+      {},
+      oneUseAuthority(value)
+    );
+
+    await expect(sink.write('scenario.json', value)).rejects.toThrow('scenario.json: sanitizer');
+    await expect(lstat(path.join(root, 'scenario.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('rejects ephemeral nonce and verification credentials before publication', async () => {
     const root = await createRoot();
     const sink = await createSecureEvidenceSink(root, ['scenario.json']);
@@ -313,3 +564,5 @@ describe('phase 1 secure evidence sink', () => {
     );
   });
 });
+
+/* eslint-enable max-lines, no-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

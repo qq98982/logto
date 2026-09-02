@@ -22,6 +22,7 @@ import {
   snapshotClosedDataGraph,
 } from './model.js';
 import { normalizeTokenResponse } from './normalizers.js';
+import { phase1ScenarioStepIds } from './scenario-contracts.js';
 
 const strictObservationGuard = observationGuard.strict();
 const strictTargetEvidenceGuard = targetEvidenceGuard
@@ -285,6 +286,59 @@ const normalizedTokenObservationGuard = z.array(
   ])
 );
 
+const transferVerifiedTokenArrayProof = (source: unknown, snapshot: unknown): void => {
+  if (typeof source !== 'object' || source === null) {
+    return;
+  }
+
+  if (Array.isArray(source)) {
+    if (!Array.isArray(snapshot) || source.length !== snapshot.length) {
+      throw new TypeError('Invalid phase 1 evidence snapshot');
+    }
+    if (verifiedTokenArrays.has(source)) {
+      if (!normalizedTokenObservationGuard.safeParse(snapshot).success) {
+        throw new TypeError('Invalid phase 1 evidence snapshot');
+      }
+      verifiedTokenArrays.add(snapshot);
+    }
+    for (const [index, item] of source.entries()) {
+      transferVerifiedTokenArrayProof(item, snapshot[index]);
+    }
+    return;
+  }
+  if (!isPlainJsonObject(source) || !isPlainJsonObject(snapshot)) {
+    throw new TypeError('Invalid phase 1 evidence snapshot');
+  }
+  const sourceKeys = Object.keys(source);
+
+  if (
+    sourceKeys.length !== Object.keys(snapshot).length ||
+    sourceKeys.some((key) => !Object.hasOwn(snapshot, key))
+  ) {
+    throw new TypeError('Invalid phase 1 evidence snapshot');
+  }
+  for (const key of sourceKeys) {
+    transferVerifiedTokenArrayProof(source[key], snapshot[key]);
+  }
+};
+
+export const snapshotPhase1EvidencePreservingVerifiedTokens = <Value>(
+  value: unknown
+): Readonly<Value> => {
+  try {
+    const snapshot = snapshotClosedDataGraph<Value>(value);
+
+    if (snapshot === undefined) {
+      throw new TypeError('Invalid phase 1 evidence snapshot');
+    }
+    transferVerifiedTokenArrayProof(value, snapshot);
+
+    return snapshot;
+  } catch {
+    throw new TypeError('Invalid phase 1 evidence snapshot');
+  }
+};
+
 const assertPhase1EvidenceIsSanitizedInternal = (
   value: unknown,
   allowSerializedTokens: boolean
@@ -292,42 +346,51 @@ const assertPhase1EvidenceIsSanitizedInternal = (
   if (!jsonValueGuard.safeParse(value).success || containsUnsafeJwk(value)) {
     throw new TypeError('Invalid phase 1 evidence');
   }
-  const visit = (candidate: unknown): void => {
+  const visit = (candidate: unknown, parentKey?: string): void => {
     if (typeof candidate === 'string') {
       assertEvidenceIsSanitized({ value: candidate });
       return;
     }
     if (Array.isArray(candidate)) {
       for (const item of candidate) {
-        visit(item);
+        visit(item, parentKey);
       }
       return;
     }
     if (typeof candidate === 'object' && candidate !== null) {
       for (const [key, nested] of Object.entries(candidate)) {
         const evidenceKey = normalizedKey(key);
+        const registeredScenarioStep =
+          parentKey === 'steps' &&
+          phase1ScenarioStepIds.includes(key) &&
+          isPlainJsonObject(nested) &&
+          Reflect.ownKeys(nested).length === 1 &&
+          Object.hasOwn(nested, 'value');
 
         if (
-          (forbiddenEphemeralEvidenceKeys.has(evidenceKey) &&
+          !registeredScenarioStep &&
+          ((forbiddenEphemeralEvidenceKeys.has(evidenceKey) &&
             !(evidenceKey === 'code' && isSafeConsumedCodeProjection(nested))) ||
-          (safeBooleanMetadataKeys.has(evidenceKey) && typeof nested !== 'boolean') ||
-          (evidenceKey === 'verificationcode' && typeof nested !== 'boolean') ||
-          (symbolOnlyEvidenceKeys.has(evidenceKey) && !containsOnlyLogicalSymbols(nested)) ||
-          (evidenceKey === 'tokens' &&
-            (!normalizedTokenObservationGuard.safeParse(nested).success ||
-              (Array.isArray(nested) &&
-                nested.length > 0 &&
-                !allowSerializedTokens &&
-                !verifiedTokenArrays.has(nested))))
+            (safeBooleanMetadataKeys.has(evidenceKey) && typeof nested !== 'boolean') ||
+            (evidenceKey === 'verificationcode' && typeof nested !== 'boolean') ||
+            (symbolOnlyEvidenceKeys.has(evidenceKey) && !containsOnlyLogicalSymbols(nested)) ||
+            (evidenceKey === 'tokens' &&
+              (!normalizedTokenObservationGuard.safeParse(nested).success ||
+                (Array.isArray(nested) &&
+                  nested.length > 0 &&
+                  !allowSerializedTokens &&
+                  !verifiedTokenArrays.has(nested)))))
         ) {
           throw new TypeError('Invalid phase 1 evidence');
         }
         assertEvidenceIsSanitized({
-          [allowedMetadataKeys.has(evidenceKey) || safeBooleanMetadataKeys.has(evidenceKey)
+          [registeredScenarioStep ||
+          allowedMetadataKeys.has(evidenceKey) ||
+          safeBooleanMetadataKeys.has(evidenceKey)
             ? 'metadata'
             : key]: null,
         });
-        visit(nested);
+        visit(nested, key);
       }
     }
   };
@@ -348,6 +411,10 @@ export const assertPhase1EvidenceIsSanitized = (value: unknown): void => {
 
 export const assertSerializedPhase1EvidenceIsSanitized = (value: unknown): void => {
   assertPhase1EvidenceIsSanitizedInternal(value, phase1EvidenceGuard.safeParse(value).success);
+};
+
+export const assertSerializedPhase1ArtifactEvidenceIsSanitized = (value: unknown): void => {
+  assertPhase1EvidenceIsSanitizedInternal(value, true);
 };
 
 const parseEvidence = <Evidence extends Phase1Evidence>(value: unknown): Evidence => {

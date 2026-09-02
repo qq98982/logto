@@ -1,0 +1,379 @@
+{
+  "services": {
+    "oracle-primary-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-primary"],
+      "volumes": ["oracle-primary-postgres:/var/lib/postgresql/data"]
+    },
+    "oracle-primary-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-primary"],
+      "volumes": ["oracle-primary-redis:/data"]
+    },
+    "oracle-primary-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-primary-postgres": { "condition": "service_healthy" },
+        "oracle-primary-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD:?required}@oracle-primary-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-primary-redis:6379",
+        "ENDPOINT": "http://localhost:3311",
+        "ADMIN_ENDPOINT": "http://localhost:3411",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": ["oracle-primary"],
+      "ports": ["127.0.0.1:3311:3001", "127.0.0.1:3411:3002"]
+    },
+    "oracle-foreign-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-foreign"],
+      "volumes": ["oracle-foreign-postgres:/var/lib/postgresql/data"]
+    },
+    "oracle-foreign-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-foreign"],
+      "volumes": ["oracle-foreign-redis:/data"]
+    },
+    "oracle-foreign-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-foreign-postgres": { "condition": "service_healthy" },
+        "oracle-foreign-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_PASSWORD:?required}@oracle-foreign-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-foreign-redis:6379",
+        "ENDPOINT": "http://localhost:3312",
+        "ADMIN_ENDPOINT": "http://localhost:3412",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_FOREIGN_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_FOREIGN_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": ["oracle-foreign"],
+      "ports": ["127.0.0.1:3312:3001", "127.0.0.1:3412:3002"]
+    },
+    "candidate-primary-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-primary"],
+      "volumes": ["candidate-primary-postgres:/var/lib/postgresql/data"]
+    },
+    "candidate-primary-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-primary"],
+      "volumes": ["candidate-primary-redis:/data"]
+    },
+    "candidate-primary-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "candidate-primary-postgres": { "condition": "service_healthy" },
+        "candidate-primary-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD:?required}@candidate-primary-postgres:5432/aster",
+        "REDIS_URL": "redis://candidate-primary-redis:6379",
+        "ENDPOINT": "http://localhost:3321",
+        "ADMIN_ENDPOINT": "http://localhost:3421",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_PRIMARY_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_PRIMARY_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": [
+        "candidate-primary",
+        "candidate-connector-boundary",
+        "candidate-saml-boundary",
+        "candidate-script-boundary"
+      ],
+      "ports": ["127.0.0.1:3321:3001", "127.0.0.1:3421:3002"]
+    },
+    "candidate-foreign-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-foreign"],
+      "volumes": ["candidate-foreign-postgres:/var/lib/postgresql/data"]
+    },
+    "candidate-foreign-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-foreign"],
+      "volumes": ["candidate-foreign-redis:/data"]
+    },
+    "candidate-foreign-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "candidate-foreign-postgres": { "condition": "service_healthy" },
+        "candidate-foreign-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD:?required}@candidate-foreign-postgres:5432/aster",
+        "REDIS_URL": "redis://candidate-foreign-redis:6379",
+        "ENDPOINT": "http://localhost:3322",
+        "ADMIN_ENDPOINT": "http://localhost:3422",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_FOREIGN_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_FOREIGN_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": ["candidate-foreign"],
+      "ports": ["127.0.0.1:3322:3001", "127.0.0.1:3422:3002"]
+    },
+    "oracle-phase0-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_PHASE0_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-phase0"],
+      "volumes": ["oracle-phase0-postgres:/var/lib/postgresql/data"]
+    },
+    "oracle-phase0-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["oracle-phase0"],
+      "volumes": ["oracle-phase0-redis:/data"]
+    },
+    "oracle-phase0-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-phase0-postgres": { "condition": "service_healthy" },
+        "oracle-phase0-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_PHASE0_POSTGRES_PASSWORD:?required}@oracle-phase0-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-phase0-redis:6379",
+        "ENDPOINT": "http://localhost:3331",
+        "ADMIN_ENDPOINT": "http://localhost:3431",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PHASE0_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PHASE0_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": ["oracle-phase0"],
+      "ports": ["127.0.0.1:3331:3001", "127.0.0.1:3431:3002"]
+    },
+    "candidate-phase0-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_PHASE0_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-phase0"],
+      "volumes": ["candidate-phase0-postgres:/var/lib/postgresql/data"]
+    },
+    "candidate-phase0-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": ["candidate-phase0"],
+      "volumes": ["candidate-phase0-redis:/data"]
+    },
+    "candidate-phase0-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "candidate-phase0-postgres": { "condition": "service_healthy" },
+        "candidate-phase0-redis": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_CANDIDATE_PHASE0_POSTGRES_PASSWORD:?required}@candidate-phase0-postgres:5432/aster",
+        "REDIS_URL": "redis://candidate-phase0-redis:6379",
+        "ENDPOINT": "http://localhost:3341",
+        "ADMIN_ENDPOINT": "http://localhost:3441",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_PHASE0_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_PHASE0_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": ["candidate-phase0"],
+      "ports": ["127.0.0.1:3341:3001", "127.0.0.1:3441:3002"]
+    },
+    "candidate-connector-host": {
+      "profiles": ["candidate-connectors"],
+      "image": "${ASTER_PHASE1_CANDIDATE_CONNECTOR_IMAGE:-candidate-connector-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
+      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "networks": ["candidate-connector-boundary"]
+    },
+    "candidate-saml-host": {
+      "profiles": ["candidate-saml"],
+      "image": "${ASTER_PHASE1_CANDIDATE_SAML_IMAGE:-candidate-saml-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
+      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "networks": ["candidate-saml-boundary"]
+    },
+    "candidate-script-host": {
+      "profiles": ["candidate-scripts"],
+      "image": "${ASTER_PHASE1_CANDIDATE_SCRIPT_IMAGE:-candidate-script-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
+      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "networks": ["candidate-script-boundary"]
+    }
+  },
+  "networks": {
+    "oracle-primary": { "internal": true },
+    "oracle-foreign": { "internal": true },
+    "candidate-primary": { "internal": true },
+    "candidate-foreign": { "internal": true },
+    "oracle-phase0": { "internal": true },
+    "candidate-phase0": { "internal": true },
+    "candidate-connector-boundary": { "internal": true },
+    "candidate-saml-boundary": { "internal": true },
+    "candidate-script-boundary": { "internal": true }
+  },
+  "volumes": {
+    "oracle-primary-postgres": {},
+    "oracle-primary-redis": {},
+    "oracle-foreign-postgres": {},
+    "oracle-foreign-redis": {},
+    "candidate-primary-postgres": {},
+    "candidate-primary-redis": {},
+    "candidate-foreign-postgres": {},
+    "candidate-foreign-redis": {},
+    "oracle-phase0-postgres": {},
+    "oracle-phase0-redis": {},
+    "candidate-phase0-postgres": {},
+    "candidate-phase0-redis": {}
+  }
+}

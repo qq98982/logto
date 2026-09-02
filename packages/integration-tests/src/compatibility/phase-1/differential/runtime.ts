@@ -1,0 +1,295 @@
+/* eslint-disable no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods -- Differential scenarios deliberately run serially, and the private runtime factory keeps its five closed authorities explicit. */
+import { compareJson } from '../../compare.js';
+import type { Difference } from '../../model.js';
+import type { JsonObject } from '../../normalize.js';
+import { assertPhase1PublicArtifactValue, bytewiseCompare } from '../artifact-contract.js';
+import { createReferencePhase1FixtureProvisioner } from '../clients/reference-provisioner.js';
+import {
+  createPhase1EvidenceProvenance,
+  createPhase1ProjectionEnvelope,
+  type Phase1EvidenceProvenance,
+  type Phase1ProjectionEnvelope,
+} from '../evidence-envelope.js';
+import {
+  assertPhase1EvidenceIsSanitized,
+  snapshotPhase1EvidencePreservingVerifiedTokens,
+} from '../evidence.js';
+import type { ProvisionedPhase1Fixture } from '../fixtures.js';
+import type { Phase1DifferentialScenarioId } from '../model.js';
+import {
+  runPhase1ScenarioForTarget,
+  type Phase1TargetRuntime,
+  type Phase1TargetStepEvidence,
+} from '../scenario-runtime.js';
+import { phase1DifferentialScenarios } from '../scenarios/index.js';
+import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
+
+import {
+  createReferenceScenarioStateProjector,
+  type ReferenceScenarioStateProjector,
+} from './reference-state.js';
+import {
+  createPhase1ProtocolSessionBinding,
+  type Phase1ProtocolSessionBinding,
+} from './session.js';
+
+export type Phase1ReferenceContainerGraph = Readonly<{
+  projectName: string;
+  oracle: Readonly<{ primary: string; foreign: string }>;
+  candidate: Readonly<{ primary: string; foreign: string }>;
+}>;
+
+export type Phase1DifferentialEvidenceScenario = Readonly<{
+  id: Phase1DifferentialScenarioId;
+  oracle: Phase1ProjectionEnvelope<'oracle'>;
+  candidate: Phase1ProjectionEnvelope<'candidate'>;
+  differences: readonly Difference[];
+}>;
+
+export type Phase1DifferentialEvidenceArtifact = Readonly<{
+  schemaVersion: 1;
+  mode: Phase1EvidenceRuntimeContext['authorization']['mode'];
+  provenance: Phase1EvidenceProvenance;
+  sanitizerSuccess: true;
+  scenarios: readonly Phase1DifferentialEvidenceScenario[];
+}>;
+
+export type Phase1DifferentialRuntimeDependencies = Readonly<{
+  createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
+  createSessionBinding: typeof createPhase1ProtocolSessionBinding;
+  createReferenceProjector: typeof createReferenceScenarioStateProjector;
+  loadContainerGraph: () => Phase1ReferenceContainerGraph;
+  runScenario: typeof runPhase1ScenarioForTarget;
+}>;
+
+const diagnostic = 'Invalid Phase 1 differential runtime';
+const candidateAdapterUnavailable = 'Phase 1 candidate differential adapter is unavailable';
+const containerIdPattern = /^[0-9a-f]{12,64}$/u;
+const projectNamePattern = /^aster-phase1-[0-9a-f]{16}$/u;
+const scenarioTimeoutMs = 300_000;
+
+const fail = (): never => {
+  throw new TypeError(diagnostic);
+};
+
+const loadContainerId = (
+  environment: Readonly<Record<string, string | undefined>>,
+  name: string
+): string => {
+  const value = environment[name];
+
+  return value && containerIdPattern.test(value) ? value : fail();
+};
+
+export const loadPhase1ReferenceContainerGraph = (
+  environment: Readonly<Record<string, string | undefined>> = process.env
+): Phase1ReferenceContainerGraph => {
+  const projectName = environment.ASTER_PHASE1_TOPOLOGY_ID;
+
+  if (!projectName || !projectNamePattern.test(projectName)) {
+    return fail();
+  }
+
+  return Object.freeze({
+    projectName,
+    oracle: Object.freeze({
+      primary: loadContainerId(environment, 'ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_CONTAINER_ID'),
+      foreign: loadContainerId(environment, 'ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_CONTAINER_ID'),
+    }),
+    candidate: Object.freeze({
+      primary: loadContainerId(environment, 'ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID'),
+      foreign: loadContainerId(environment, 'ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_CONTAINER_ID'),
+    }),
+  });
+};
+
+const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze({
+  createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
+  createSessionBinding: createPhase1ProtocolSessionBinding,
+  createReferenceProjector: createReferenceScenarioStateProjector,
+  loadContainerGraph: loadPhase1ReferenceContainerGraph,
+  runScenario: runPhase1ScenarioForTarget,
+});
+
+const createReferenceRuntime = (
+  context: Phase1EvidenceRuntimeContext,
+  implementation: 'oracle' | 'candidate',
+  containers: Phase1ReferenceContainerGraph['oracle'],
+  projectName: string,
+  dependencies: Phase1DifferentialRuntimeDependencies
+): Phase1TargetRuntime => {
+  const target = context.targets[implementation].primary;
+  const provisioner = dependencies.createReferenceProvisioner({
+    profile: context.authorization.profile,
+    target,
+    foreignTarget: context.targets[implementation].foreign,
+    isolation: context.isolationAttestations[implementation],
+  });
+  const projectors = new WeakMap<ProvisionedPhase1Fixture, ReferenceScenarioStateProjector>();
+  const driverPath = `${context.repositoryRoot}/.scripts/compatibility/phase1-reference-state-driver.sh`;
+
+  return Object.freeze({
+    profile: context.authorization.profile,
+    target,
+    provisioner,
+    timeoutMs: scenarioTimeoutMs,
+    createProtocolSession: (input) => {
+      const binding: Phase1ProtocolSessionBinding = dependencies.createSessionBinding(input);
+      const projector = dependencies.createReferenceProjector({
+        profile: context.authorization.profile,
+        primaryContainerId: containers.primary,
+        foreignContainerId: containers.foreign,
+        projectName,
+        primaryService: `${implementation}-primary-postgres`,
+        foreignService: `${implementation}-foreign-postgres`,
+        symbols: binding.symbols,
+        driverPath,
+        environment: { PATH: process.env.PATH },
+      });
+      projectors.set(input.fixture, projector);
+
+      return binding.session;
+    },
+    projectScenarioState: async (input) => {
+      const projector = projectors.get(input.fixture);
+
+      return projector ? projector(input) : fail();
+    },
+  });
+};
+
+const keyedProjection = (
+  scenarioId: Phase1DifferentialEvidenceScenario['id'],
+  evidence: Phase1TargetStepEvidence
+): Readonly<JsonObject> => {
+  const scenario = phase1DifferentialScenarios.find(({ id }) => id === scenarioId);
+
+  if (
+    !scenario ||
+    evidence.steps.length !== scenario.orderedSteps.length ||
+    evidence.steps.some(({ stepId }, index) => stepId !== scenario.orderedSteps[index]?.id)
+  ) {
+    return fail();
+  }
+  const steps: Record<string, JsonObject> = {};
+
+  for (const { stepId, value } of evidence.steps) {
+    Object.defineProperty(steps, stepId, {
+      configurable: false,
+      enumerable: true,
+      value: Object.freeze({ value }),
+      writable: false,
+    });
+  }
+
+  return snapshotPhase1EvidencePreservingVerifiedTokens<JsonObject>({ steps });
+};
+
+const provenanceFor = (context: Phase1EvidenceRuntimeContext): Phase1EvidenceProvenance => {
+  const harnessCommit = context.authorization.profile.phase1Harness.commit;
+
+  if (typeof harnessCommit !== 'string') {
+    return fail();
+  }
+
+  return createPhase1EvidenceProvenance({
+    harnessCommit,
+    profileSha256: context.authorization.profileSha256,
+    schemaSha256: context.authorization.schemaSha256,
+    imageDigest: context.oracleImageDigest,
+  });
+};
+
+const executePhase1DifferentialRuntime = async (
+  context: Phase1EvidenceRuntimeContext,
+  dependencies: Phase1DifferentialRuntimeDependencies
+): Promise<Phase1DifferentialEvidenceArtifact> => {
+  if (
+    context.authorization.mode === 'runtime-candidate' ||
+    context.oracleImageDigest !== context.candidateImageDigest
+  ) {
+    throw new TypeError(candidateAdapterUnavailable);
+  }
+
+  try {
+    const containers = dependencies.loadContainerGraph();
+    const containerIds = [
+      containers.oracle.primary,
+      containers.oracle.foreign,
+      containers.candidate.primary,
+      containers.candidate.foreign,
+    ];
+
+    if (new Set(containerIds).size !== containerIds.length) {
+      return fail();
+    }
+    const oracleRuntime = createReferenceRuntime(
+      context,
+      'oracle',
+      containers.oracle,
+      containers.projectName,
+      dependencies
+    );
+    const candidateRuntime = createReferenceRuntime(
+      context,
+      'candidate',
+      containers.candidate,
+      containers.projectName,
+      dependencies
+    );
+    const scenarios: Phase1DifferentialEvidenceScenario[] = [];
+
+    for (const scenario of phase1DifferentialScenarios) {
+      const oracle = keyedProjection(
+        scenario.id,
+        await dependencies.runScenario(scenario, oracleRuntime)
+      );
+      const candidate = keyedProjection(
+        scenario.id,
+        await dependencies.runScenario(scenario, candidateRuntime)
+      );
+      scenarios.push(
+        snapshotPhase1EvidencePreservingVerifiedTokens<Phase1DifferentialEvidenceScenario>({
+          id: scenario.id,
+          oracle: createPhase1ProjectionEnvelope('oracle', oracle),
+          candidate: createPhase1ProjectionEnvelope('candidate', candidate),
+          differences: compareJson(oracle, candidate),
+        })
+      );
+    }
+    const artifact =
+      snapshotPhase1EvidencePreservingVerifiedTokens<Phase1DifferentialEvidenceArtifact>({
+        schemaVersion: 1 as const,
+        mode: context.authorization.mode,
+        provenance: provenanceFor(context),
+        sanitizerSuccess: true as const,
+        scenarios: scenarios.toSorted((left, right) => bytewiseCompare(left.id, right.id)),
+      });
+
+    assertPhase1EvidenceIsSanitized(artifact);
+    assertPhase1PublicArtifactValue(artifact);
+
+    return artifact;
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
+export const runPhase1DifferentialRuntime = async (
+  context: Phase1EvidenceRuntimeContext
+): Promise<Phase1DifferentialEvidenceArtifact> =>
+  executePhase1DifferentialRuntime(context, defaultDependencies);
+
+/** Test-only dependency boundary. Production always uses live reference provisioners and state. */
+export const runPhase1DifferentialRuntimeForTesting = async (
+  context: Phase1EvidenceRuntimeContext,
+  dependencies: Phase1DifferentialRuntimeDependencies
+): Promise<Phase1DifferentialEvidenceArtifact> => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return executePhase1DifferentialRuntime(context, dependencies);
+};
+
+/* eslint-enable no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods */

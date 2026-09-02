@@ -1,5 +1,5 @@
-/* eslint-disable max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-boolean-literal-compare, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The injected process seam records requests and hostile terminal variants. */
-import { execFile, spawnSync } from 'node:child_process';
+/* eslint-disable max-lines, no-await-in-loop, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-boolean-literal-compare, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The injected process seam records requests and hostile terminal variants, including bounded process polling. */
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -150,6 +150,7 @@ const dependencies = (
   workingDirectory: '/repo',
   environment: {
     PATH: '/usr/bin:/bin',
+    ASTER_PHASE1_BUILD_ROOT: '/var/tmp/henry-build',
     ASTER_PHASE1_HARNESS_COMMIT: 'a'.repeat(40),
     ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/conformance-test',
     ASTER_PHASE1_CONFORMANCE_DRIVER: '/repo/.scripts/compatibility/phase1-conformance-driver.sh',
@@ -328,6 +329,98 @@ describe('Phase 1 conformance runner', () => {
     }
   });
 
+  it('reaps detached conformance descendants when the owning Node process is interrupted', async () => {
+    const root = await mkdtemp('/var/tmp/henry-build/conformance-interruption-');
+    const pidPath = path.join(root, 'pids.json');
+    const runnerUrl = new URL('runner.js', import.meta.url).href;
+    const childSource = 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);';
+    const parentSource = [
+      'const {spawn}=require("node:child_process");',
+      'const fs=require("node:fs");',
+      `const child=spawn(process.execPath,['-e',${JSON.stringify(childSource)}],{stdio:['ignore','ignore','ignore']});`,
+      `fs.writeFileSync(${JSON.stringify(pidPath)},JSON.stringify({parentPid:process.pid,childPid:child.pid}));`,
+      'process.on("SIGTERM",()=>{});',
+      'setInterval(()=>{},1000);',
+    ].join('');
+    const helperSource = [
+      `import { runPhase1ConformanceProcessForTesting } from ${JSON.stringify(runnerUrl)};`,
+      'await runPhase1ConformanceProcessForTesting({',
+      `command:${JSON.stringify(process.execPath)},`,
+      `args:['-e',${JSON.stringify(parentSource)}],`,
+      `cwd:${JSON.stringify(root)},stdin:'',env:{PATH:'/usr/bin:/bin'},`,
+      'timeoutMs:300000,maxStdoutBytes:32,maxStderrBytes:32,shell:false});',
+    ].join('');
+    const helper = spawn(process.execPath, ['--input-type=module', '-e', helperSource], {
+      cwd: root,
+      env: { ...process.env, NODE_ENV: 'test' },
+      stdio: 'ignore',
+    });
+    let parentPid: number | undefined;
+    let childPid: number | undefined;
+    const exists = (pid: number | undefined) => {
+      if (!pid) {
+        return false;
+      }
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    try {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        try {
+          const pids = JSON.parse(await readFile(pidPath, 'utf8')) as {
+            parentPid: number;
+            childPid: number;
+          };
+          parentPid = pids.parentPid;
+          childPid = pids.childPid;
+          break;
+        } catch {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10);
+          });
+        }
+      }
+      expect(parentPid).toBeGreaterThan(0);
+      expect(childPid).toBeGreaterThan(0);
+      helper.kill('SIGTERM');
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error('interruption helper timed out'));
+        }, 5000);
+        helper.once('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      for (
+        let attempt = 0;
+        attempt < 200 && (exists(parentPid) || exists(childPid));
+        attempt += 1
+      ) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 10);
+        });
+      }
+      expect(exists(parentPid)).toBe(false);
+      expect(exists(childPid)).toBe(false);
+    } finally {
+      helper.kill('SIGKILL');
+      if (parentPid) {
+        try {
+          process.kill(-parentPid, 'SIGKILL');
+        } catch {
+          // The owned test group is already gone.
+        }
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a failed adapter-control terminal before emitting detected evidence', async () => {
     await expect(
       runPhase1Conformance(
@@ -376,6 +469,39 @@ describe('Phase 1 conformance runner', () => {
     expect(result.officialResults.map(({ result: value }) => value)).toEqual([
       { outcome: 'passed', checks: { completed: true } },
       { outcome: 'passed', checks: { completed: true } },
+    ]);
+  });
+
+  it('waits for each owned invocation before starting the next one', async () => {
+    const sequence: string[] = [];
+    let active = 0;
+    let maximumActive = 0;
+
+    await runPhase1Conformance(
+      profile(),
+      'runtime-candidate',
+      dependencies(async (request) => {
+        const id = request.args[1] ?? 'missing';
+        sequence.push(id);
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => {
+          setImmediate(resolve);
+        });
+        active -= 1;
+        const suffix = id === 'oidcc-config-certification-test-plan' ? '002' : '001';
+
+        return processResult(terminalFor(request, `oidf-result-opaque-${suffix}`));
+      })
+    );
+
+    expect(maximumActive).toBe(1);
+    expect(sequence).toEqual([
+      'oidf-basic-1',
+      'oidf-basic-2',
+      'oidf-post-1',
+      'oidcc-basic-certification-test-plan',
+      'oidcc-config-certification-test-plan',
     ]);
   });
 
@@ -497,6 +623,10 @@ describe('Phase 1 conformance runner', () => {
     expect(source).toContain(phase1ConformanceSuiteCommit);
     expect(source).toContain(phase1ConformanceSuiteRepository);
     expect(source).toContain('/var/tmp/henry-build');
+    expect(source).toContain('ASTER_PHASE1_BUILD_ROOT');
+    expect(source).toContain('DEFAULT_BUILD_ROOT');
+    expect(source).toContain('capture_build_root_identity');
+    expect(source).toContain('assert_build_root_identity');
     expect(source).not.toMatch(/\bjq\b|JSON\.parse|python/iu);
     expect(source).toContain("readonly TRUSTED_PATH='/usr/bin:/bin'");
     expect(source).toContain(
@@ -670,11 +800,51 @@ describe('Phase 1 conformance runner', () => {
         }),
         environment: {
           PATH: '/tmp/private-bin',
+          ASTER_PHASE1_BUILD_ROOT: '/var/tmp/henry-build',
           ASTER_PHASE1_HARNESS_COMMIT: 'a'.repeat(40),
           ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/conformance-test',
           ASTER_PHASE1_CONFORMANCE_DRIVER:
             '/repo/.scripts/compatibility/phase1-conformance-driver.sh',
           GITHUB_TOKEN: 'private',
+        },
+      })
+    ).rejects.toThrow('Invalid phase 1 conformance runner');
+    expect(touched).toBe(false);
+  });
+
+  it('accepts a conformance root beneath a custom safe build root', async () => {
+    let touched = false;
+    const custom = dependencies(async (request) => {
+      touched = true;
+      return processResult(terminalFor(request));
+    });
+
+    await expect(
+      runPhase1Conformance(profile(), 'mirror-control', {
+        ...custom,
+        environment: {
+          ...custom.environment,
+          ASTER_PHASE1_BUILD_ROOT: '/var/tmp/aster-portable-conformance',
+          ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/aster-portable-conformance/private',
+        },
+      })
+    ).resolves.toMatchObject({ mode: 'mirror-control' });
+    expect(touched).toBe(true);
+  });
+
+  it('rejects an unsafe configurable build root before the runner', async () => {
+    let touched = false;
+    const custom = dependencies(async () => {
+      touched = true;
+      return processResult({});
+    });
+
+    await expect(
+      runPhase1Conformance(profile(), 'mirror-control', {
+        ...custom,
+        environment: {
+          ...custom.environment,
+          ASTER_PHASE1_BUILD_ROOT: '/var/tmp',
         },
       })
     ).rejects.toThrow('Invalid phase 1 conformance runner');
@@ -746,4 +916,4 @@ describe('Phase 1 conformance runner', () => {
   });
 });
 
-/* eslint-enable max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-boolean-literal-compare, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, no-await-in-loop, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unnecessary-boolean-literal-compare, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

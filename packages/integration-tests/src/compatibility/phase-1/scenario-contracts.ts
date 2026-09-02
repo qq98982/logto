@@ -659,6 +659,11 @@ const buildContract = ({ id, steps: rawSteps, explicit }: RawContract): Phase1Sc
 export const phase1ScenarioContracts = cloneAndDeepFreeze(
   rawContracts.map((rawContract) => buildContract(rawContract))
 ) as readonly Phase1ScenarioContract[];
+export const phase1ScenarioStepIds = Object.freeze([
+  ...new Set(
+    phase1ScenarioContracts.flatMap(({ orderedSteps }) => orderedSteps.map(({ id }) => id))
+  ),
+]);
 
 const contractDiagnostic = 'Invalid phase 1 scenario contract';
 const registryDiagnostic = 'Invalid phase 1 scenario contract registry';

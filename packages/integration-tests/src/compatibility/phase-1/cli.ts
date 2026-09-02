@@ -14,6 +14,7 @@ import { canonicalBrowserFlows } from './browser/index.js';
 import { candidateInvariantRegistryIds } from './candidate-invariants/index.js';
 import { assertPhase1CapabilityDocument, parsePhase1CapabilityDocument } from './capabilities.js';
 import { differentialScenarioIds, oracleCommit, snapshotClosedDataGraph } from './model.js';
+import { reproducePhase0Evidence } from './phase0-reproducer.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
 import {
   createProductionPhase1GitReader,
@@ -23,9 +24,7 @@ import {
   assertPhase1ProfileSemantics,
   authorizePhase1ProtectedExecution,
   verifyPhase1ProfileProvenance,
-  type Phase0EvidenceReproducer,
   type Phase1ProvenanceResult,
-  type Phase1ProtectedExecutionAuthorization,
 } from './profile-semantics.js';
 import type { Phase1Profile } from './profile-types.js';
 import {
@@ -35,21 +34,26 @@ import {
   phase1SchemaLockDocument,
   type Phase1ProfileBundle,
 } from './profile.js';
+import {
+  mintPhase1RunAuthorization,
+  type Phase1RunAuthorization,
+  type Phase1RunControls,
+  type Phase1RunMode,
+} from './run-authorization.js';
 import { phase1DifferentialScenarios } from './scenarios/index.js';
 import {
   rollbackSecureJsonArtifact,
   writeSecureJsonArtifact,
   type SecureJsonPublication,
 } from './secure-evidence-sink.js';
+import { executeAuthorizedPhase1Run } from './snapshots/execution-coordinator.js';
 
-export type Phase1RunMode = 'review-candidate' | 'mirror-control' | 'runtime-candidate';
-
-export type Phase1RunControls = Readonly<{
-  recordOracle: boolean;
-  observationControls: boolean;
-  discoveryExtraControl: boolean;
-  candidateInvariantControls: boolean;
-}>;
+export { assertAuthorizedPhase1Run, authorizePhase1RunForTesting } from './run-authorization.js';
+export type {
+  Phase1RunAuthorization,
+  Phase1RunControls,
+  Phase1RunMode,
+} from './run-authorization.js';
 
 export type Phase1RunCommand = Readonly<{
   command: 'run';
@@ -68,16 +72,6 @@ export type Phase1PrepareReviewProfileCommand = Readonly<{
 }>;
 
 export type Phase1CliCommand = Phase1RunCommand | Phase1PrepareReviewProfileCommand;
-
-export type Phase1RunAuthorization = Readonly<{
-  mode: Phase1RunMode;
-  profile: Readonly<Phase1Profile>;
-  profileSha256: string;
-  schemaSha256: string;
-  provenance: Phase1ProvenanceResult;
-  protectedExecution: Phase1ProtectedExecutionAuthorization | undefined;
-  controls: Phase1RunControls;
-}>;
 
 type OutputWriter = (message: string) => void | Promise<void>;
 
@@ -736,10 +730,6 @@ const closeReviewProvenance = (
   return snapshot;
 };
 
-const deniedPhase0EvidenceReproducer: Phase0EvidenceReproducer = async () => {
-  throw new Error(runFailureDiagnostic);
-};
-
 const loadRunBundle = async (command: Phase1RunCommand) => {
   const bundle = await createPhase1ProfileBundleLoader(phase1ProfileSchemaLock)({
     profilePath: command.profilePath,
@@ -772,7 +762,7 @@ const verifyRunProvenance = async (
     registrySourceEvidence: phase1DifferentialScenarios.flatMap(
       ({ sourceEvidence }) => sourceEvidence
     ),
-    phase0EvidenceReproducer: deniedPhase0EvidenceReproducer,
+    phase0EvidenceReproducer: reproducePhase0Evidence,
     gitReader,
     githubReader: deniedGithubReader,
   });
@@ -781,7 +771,9 @@ const verifyRunProvenance = async (
 const defaultDependencies: Phase1CliDependencies = {
   loadRunBundle,
   verifyRunProvenance,
-  executeRun: async () => {},
+  executeRun: async (authorization) => {
+    await executeAuthorizedPhase1Run(authorization, defaultLogtoRoot);
+  },
   prepareReviewProfile: preparePhase1ReviewProfile,
   stdout: (message) => {
     console.log(message);
@@ -834,15 +826,17 @@ export const runPhase1Cli = async (
       command.mode === 'review-candidate'
         ? undefined
         : authorizePhase1ProtectedExecution(command.mode, closedProvenance);
-    const authorization = Object.freeze({
-      mode: command.mode,
-      profile: bundle.profile,
-      profileSha256: bundle.profileSha256,
-      schemaSha256: bundle.schemaSha256,
-      provenance: closedProvenance,
-      protectedExecution,
-      controls: command.controls,
-    } satisfies Phase1RunAuthorization);
+    const authorization = mintPhase1RunAuthorization(
+      Object.freeze({
+        mode: command.mode,
+        profile: bundle.profile,
+        profileSha256: bundle.profileSha256,
+        schemaSha256: bundle.schemaSha256,
+        provenance: closedProvenance,
+        protectedExecution,
+        controls: command.controls,
+      } satisfies Phase1RunAuthorization)
+    );
     await dependencies.executeRun(authorization, command);
     await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');
     return 0;
