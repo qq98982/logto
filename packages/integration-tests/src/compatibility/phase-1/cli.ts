@@ -758,6 +758,16 @@ export const phase1BrowserSourceEvidence = Object.freeze(
     Object.freeze({ commit: oracleCommit, path: sourcePath })
   )
 );
+export const phase1RegistrySourceEvidence = Object.freeze([
+  ...new Map(
+    phase1DifferentialScenarios
+      .flatMap(({ sourceEvidence }) => sourceEvidence)
+      .map((source) => [
+        `${source.commit}\u0000${source.path}`,
+        Object.freeze({ commit: source.commit, path: source.path }),
+      ])
+  ).values(),
+]);
 
 const verifyRunProvenance = async (
   command: Phase1RunCommand,
@@ -775,9 +785,7 @@ const verifyRunProvenance = async (
     schemaLockDocument: phase1SchemaLockDocument,
     baselineCapabilityIds,
     browserSourceEvidence: phase1BrowserSourceEvidence,
-    registrySourceEvidence: phase1DifferentialScenarios.flatMap(
-      ({ sourceEvidence }) => sourceEvidence
-    ),
+    registrySourceEvidence: phase1RegistrySourceEvidence,
     phase0EvidenceReproducer: reproducePhase0Evidence,
     gitReader,
     githubReader: deniedGithubReader,

@@ -12,6 +12,7 @@ import {
   parsePhase1Arguments,
   parseStrictAuthorityJsonForTesting,
   phase1BrowserSourceEvidence,
+  phase1RegistrySourceEvidence,
   phase1ReviewSourceCommit,
   preparePhase1ReviewProfileForTesting,
   runPhase1Cli,
@@ -170,6 +171,21 @@ describe('Phase 1 CLI grammar', () => {
       new Set(['6852a7b8c8984c5c12b2061e8c51faa310a36412'])
     );
     expect(Object.isFrozen(phase1BrowserSourceEvidence)).toBe(true);
+  });
+
+  it('binds provenance to the ordered unique scenario source union', () => {
+    const keys = phase1RegistrySourceEvidence.map(({ commit, path }) => `${commit}\u0000${path}`);
+
+    expect(phase1RegistrySourceEvidence).toHaveLength(53);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(phase1RegistrySourceEvidence.map(({ commit }) => commit))).toEqual(
+      new Set([
+        '6852a7b8c8984c5c12b2061e8c51faa310a36412',
+        '40135e37201f36ac05ece1eff82e37bb6d9649f1',
+      ])
+    );
+    expect(phase1RegistrySourceEvidence.every((source) => Object.isFrozen(source))).toBe(true);
+    expect(Object.isFrozen(phase1RegistrySourceEvidence)).toBe(true);
   });
 
   it('returns a plain closed graph after strict duplicate-key validation', () => {
