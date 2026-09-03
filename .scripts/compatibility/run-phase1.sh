@@ -24,6 +24,9 @@ readonly SERVICES=(
   candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441)
+readonly HTTP_READY_DEADLINE_SECONDS=60
+readonly HTTP_READY_MAX_RESPONSE_CHARS=65536
+readonly HTTP_READY_READ_CHARS=4096
 readonly EVIDENCE_NAMES=(
   phase-1-browser.json
   phase-1-candidate-invariants.json
@@ -396,15 +399,54 @@ readonly CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID CANDIDATE_FOREIGN_POSTGRES_CONT
 rm -f -- "${COMPOSE_ENV}"
 
 http_ready() {
-  local port=$1 path=$2 marker=$3 attempt response
+  local port=$1 path=$2 marker=$3 attempt response chunk read_status complete oversized deadline
+  local status_line body
+  deadline=$((SECONDS + HTTP_READY_DEADLINE_SECONDS))
   for ((attempt=0; attempt<60; attempt++)); do
+    ((SECONDS < deadline)) || break
     response=''
+    complete=0
+    oversized=0
     if exec 9<>"/dev/tcp/127.0.0.1/${port}"; then
-      printf 'GET %s HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' "${path}" >&9
-      while IFS= read -r -t 1 line <&9; do response+="${line}"; done
+      printf 'GET %s HTTP/1.1\r\nHost: localhost:%s\r\nConnection: close\r\n\r\n' \
+        "${path}" "${port}" >&9
+      while ((SECONDS < deadline)); do
+        chunk=''
+        if IFS= read -r -N "${HTTP_READY_READ_CHARS}" -t 1 chunk <&9; then
+          if ((${#response} + ${#chunk} > HTTP_READY_MAX_RESPONSE_CHARS)); then
+            oversized=1
+            break
+          fi
+          response+="${chunk}"
+        else
+          read_status=$?
+          if ((read_status == 1)); then
+            if ((${#response} + ${#chunk} > HTTP_READY_MAX_RESPONSE_CHARS)); then
+              oversized=1
+            else
+              response+="${chunk}"
+              complete=1
+            fi
+          fi
+          break
+        fi
+      done
       exec 9>&-
-      if [[ "${response}" == HTTP/*' 200 '* && "${response}" == *"${marker}"* ]]; then return 0; fi
+      ((oversized == 0)) || return 1
+      if ((complete == 0)); then
+        ((SECONDS < deadline)) || break
+        sleep 1
+        continue
+      fi
+      if [[ "${response}" == *$'\r\n\r\n'* ]]; then
+        status_line="${response%%$'\r\n'*}"
+        body="${response#*$'\r\n\r\n'}"
+        if [[ "${status_line}" =~ ^HTTP/[0-9]+\.[0-9]+[[:space:]]+200([[:space:]].*)?$ && "${body}" == *"${marker}"* ]]; then
+          return 0
+        fi
+      fi
     fi
+    ((SECONDS < deadline)) || break
     sleep 1
   done
   return 1

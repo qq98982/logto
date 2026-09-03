@@ -14,6 +14,7 @@ import type {
 } from './contracts.js';
 import {
   canonicalBrowserFlows,
+  canonicalBrowserSourcePaths,
   runPhase1BrowserFlows,
   runPhase1BrowserFlowsForTesting,
   validatePhase1BrowserRegistry,
@@ -337,6 +338,10 @@ describe('Phase 1 ordered browser runner', () => {
       8, 11, 7, 6,
     ]);
     expect(new Set(canonicalBrowserFlows.flatMap(({ sourcePaths }) => sourcePaths)).size).toBe(25);
+    expect(canonicalBrowserSourcePaths).toEqual([
+      ...new Set(canonicalBrowserFlows.flatMap(({ sourcePaths }) => sourcePaths)),
+    ]);
+    expect(Object.isFrozen(canonicalBrowserSourcePaths)).toBe(true);
     expect(() => validatePhase1BrowserRegistry(profile())).not.toThrow();
   });
 });

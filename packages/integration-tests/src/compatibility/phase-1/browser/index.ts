@@ -34,6 +34,9 @@ const canonicalBrowserFlows = Object.freeze([
   consoleApplicationRead,
   consoleUserRead,
 ] as const satisfies readonly Phase1BrowserFlowModule[]);
+export const canonicalBrowserSourcePaths = Object.freeze([
+  ...new Set(canonicalBrowserFlows.flatMap(({ sourcePaths }) => sourcePaths)),
+]);
 
 const expectedSourceLengths = Object.freeze([8, 11, 7, 6] as const);
 const browserSourceUnionSize = 25;

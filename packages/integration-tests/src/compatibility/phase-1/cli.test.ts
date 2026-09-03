@@ -11,6 +11,7 @@ import {
   inspectGitFileForTesting,
   parsePhase1Arguments,
   parseStrictAuthorityJsonForTesting,
+  phase1BrowserSourceEvidence,
   phase1ReviewSourceCommit,
   preparePhase1ReviewProfileForTesting,
   runPhase1Cli,
@@ -162,6 +163,15 @@ const createCliHarness = (
 };
 
 describe('Phase 1 CLI grammar', () => {
+  it('binds provenance to the deduplicated canonical browser source union', () => {
+    expect(phase1BrowserSourceEvidence).toHaveLength(25);
+    expect(new Set(phase1BrowserSourceEvidence.map(({ path }) => path)).size).toBe(25);
+    expect(new Set(phase1BrowserSourceEvidence.map(({ commit }) => commit))).toEqual(
+      new Set(['6852a7b8c8984c5c12b2061e8c51faa310a36412'])
+    );
+    expect(Object.isFrozen(phase1BrowserSourceEvidence)).toBe(true);
+  });
+
   it('returns a plain closed graph after strict duplicate-key validation', () => {
     const source = '{"nested":{"value":1},"items":[{"id":"fixture"}]}';
     const parsed = parseStrictAuthorityJsonForTesting(source);

@@ -10,7 +10,7 @@ import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser'
 
 import type { CapabilityManifest } from '../model.js';
 
-import { canonicalBrowserFlows } from './browser/index.js';
+import { canonicalBrowserSourcePaths } from './browser/index.js';
 import { candidateInvariantRegistryIds } from './candidate-invariants/index.js';
 import { assertPhase1CapabilityDocument, parsePhase1CapabilityDocument } from './capabilities.js';
 import { differentialScenarioIds, oracleCommit, snapshotClosedDataGraph } from './model.js';
@@ -753,6 +753,12 @@ const loadRunBundle = async (command: Phase1RunCommand) => {
   return Object.freeze({ bundle, baselineCapabilityIds });
 };
 
+export const phase1BrowserSourceEvidence = Object.freeze(
+  canonicalBrowserSourcePaths.map((sourcePath) =>
+    Object.freeze({ commit: oracleCommit, path: sourcePath })
+  )
+);
+
 const verifyRunProvenance = async (
   command: Phase1RunCommand,
   bundle: Phase1ProfileBundle,
@@ -768,9 +774,7 @@ const verifyRunProvenance = async (
     profileLock: phase1ProfileSchemaLock,
     schemaLockDocument: phase1SchemaLockDocument,
     baselineCapabilityIds,
-    browserSourceEvidence: canonicalBrowserFlows.flatMap(({ sourcePaths }) =>
-      sourcePaths.map((sourcePath) => ({ commit: oracleCommit, path: sourcePath }))
-    ),
+    browserSourceEvidence: phase1BrowserSourceEvidence,
     registrySourceEvidence: phase1DifferentialScenarios.flatMap(
       ({ sourceEvidence }) => sourceEvidence
     ),
