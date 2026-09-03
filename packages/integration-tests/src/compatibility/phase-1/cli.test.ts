@@ -176,8 +176,13 @@ describe('Phase 1 CLI grammar', () => {
   it('binds provenance to the ordered unique scenario source union', () => {
     const keys = phase1RegistrySourceEvidence.map(({ commit, path }) => `${commit}\u0000${path}`);
 
-    expect(phase1RegistrySourceEvidence).toHaveLength(53);
+    expect(phase1RegistrySourceEvidence).toHaveLength(67);
     expect(new Set(keys).size).toBe(keys.length);
+    expect(
+      phase1BrowserSourceEvidence.every(({ commit, path }) =>
+        keys.includes(`${commit}\u0000${path}`)
+      )
+    ).toBe(true);
     expect(new Set(phase1RegistrySourceEvidence.map(({ commit }) => commit))).toEqual(
       new Set([
         '6852a7b8c8984c5c12b2061e8c51faa310a36412',

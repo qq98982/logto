@@ -760,12 +760,13 @@ export const phase1BrowserSourceEvidence = Object.freeze(
 );
 export const phase1RegistrySourceEvidence = Object.freeze([
   ...new Map(
-    phase1DifferentialScenarios
-      .flatMap(({ sourceEvidence }) => sourceEvidence)
-      .map((source) => [
-        `${source.commit}\u0000${source.path}`,
-        Object.freeze({ commit: source.commit, path: source.path }),
-      ])
+    [
+      ...phase1DifferentialScenarios.flatMap(({ sourceEvidence }) => sourceEvidence),
+      ...phase1BrowserSourceEvidence,
+    ].map((source) => [
+      `${source.commit}\u0000${source.path}`,
+      Object.freeze({ commit: source.commit, path: source.path }),
+    ])
   ).values(),
 ]);
 
