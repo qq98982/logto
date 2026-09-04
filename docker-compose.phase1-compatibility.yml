@@ -40,12 +40,13 @@
         "REDIS_URL": "redis://oracle-primary-redis:6379",
         "ENDPOINT": "http://localhost:3311",
         "ADMIN_ENDPOINT": "http://localhost:3411",
+        "ADMIN_PORT": "3411",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
       },
       "healthcheck": {
-        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3411"],
         "interval": "3s",
         "timeout": "3s",
         "retries": 80
@@ -92,6 +93,7 @@
         "REDIS_URL": "redis://oracle-foreign-redis:6379",
         "ENDPOINT": "http://localhost:3312",
         "ADMIN_ENDPOINT": "http://localhost:3412",
+        "ADMIN_PORT": "3002",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_FOREIGN_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_FOREIGN_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
@@ -144,12 +146,13 @@
         "REDIS_URL": "redis://candidate-primary-redis:6379",
         "ENDPOINT": "http://localhost:3321",
         "ADMIN_ENDPOINT": "http://localhost:3421",
+        "ADMIN_PORT": "3421",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_PRIMARY_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_PRIMARY_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
       },
       "healthcheck": {
-        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3421"],
         "interval": "3s",
         "timeout": "3s",
         "retries": 80
@@ -201,6 +204,7 @@
         "REDIS_URL": "redis://candidate-foreign-redis:6379",
         "ENDPOINT": "http://localhost:3322",
         "ADMIN_ENDPOINT": "http://localhost:3422",
+        "ADMIN_PORT": "3002",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_FOREIGN_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_FOREIGN_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
@@ -253,12 +257,13 @@
         "REDIS_URL": "redis://oracle-phase0-redis:6379",
         "ENDPOINT": "http://localhost:3331",
         "ADMIN_ENDPOINT": "http://localhost:3431",
+        "ADMIN_PORT": "3431",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PHASE0_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PHASE0_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
       },
       "healthcheck": {
-        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3431"],
         "interval": "3s",
         "timeout": "3s",
         "retries": 80
@@ -305,12 +310,13 @@
         "REDIS_URL": "redis://candidate-phase0-redis:6379",
         "ENDPOINT": "http://localhost:3341",
         "ADMIN_ENDPOINT": "http://localhost:3441",
+        "ADMIN_PORT": "3441",
         "SECRET_VAULT_KEK": "${ASTER_PHASE1_CANDIDATE_PHASE0_SECRET_VAULT_KEK:?required}",
         "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_PHASE0_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
       },
       "healthcheck": {
-        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3002"],
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3441"],
         "interval": "3s",
         "timeout": "3s",
         "retries": 80

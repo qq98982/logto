@@ -40,6 +40,10 @@ export const phase1FixtureRecipeDefinitions = Object.freeze({
     allocationRoles: Object.freeze(['data', 'admin']),
     mutableSetup: true,
   }),
+  corsBoundary: Object.freeze({
+    allocationRoles: Object.freeze(['data', 'admin', 'foreign']),
+    mutableSetup: true,
+  }),
   consentBoundary: Object.freeze({
     allocationRoles: Object.freeze(['data', 'foreign']),
     mutableSetup: true,
@@ -95,12 +99,27 @@ const foreignEntityCounts = Object.freeze({
   organization: 0,
   'organization-role': 0,
 });
+const corsForeignEntityCounts = Object.freeze({
+  tenant: 1,
+  user: 0,
+  application: 0,
+  resource: 0,
+  scope: 0,
+  role: 0,
+  organization: 0,
+  'organization-role': 0,
+});
 
 export const phase1FixtureRecipeEntityCounts = Object.freeze({
   none: Object.freeze({}),
   dataProtocol: Object.freeze({ data: dataEntityCounts }),
   adminConsole: Object.freeze({ admin: adminEntityCounts }),
   fullPhase1: Object.freeze({ data: dataEntityCounts, admin: adminEntityCounts }),
+  corsBoundary: Object.freeze({
+    data: dataEntityCounts,
+    admin: adminEntityCounts,
+    foreign: corsForeignEntityCounts,
+  }),
   consentBoundary: Object.freeze({
     data: consentDataEntityCounts,
     foreign: foreignEntityCounts,
@@ -1008,6 +1027,7 @@ export const getExpectedPhase1FixtureEntityKeys = (
     'user.consent.foreign.user-b',
     'application.consent.foreign.client-b',
   ];
+  const corsForeign = Object.freeze([`tenant.${dataTenant.id}`]);
 
   return Object.freeze(
     recipe === 'none'
@@ -1018,10 +1038,16 @@ export const getExpectedPhase1FixtureEntityKeys = (
           ? { admin: Object.freeze(admin) }
           : recipe === 'fullPhase1'
             ? { data: Object.freeze(data), admin: Object.freeze(admin) }
-            : {
-                data: Object.freeze([...data, ...primaryPeer]),
-                foreign: Object.freeze(foreign),
-              }
+            : recipe === 'corsBoundary'
+              ? {
+                  data: Object.freeze(data),
+                  admin: Object.freeze(admin),
+                  foreign: corsForeign,
+                }
+              : {
+                  data: Object.freeze([...data, ...primaryPeer]),
+                  foreign: Object.freeze(foreign),
+                }
   );
 };
 

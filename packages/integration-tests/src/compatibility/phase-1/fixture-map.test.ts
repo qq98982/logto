@@ -243,12 +243,13 @@ const stateProjection = (map: Phase1FixtureMap): unknown =>
   createExpectedPhase1FixtureStateProjection(map, profile);
 
 describe('Phase 1 fixture recipe lock', () => {
-  it('keeps the five exact recipe compositions', () => {
+  it('keeps the six exact recipe compositions', () => {
     expect(Object.keys(phase1FixtureRecipeDefinitions)).toEqual([
       'none',
       'dataProtocol',
       'adminConsole',
       'fullPhase1',
+      'corsBoundary',
       'consentBoundary',
     ]);
     expect(phase1FixtureRecipeDefinitions).toEqual({
@@ -256,8 +257,44 @@ describe('Phase 1 fixture recipe lock', () => {
       dataProtocol: { allocationRoles: ['data'], mutableSetup: true },
       adminConsole: { allocationRoles: ['admin'], mutableSetup: true },
       fullPhase1: { allocationRoles: ['data', 'admin'], mutableSetup: true },
+      corsBoundary: { allocationRoles: ['data', 'admin', 'foreign'], mutableSetup: true },
       consentBoundary: { allocationRoles: ['data', 'foreign'], mutableSetup: true },
     });
+  });
+
+  it('accepts the CORS boundary allocation shape with a tenant-only foreign target', () => {
+    const foreign = allocation('foreign', 'foreign-cors');
+    const map = createPhase1FixtureMap(
+      fixtureMap('corsBoundary', [
+        allocation('data', 'data-cors'),
+        allocation('admin', 'admin-cors'),
+        { ...foreign, entities: foreign.entities.filter(({ kind }) => kind === 'tenant') },
+      ])
+    );
+
+    expect(map.allocations.map(({ role }) => role)).toEqual(['data', 'admin', 'foreign']);
+    expect(map.allocations[2]?.entities.map(({ kind }) => kind)).toEqual(['tenant']);
+    expect(stateProjection(map)).toMatchObject({
+      recipe: 'corsBoundary',
+      allocations: [
+        { role: 'data', target: 'primary' },
+        { role: 'admin', target: 'primary' },
+        {
+          role: 'foreign',
+          target: 'foreign',
+          entities: [{ kind: 'tenant', logicalId: 'default', snapshot: {} }],
+        },
+      ],
+    });
+    expect(() =>
+      createPhase1FixtureMap(
+        fixtureMap('corsBoundary', [
+          allocation('data', 'data-cors-extra'),
+          allocation('admin', 'admin-cors-extra'),
+          allocation('foreign', 'foreign-cors-extra'),
+        ])
+      )
+    ).toThrow('Invalid Phase 1 fixture map');
   });
 
   it('keeps the twenty setup capabilities separate and immutable', () => {

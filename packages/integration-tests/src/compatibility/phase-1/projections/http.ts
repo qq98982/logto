@@ -142,6 +142,12 @@ const phase1AuthChallengeGuard = z
 const phase1AuthChallengesGuard = z
   .object({ challenges: z.array(phase1AuthChallengeGuard).min(1) })
   .strict();
+const phase1EntityTagGuard = z
+  .object({
+    weak: z.boolean(),
+    normalizedBodySha256: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict();
 const normalizedHeaderNamePattern = /^[!#$%&'*+.^_`|~0-9a-z-]+$/u;
 export const phase1HeaderMultimapGuard = z
   .record(z.array(jsonValueGuard).min(1))
@@ -166,6 +172,9 @@ export const phase1HeaderMultimapGuard = z
         }
         if (name === 'content-length') {
           return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+        }
+        if (name === 'etag') {
+          return phase1EntityTagGuard.safeParse(value).success;
         }
         if (name === 'location') {
           return phase1RedirectProjectionGuard.safeParse(value).success;
@@ -425,6 +434,7 @@ export const projectHttpObservation = (
     );
     const headers = normalizeHeaders(value.headers, context, {
       bodyByteLength: Buffer.byteLength(JSON.stringify(body)),
+      body,
     });
     const setCookies = value.headers
       .filter(([name]) => name.toLowerCase() === 'set-cookie')

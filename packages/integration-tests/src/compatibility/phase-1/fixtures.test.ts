@@ -856,7 +856,7 @@ describe('fixture allocation isolation', () => {
     );
   });
 
-  it('requires a separately keyed foreign target only for consentBoundary', () => {
+  it('requires a separately keyed foreign target whenever a fixture has a foreign allocation', () => {
     const primaryData = map('primary-data').allocations[0];
     const consentMap = createPhase1FixtureMap({
       schemaVersion: 1,

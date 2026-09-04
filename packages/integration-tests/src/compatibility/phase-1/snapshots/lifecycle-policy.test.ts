@@ -12,6 +12,8 @@ const temporaryRoots = new Set<string>();
 const stackNames = ['oracle-primary', 'oracle-foreign', 'candidate-primary', 'candidate-foreign'];
 const phase0StackNames = ['oracle-phase0', 'candidate-phase0'];
 const isolatedStackNames = [...stackNames, ...phase0StackNames];
+const adminEndpointPorts = [3411, 3412, 3421, 3422, 3431, 3441] as const;
+const adminProcessPorts = [3411, 3002, 3421, 3002, 3431, 3441] as const;
 const hostBoundaryNetworks = [
   'candidate-connector-boundary',
   'candidate-saml-boundary',
@@ -66,10 +68,17 @@ describe('Phase 1 lifecycle source policy', () => {
       isolatedStackNames.flatMap((stack) => [`${stack}-postgres`, `${stack}-redis`])
     );
 
-    for (const stack of isolatedStackNames) {
+    for (const [index, stack] of isolatedStackNames.entries()) {
       const postgres = document.services[`${stack}-postgres`];
       const redis = document.services[`${stack}-redis`];
       const core = document.services[`${stack}-core`];
+      const adminEndpointPort = adminEndpointPorts[index];
+      const adminProcessPort = adminProcessPorts[index];
+      const environment = core?.environment as Record<string, unknown> | undefined;
+      const healthcheck = core?.healthcheck as Readonly<{ test?: readonly string[] }> | undefined;
+
+      expect(adminEndpointPort).toBeDefined();
+      expect(adminProcessPort).toBeDefined();
       expect(postgres?.networks).toEqual([stack]);
       expect(redis?.networks).toEqual([stack]);
       expect(core?.networks).toEqual(
@@ -79,6 +88,12 @@ describe('Phase 1 lifecycle source policy', () => {
       expect(redis).not.toHaveProperty('ports');
       expect(core).not.toHaveProperty('ports');
       expect(JSON.stringify(core)).toContain(`${stack.toUpperCase().replaceAll('-', '_')}_`);
+      expect(environment?.ADMIN_PORT).toBe(String(adminProcessPort));
+      expect(environment?.ADMIN_ENDPOINT).toBe(`http://localhost:${adminEndpointPort}`);
+      expect(healthcheck?.test).toEqual([
+        'CMD-SHELL',
+        `nc -z localhost 3001 && nc -z localhost ${adminProcessPort}`,
+      ]);
     }
 
     for (const [index, host] of [

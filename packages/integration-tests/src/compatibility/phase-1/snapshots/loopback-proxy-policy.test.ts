@@ -11,17 +11,17 @@ const isolatedNetworks =
   );
 const loopbackProxyBindings = [
   'oracle-primary-core|oracle-primary|3311|3001',
-  'oracle-primary-core|oracle-primary|3411|3002',
+  'oracle-primary-core|oracle-primary|3411|3411',
   'oracle-foreign-core|oracle-foreign|3312|3001',
   'oracle-foreign-core|oracle-foreign|3412|3002',
   'candidate-primary-core|candidate-primary|3321|3001',
-  'candidate-primary-core|candidate-primary|3421|3002',
+  'candidate-primary-core|candidate-primary|3421|3421',
   'candidate-foreign-core|candidate-foreign|3322|3001',
   'candidate-foreign-core|candidate-foreign|3422|3002',
   'oracle-phase0-core|oracle-phase0|3331|3001',
-  'oracle-phase0-core|oracle-phase0|3431|3002',
+  'oracle-phase0-core|oracle-phase0|3431|3431',
   'candidate-phase0-core|candidate-phase0|3341|3001',
-  'candidate-phase0-core|candidate-phase0|3441|3002',
+  'candidate-phase0-core|candidate-phase0|3441|3441',
 ] as const;
 
 type ComposeDocument = {
@@ -63,18 +63,24 @@ const assertInternalNetworkPolicy = (document: ComposeDocument): void => {
   }
 };
 
-const assertLoopbackProxyRunnerPolicy = (source: string): void => {
+const sourceProxyBindings = (source: string): readonly string[] => {
   const declaration = 'readonly LOOPBACK_PROXY_BINDINGS=(';
   const declarationBody = sourceSection(source, declaration, '\n)').slice(declaration.length);
-  const actualBindings = declarationBody
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const match = /^ {2}'([^']+)'$/u.exec(line);
+  return Object.freeze(
+    declarationBody
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const match = /^ {2}'([^']+)'$/u.exec(line);
 
-      expect(match).not.toBeNull();
-      return match?.[1] ?? '';
-    });
+        expect(match).not.toBeNull();
+        return match?.[1] ?? '';
+      })
+  );
+};
+
+const assertLoopbackProxyRunnerPolicy = (source: string): void => {
+  const actualBindings = sourceProxyBindings(source);
 
   expect(actualBindings).toEqual(loopbackProxyBindings);
 

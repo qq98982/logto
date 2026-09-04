@@ -106,6 +106,7 @@ export const phase1FixtureRecipes = Object.freeze([
   'dataProtocol',
   'adminConsole',
   'fullPhase1',
+  'corsBoundary',
   'consentBoundary',
 ] as const);
 export type Phase1FixtureRecipe = (typeof phase1FixtureRecipes)[number];

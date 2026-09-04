@@ -26,17 +26,17 @@ readonly SERVICES=(
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441)
 readonly LOOPBACK_PROXY_BINDINGS=(
   'oracle-primary-core|oracle-primary|3311|3001'
-  'oracle-primary-core|oracle-primary|3411|3002'
+  'oracle-primary-core|oracle-primary|3411|3411'
   'oracle-foreign-core|oracle-foreign|3312|3001'
   'oracle-foreign-core|oracle-foreign|3412|3002'
   'candidate-primary-core|candidate-primary|3321|3001'
-  'candidate-primary-core|candidate-primary|3421|3002'
+  'candidate-primary-core|candidate-primary|3421|3421'
   'candidate-foreign-core|candidate-foreign|3322|3001'
   'candidate-foreign-core|candidate-foreign|3422|3002'
   'oracle-phase0-core|oracle-phase0|3331|3001'
-  'oracle-phase0-core|oracle-phase0|3431|3002'
+  'oracle-phase0-core|oracle-phase0|3431|3431'
   'candidate-phase0-core|candidate-phase0|3341|3001'
-  'candidate-phase0-core|candidate-phase0|3441|3002'
+  'candidate-phase0-core|candidate-phase0|3441|3441'
 )
 readonly HTTP_READY_DEADLINE_SECONDS=60
 readonly HTTP_READY_MAX_RESPONSE_CHARS=65536

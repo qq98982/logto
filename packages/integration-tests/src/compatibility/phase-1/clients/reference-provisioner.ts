@@ -1185,12 +1185,29 @@ export const createReferencePhase1FixtureProvisioner = (
     return allocation;
   };
 
+  const provisionForeignTenantBoundary = (
+    mutable: MutableProvisioning,
+    namespace: AllocationNamespace
+  ): void => {
+    const fixture = options.profile.fixtures.dataTenant;
+
+    mutable.allocations.push(
+      Object.freeze({
+        allocationId: namespace.allocationId,
+        role: 'foreign',
+        target: 'foreign',
+        isolation: isolationFor('foreign', isolation),
+        entities: Object.freeze([entity('tenant', fixture.id, fixture.id)]),
+      })
+    );
+  };
+
   return Object.freeze({
     provision: async (recipe: Phase1FixtureRecipe): Promise<ProvisionedPhase1Fixture> => {
       if (!Object.hasOwn(phase1FixtureRecipeDefinitions, recipe)) {
         throw new TypeError(invalidReferenceConfiguration);
       }
-      if (recipe === 'consentBoundary' && !foreignTarget) {
+      if ((recipe === 'corsBoundary' || recipe === 'consentBoundary') && !foreignTarget) {
         throw new TypeError(invalidReferenceConfiguration);
       }
       await recoverPendingProvisioningCleanups();
@@ -1204,7 +1221,9 @@ export const createReferencePhase1FixtureProvisioner = (
               ? ['admin']
               : recipe === 'fullPhase1'
                 ? ['data', 'admin']
-                : ['data', 'foreign'];
+                : recipe === 'corsBoundary'
+                  ? ['data', 'admin', 'foreign']
+                  : ['data', 'foreign'];
       const namespaces = new Map<ReferenceTargetRole, AllocationNamespace>();
 
       try {
@@ -1226,31 +1245,40 @@ export const createReferencePhase1FixtureProvisioner = (
         const signInRoles: ReferenceTargetRole[] =
           recipe === 'fullPhase1'
             ? ['data', 'admin']
-            : recipe === 'adminConsole'
-              ? ['admin']
-              : recipe === 'consentBoundary'
-                ? ['data', 'foreign']
-                : recipe === 'dataProtocol'
-                  ? ['data']
-                  : [];
+            : recipe === 'corsBoundary'
+              ? ['data', 'admin', 'foreign']
+              : recipe === 'adminConsole'
+                ? ['admin']
+                : recipe === 'consentBoundary'
+                  ? ['data', 'foreign']
+                  : recipe === 'dataProtocol'
+                    ? ['data']
+                    : [];
         await snapshotAndConfigure(signInRoles, mutable);
         let provisionedData: ProvisionedData | undefined;
 
-        if (recipe === 'dataProtocol' || recipe === 'fullPhase1' || recipe === 'consentBoundary') {
+        if (
+          recipe === 'dataProtocol' ||
+          recipe === 'fullPhase1' ||
+          recipe === 'corsBoundary' ||
+          recipe === 'consentBoundary'
+        ) {
           const namespace = namespaces.get('data');
           if (!namespace) {
             throw new TypeError(invalidReferenceConfiguration);
           }
           provisionedData = await provisionData(mutable, namespace);
         }
-        if (recipe === 'fullPhase1' || recipe === 'adminConsole') {
+        if (recipe === 'fullPhase1' || recipe === 'corsBoundary' || recipe === 'adminConsole') {
           const namespace = namespaces.get('admin');
           if (!namespace) {
             throw new TypeError(invalidReferenceConfiguration);
           }
           await provisionAdmin(mutable, namespace);
         }
-        if (recipe === 'consentBoundary') {
+        if (recipe === 'corsBoundary') {
+          provisionForeignTenantBoundary(mutable, namespaces.get('foreign')!);
+        } else if (recipe === 'consentBoundary') {
           if (!provisionedData) {
             throw new TypeError(invalidReferenceConfiguration);
           }
@@ -1280,7 +1308,7 @@ export const createReferencePhase1FixtureProvisioner = (
         );
         const fixture = createProvisionedPhase1Fixture({
           public: publicMap,
-          ...(recipe === 'consentBoundary' && { foreignTarget }),
+          ...((recipe === 'corsBoundary' || recipe === 'consentBoundary') && { foreignTarget }),
           passwords: mutable.passwords,
           clientSecrets: [],
         });

@@ -261,25 +261,40 @@ const resultMap = (recipe: Phase1FixtureMap['recipe'], base: string): Phase1Fixt
                 allocation('data', `${base}-data`, target.coreUrl),
                 allocation('admin', `${base}-admin`, target.adminUrl),
               ]
-            : [
-                {
-                  ...allocation('data', `${base}-data`, target.coreUrl),
-                  entities: [
-                    ...allocation('data', `${base}-data`, target.coreUrl).entities,
-                    {
-                      kind: 'user' as const,
-                      logicalId: 'consent.primary.user-b',
-                      runtimeId: `${base}-primary-peer-user`,
-                    },
-                    {
-                      kind: 'application' as const,
-                      logicalId: 'consent.primary.client-b',
-                      runtimeId: `${base}-primary-peer-client`,
-                    },
-                  ],
-                },
-                allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
-              ];
+            : recipe === 'corsBoundary'
+              ? [
+                  allocation('data', `${base}-data`, target.coreUrl),
+                  allocation('admin', `${base}-admin`, target.adminUrl),
+                  {
+                    ...allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
+                    entities: [
+                      {
+                        kind: 'tenant' as const,
+                        logicalId: 'default',
+                        runtimeId: `${base}-foreign-tenant`,
+                      },
+                    ],
+                  },
+                ]
+              : [
+                  {
+                    ...allocation('data', `${base}-data`, target.coreUrl),
+                    entities: [
+                      ...allocation('data', `${base}-data`, target.coreUrl).entities,
+                      {
+                        kind: 'user' as const,
+                        logicalId: 'consent.primary.user-b',
+                        runtimeId: `${base}-primary-peer-user`,
+                      },
+                      {
+                        kind: 'application' as const,
+                        logicalId: 'consent.primary.client-b',
+                        runtimeId: `${base}-primary-peer-client`,
+                      },
+                    ],
+                  },
+                  allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
+                ];
 
   return createPhase1FixtureMap({ schemaVersion: 1, recipe, allocations });
 };
@@ -1106,16 +1121,54 @@ describe('candidate fixture command safety', () => {
     ]);
   });
 
-  it('requires a separately keyed foreign target for consentBoundary results', async () => {
-    const { provisioner } = createHarness();
-    const fixture = await provisioner.provision('consentBoundary');
-    const [primary, foreign] = fixture.public.allocations;
+  it.each(['corsBoundary', 'consentBoundary'] as const)(
+    'requires a separately keyed foreign target for %s results',
+    async (recipe) => {
+      const { provisioner, requests } = createHarness();
+      const fixture = await provisioner.provision(recipe);
+      const primary = fixture.public.allocations.find(({ role }) => role === 'data');
+      const foreign = fixture.public.allocations.find(({ role }) => role === 'foreign');
 
-    expect(fixture.foreignTarget).toEqual(foreignTarget);
-    expect(primary?.isolation.persistenceId).not.toBe(foreign?.isolation.persistenceId);
-    expect(primary?.isolation.cookieKeyId).not.toBe(foreign?.isolation.cookieKeyId);
-    expect(primary?.isolation.signingKeyId).not.toBe(foreign?.isolation.signingKeyId);
-  });
+      expect(fixture.foreignTarget).toEqual(foreignTarget);
+      expect(primary?.isolation.persistenceId).not.toBe(foreign?.isolation.persistenceId);
+      expect(primary?.isolation.cookieKeyId).not.toBe(foreign?.isolation.cookieKeyId);
+      expect(primary?.isolation.signingKeyId).not.toBe(foreign?.isolation.signingKeyId);
+      if (recipe === 'corsBoundary') {
+        expect(foreign?.entities.map(({ kind }) => kind)).toEqual(['tenant']);
+      }
+      const descriptor = JSON.parse(String(requests[0]?.stdin ?? '{}')) as {
+        seeds?: { passwords?: Array<{ logicalId?: string }> };
+      };
+      expect(descriptor.seeds?.passwords?.map(({ logicalId }) => logicalId)).toEqual(
+        recipe === 'corsBoundary'
+          ? ['phase1-user', 'phase1-admin']
+          : ['phase1-user', 'consent.primary.user-b', 'consent.foreign.user-b']
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        projectStateProjection(fixture.public)
+      );
+      await expect(provisioner.cleanup(fixture)).resolves.toBeUndefined();
+    }
+  );
+
+  it.each(['corsBoundary', 'consentBoundary'] as const)(
+    'rejects the %s recipe when no foreign target is configured',
+    async (recipe) => {
+      const runner = import.meta.jest.fn(async () =>
+        runnerResult({ schemaVersion: 1, operation: 'cleanup', ok: true })
+      );
+      const provisioner = createCommandPhase1FixtureProvisioner({
+        profile,
+        target,
+        runner,
+      });
+
+      await expect(provisioner.provision(recipe)).rejects.toThrow(
+        'Candidate fixture command failed'
+      );
+      expect(runner).not.toHaveBeenCalled();
+    }
+  );
 
   it('rejects a foreign target from a different implementation label', () => {
     expect(() =>

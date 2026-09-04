@@ -111,7 +111,16 @@ describe('management.user-read', () => {
       status: 200,
       headers: Object.freeze([
         Object.freeze(['content-type', 'application/json; charset=utf-8'] as const),
+        Object.freeze(['etag', 'W/"fixture-dependent-user-tag"'] as const),
         Object.freeze(['total-number', '1'] as const),
+        Object.freeze([
+          'link',
+          '<https://data.example/api/users?page=1&page_size=20>; rel="first"',
+        ] as const),
+        Object.freeze([
+          'link',
+          '<https://data.example/api/users?page=1&page_size=20>; rel="last"',
+        ] as const),
       ]),
       body: JSON.stringify([
         {
@@ -202,7 +211,20 @@ describe('management.user-read', () => {
     expect(steps[0]?.value).toMatchObject({
       status: 200,
       mediaType: { type: 'application', subtype: 'json' },
-      headers: { 'total-number': ['1'] },
+      headers: {
+        etag: [
+          {
+            weak: true,
+            normalizedBodySha256:
+              '2c5c2928d6da6222c9dd5122da96ab05cb4cbb6f01516eded480cb8db40198b0',
+          },
+        ],
+        link: [
+          '<{target.core-origin}/api/users?page=1&page_size=20>; rel="first"',
+          '<{target.core-origin}/api/users?page=1&page_size=20>; rel="last"',
+        ],
+        'total-number': ['1'],
+      },
       body: [
         {
           id: '<user.subject>',

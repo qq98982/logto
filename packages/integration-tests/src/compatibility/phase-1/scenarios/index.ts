@@ -134,7 +134,7 @@ const registryMetadata: readonly RegistryMetadata[] = [
     ],
   },
   {
-    fixture: 'fullPhase1',
+    fixture: 'corsBoundary',
     sourceEvidence: [
       oracle('packages/core/src/middleware/koa-cors.ts'),
       oracle('packages/core/src/middleware/koa-cors.test.ts'),

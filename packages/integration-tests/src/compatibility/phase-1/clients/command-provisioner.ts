@@ -382,10 +382,15 @@ const seedLogicalIds = (
 ): readonly string[] => {
   const ids: string[] = [];
 
-  if (recipe === 'dataProtocol' || recipe === 'fullPhase1' || recipe === 'consentBoundary') {
+  if (
+    recipe === 'dataProtocol' ||
+    recipe === 'fullPhase1' ||
+    recipe === 'corsBoundary' ||
+    recipe === 'consentBoundary'
+  ) {
     ids.push(profile.fixtures.dataTenant.subject.id);
   }
-  if (recipe === 'adminConsole' || recipe === 'fullPhase1') {
+  if (recipe === 'adminConsole' || recipe === 'fullPhase1' || recipe === 'corsBoundary') {
     ids.push(profile.fixtures.adminTenant.operator.id);
   }
   if (recipe === 'consentBoundary') {
@@ -582,7 +587,7 @@ export const createCommandPhase1FixtureProvisioner = (
       if (!Object.hasOwn(phase1FixtureRecipeDefinitions, recipe)) {
         throw new TypeError(commandFailure);
       }
-      if (recipe === 'consentBoundary' && !foreignTarget) {
+      if ((recipe === 'corsBoundary' || recipe === 'consentBoundary') && !foreignTarget) {
         throw new TypeError(commandFailure);
       }
       await recoverPendingProvisioningCleanups();
@@ -646,7 +651,7 @@ export const createCommandPhase1FixtureProvisioner = (
         }
         const fixture = createProvisionedPhase1Fixture({
           public: publicMap,
-          ...(recipe === 'consentBoundary' && { foreignTarget }),
+          ...((recipe === 'corsBoundary' || recipe === 'consentBoundary') && { foreignTarget }),
           passwords,
           clientSecrets: [],
         });

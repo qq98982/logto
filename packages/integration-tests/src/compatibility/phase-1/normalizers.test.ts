@@ -69,6 +69,106 @@ describe('phase 1 field-specific normalizers', () => {
     ).toEqual({ 'x-description': ['prefix runtime-user-7f1a suffix'] });
   });
 
+  it('normalizes per-request core identifiers without changing ordinary headers', () => {
+    expect(
+      normalizeHeaders(
+        [
+          ['Logto-Core-Request-Id', 'request_id_00001'],
+          ['logto-core-request-id', 'request-id-00002'],
+          ['x-description', 'stable'],
+        ],
+        context()
+      )
+    ).toEqual({
+      'logto-core-request-id': ['<per-request-id>', '<per-request-id>'],
+      'x-description': ['stable'],
+    });
+    for (const invalid of ['', 'too-short', 'requestid00000001', 'invalid.value.00']) {
+      expect(() => normalizeHeaders([['logto-core-request-id', invalid]], context())).toThrow(
+        'Invalid phase 1 headers'
+      );
+    }
+  });
+
+  it('normalizes target Link origins while preserving header occurrences and parameters', () => {
+    expect(
+      normalizeHeaders(
+        [
+          ['Link', '<https://oracle.example.com/api/users?page=1>; rel="first"'],
+          ['link', '<https://oracle.example.com/api/users?page=2>; rel="next"'],
+          ['link', '<https://oracle-console.example.com/console>; rel="admin"'],
+        ],
+        context()
+      )
+    ).toEqual({
+      link: [
+        '<{target.core-origin}/api/users?page=1>; rel="first"',
+        '<{target.core-origin}/api/users?page=2>; rel="next"',
+        '<{target.admin-origin}/console>; rel="admin"',
+      ],
+    });
+    for (const invalid of [
+      '</api/users?page=1>; rel="first"',
+      '<https://foreign.example/api/users?page=1>; rel="first"',
+      '<https://user:password@oracle.example.com/api/users?page=1>; rel="first"',
+      '<https://oracle.example.com/api/users?code=private>; rel="first"',
+      '<https://oracle.example.com/api/users#state=private>; rel="first"',
+      '<https://oracle.example.com:443/api/users>; rel="first"',
+      '<ftp://oracle.example.com/api/users>; rel="first"',
+      'rel="first"',
+    ]) {
+      expect(() => normalizeHeaders([['link', invalid]], context())).toThrow(
+        'Invalid phase 1 headers'
+      );
+    }
+  });
+
+  it('validates entity tags and binds them to the normalized body instead of raw runtime bytes', () => {
+    const body = { id: '<user.subject>', roles: ['reader'] };
+    const first = normalizeHeaders([['ETag', 'W/"40-runtime-one"']], context(), { body });
+    const second = normalizeHeaders([['etag', 'W/"55-runtime-two"']], context(), { body });
+
+    expect(first).toEqual(second);
+    expect(first).toEqual({
+      etag: [
+        {
+          weak: true,
+          normalizedBodySha256: 'e104cb6776f4b62154952ab306db3d72fa06f28a4e3a2afad3eb328f706c1f66',
+        },
+      ],
+    });
+    expect(normalizeHeaders([['etag', '"40-runtime-one"']], context(), { body }).etag).toEqual([
+      {
+        weak: false,
+        normalizedBodySha256: 'e104cb6776f4b62154952ab306db3d72fa06f28a4e3a2afad3eb328f706c1f66',
+      },
+    ]);
+    for (const invalid of ['runtime-tag', 'W/runtime-tag', 'W/"unterminated', '"line\nbreak"']) {
+      expect(() => normalizeHeaders([['etag', invalid]], context(), { body })).toThrow(
+        'Invalid phase 1 headers'
+      );
+    }
+    expect(() => normalizeHeaders([['etag', 'W/"valid-shape"']], context())).toThrow(
+      'Invalid phase 1 headers'
+    );
+
+    const timestampBody = {
+      createdAt: { $timestamp: 1000, $toleranceSeconds: 30 },
+      id: '<user.subject>',
+    };
+    const withinTolerance = {
+      createdAt: { $timestamp: 1005, $toleranceSeconds: 5 },
+      id: '<user.subject>',
+    };
+
+    expect(compareJson(timestampBody, withinTolerance)).toEqual([]);
+    expect(
+      normalizeHeaders([['etag', 'W/"runtime-one"']], context(), { body: timestampBody })
+    ).toEqual(
+      normalizeHeaders([['etag', 'W/"runtime-two"']], context(), { body: withinTolerance })
+    );
+  });
+
   it('preserves authentication challenge semantics while redacting only credentials', () => {
     const normalized = normalizeAuthChallenge(
       'Bearer realm="api", error="invalid_token", scope="read write", token="private-token", Basic realm="fallback,api"'

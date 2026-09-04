@@ -41,7 +41,7 @@ const expectedFixtures = [
   'adminConsole',
   'adminConsole',
   'adminConsole',
-  'fullPhase1',
+  'corsBoundary',
   'fullPhase1',
   'dataProtocol',
   'dataProtocol',

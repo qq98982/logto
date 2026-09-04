@@ -138,12 +138,21 @@ type RecordedRequest = Readonly<{
   options: ProtocolRequestOptions | undefined;
 }>;
 
-const response = (body: unknown, total: string) =>
+const response = (body: unknown, total: string, query: string) =>
   Object.freeze({
     status: 200,
     headers: Object.freeze([
       Object.freeze(['content-type', 'application/json; charset=utf-8'] as const),
+      Object.freeze(['etag', 'W/"fixture-dependent-application-tag"'] as const),
       Object.freeze(['total-number', total] as const),
+      Object.freeze([
+        'link',
+        `<https://data.example/api/applications?${query}>; rel="first"`,
+      ] as const),
+      Object.freeze([
+        'link',
+        `<https://data.example/api/applications?${query}>; rel="last"`,
+      ] as const),
     ]),
     body: JSON.stringify(body),
   });
@@ -165,7 +174,8 @@ const createHarness = () => {
           description: 'preserved first-party field',
         },
       ],
-      '1'
+      '1',
+      'page=1&page_size=20&isThirdParty=false'
     ),
     response(
       [
@@ -179,9 +189,10 @@ const createHarness = () => {
           description: 'preserved third-party field',
         },
       ],
-      '1'
+      '1',
+      'page=1&page_size=20&isThirdParty=true'
     ),
-    response([], '0'),
+    response([], '0', 'page=1&page_size=1&isThirdParty=false&types=SAML'),
   ];
   const symbols = new SymbolTable();
   const dataStore = new MemoryProtocolSecretStore();
@@ -312,7 +323,20 @@ describe('management.application-read', () => {
     expect(steps[0]?.value).toMatchObject({
       status: 200,
       mediaType: { type: 'application', subtype: 'json' },
-      headers: { 'total-number': ['1'] },
+      headers: {
+        etag: [
+          {
+            weak: true,
+            normalizedBodySha256:
+              'd70f564a6a60ee5e1fdbfe71fbeec6be4a73a291439d4f7d5d6514495c954008',
+          },
+        ],
+        link: [
+          '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=false>; rel="first"',
+          '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=false>; rel="last"',
+        ],
+        'total-number': ['1'],
+      },
       body: [
         {
           id: '<application.first-party>',
@@ -329,7 +353,20 @@ describe('management.application-read', () => {
       ],
     });
     expect(steps[1]?.value).toMatchObject({
-      headers: { 'total-number': ['1'] },
+      headers: {
+        etag: [
+          {
+            weak: true,
+            normalizedBodySha256:
+              '7cc1402b5315ff0ca44cdfc10dfbf2dcb2b0ca144a21c670fa39677a96563a3c',
+          },
+        ],
+        link: [
+          '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=true>; rel="first"',
+          '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=true>; rel="last"',
+        ],
+        'total-number': ['1'],
+      },
       body: [
         {
           id: '<application.browser-client>',
@@ -339,7 +376,20 @@ describe('management.application-read', () => {
       ],
     });
     expect(steps[2]?.value).toMatchObject({
-      headers: { 'total-number': ['0'] },
+      headers: {
+        etag: [
+          {
+            weak: true,
+            normalizedBodySha256:
+              '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+          },
+        ],
+        link: [
+          '<{target.core-origin}/api/applications?page=1&page_size=1&isThirdParty=false&types=SAML>; rel="first"',
+          '<{target.core-origin}/api/applications?page=1&page_size=1&isThirdParty=false&types=SAML>; rel="last"',
+        ],
+        'total-number': ['0'],
+      },
       body: [],
     });
     expect(steps[3]?.value).toMatchObject({

@@ -23,6 +23,8 @@ const authCredentialParameterPattern =
   /^(?:authorization|proxy-authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|token|credential|password|private[_-]?key|api[_-]?key|signature)$/iu;
 const authTokenPattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+/u;
 const authToken68Pattern = /^[A-Za-z0-9._~+/-]+={0,}$/u;
+const coreRequestIdPattern = /^[A-Za-z0-9_-]{16}$/u;
+const entityTagPattern = /^(W\/)?"[\u0021\u0023-\u007E\u0080-\u00FF]*"$/u;
 const redirectCredentialKeyPattern =
   /(?:^|[_-])(?:code|state|token|credential|session|interaction|resume|verification|nonce)(?:$|[_-])/iu;
 const boundedTimestampToleranceSeconds = 30;
@@ -100,6 +102,36 @@ const stableJson = (value: JsonValue): JsonValue => {
   return value;
 };
 
+const stableEntityTagJson = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) {
+    return value.map((item) => stableEntityTagJson(item));
+  }
+  if (isObject(value)) {
+    const keys = Object.keys(value).toSorted(compareText);
+    const timestamp = value.$timestamp;
+    const tolerance = value.$toleranceSeconds;
+
+    if (
+      keys.length === 2 &&
+      keys[0] === '$timestamp' &&
+      keys[1] === '$toleranceSeconds' &&
+      typeof timestamp === 'number' &&
+      Number.isFinite(timestamp) &&
+      typeof tolerance === 'number' &&
+      Number.isFinite(tolerance) &&
+      tolerance >= 0
+    ) {
+      return { $boundedTimestamp: true };
+    }
+
+    return Object.fromEntries(
+      keys.map((key) => [key, stableEntityTagJson(value[key] as JsonValue)])
+    );
+  }
+
+  return value;
+};
+
 const bindGenerated = (namespace: string, value: string, context: NormalizationContext) =>
   `<${context.symbols.bindOccurrence(namespace, value)}>`;
 
@@ -115,6 +147,48 @@ const normalizeRedirectOrigin = (url: URL, context: NormalizationContext): strin
   }
 
   return url.origin;
+};
+
+const normalizeCoreRequestId = (value: string): JsonValue =>
+  coreRequestIdPattern.test(value)
+    ? '<per-request-id>'
+    : fixedFailure('Invalid phase 1 request ID');
+
+const normalizeLinkHeader = (value: string, context: NormalizationContext): string => {
+  if (!/<[^>]*>/u.test(value)) {
+    return fixedFailure('Invalid phase 1 Link header');
+  }
+
+  return value.replaceAll(/<([^>]*)>/gu, (_match, target: string) => {
+    const url = (() => {
+      try {
+        return new URL(target);
+      } catch {
+        return fixedFailure('Invalid phase 1 Link header');
+      }
+    })();
+    const normalizedOrigin = normalizeRedirectOrigin(url, context);
+    const originToken =
+      normalizedOrigin === '<target.core-url>'
+        ? '{target.core-origin}'
+        : normalizedOrigin === '<target.admin-url>'
+          ? '{target.admin-origin}'
+          : undefined;
+
+    if (
+      !originToken ||
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      Array.from(url.searchParams.keys()).some((key) => redirectCredentialKeyPattern.test(key)) ||
+      redirectCredentialFragmentPattern.test(url.hash) ||
+      !target.startsWith(`${url.origin}/`)
+    ) {
+      return fixedFailure('Invalid phase 1 Link header');
+    }
+
+    return `<${originToken}${target.slice(url.origin.length)}>`;
+  });
 };
 
 type JsonPointerPattern = readonly string[];
@@ -570,6 +644,20 @@ const normalizeContentLength = (value: string, bodyByteLength?: number): JsonVal
   return parsed;
 };
 
+const normalizeEntityTag = (value: string, body: JsonValue | undefined): JsonValue => {
+  if (!entityTagPattern.test(value) || value.length > 1024 || body === undefined) {
+    return fixedFailure('Invalid phase 1 ETag header');
+  }
+  assertEvidenceIsSanitized({ entityTag: value });
+
+  return Object.freeze({
+    weak: value.startsWith('W/'),
+    normalizedBodySha256: createHash('sha256')
+      .update(JSON.stringify(stableEntityTagJson(body)))
+      .digest('hex'),
+  });
+};
+
 type CookieMetadataWithExtensions = CookieMetadata &
   Readonly<{
     extensions?: ReadonlyArray<Readonly<{ name: string; value?: string }>>;
@@ -688,7 +776,7 @@ const normalizeCookieMetadata = (
 const normalizeHeadersValue = (
   input: HeaderInput,
   context: NormalizationContext,
-  options: Readonly<{ bodyByteLength?: number }> = {}
+  options: Readonly<{ bodyByteLength?: number; body?: JsonValue }> = {}
 ): Phase1HeaderMultimap => {
   try {
     const result: Record<string, JsonValue[]> = {};
@@ -730,11 +818,17 @@ const normalizeHeadersValue = (
               ? normalizeDateHeader(rawValue)
               : name === 'content-length'
                 ? normalizeContentLength(rawValue, options.bodyByteLength)
-                : name === 'www-authenticate' || name === 'proxy-authenticate'
-                  ? normalizeAuthChallenge(rawValue)
-                  : isPhase1CredentialKey(name)
-                    ? '<redacted-header-value>'
-                    : rawValue;
+                : name === 'etag'
+                  ? normalizeEntityTag(rawValue, options.body)
+                  : name === 'logto-core-request-id'
+                    ? normalizeCoreRequestId(rawValue)
+                    : name === 'link'
+                      ? normalizeLinkHeader(rawValue, context)
+                      : name === 'www-authenticate' || name === 'proxy-authenticate'
+                        ? normalizeAuthChallenge(rawValue)
+                        : isPhase1CredentialKey(name)
+                          ? '<redacted-header-value>'
+                          : rawValue;
       result[name] = [...(result[name] ?? []), value];
     }
 

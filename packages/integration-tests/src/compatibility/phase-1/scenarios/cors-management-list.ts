@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Raw CORS validation, branch-specific rejection, and canonical HTTP projection stay adjacent as one auditable protocol boundary. */
 import { isDeepStrictEqual } from 'node:util';
 
 import { jsonValueGuard } from '../../model.js';
@@ -14,6 +15,10 @@ import { refreshPositiveAdminManagementToken } from './positive-admin-token.js';
 
 const scenarioId = 'cors.management-list';
 const defaultAllowedMethods = ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'PATCH'] as const;
+const linkCredentialKeyPattern =
+  /(?:^|[_-])(?:code|state|token|credential|session|interaction|resume|verification|nonce)(?:$|[_-])/iu;
+const linkCredentialFragmentPattern =
+  /(?:^|[?&#])(?:code|state|token|credential|session|interaction|resume|verification|nonce)=/iu;
 
 export type CorsManagementListDependencies = Readonly<{
   sessionOptions?: PositiveAdminSessionOptions;
@@ -36,6 +41,85 @@ const headerValues = (response: RawProtocolResponse, name: string): readonly str
   response.headers
     .filter(([candidate]) => candidate.toLowerCase() === name)
     .map(([, value]) => value);
+
+const canonicalHttpOrigin = (value: unknown, diagnostic: string): string => {
+  try {
+    if (typeof value !== 'string') {
+      throw new TypeError('invalid origin');
+    }
+    const url = new URL(value);
+
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      url.origin !== value
+    ) {
+      throw new TypeError('invalid origin');
+    }
+
+    return url.origin;
+  } catch {
+    throw new Error(diagnostic);
+  }
+};
+
+const validateLinkHeader = (value: string, runtimeTargetOrigin: string): string => {
+  const targets = [...value.matchAll(/<([^>]*)>/gu)];
+
+  if (targets.length === 0) {
+    throw new Error('Phase 1 CORS Link header is invalid');
+  }
+
+  for (const [, target] of targets) {
+    if (!target) {
+      throw new Error('Phase 1 CORS Link header is invalid');
+    }
+    const url = (() => {
+      try {
+        return new URL(target);
+      } catch {
+        throw new Error('Phase 1 CORS Link header is invalid');
+      }
+    })();
+
+    if (
+      url.origin !== runtimeTargetOrigin ||
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username.length > 0 ||
+      url.password.length > 0 ||
+      Array.from(url.searchParams.keys()).some((key) => linkCredentialKeyPattern.test(key)) ||
+      linkCredentialFragmentPattern.test(url.hash) ||
+      !target.startsWith(`${runtimeTargetOrigin}/`)
+    ) {
+      throw new Error('Phase 1 CORS Link header is invalid');
+    }
+  }
+
+  return value;
+};
+
+const canonicalCorsHeaders = (
+  headers: RawProtocolResponse['headers'],
+  origins: Readonly<{
+    runtime: string;
+    logical: string;
+    runtimeTarget: string;
+  }>
+): RawProtocolResponse['headers'] =>
+  Object.freeze(
+    headers.map(([name, value]) => {
+      const normalizedName = name.toLowerCase();
+      const canonicalValue =
+        normalizedName === 'access-control-allow-origin' && value === origins.runtime
+          ? origins.logical
+          : normalizedName === 'link'
+            ? validateLinkHeader(value, origins.runtimeTarget)
+            : value;
+
+      return Object.freeze([name, canonicalValue] as const);
+    })
+  );
 
 const commaValues = (value: string): readonly string[] =>
   value
@@ -99,6 +183,22 @@ const requireGet = (response: RawProtocolResponse, origin: string): JsonValue =>
   }
 };
 
+const requireRejectedLocalhostPreflight = (response: RawProtocolResponse): void => {
+  const accessControlHeaders = response.headers.filter(([name]) =>
+    name.toLowerCase().startsWith('access-control-')
+  );
+
+  if (
+    response.status !== 200 ||
+    response.body.length > 0 ||
+    accessControlHeaders.length > 0 ||
+    !headerValues(response, 'vary').some((value) => commaValues(value).includes('Origin')) ||
+    headerValues(response, 'set-cookie').length > 0
+  ) {
+    throw new Error('Phase 1 CORS rejected Origin response is invalid');
+  }
+};
+
 const assertNoMutationState = (
   state: Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>
 ): void => {
@@ -117,6 +217,34 @@ export const runCorsManagementList = async (
   const runSession = dependencies.withPositiveAdminSession ?? withPositiveAdminSession;
   const refreshManagement =
     dependencies.refreshPositiveAdminManagementToken ?? refreshPositiveAdminManagementToken;
+  const {
+    origin,
+    target,
+    allowOriginResponse: rawAllowOriginResponse,
+    allowedRequestHeaders,
+  } = context.profile.cors;
+  const logicalOrigin = canonicalHttpOrigin(origin, 'Phase 1 CORS profile origin is invalid');
+  const logicalTargetOrigin = canonicalHttpOrigin(target, 'Phase 1 CORS profile target is invalid');
+  const allowOriginResponse = canonicalHttpOrigin(
+    rawAllowOriginResponse,
+    'Phase 1 CORS profile origin is invalid'
+  );
+
+  if (logicalOrigin !== allowOriginResponse) {
+    throw new Error('Phase 1 CORS profile origin is invalid');
+  }
+  if (logicalOrigin === logicalTargetOrigin) {
+    throw new Error('Phase 1 CORS profile target is invalid');
+  }
+  const runtimeOrigin = new URL(context.target.adminUrl).origin;
+  const runtimeTargetOrigin = new URL(context.target.coreUrl).origin;
+  const foreignRuntimeOrigin = context.fixture.foreignTarget
+    ? new URL(context.fixture.foreignTarget.adminUrl).origin
+    : undefined;
+
+  if (!foreignRuntimeOrigin || runtimeOrigin === runtimeTargetOrigin) {
+    throw new Error('Phase 1 CORS runtime target is invalid');
+  }
   const { result } = await runSession(
     context,
     { ...dependencies.sessionOptions, captureAuthorize: false, captureCodeToken: false },
@@ -124,13 +252,24 @@ export const runCorsManagementList = async (
       await refreshManagement(context, session);
       const normalizationContext = dataNormalizationContext(context);
       const before = await context.projectFixtureState();
-      const { origin, allowedRequestHeaders } = context.profile.cors;
       const { management } = context.protocol.forAllocation('data');
+      const { management: foreignManagement } = context.protocol.forAllocation('foreign');
       const preflightHeaders = {
-        origin,
+        origin: runtimeOrigin,
         'access-control-request-method': 'GET',
         'access-control-request-headers': allowedRequestHeaders.join(', '),
       };
+      // This branch-specific rejection is a fail-closed conformance control. The authorized
+      // differential contract continues to publish only the four primary CORS observations.
+      const rejectedLocalhostPreflight = await foreignManagement.requestManagement(
+        'cors-foreign-localhost-preflight-rejected',
+        'applications',
+        {
+          method: 'OPTIONS',
+          headers: { ...preflightHeaders, origin: foreignRuntimeOrigin },
+          authenticated: false,
+        }
+      );
       const applicationPreflight = await management.requestManagement(
         'cors-applications-preflight',
         'applications',
@@ -144,20 +283,21 @@ export const runCorsManagementList = async (
       const applicationsGet = await management.requestManagement(
         'cors-applications-get',
         'applications?page=2&page_size=20&isThirdParty=false',
-        { method: 'GET', headers: { origin, 'accept-language': 'en' } }
+        { method: 'GET', headers: { origin: runtimeOrigin, 'accept-language': 'en' } }
       );
       const usersGet = await management.requestManagement(
         'cors-users-get',
         'users?page=2&page_size=20',
-        { method: 'GET', headers: { origin, 'accept-language': 'en' } }
+        { method: 'GET', headers: { origin: runtimeOrigin, 'accept-language': 'en' } }
       );
-      requirePreflight(applicationPreflight, origin, allowedRequestHeaders);
-      requirePreflight(usersPreflight, origin, allowedRequestHeaders);
+      requireRejectedLocalhostPreflight(rejectedLocalhostPreflight);
+      requirePreflight(applicationPreflight, runtimeOrigin, allowedRequestHeaders);
+      requirePreflight(usersPreflight, runtimeOrigin, allowedRequestHeaders);
       const rawSteps = [
         ['applications-preflight', applicationPreflight, null],
         ['users-preflight', usersPreflight, null],
-        ['applications-get', applicationsGet, requireGet(applicationsGet, origin)],
-        ['users-get', usersGet, requireGet(usersGet, origin)],
+        ['applications-get', applicationsGet, requireGet(applicationsGet, runtimeOrigin)],
+        ['users-get', usersGet, requireGet(usersGet, runtimeOrigin)],
       ] as const;
       const steps = await Promise.all(
         rawSteps.map(async ([stepId, response, body]) => {
@@ -171,7 +311,16 @@ export const runCorsManagementList = async (
           return Object.freeze({
             stepId,
             value: projectCorsObservation(
-              { ...state, status: response.status, headers: response.headers, body },
+              {
+                ...state,
+                status: response.status,
+                headers: canonicalCorsHeaders(response.headers, {
+                  runtime: runtimeOrigin,
+                  logical: allowOriginResponse,
+                  runtimeTarget: runtimeTargetOrigin,
+                }),
+                body,
+              },
               normalizationContext
             ),
           });
@@ -189,3 +338,5 @@ export const runCorsManagementList = async (
 
   return result;
 };
+
+/* eslint-enable max-lines */

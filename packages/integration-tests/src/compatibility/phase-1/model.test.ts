@@ -8,6 +8,7 @@ import {
   defineDifferentialScenario,
   differentialScenarioIdGuard,
   differentialScenarioIds,
+  phase1FixtureRecipes,
   snapshotDensePlainArray,
   snapshotClosedDataGraph,
   type CandidateInvariantContract,
@@ -141,6 +142,17 @@ const assertCandidateInvariantCompileTimeBoundary = (): void => {
 void assertCandidateInvariantCompileTimeBoundary;
 
 describe('phase 1 closed model', () => {
+  it('pins the exact fixture recipe vocabulary', () => {
+    expect(phase1FixtureRecipes).toEqual([
+      'none',
+      'dataProtocol',
+      'adminConsole',
+      'fullPhase1',
+      'corsBoundary',
+      'consentBoundary',
+    ]);
+  });
+
   it('snapshots only bounded dense plain arrays without invoking array-like behavior', () => {
     const valid = Object.freeze(['first', 'middle', 'last']);
     const holeAt = (index: number) => {

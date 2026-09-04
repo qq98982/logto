@@ -761,6 +761,50 @@ describe('reference Phase 1 fixture provisioner', () => {
     ]);
   });
 
+  it('provisions the CORS boundary with full primary state and a tenant-only foreign allocation', async () => {
+    const { provisioner, requests } = createHarness();
+    const fixture = await provisioner.provision('corsBoundary');
+    const foreign = fixture.public.allocations.find(({ role }) => role === 'foreign');
+    const provisionRequestCount = requests.length;
+
+    expect(fixture.foreignTarget).toEqual(foreignTarget);
+    expect(fixture.public.allocations.map(({ role }) => role)).toEqual([
+      'data',
+      'admin',
+      'foreign',
+    ]);
+    expect(foreign?.entities.map(({ kind }) => kind)).toEqual(['tenant']);
+    expect(
+      requests
+        .filter(({ targetRole }) => targetRole === 'foreign')
+        .map(({ method, path }) => `${method}:${path}`)
+    ).toEqual(['GET:sign-in-exp', 'PATCH:sign-in-exp']);
+
+    await expect(provisioner.cleanup(fixture)).resolves.toBeUndefined();
+    expect(
+      requests
+        .slice(provisionRequestCount)
+        .filter(({ targetRole }) => targetRole === 'foreign')
+        .map(({ method, path }) => `${method}:${path}`)
+    ).toEqual(['PATCH:sign-in-exp']);
+  });
+
+  it.each(['corsBoundary', 'consentBoundary'] as const)(
+    'requires a separately keyed foreign target for the %s recipe',
+    async (recipe) => {
+      const provisioner = createReferencePhase1FixtureProvisioner({
+        profile,
+        target: primaryTarget,
+        isolation: referenceIsolation,
+        request: async () => ({}),
+      });
+
+      await expect(provisioner.provision(recipe)).rejects.toThrow(
+        'Invalid reference fixture provisioner configuration'
+      );
+    }
+  );
+
   it('shares configured sign-in state across overlapping fixtures and restores it once', async () => {
     const { provisioner, requests } = createHarness();
     const first = await provisioner.provision('dataProtocol');
@@ -1288,7 +1332,7 @@ describe('reference Phase 1 fixture provisioner', () => {
     expect(inspect(caught)).not.toContain(credential);
   });
 
-  it.each(['none', 'adminConsole', 'fullPhase1', 'consentBoundary'] as const)(
+  it.each(['none', 'adminConsole', 'fullPhase1', 'corsBoundary', 'consentBoundary'] as const)(
     'projects canonical persisted state for the %s recipe',
     async (recipe) => {
       const { provisioner } = createHarness();
