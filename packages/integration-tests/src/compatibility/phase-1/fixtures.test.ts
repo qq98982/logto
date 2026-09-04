@@ -398,6 +398,131 @@ describe('ProvisionedPhase1Fixture secret leases', () => {
     }
   );
 
+  it('allows only reviewed parameter syntax in normalized response-header positions', () => {
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized({
+        steps: [
+          {
+            value: {
+              headers: {
+                'keep-alive': ['timeout=5', 'timeout=5, max=1000'],
+                'strict-transport-security': [
+                  'max-age=31536000',
+                  'max-age=31536000; includeSubDomains; preload',
+                ],
+              },
+            },
+          },
+        ],
+      })
+    ).not.toThrow();
+
+    for (const value of [
+      'timeout=5',
+      { nested: ['timeout=5'] },
+      'max-age=31536000; includeSubDomains',
+      { headers: { 'keep-alive': ['sid=opaque'] } },
+      { headers: { 'keep-alive': ['timeout=opaque'] } },
+      { headers: { 'keep-alive': [`timeout=${secret}`] } },
+      { headers: { 'strict-transport-security': ['max-age=opaque'] } },
+      { headers: { 'strict-transport-security': ['max-age=5; sid=opaque'] } },
+      { headers: { 'strict-transport-security': [`max-age=${secret}`] } },
+    ]) {
+      expect(() => assertPhase1RuntimeCredentialGraphIsSanitized(value)).toThrow(
+        'Phase 1 runtime output contains forbidden credential material'
+      );
+    }
+  });
+
+  it('allows reviewed sanitized credential metadata wrappers while still scanning their values', () => {
+    const normalizedCookie = {
+      name: 'interaction',
+      httpOnly: true,
+      secure: true,
+      extensions: [],
+    } as const;
+
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized({
+        headers: { 'set-cookie': [normalizedCookie] },
+        cookies: [normalizedCookie],
+        tokens: [],
+        resumeCredential: '<resume.1>',
+        tokenFamily: '<token-family.1>',
+        cookieSealing: true,
+        cookieVerification: true,
+        tokenSigning: true,
+      })
+    ).not.toThrow();
+
+    for (const value of [
+      { headers: { 'set-cookie': ['sid=opaque'] } },
+      { cookies: ['sid=opaque'] },
+      { tokens: ['Bearer private-token'] },
+      { tokens: ['unregistered-opaque-value'] },
+      { resumeCredential: 'unregistered-opaque-value' },
+      { tokenFamily: 'unregistered-opaque-value' },
+      { cookieSealing: 'yes' },
+      { cookieVerification: 'yes' },
+      { tokenSigning: 'yes' },
+    ]) {
+      expect(() => assertPhase1RuntimeCredentialGraphIsSanitized(value)).toThrow(
+        'Phase 1 runtime output contains forbidden credential material'
+      );
+    }
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized({ resumeCredential: secret }, [secret])
+    ).toThrow('Phase 1 runtime output contains forbidden credential material');
+  });
+
+  it('rejects hostile normalized metadata without executing accessors or proxy traps', () => {
+    let accessorReads = 0;
+    let proxyReads = 0;
+    const accessorHeaders = {};
+    Object.defineProperty(accessorHeaders, 'set-cookie', {
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return [];
+      },
+    });
+    const oversizedKeepAliveValues = Array.from({ length: 4097 }, () => 'timeout=5');
+    Object.defineProperty(oversizedKeepAliveValues, '4096', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        accessorReads += 1;
+        return 'timeout=5';
+      },
+    });
+    const proxiedCookie = new Proxy(
+      {
+        name: 'interaction',
+        httpOnly: true,
+        secure: true,
+        extensions: [],
+      },
+      {
+        get: (target, key, receiver) => {
+          proxyReads += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      }
+    );
+
+    for (const value of [
+      { headers: accessorHeaders },
+      { headers: { 'keep-alive': oversizedKeepAliveValues } },
+      { cookies: [proxiedCookie] },
+    ]) {
+      expect(() => assertPhase1RuntimeCredentialGraphIsSanitized(value)).toThrow(
+        'Phase 1 runtime output contains forbidden credential material'
+      );
+    }
+    expect(accessorReads).toBe(0);
+    expect(proxyReads).toBe(0);
+  });
+
   it('allows reviewed public metadata names through the runtime credential scanner', () => {
     expect(() =>
       assertPhase1RuntimeCredentialGraphIsSanitized({

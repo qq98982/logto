@@ -32,12 +32,6 @@ export const tokenTestTarget = Object.freeze({
   adminUrl: 'https://oracle-admin.example/',
 });
 
-export const tokenTestCredentials = Object.freeze({
-  clientId: 'runtime-consent-client',
-  code: 'private-authorization-code',
-  codeVerifier: 'v'.repeat(64),
-  redirectUri: 'https://client.example/callback',
-});
 const dataAllocationId = 'data-allocation';
 export const tokenTestRuntimeValues = Object.freeze({
   username: getPhase1FixtureRuntimeUsername('phase1-user', dataAllocationId),
@@ -48,6 +42,13 @@ export const tokenTestRuntimeValues = Object.freeze({
     dataAllocationId
   ),
   scopeName: getPhase1FixtureRuntimeText('read:profile', dataAllocationId),
+});
+export const tokenTestCredentials = Object.freeze({
+  clientId: 'runtime-consent-client',
+  code: 'private-authorization-code',
+  codeVerifier: 'v'.repeat(64),
+  redirectUri: 'https://client.example/callback',
+  resource: tokenTestRuntimeValues.resourceIndicator,
 });
 
 export type TokenTestRequest = Readonly<{
@@ -354,7 +355,14 @@ export const createTokenScenarioHarness = (
     consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
   ): Promise<PositiveOidcFlowOutput<Result>> => {
     expect(options.captureSteps).toBe(false);
-    const result = await withSyntheticPositiveOidcAuthorizationGrant(tokenTestCredentials, consume);
+    const result = await withSyntheticPositiveOidcAuthorizationGrant(
+      {
+        clientId: tokenTestCredentials.clientId,
+        redirectUri: tokenTestCredentials.redirectUri,
+        ...(options.includeResource === false ? {} : { resource: tokenTestCredentials.resource }),
+      },
+      consume
+    );
 
     return Object.freeze({ steps: Object.freeze([]), result });
   };

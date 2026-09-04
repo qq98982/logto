@@ -44,6 +44,7 @@ type PositiveOidcAuthorizationCredentials = Readonly<{
   code: string;
   codeVerifier: string;
   redirectUri: string;
+  resource?: string;
 }>;
 
 export type PositiveOidcAuthorizationGrant = Readonly<{ toJSON(): never }>;
@@ -93,7 +94,7 @@ export const assertPositiveOidcAuthorizationGrantActive = (
 };
 
 export const withSyntheticPositiveOidcAuthorizationGrant = async <Result>(
-  input: Readonly<{ clientId: string; redirectUri: string }>,
+  input: Readonly<{ clientId: string; redirectUri: string; resource?: string }>,
   consume: (grant: PositiveOidcAuthorizationGrant) => Promise<Result>
 ): Promise<Result> => {
   const grant = createPositiveOidcAuthorizationGrant({
@@ -133,6 +134,7 @@ const positiveOidcAuthorizationCodeRequest = (
     code: credentials.code,
     verifier,
     redirectUri: credentials.redirectUri,
+    ...(credentials.resource === undefined ? {} : { resource: credentials.resource }),
   });
 };
 
@@ -386,33 +388,333 @@ const parseSetCookieHeader = (header: string): ParsedSetCookie => {
   return Object.freeze({ name, rawValue, unquotedValue, attributes });
 };
 
-const encodedCredentialCandidates = (value: string): readonly string[] => {
-  const once = encodeURIComponent(value);
-  const twice = encodeURIComponent(once);
+const maximumCookieCredentialDecodeDepth = 6;
 
-  return [value, once, once.toLowerCase(), twice, twice.toLowerCase()];
+const decodedCredentialCandidates = (
+  value: string,
+  remainingDepth = maximumCookieCredentialDecodeDepth
+): readonly string[] => {
+  const decoded = decodeCookiePercentLayer(value);
+
+  return remainingDepth === 0 || decoded === value
+    ? [value]
+    : [value, ...decodedCredentialCandidates(decoded, remainingDepth - 1)];
 };
 
 const revealsCookieCredential = (value: string, credentials: readonly string[]): boolean => {
-  if (credentials.some((credential) => credential.length > 0 && value.includes(credential))) {
-    return true;
-  }
-  const decoded = value.replaceAll(/%([\dA-F]{2})/giu, (_match, hex: string) =>
-    String.fromCodePoint(Number.parseInt(hex, 16))
-  );
+  const candidates = credentials
+    .flatMap((credential) => decodedCredentialCandidates(credential))
+    .filter(
+      (credential, index, values) => credential.length > 0 && values.indexOf(credential) === index
+    );
 
-  return decoded !== value && revealsCookieCredential(decoded, credentials);
+  return decodedCredentialCandidates(value).some((decoded) =>
+    candidates.some((credential) => decoded.includes(credential))
+  );
 };
 
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The bounded percent decoder uses local cursors and arrays to preserve exact raw attribute spans in one linear pass per decode layer. */
+type MappedCookieAttributeCharacter = Readonly<{
+  value: string;
+  start: number;
+  end: number;
+}>;
+
+type CookieAttributeSpan = Readonly<{ start: number; end: number }>;
+
+const percentHexDigitPattern = /^[\dA-F]$/iu;
+const strictUtf8Decoder = new TextDecoder('utf8', { fatal: true });
+
+const createMappedCookieAttributeCharacters = (
+  value: string
+): readonly MappedCookieAttributeCharacter[] => {
+  const result: MappedCookieAttributeCharacter[] = [];
+  let offset = 0;
+
+  while (offset < value.length) {
+    const codePoint = value.codePointAt(offset);
+
+    if (codePoint === undefined) {
+      throw new Error('Phase 1 response cookie is invalid');
+    }
+    const character = String.fromCodePoint(codePoint);
+    result.push(Object.freeze({ value: character, start: offset, end: offset + character.length }));
+    offset += character.length;
+  }
+
+  return Object.freeze(result);
+};
+
+const isPercentTripletAt = (
+  characters: readonly MappedCookieAttributeCharacter[],
+  index: number
+): boolean =>
+  characters[index]?.value === '%' &&
+  percentHexDigitPattern.test(characters[index + 1]?.value ?? '') &&
+  percentHexDigitPattern.test(characters[index + 2]?.value ?? '');
+
+type PercentTriplet = Readonly<{
+  byte: number;
+  characters: readonly [
+    MappedCookieAttributeCharacter,
+    MappedCookieAttributeCharacter,
+    MappedCookieAttributeCharacter,
+  ];
+}>;
+
+const readPercentTripletRun = (
+  characters: readonly MappedCookieAttributeCharacter[],
+  start: number
+): Readonly<{ next: number; triplets: readonly PercentTriplet[] }> => {
+  const triplets: PercentTriplet[] = [];
+  let index = start;
+
+  while (isPercentTripletAt(characters, index)) {
+    const first = characters[index];
+    const high = characters[index + 1];
+    const low = characters[index + 2];
+
+    if (!first || !high || !low) {
+      throw new Error('Phase 1 response cookie is invalid');
+    }
+    triplets.push(
+      Object.freeze({
+        byte: Number.parseInt(`${high.value}${low.value}`, 16),
+        characters: Object.freeze([first, high, low] as const),
+      })
+    );
+    index += 3;
+  }
+
+  return Object.freeze({ next: index, triplets: Object.freeze(triplets) });
+};
+
+const utf8SequenceLength = (lead: number): number => {
+  if (lead <= 0x7f) {
+    return 1;
+  }
+  if (lead >= 0xc2 && lead <= 0xdf) {
+    return 2;
+  }
+  if (lead >= 0xe0 && lead <= 0xef) {
+    return 3;
+  }
+  if (lead >= 0xf0 && lead <= 0xf4) {
+    return 4;
+  }
+
+  return 0;
+};
+
+const decodePercentTripletRun = (
+  triplets: readonly PercentTriplet[]
+): Readonly<{ characters: readonly MappedCookieAttributeCharacter[]; changed: boolean }> => {
+  const result: MappedCookieAttributeCharacter[] = [];
+  let changed = false;
+  let offset = 0;
+
+  while (offset < triplets.length) {
+    const first = triplets[offset];
+
+    if (!first) {
+      throw new Error('Phase 1 response cookie is invalid');
+    }
+    const sequenceLength = utf8SequenceLength(first.byte);
+    const sequence = triplets.slice(offset, offset + sequenceLength);
+    const last = sequence.at(-1);
+    let decoded: string | undefined;
+
+    if (sequenceLength > 0 && sequence.length === sequenceLength && last) {
+      try {
+        const value = strictUtf8Decoder.decode(Uint8Array.from(sequence.map(({ byte }) => byte)));
+
+        if ([...value].length === 1) {
+          decoded = value;
+        }
+      } catch {
+        // Preserve the invalid triplet and continue with the next byte in the same run.
+      }
+    }
+    if (decoded === undefined || !last) {
+      result.push(...first.characters);
+      offset += 1;
+      continue;
+    }
+    result.push(
+      Object.freeze({
+        value: decoded,
+        start: first.characters[0].start,
+        end: last.characters[2].end,
+      })
+    );
+    changed = true;
+    offset += sequenceLength;
+  }
+
+  return Object.freeze({ characters: Object.freeze(result), changed });
+};
+
+const decodeMappedCookieAttributeCharacters = (
+  characters: readonly MappedCookieAttributeCharacter[]
+): readonly MappedCookieAttributeCharacter[] | undefined => {
+  const result: MappedCookieAttributeCharacter[] = [];
+  let changed = false;
+  let index = 0;
+
+  while (index < characters.length) {
+    if (!isPercentTripletAt(characters, index)) {
+      const character = characters[index];
+
+      if (!character) {
+        throw new Error('Phase 1 response cookie is invalid');
+      }
+      result.push(character);
+      index += 1;
+      continue;
+    }
+    const run = readPercentTripletRun(characters, index);
+    const decoded = decodePercentTripletRun(run.triplets);
+
+    result.push(...decoded.characters);
+    changed ||= decoded.changed;
+    index = run.next;
+  }
+
+  return changed ? Object.freeze(result) : undefined;
+};
+
+const decodeCookiePercentLayer = (value: string): string => {
+  const decoded = decodeMappedCookieAttributeCharacters(
+    createMappedCookieAttributeCharacters(value)
+  );
+
+  return decoded?.map((character) => character.value).join('') ?? value;
+};
+
+const createMappedCookieAttributeViews = (
+  value: string
+): ReadonlyArray<readonly MappedCookieAttributeCharacter[]> => {
+  const views: Array<readonly MappedCookieAttributeCharacter[]> = [
+    createMappedCookieAttributeCharacters(value),
+  ];
+
+  for (const _depth of Array.from({ length: maximumCookieCredentialDecodeDepth })) {
+    const current = views.at(-1);
+
+    if (!current) {
+      throw new Error('Phase 1 response cookie is invalid');
+    }
+    const decoded = decodeMappedCookieAttributeCharacters(current);
+
+    if (!decoded) {
+      break;
+    }
+    views.push(decoded);
+  }
+
+  return Object.freeze(views);
+};
+
+const findCredentialSpans = (
+  attributes: string,
+  candidates: readonly string[]
+): readonly CookieAttributeSpan[] => {
+  const matches: CookieAttributeSpan[] = [];
+
+  for (const characters of createMappedCookieAttributeViews(attributes)) {
+    const offsets = new Map<number, number>();
+    let text = '';
+
+    for (const [index, character] of characters.entries()) {
+      offsets.set(text.length, index);
+      text += character.value;
+    }
+    offsets.set(text.length, characters.length);
+
+    for (const candidate of candidates) {
+      let searchOffset = 0;
+
+      while (searchOffset <= text.length - candidate.length) {
+        const found = text.indexOf(candidate, searchOffset);
+
+        if (found < 0) {
+          break;
+        }
+        const startIndex = offsets.get(found);
+        const endIndex = offsets.get(found + candidate.length);
+        const first = startIndex === undefined ? undefined : characters[startIndex];
+        const last = endIndex === undefined ? undefined : characters[endIndex - 1];
+
+        if (!first || !last) {
+          throw new Error('Phase 1 response cookie is invalid');
+        }
+        if (candidate.length < 8) {
+          throw new Error('Phase 1 response cookie is invalid');
+        }
+        matches.push(Object.freeze({ start: first.start, end: last.end }));
+        searchOffset = found + candidate.length;
+      }
+    }
+  }
+  const ordered = matches.toSorted(
+    (left, right) => left.start - right.start || right.end - left.end
+  );
+  const merged: CookieAttributeSpan[] = [];
+
+  for (const match of ordered) {
+    const previous = merged.at(-1);
+
+    if (previous && match.start < previous.end) {
+      merged[merged.length - 1] = Object.freeze({
+        start: previous.start,
+        end: Math.max(previous.end, match.end),
+      });
+    } else {
+      merged.push(match);
+    }
+  }
+
+  return Object.freeze(merged);
+};
+
+const sanitizeCookieAttributes = (attributes: string, credentials: readonly string[]): string => {
+  const candidates = credentials
+    .flatMap((credential) => decodedCredentialCandidates(credential))
+    .filter(
+      (credential, index, values) => credential.length > 0 && values.indexOf(credential) === index
+    )
+    .toSorted((left, right) => right.length - left.length);
+  const matches = findCredentialSpans(attributes, candidates);
+
+  if (matches.length === 0) {
+    return attributes;
+  }
+  const sanitized = matches
+    .toReversed()
+    .reduce(
+      (value, { start, end }) =>
+        `${value.slice(0, start)}aster-cookie-attribute-value${value.slice(end)}`,
+      attributes
+    );
+
+  if (revealsCookieCredential(sanitized, credentials)) {
+    throw new Error('Phase 1 response cookie is invalid');
+  }
+
+  return sanitized;
+};
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+
 const sanitizeSetCookieHeaders = (
-  headers: ReadonlyArray<readonly [string, string]>
+  headers: ReadonlyArray<readonly [string, string]>,
+  attributeCredentials: readonly string[] = []
 ): ReadonlyArray<readonly [string, string]> => {
   const parsedCookies = headers
     .filter(([name]) => name.toLowerCase() === 'set-cookie')
     .map(([, value]) => parseSetCookieHeader(value));
-  const candidates = parsedCookies
+  const credentials = parsedCookies
     .flatMap(({ rawValue, unquotedValue }) => [rawValue, unquotedValue])
-    .flatMap((value) => encodedCredentialCandidates(value))
+    .concat(attributeCredentials)
     .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index)
     .toSorted((left, right) => right.length - left.length);
 
@@ -422,16 +724,7 @@ const sanitizeSetCookieHeaders = (
         return Object.freeze([name, value] as const);
       }
       const parsed = parseSetCookieHeader(value);
-      const safeAttributes = candidates.reduce((attributes, candidate) => {
-        if (!attributes.includes(candidate)) {
-          return attributes;
-        }
-        if (candidate.length < 8) {
-          throw new Error('Phase 1 response cookie is invalid');
-        }
-
-        return attributes.replaceAll(candidate, 'aster-cookie-attribute-value');
-      }, parsed.attributes);
+      const safeAttributes = sanitizeCookieAttributes(parsed.attributes, credentials);
 
       return Object.freeze([
         name,
@@ -442,12 +735,7 @@ const sanitizeSetCookieHeaders = (
 
   if (
     sanitized.some(([name, value]) =>
-      name.toLowerCase() === 'set-cookie'
-        ? revealsCookieCredential(
-            value,
-            parsedCookies.flatMap(({ rawValue, unquotedValue }) => [rawValue, unquotedValue])
-          )
-        : false
+      name.toLowerCase() === 'set-cookie' ? revealsCookieCredential(value, credentials) : false
     )
   ) {
     throw new Error('Phase 1 response cookie is invalid');
@@ -566,11 +854,12 @@ const rawObservation = (
   }>,
   body: JsonValue,
   state: Awaited<ReturnType<Phase1ScenarioRunContext['projectScenarioState']>>,
-  overrides: Partial<RawHttpObservation> = {}
+  overrides: Partial<RawHttpObservation> = {},
+  cookieAttributeCredentials: readonly string[] = []
 ): RawHttpObservation => ({
   ...state,
   status: response.status,
-  headers: sanitizeSetCookieHeaders(response.headers),
+  headers: sanitizeSetCookieHeaders(response.headers, cookieAttributeCredentials),
   body,
   ...overrides,
 });
@@ -1179,7 +1468,8 @@ export const withPositiveOidcFlow = async <Result>(
             'Phase 1 consent bridge body is invalid'
           ),
           state,
-          { redirect: projectedBridgeLocation }
+          { redirect: projectedBridgeLocation },
+          [bridge.credential]
         ),
         projectionContext
       );
@@ -1308,7 +1598,8 @@ export const withPositiveOidcFlow = async <Result>(
             'Phase 1 authorization resume body is invalid'
           ),
           state,
-          { redirect: callbackLocation }
+          { redirect: callbackLocation },
+          [resume.credential]
         ),
         projectionContext
       )
@@ -1325,7 +1616,9 @@ export const withPositiveOidcFlow = async <Result>(
             ),
           },
           callbackLocation,
-          state
+          state,
+          {},
+          [resume.credential]
         ),
         projectionContext
       )
@@ -1370,6 +1663,7 @@ export const withPositiveOidcFlow = async <Result>(
         code,
         codeVerifier,
         redirectUri,
+        ...(resource === undefined ? {} : { resource: resource.indicator }),
       });
 
       try {

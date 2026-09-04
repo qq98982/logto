@@ -326,6 +326,54 @@ describe('Phase 1 reference scenario state', () => {
     ).rejects.toThrow(/^Invalid phase 1 reference state$/u);
   });
 
+  it('requires the first-consent application binding in the authorization state projection', async () => {
+    const expectedIndicator = getPhase1FixtureRuntimeResourceIndicator(
+      'https://phase1.example.test/api',
+      'data-allocation'
+    );
+    const expectedScope = getPhase1FixtureRuntimeText('read:profile', 'data-allocation');
+    const state = snapshot('authorization.password-pkce-consent', 'state', [
+      model('grant', {
+        oidcScopes: ['profile'],
+        resources: [{ indicator: expectedIndicator, scopes: [expectedScope] }],
+      }),
+    ]);
+    const projector = createReferenceScenarioStateProjector({
+      profile,
+      primaryContainerId: '1'.repeat(64),
+      projectName: 'aster-phase1-0123456789abcdef',
+      primaryService: 'oracle-primary-postgres',
+      symbols: symbols(),
+      readSnapshot: async () => ({
+        ...state,
+        users: [{ tenantId: 'default', id: 'runtime-user', applicationId: null }],
+        extensions: [
+          {
+            tenantId: 'default',
+            accountId: 'runtime-user',
+            clientId: 'runtime-browser',
+            loginAccountId: 'runtime-user',
+            updatedAt: 1_700_000_000_000,
+          },
+        ],
+      }),
+    });
+
+    await expect(
+      projector({
+        scenarioId: 'authorization.password-pkce-consent',
+        stepId: 'state',
+        fixture,
+        target: {
+          label: 'oracle',
+          coreUrl: 'http://localhost:3311/',
+          adminUrl: 'http://localhost:3411/',
+        },
+        signal: new AbortController().signal,
+      })
+    ).rejects.toThrow(/^Invalid phase 1 reference state$/u);
+  });
+
   it('rejects password failure evidence when an issuance or session extension exists', async () => {
     const projector = createReferenceScenarioStateProjector({
       profile,

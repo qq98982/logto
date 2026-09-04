@@ -66,6 +66,7 @@ describe('token.authorization-code', () => {
       grant_type: 'authorization_code',
       client_id: tokenTestCredentials.clientId,
       redirect_uri: tokenTestCredentials.redirectUri,
+      resource: tokenTestRuntimeValues.resourceIndicator,
     });
     expect(authorizationForm.code).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(authorizationForm.code_verifier).toMatch(/^[A-Za-z0-9_-]{64}$/u);

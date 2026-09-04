@@ -97,6 +97,7 @@ type RecoverableCleanupState = {
 
 type ProvisioningState = RecoverableCleanupState & {
   recipe: Phase1FixtureRecipe;
+  observedUserApplicationIds: Map<string, string | null>;
 };
 
 type MutableProvisioning = {
@@ -123,6 +124,10 @@ const operationFailure = 'Reference fixture operation failed';
 const cleanupOperationFailure = 'Reference fixture cleanup operation failed';
 const maximumSnapshotBytes = 65_536;
 const safeTextPattern = /^[^\u0000-\u001f\u007f]+$/u;
+const acceptsNonJsonMutationAcknowledgement = (request: ReferenceRequest): boolean =>
+  request.method === 'POST' &&
+  (/^roles\/[^/]+\/users$/u.test(request.path) ||
+    /^applications\/[^/]+\/user-consent-scopes$/u.test(request.path));
 
 const fixedUsernamePasswordExperience = Object.freeze({
   signInMode: SignInMode.SignInAndRegister,
@@ -461,9 +466,32 @@ const createDefaultRequest = (
           : await client.patch(path, options);
 
     const responseText = await readBoundedResponseText(response);
+    const acceptsAcknowledgement = acceptsNonJsonMutationAcknowledgement({
+      targetRole,
+      method,
+      path,
+      body,
+    });
+
+    if (acceptsAcknowledgement && response.status !== 201) {
+      throw new TypeError(invalidReferenceResponse);
+    }
 
     if (responseText.length === 0) {
-      return {};
+      if (acceptsAcknowledgement) {
+        return {};
+      }
+
+      throw new TypeError(invalidReferenceResponse);
+    }
+    const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+
+    if (mediaType !== 'application/json') {
+      if (acceptsAcknowledgement) {
+        return {};
+      }
+
+      throw new TypeError(invalidReferenceResponse);
     }
     return JSON.parse(responseText) as unknown;
   };
@@ -1236,6 +1264,7 @@ export const createReferencePhase1FixtureProvisioner = (
           allocationIds: Object.freeze(
             publicMap.allocations.map(({ allocationId }) => allocationId)
           ),
+          observedUserApplicationIds: new Map(),
           completed: false,
         });
 
@@ -1406,6 +1435,50 @@ export const createReferencePhase1FixtureProvisioner = (
                   : namespacedEmail(safeText(expectedSnapshot.primaryEmail), namespace);
               const expectedPrimaryPhone =
                 expectedSnapshot.primaryPhone === null ? null : namespacedPhone(namespace);
+              const observedApplicationId = result.applicationId;
+              const firstConsentApplication = options.profile.fixtures.dataTenant.applications.find(
+                ({ isThirdParty }) => isThirdParty
+              );
+              const firstConsentApplicationId =
+                allocation.role === 'data' &&
+                candidate.logicalId === options.profile.fixtures.dataTenant.subject.id &&
+                expectedApplicationId === null &&
+                firstConsentApplication
+                  ? runtimeIdForLogical(
+                      allocation,
+                      'application',
+                      safeText(firstConsentApplication.id)
+                    )
+                  : undefined;
+
+              if (
+                (observedApplicationId !== null && typeof observedApplicationId !== 'string') ||
+                (observedApplicationId !== expectedApplicationId &&
+                  observedApplicationId !== firstConsentApplicationId)
+              ) {
+                throw new TypeError(invalidReferenceResponse);
+              }
+              const observedApplicationKey = `${allocation.allocationId}\u0000${candidate.logicalId}`;
+              const hasPreviousObservedApplicationId =
+                state.observedUserApplicationIds.has(observedApplicationKey);
+              const previousObservedApplicationId =
+                state.observedUserApplicationIds.get(observedApplicationKey);
+              const isExpectedFirstConsentTransition =
+                previousObservedApplicationId === null &&
+                observedApplicationId === firstConsentApplicationId;
+
+              if (
+                hasPreviousObservedApplicationId &&
+                previousObservedApplicationId !== observedApplicationId &&
+                !isExpectedFirstConsentTransition
+              ) {
+                throw new TypeError(invalidReferenceResponse);
+              }
+              state.observedUserApplicationIds.set(observedApplicationKey, observedApplicationId);
+              const expectedObservedApplicationId =
+                observedApplicationId === firstConsentApplicationId
+                  ? firstConsentApplicationId
+                  : expectedApplicationId;
               assertObservedEquals(
                 {
                   id: result.id,
@@ -1414,7 +1487,7 @@ export const createReferencePhase1FixtureProvisioner = (
                   primaryEmail: result.primaryEmail,
                   primaryPhone: result.primaryPhone,
                   profile: projectAddressProfile(result.profile),
-                  applicationId: result.applicationId,
+                  applicationId: observedApplicationId,
                   customData: result.customData,
                   localAuthenticationPresent: result.hasPassword,
                 },
@@ -1425,7 +1498,7 @@ export const createReferencePhase1FixtureProvisioner = (
                   primaryEmail: expectedPrimaryEmail,
                   primaryPhone: expectedPrimaryPhone,
                   profile: expectedSnapshot.profile,
-                  applicationId: expectedApplicationId,
+                  applicationId: expectedObservedApplicationId,
                   customData: expectedSnapshot.customData,
                   localAuthenticationPresent: expectedSnapshot.localAuthenticationPresent,
                 }

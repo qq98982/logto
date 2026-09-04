@@ -129,11 +129,11 @@ with model_rows as (
   select
     'session',
     model.tenant_id,
-    authorization.key,
+    authorization_entry.key,
     nullif(model.payload ->> 'accountId', ''),
     case
-      when nullif(authorization.value ->> 'grantId', '') is null then null
-      else encode(sha256(convert_to('phase1-family:' || (authorization.value ->> 'grantId'), 'UTF8')), 'hex')
+      when nullif(authorization_entry.value ->> 'grantId', '') is null then null
+      else encode(sha256(convert_to('phase1-family:' || (authorization_entry.value ->> 'grantId'), 'UTF8')), 'hex')
     end,
     encode(sha256(convert_to('phase1-artifact:' || model.id, 'UTF8')), 'hex'),
     false,
@@ -150,7 +150,7 @@ with model_rows as (
         then model.payload -> 'authorizations'
       else '{}'::jsonb
     end
-  ) as authorization
+  ) as authorization_entry
   where model.model_name = 'Session'
 
   union all
@@ -169,7 +169,15 @@ with model_rows as (
     false,
     case
       when jsonb_typeof(model.payload #> '{openid,scope}') = 'string'
-        then to_jsonb(regexp_split_to_array(trim(model.payload #>> '{openid,scope}'), '\s+'))
+        then to_jsonb(
+          array_remove(
+            array_remove(
+              regexp_split_to_array(trim(model.payload #>> '{openid,scope}'), '\s+'),
+              'openid'
+            ),
+            'offline_access'
+          )
+        )
       else '[]'::jsonb
     end,
     coalesce((

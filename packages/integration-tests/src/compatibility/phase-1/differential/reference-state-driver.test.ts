@@ -61,6 +61,31 @@ const createFakeDocker = async (
 };
 
 describe('Phase 1 reference state driver', () => {
+  it('uses a non-keyword alias for session authorization rows', async () => {
+    const source = await readFile(driver, 'utf8');
+
+    expect(source).toContain('as authorization_entry');
+    expect(source).not.toMatch(/\bauthorization\.(?:key|value)\b/u);
+  });
+
+  it('excludes protocol-only scopes from the persisted consent projection', async () => {
+    const source = await readFile(driver, 'utf8');
+    const grantStart = source.indexOf("  select\n    'grant',");
+    const grantEnd = source.indexOf('\n\n  union all', grantStart);
+    const grantProjection = source.slice(grantStart, grantEnd);
+    const resourceScopeStart = grantProjection.indexOf(
+      "'scopes', to_jsonb(regexp_split_to_array(trim(resource.value), '\\s+'))"
+    );
+
+    expect(grantStart).toBeGreaterThanOrEqual(0);
+    expect(grantEnd).toBeGreaterThan(grantStart);
+    expect(grantProjection).toContain(
+      "array_remove(\n            array_remove(\n              regexp_split_to_array(trim(model.payload #>> '{openid,scope}'), '\\s+'),\n              'openid'\n            ),\n            'offline_access'\n          )"
+    );
+    expect(resourceScopeStart).toBeGreaterThanOrEqual(0);
+    expect(grantProjection.slice(resourceScopeStart)).not.toContain('array_remove');
+  });
+
   it('accepts only a closed scenario step and a labeled Postgres container', async () => {
     const root = await createRoot();
     const fake = await createFakeDocker(root);

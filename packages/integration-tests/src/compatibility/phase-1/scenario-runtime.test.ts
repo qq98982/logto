@@ -2,6 +2,7 @@
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 
 import type { TargetConfig } from '../model.js';
+import type { JsonValue } from '../normalize.js';
 import { SymbolTable } from '../symbol-table.js';
 
 import { MemoryProtocolSecretStore, type OidcClient } from './clients/oidc.js';
@@ -21,6 +22,7 @@ import {
   type Phase1ScenarioRun,
 } from './model.js';
 import type { Phase1Profile } from './profile-types.js';
+import { phase1HttpProjectionGuard } from './projections/http.js';
 import {
   projectTokenObservation,
   verifyObservedJwt,
@@ -399,15 +401,34 @@ describe('phase 1 scenario runtime', () => {
       {
         status: 200,
         headers: [],
-        body: { access_token: compact, token_type: 'Bearer' },
+        body: {
+          access_token: 'opaque-access-token',
+          id_token: compact,
+          token_type: 'Bearer',
+        },
         semanticState: { grants: [] },
         sideEffects: { writes: 0 },
       },
       { target, symbols: new SymbolTable() },
       { verifiedJwts: [proof] }
     );
+    const normalizedCookie = {
+      name: 'interaction',
+      httpOnly: true,
+      secure: true,
+      extensions: [],
+    };
+    const secondNormalizedCookie = {
+      name: 'interaction.sig',
+      httpOnly: true,
+      secure: true,
+      extensions: [],
+    };
     const complete: Phase1HttpProjection = {
       ...tokenProjection,
+      headers: {
+        'set-cookie': [normalizedCookie],
+      },
       redirect: {
         scheme: 'https',
         origin: 'https://client.example',
@@ -416,10 +437,34 @@ describe('phase 1 scenario runtime', () => {
         fragment: '',
         redactedParameters: [],
       },
-      cookies: [{ name: 'interaction', httpOnly: true, secure: true, extensions: [] }],
+      cookies: [normalizedCookie],
       semanticState: { grants: [] },
       sideEffects: { writes: 0 },
+      outcomes: [
+        {
+          kind: 'unobserved-consent-bridge',
+          response: {
+            ...httpProjection(),
+            headers: {
+              'set-cookie': [normalizedCookie],
+            },
+            cookies: [normalizedCookie],
+          } as unknown as JsonValue,
+        },
+      ],
     };
+
+    expect(phase1HttpProjectionGuard.safeParse(complete).success).toBe(true);
+    const redactedCredentialHeader = {
+      ...complete,
+      headers: { session: ['<redacted-header-value>'] },
+      cookies: [],
+    };
+    expect(
+      validateExactPhase1ScenarioSteps(scenario, [
+        { stepId: 'complete', value: redactedCredentialHeader },
+      ])
+    ).toEqual([{ stepId: 'complete', value: redactedCredentialHeader }]);
 
     expect(
       validateExactPhase1ScenarioSteps(scenario, [{ stepId: 'complete', value: complete }])
@@ -432,6 +477,66 @@ describe('phase 1 scenario runtime', () => {
       { ...complete, tokens: [{ claims: { aud: 'phase1-app' } }] },
       { ...complete, tokens: [{ header: { alg: 'ES384' } }] },
       { ...complete, semanticState: undefined },
+      { ...complete, body: { 'set-cookie': [] } },
+      { ...complete, headers: { 'set-cookie': ['sid=opaque'] } },
+      { ...complete, body: { headers: { 'set-cookie': [normalizedCookie] } } },
+      { ...complete, semanticState: { headers: { 'set-cookie': [normalizedCookie] } } },
+      { ...complete, headers: { date: [null] }, cookies: [] },
+      { ...complete, headers: { 'content-length': [{}] }, cookies: [] },
+      { ...complete, headers: { location: [false] }, cookies: [] },
+      { ...complete, headers: { 'www-authenticate': [0] }, cookies: [] },
+      { ...complete, headers: { session: ['raw-session'] }, cookies: [] },
+      { ...complete, headers: {}, cookies: [normalizedCookie] },
+      { ...complete, headers: { 'set-cookie': [normalizedCookie] }, cookies: [] },
+      {
+        ...complete,
+        headers: { 'set-cookie': [normalizedCookie, secondNormalizedCookie] },
+        cookies: [secondNormalizedCookie, normalizedCookie],
+      },
+      {
+        ...complete,
+        headers: { 'set-cookie': [normalizedCookie] },
+        cookies: [{ ...normalizedCookie, secure: false }],
+      },
+      {
+        ...complete,
+        outcomes: [
+          {
+            kind: 'unobserved-consent-bridge',
+            response: { headers: { 'set-cookie': [normalizedCookie] } },
+          },
+        ],
+      },
+      {
+        ...complete,
+        outcomes: [{ kind: 'unobserved-consent-bridge', response: { status: 200 } }],
+      },
+      ...[null, 200, 'ok', true, []].map((response) => ({
+        ...complete,
+        outcomes: [{ kind: 'unobserved-consent-bridge', response }],
+      })),
+      {
+        ...complete,
+        outcomes: [[{ kind: 'unobserved-consent-bridge', response: { status: 200 } }]],
+      },
+      {
+        ...complete,
+        outcomes: [
+          {
+            kind: 'unobserved-consent-bridge',
+            wrapper: { response: { status: 200 } },
+          },
+        ],
+      },
+      {
+        ...complete,
+        outcomes: [
+          {
+            kind: 'unobserved-consent-bridge',
+            response: { ...httpProjection(), status: 'ok' },
+          },
+        ],
+      },
     ];
 
     for (const value of invalidValues) {
@@ -439,6 +544,22 @@ describe('phase 1 scenario runtime', () => {
         validateExactPhase1ScenarioSteps(scenario, [{ stepId: 'complete', value }])
       ).toThrow(/^Invalid phase 1 scenario step results$/u);
     }
+  });
+
+  it('rejects accessor-backed projection metadata without executing the accessor', () => {
+    const scenario = createScenario([{ id: 'probe', kinds: ['http'] }], async () => []);
+    const accessor = import.meta.jest.fn(() => [{ $timestamp: 1000, $toleranceSeconds: 30 }]);
+    const headers = {};
+    Object.defineProperty(headers, 'date', {
+      enumerable: true,
+      get: accessor,
+    });
+    const projection = { ...httpProjection(), headers };
+
+    expect(() =>
+      validateExactPhase1ScenarioSteps(scenario, [{ stepId: 'probe', value: projection }])
+    ).toThrow(/^Invalid phase 1 scenario step results$/u);
+    expect(accessor).not.toHaveBeenCalled();
   });
 
   it('rejects missing extra reordered duplicate sparse and accessor-backed step results', () => {

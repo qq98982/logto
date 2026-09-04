@@ -5,12 +5,14 @@ import { validateTargetConfig } from '../config.js';
 import { assertEvidenceIsSanitized } from '../evidence.js';
 import type { TargetConfig } from '../model.js';
 
+import { assertPhase1EvidenceIsSanitized } from './evidence.js';
 import {
   createPhase1FixtureMap,
   type Phase1FixtureMap,
   type Phase1FixtureStateProjection,
 } from './fixture-map.js';
 import type { Phase1FixtureRecipe } from './model.js';
+import { phase1CookieMetadataArrayGuard, phase1HeaderMultimapGuard } from './projections/http.js';
 
 export type SemanticStateProjection = Phase1FixtureStateProjection;
 
@@ -61,12 +63,37 @@ const runtimeCredentialFailure = 'Phase 1 runtime output contains forbidden cred
 const reviewedRuntimeCredentialMetadataKeys = new Set([
   'authorizationcodeconsumed',
   'authorizationcodepresent',
+  'cookies',
   'cookiekeyid',
+  'cookiesealing',
+  'cookieverification',
+  'haspassword',
+  'localauthenticationpolicy',
+  'localauthenticationpresent',
+  'resumecredential',
   'signingkeyid',
+  'tokens',
   'tokenfamily',
+  'tokenlifetimeseconds',
+  'tokensigning',
+  'tokentype',
 ]);
+const booleanRuntimeMetadataKeys = new Set([
+  'authorizationcodeconsumed',
+  'authorizationcodepresent',
+  'cookiesealing',
+  'cookieverification',
+  'haspassword',
+  'localauthenticationpresent',
+  'tokensigning',
+]);
+const publicRuntimeIdMetadataKeys = new Set(['cookiekeyid', 'signingkeyid']);
 const standaloneCookiePairPattern =
   /^(?:__Host-|__Secure-)?[!#$%&'*+.^_`|~0-9A-Za-z-]+=[^;\r\n]*(?:;\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:=[^;\r\n]*)?)*$/u;
+const keepAliveHeaderValuePattern =
+  /^(?:(?:timeout|max)=(?:0|[1-9]\d*))(?:\s*,\s*(?:timeout|max)=(?:0|[1-9]\d*))*$/u;
+const strictTransportSecurityHeaderValuePattern =
+  /^max-age=(?:0|[1-9]\d*)(?:\s*;\s*(?:includeSubDomains|preload)){0,2}$/iu;
 const nativeErrorToString = Error.prototype.toString;
 const errorPrototypeKeys = Object.freeze(['constructor', 'message', 'name', 'toString']);
 const nativeErrorStackDescriptor = Object.getOwnPropertyDescriptor(
@@ -186,10 +213,111 @@ const snapshotSeeds = (
 const stringContainsSeededSecret = (value: string, secretValues: readonly string[]) =>
   secretValues.some((secret) => value.includes(secret));
 
-const assertRuntimeCredentialString = (value: string, secretValues: readonly string[]): void => {
+type RuntimeCredentialContext =
+  | 'ordinary'
+  | 'normalized-headers'
+  | 'keep-alive-values'
+  | 'keep-alive-value'
+  | 'strict-transport-security-values'
+  | 'strict-transport-security-value';
+
+const runtimeCredentialChildContext = (
+  context: RuntimeCredentialContext,
+  container: object,
+  key: string
+): RuntimeCredentialContext => {
+  if (!Array.isArray(container) && key === 'headers') {
+    return 'normalized-headers';
+  }
+  if (!Array.isArray(container) && context === 'normalized-headers' && key === 'keep-alive') {
+    return 'keep-alive-values';
+  }
+  if (
+    !Array.isArray(container) &&
+    context === 'normalized-headers' &&
+    key === 'strict-transport-security'
+  ) {
+    return 'strict-transport-security-values';
+  }
+  if (Array.isArray(container) && context === 'keep-alive-values' && key !== 'length') {
+    return 'keep-alive-value';
+  }
+  if (
+    Array.isArray(container) &&
+    context === 'strict-transport-security-values' &&
+    key !== 'length'
+  ) {
+    return 'strict-transport-security-value';
+  }
+
+  return 'ordinary';
+};
+
+const isReviewedRuntimeCredentialKey = (context: RuntimeCredentialContext, key: string) =>
+  context === 'normalized-headers' && key === 'set-cookie';
+
+const assertRuntimeCredentialMetadataValue = (
+  key: string,
+  value: unknown,
+  context: RuntimeCredentialContext
+): void => {
+  const normalizedKey = key.replaceAll(/[_\s-]/gu, '').toLowerCase();
+
+  try {
+    if (key === 'headers' && !phase1HeaderMultimapGuard.safeParse(value).success) {
+      throw new TypeError('invalid normalized headers');
+    }
+    if (
+      context === 'normalized-headers' &&
+      key === 'set-cookie' &&
+      !phase1CookieMetadataArrayGuard.safeParse(value).success
+    ) {
+      throw new TypeError('invalid normalized Set-Cookie');
+    }
+    if (normalizedKey === 'cookies' && !phase1CookieMetadataArrayGuard.safeParse(value).success) {
+      throw new TypeError('invalid normalized cookies');
+    }
+    if (booleanRuntimeMetadataKeys.has(normalizedKey) && typeof value !== 'boolean') {
+      throw new TypeError('invalid boolean metadata');
+    }
+    if (
+      normalizedKey === 'tokenlifetimeseconds' &&
+      (typeof value !== 'number' || !Number.isFinite(value))
+    ) {
+      throw new TypeError('invalid numeric metadata');
+    }
+    if (
+      publicRuntimeIdMetadataKeys.has(normalizedKey) &&
+      (typeof value !== 'string' || value.length === 0 || !safeTextPattern.test(value))
+    ) {
+      throw new TypeError('invalid public runtime identifier');
+    }
+    if (
+      reviewedRuntimeCredentialMetadataKeys.has(normalizedKey) &&
+      !booleanRuntimeMetadataKeys.has(normalizedKey) &&
+      !publicRuntimeIdMetadataKeys.has(normalizedKey) &&
+      normalizedKey !== 'cookies'
+    ) {
+      assertPhase1EvidenceIsSanitized({ [key]: value });
+    }
+  } catch {
+    throw new Error(runtimeCredentialFailure);
+  }
+};
+
+const assertRuntimeCredentialString = (
+  value: string,
+  secretValues: readonly string[],
+  context: RuntimeCredentialContext
+): void => {
+  const reviewedHeaderValue =
+    (context === 'keep-alive-value' && keepAliveHeaderValuePattern.test(value.trim())) ||
+    (context === 'strict-transport-security-value' &&
+      strictTransportSecurityHeaderValuePattern.test(value.trim()));
+
   if (
     stringContainsSeededSecret(value, secretValues) ||
-    standaloneCookiePairPattern.test(value.trim())
+    (!reviewedHeaderValue && standaloneCookiePairPattern.test(value.trim()))
   ) {
     throw new Error(runtimeCredentialFailure);
   }
@@ -202,7 +330,7 @@ const assertRuntimeCredentialString = (value: string, secretValues: readonly str
 };
 
 const assertRuntimeCredentialKey = (value: string, secretValues: readonly string[]): void => {
-  assertRuntimeCredentialString(value, secretValues);
+  assertRuntimeCredentialString(value, secretValues, 'ordinary');
   const normalizedKey = value.replaceAll(/[_\s-]/gu, '').toLowerCase();
 
   if (reviewedRuntimeCredentialMetadataKeys.has(normalizedKey)) {
@@ -220,10 +348,11 @@ const inspectRuntimeCredentialGraph = (
   value: unknown,
   secretValues: readonly string[],
   ancestors: WeakSet<object>,
-  depth: number
+  depth: number,
+  context: RuntimeCredentialContext
 ): void => {
   if (typeof value === 'string') {
-    assertRuntimeCredentialString(value, secretValues);
+    assertRuntimeCredentialString(value, secretValues, context);
     return;
   }
   if (
@@ -280,7 +409,9 @@ const inspectRuntimeCredentialGraph = (
         ancestors.delete(value);
         throw new Error(runtimeCredentialFailure);
       }
-      assertRuntimeCredentialKey(key, secretValues);
+      if (!isReviewedRuntimeCredentialKey(context, key)) {
+        assertRuntimeCredentialKey(key, secretValues);
+      }
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
 
       if (
@@ -297,7 +428,14 @@ const inspectRuntimeCredentialGraph = (
         throw new Error(runtimeCredentialFailure);
       }
       if (Object.hasOwn(descriptor, 'value')) {
-        inspectRuntimeCredentialGraph(descriptor.value, secretValues, ancestors, depth + 1);
+        inspectRuntimeCredentialGraph(
+          descriptor.value,
+          secretValues,
+          ancestors,
+          depth + 1,
+          runtimeCredentialChildContext(context, value, key)
+        );
+        assertRuntimeCredentialMetadataValue(key, descriptor.value, context);
       }
     }
     ancestors.delete(value);
@@ -335,7 +473,7 @@ const inspectRuntimeCredentialGraph = (
       ancestors.delete(value);
       throw new Error(runtimeCredentialFailure);
     }
-    if (key !== 'length') {
+    if (key !== 'length' && !isReviewedRuntimeCredentialKey(context, key)) {
       assertRuntimeCredentialKey(key, secretValues);
     }
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -348,7 +486,14 @@ const inspectRuntimeCredentialGraph = (
       ancestors.delete(value);
       throw new Error(runtimeCredentialFailure);
     }
-    inspectRuntimeCredentialGraph(descriptor.value, secretValues, ancestors, depth + 1);
+    inspectRuntimeCredentialGraph(
+      descriptor.value,
+      secretValues,
+      ancestors,
+      depth + 1,
+      runtimeCredentialChildContext(context, value, key)
+    );
+    assertRuntimeCredentialMetadataValue(key, descriptor.value, context);
   }
   ancestors.delete(value);
 };
@@ -358,7 +503,7 @@ export const assertPhase1RuntimeCredentialGraphIsSanitized = (
   secretValues: readonly string[] = []
 ): void => {
   try {
-    inspectRuntimeCredentialGraph(value, secretValues, new WeakSet(), 0);
+    inspectRuntimeCredentialGraph(value, secretValues, new WeakSet(), 0, 'ordinary');
   } catch {
     throw new Error(runtimeCredentialFailure);
   }

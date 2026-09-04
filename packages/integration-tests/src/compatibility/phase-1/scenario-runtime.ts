@@ -31,6 +31,7 @@ import {
   type Phase1ScenarioStepResult,
 } from './model.js';
 import type { Phase1Profile } from './profile-types.js';
+import { phase1HttpProjectionGuard } from './projections/http.js';
 
 export type Phase1ScenarioStateProjectionInput = Readonly<{
   body: JsonValue;
@@ -212,10 +213,26 @@ const hasExactOwnDataKeys = (
   return true;
 };
 
-const inspectStateKeys = (value: unknown): void => {
+type StateKeyInspectionContext =
+  | 'ordinary'
+  | 'http-projection'
+  | 'normalized-headers'
+  | 'outcomes'
+  | 'outcome';
+
+const inspectStateKeys = (
+  value: unknown,
+  context: StateKeyInspectionContext = 'ordinary'
+): void => {
+  if (context === 'http-projection' && !phase1HttpProjectionGuard.safeParse(value).success) {
+    return fail(invalidStateProjection);
+  }
   if (Array.isArray(value)) {
     for (const item of value) {
-      inspectStateKeys(item);
+      inspectStateKeys(
+        item,
+        context === 'outcomes' || context === 'outcome' ? 'outcome' : 'ordinary'
+      );
     }
     return;
   }
@@ -231,14 +248,27 @@ const inspectStateKeys = (value: unknown): void => {
   }
   for (const [key, nested] of Object.entries(value)) {
     const normalized = key.replaceAll(/[_\s-]/gu, '').toLowerCase();
+    const reviewedSetCookieHeader = context === 'normalized-headers' && key === 'set-cookie';
 
     if (
       forbiddenStateKeyNames.has(normalized) &&
+      !reviewedSetCookieHeader &&
       !(normalized === 'verificationcode' && typeof nested === 'boolean')
     ) {
       return fail(invalidStateProjection);
     }
-    inspectStateKeys(nested);
+    const childContext: StateKeyInspectionContext =
+      context === 'http-projection' && key === 'headers'
+        ? 'normalized-headers'
+        : context === 'http-projection' && key === 'outcomes'
+          ? 'outcomes'
+          : context === 'outcome' && key === 'response'
+            ? 'http-projection'
+            : context === 'outcome'
+              ? 'outcome'
+              : 'ordinary';
+
+    inspectStateKeys(nested, childContext);
   }
 };
 
@@ -329,7 +359,7 @@ const containsOnlyAuthorizedStateStrings = (
 
 const assertSanitizedProjection = (value: unknown, tokens?: unknown): void => {
   try {
-    inspectStateKeys(value);
+    inspectStateKeys(value, 'http-projection');
     assertPhase1EvidenceIsSanitized({
       metadata: sanitizerView(value),
       ...(tokens === undefined ? {} : { tokens }),
@@ -417,41 +447,24 @@ const hasTokenSurface = (tokens: unknown, property: 'header' | 'claims'): boolea
   Array.isArray(tokens) &&
   tokens.some(
     (token) =>
-      isPlainRecord(token) && isPlainRecord(ownDataValue(token, property, invalidStepResults))
+      isPlainRecord(token) &&
+      Object.hasOwn(token, property) &&
+      isPlainRecord(ownDataValue(token, property, invalidStepResults))
   );
 
 const validateProjectionKinds = (value: unknown, kinds: readonly Phase1ObservationKind[]): void => {
-  const projection = requireProjectionRecord(value);
-  const status = ownDataValue(projection, 'status', invalidStepResults);
-  const mediaType = ownDataValue(projection, 'mediaType', invalidStepResults);
-  const headers = ownDataValue(projection, 'headers', invalidStepResults);
-  const cookies = ownDataValue(projection, 'cookies', invalidStepResults);
-  const redirect = ownDataValue(projection, 'redirect', invalidStepResults);
-  const tokens = ownDataValue(projection, 'tokens', invalidStepResults);
-  const semanticState = ownDataValue(projection, 'semanticState', invalidStepResults);
-  const persistedState = ownDataValue(projection, 'persistedState', invalidStepResults);
-  const sideEffects = ownDataValue(projection, 'sideEffects', invalidStepResults);
+  const snapshot = snapshotClosedDataGraph<Record<string, unknown>>(value);
 
-  if (
-    !Number.isSafeInteger(status) ||
-    (status as number) < 100 ||
-    (status as number) > 599 ||
-    (mediaType !== null && !isPlainRecord(mediaType)) ||
-    !isPlainRecord(headers) ||
-    !Array.isArray(cookies) ||
-    !Array.isArray(ownDataValue(projection, 'urls', invalidStepResults)) ||
-    !Array.isArray(tokens) ||
-    !Array.isArray(ownDataValue(projection, 'outcomes', invalidStepResults)) ||
-    !jsonValueGuard.safeParse(ownDataValue(projection, 'body', invalidStepResults)).success ||
-    !jsonValueGuard.safeParse(ownDataValue(projection, 'error', invalidStepResults)).success ||
-    !jsonValueGuard.safeParse(ownDataValue(projection, 'generatedIds', invalidStepResults))
-      .success ||
-    !jsonValueGuard.safeParse(persistedState).success ||
-    !jsonValueGuard.safeParse(semanticState).success ||
-    !jsonValueGuard.safeParse(sideEffects).success
-  ) {
+  if (!snapshot || !phase1HttpProjectionGuard.safeParse(snapshot).success) {
     return fail(invalidStepResults);
   }
+  const originalProjection = requireProjectionRecord(value);
+  const projection = requireProjectionRecord(snapshot);
+  const redirect = ownDataValue(projection, 'redirect', invalidStepResults);
+  const tokens = ownDataValue(projection, 'tokens', invalidStepResults);
+  const originalTokens = ownDataValue(originalProjection, 'tokens', invalidStepResults);
+  const semanticState = ownDataValue(projection, 'semanticState', invalidStepResults);
+
   if (kinds.includes('redirect') && !isPlainRecord(redirect)) {
     return fail(invalidStepResults);
   }
@@ -464,10 +477,7 @@ const validateProjectionKinds = (value: unknown, kinds: readonly Phase1Observati
   if (kinds.includes('semantic-state') && !isPlainRecord(semanticState)) {
     return fail(invalidStepResults);
   }
-  if (snapshotClosedDataGraph(value) === undefined) {
-    return fail(invalidStepResults);
-  }
-  assertSanitizedProjection(value, tokens);
+  assertSanitizedProjection(snapshot, originalTokens);
 };
 
 const deepFreezeProjection = <Value>(value: Value): Value => {

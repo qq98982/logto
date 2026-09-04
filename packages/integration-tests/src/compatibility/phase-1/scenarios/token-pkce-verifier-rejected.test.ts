@@ -18,6 +18,7 @@ import {
   createTokenTestSigner,
   tokenGrantBody,
   tokenTestCredentials,
+  tokenTestRuntimeValues,
   tokenTestTarget,
 } from './positive-oidc-token.test-helpers.js';
 import { runTokenPkceVerifierRejected } from './token-pkce-verifier-rejected.js';
@@ -141,6 +142,8 @@ describe('token.pkce-verifier-rejected', () => {
       client_id: tokenTestCredentials.clientId,
       redirect_uri: tokenTestCredentials.redirectUri,
     });
+    expect(badFields.resource).toBeUndefined();
+    expect(validFields.resource).toBeUndefined();
     expect(badFields.code).toBe(validFields.code);
     expect(badFields.code).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(validFields.code_verifier).toMatch(/^[A-Za-z0-9_-]{64}$/u);
@@ -331,6 +334,7 @@ describe('token.pkce-verifier-rejected', () => {
         code: tokenTestCredentials.code,
         verifier: tokenTestCredentials.codeVerifier,
         redirectUri: tokenTestCredentials.redirectUri,
+        resource: tokenTestRuntimeValues.resourceIndicator,
       },
       async (request) => {
         expect(() => {
@@ -381,5 +385,6 @@ describe('token.pkce-verifier-rejected', () => {
     expect(form.get('code')).toBe(tokenTestCredentials.code);
     expect(form.get('code_verifier')).toBe(tokenTestCredentials.codeVerifier);
     expect(form.get('redirect_uri')).toBe(tokenTestCredentials.redirectUri);
+    expect(form.get('resource')).toBe(tokenTestRuntimeValues.resourceIndicator);
   });
 });

@@ -16,6 +16,7 @@ import {
 
 const credentialKeyPattern =
   /^(?:authorization|proxy-authorization|cookie|set-cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|code|state|session|resume|interaction|nonce|code[_-]?verifier|code[_-]?challenge|verification[_-]?(?:id|credential|token|code))$/iu;
+const isPhase1CredentialKey = (value: string): boolean => credentialKeyPattern.test(value);
 const ephemeralCredentialKeyPattern =
   /^(?:state|session|resume|interaction|nonce|code[_-]?verifier|code[_-]?challenge|verification[_-]?(?:id|credential|token|code))$/iu;
 const authCredentialParameterPattern =
@@ -684,7 +685,7 @@ const normalizeCookieMetadata = (
   });
 };
 
-export const normalizeHeaders = (
+const normalizeHeadersValue = (
   input: HeaderInput,
   context: NormalizationContext,
   options: Readonly<{ bodyByteLength?: number }> = {}
@@ -731,7 +732,7 @@ export const normalizeHeaders = (
                 ? normalizeContentLength(rawValue, options.bodyByteLength)
                 : name === 'www-authenticate' || name === 'proxy-authenticate'
                   ? normalizeAuthChallenge(rawValue)
-                  : credentialKeyPattern.test(name)
+                  : isPhase1CredentialKey(name)
                     ? '<redacted-header-value>'
                     : rawValue;
       result[name] = [...(result[name] ?? []), value];
@@ -751,6 +752,11 @@ export const normalizeHeaders = (
     return fixedFailure('Invalid phase 1 headers');
   }
 };
+
+export const normalizeHeaders = Object.freeze(
+  // eslint-disable-next-line @silverhand/fp/no-mutating-assign -- Keep the credential classifier attached to the existing reviewed normalizer export instead of widening the exact module authority surface.
+  Object.assign(normalizeHeadersValue, { isCredentialKey: isPhase1CredentialKey })
+);
 
 const normalizeClaimObject = (
   claims: JsonObject,
@@ -779,7 +785,7 @@ const normalizeClaimObject = (
       if (ephemeralCredentialKeyPattern.test(key)) {
         return [];
       }
-      if (credentialKeyPattern.test(key)) {
+      if (isPhase1CredentialKey(key)) {
         return fixedFailure('Invalid phase 1 claims');
       }
       if (timestampFields.has(key)) {
@@ -972,7 +978,7 @@ const normalizeError = (value: unknown, message: string): JsonObject => {
   }
 
   const redact = (nested: JsonValue, key = ''): JsonValue => {
-    if (credentialKeyPattern.test(key)) {
+    if (isPhase1CredentialKey(key)) {
       return '<redacted-error-field>';
     }
     if (typeof nested === 'string') {

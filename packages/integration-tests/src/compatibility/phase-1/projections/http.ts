@@ -1,5 +1,7 @@
 /* eslint-disable max-lines, complexity, @typescript-eslint/ban-types, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Faithful JSON uses explicit null, guarded Zod narrowing, and local ordered URL lifting at this publication boundary. */
-import { MIMEType } from 'node:util';
+import { isDeepStrictEqual, MIMEType } from 'node:util';
+
+import { z } from 'zod';
 
 import { assertEvidenceIsSanitized } from '../../evidence.js';
 import { jsonValueGuard } from '../../model.js';
@@ -60,6 +62,167 @@ export type Phase1HttpProjection = Readonly<{
   sideEffects: JsonValue;
   outcomes: readonly JsonValue[];
 }>;
+
+export const phase1CookieMetadataGuard = z
+  .object({
+    name: z.string().min(1),
+    path: z.string().optional(),
+    domain: z.string().optional(),
+    httpOnly: z.boolean(),
+    secure: z.boolean(),
+    sameSite: z.enum(['Strict', 'Lax', 'None']).optional(),
+    maxAge: z.number().finite().optional(),
+    expires: z
+      .object({
+        $timestamp: z.number().finite(),
+        $toleranceSeconds: z.literal(30),
+      })
+      .strict()
+      .optional(),
+    expiryOffsetSeconds: z.number().finite().optional(),
+    extensions: z.array(
+      z.object({ name: z.string().min(1), value: z.string().optional() }).strict()
+    ),
+  })
+  .strict();
+export const phase1CookieMetadataArrayGuard = z.array(phase1CookieMetadataGuard);
+const phase1BoundedTimestampGuard = z
+  .object({
+    $timestamp: z.number().finite(),
+    $toleranceSeconds: z.literal(30),
+  })
+  .strict();
+const phase1RedirectParameterGuard = z
+  .object({
+    component: z.enum(['query', 'fragment']),
+    name: z.string().min(1),
+    count: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+const phase1RedirectProjectionGuard = z
+  .object({
+    scheme: z.string().min(1),
+    origin: z.string().min(1),
+    path: z.string(),
+    query: z.record(z.array(z.string()).min(1)),
+    fragment: z.string(),
+    redactedParameters: z.array(phase1RedirectParameterGuard),
+    resumeCredential: z.string().min(1).optional(),
+  })
+  .strict();
+const phase1AuthParameterGuard = z
+  .object({
+    name: z.string().min(1),
+    value: z.string(),
+    quoted: z.boolean(),
+  })
+  .strict();
+const phase1AuthChallengeGuard = z
+  .object({
+    scheme: z.string().min(1),
+    format: z.enum(['parameters', 'token68']),
+    parameters: z.array(jsonValueGuard),
+  })
+  .strict()
+  .superRefine((challenge, context) => {
+    const valid =
+      challenge.format === 'token68'
+        ? challenge.parameters.length === 1 && challenge.parameters[0] === '<redacted-auth-token68>'
+        : challenge.parameters.every(
+            (parameter) => phase1AuthParameterGuard.safeParse(parameter).success
+          );
+
+    if (!valid) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid normalized authentication challenge',
+      });
+    }
+  });
+const phase1AuthChallengesGuard = z
+  .object({ challenges: z.array(phase1AuthChallengeGuard).min(1) })
+  .strict();
+const normalizedHeaderNamePattern = /^[!#$%&'*+.^_`|~0-9a-z-]+$/u;
+export const phase1HeaderMultimapGuard = z
+  .record(z.array(jsonValueGuard).min(1))
+  .superRefine((headers, context) => {
+    const names = Object.keys(headers);
+    const sortedNames = names.toSorted();
+
+    if (
+      names.some((name) => !normalizedHeaderNamePattern.test(name)) ||
+      names.some((name, index) => name !== sortedNames[index])
+    ) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid normalized headers' });
+    }
+
+    for (const [name, values] of Object.entries(headers)) {
+      const valid = values.every((value) => {
+        if (name === 'set-cookie') {
+          return phase1CookieMetadataGuard.safeParse(value).success;
+        }
+        if (name === 'date') {
+          return phase1BoundedTimestampGuard.safeParse(value).success;
+        }
+        if (name === 'content-length') {
+          return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+        }
+        if (name === 'location') {
+          return phase1RedirectProjectionGuard.safeParse(value).success;
+        }
+        if (name === 'www-authenticate' || name === 'proxy-authenticate') {
+          return phase1AuthChallengesGuard.safeParse(value).success;
+        }
+        if (normalizeHeaders.isCredentialKey(name)) {
+          return value === '<redacted-header-value>';
+        }
+
+        return typeof value === 'string';
+      });
+
+      if (!valid) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Invalid normalized header value',
+          path: [name],
+        });
+      }
+    }
+  });
+const phase1MediaTypeGuard = z
+  .object({
+    type: z.string().min(1),
+    subtype: z.string().min(1),
+    parameters: z.record(z.array(z.string()).min(1)),
+  })
+  .strict();
+export const phase1HttpProjectionGuard = z
+  .object({
+    status: z.number().int().min(100).max(599),
+    mediaType: phase1MediaTypeGuard.nullable(),
+    error: jsonValueGuard,
+    headers: phase1HeaderMultimapGuard,
+    body: jsonValueGuard,
+    redirect: phase1RedirectProjectionGuard.nullable(),
+    cookies: phase1CookieMetadataArrayGuard,
+    urls: z.array(phase1RedirectProjectionGuard),
+    tokens: z.array(jsonValueGuard),
+    generatedIds: jsonValueGuard,
+    persistedState: jsonValueGuard,
+    semanticState: jsonValueGuard,
+    sideEffects: jsonValueGuard,
+    outcomes: z.array(jsonValueGuard),
+  })
+  .strict()
+  .superRefine((projection, context) => {
+    if (!isDeepStrictEqual(projection.headers['set-cookie'] ?? [], projection.cookies)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Normalized cookie projections do not match',
+        path: ['cookies'],
+      });
+    }
+  });
 
 const credentialFieldPattern =
   /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|authorization|cookie|set[_-]?cookie|password|secret|private[_-]?key)$/iu;

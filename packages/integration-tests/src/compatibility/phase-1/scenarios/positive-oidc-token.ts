@@ -333,6 +333,7 @@ type PositiveOidcAuthorizationCodeRequestInput = Readonly<{
   code: string;
   verifier: string;
   redirectUri: string;
+  resource?: string;
 }>;
 
 export const withPositiveOidcAuthorizationCodeRequest = async <Result>(
@@ -357,6 +358,10 @@ export const withPositiveOidcAuthorizationCodeRequest = async <Result>(
     input.redirectUri,
     'Phase 1 authorization code request is invalid'
   );
+  const resource =
+    input.resource === undefined
+      ? undefined
+      : requireTokenText(input.resource, 'Phase 1 authorization code request is invalid');
   const { oidc } = context.protocol.forAllocation('data');
   oidc.store.registerSecret(code);
   oidc.store.registerSecret(verifier);
@@ -373,6 +378,7 @@ export const withPositiveOidcAuthorizationCodeRequest = async <Result>(
           code,
           code_verifier: verifier,
           redirect_uri: redirectUri,
+          ...(resource === undefined ? {} : { resource }),
         }).toString(),
         includeCookies: false,
       }),

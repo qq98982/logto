@@ -429,6 +429,8 @@ const createHarness = (
     createAllocationId?: () => string;
     organizationRoleAssignedToPreexistingMemberOnly?: boolean;
     userActivityResponses?: Partial<Record<'data' | 'admin', unknown>>;
+    // eslint-disable-next-line @typescript-eslint/ban-types -- The reference API returns JSON null before first consent.
+    dataUserApplicationIds?: Array<string | null>;
   } = {}
 ) => {
   const requests: Request[] = [];
@@ -462,6 +464,17 @@ const createHarness = (
     }
     if (
       input.method === 'GET' &&
+      input.targetRole === 'data' &&
+      input.path === 'users/data-phase1_user-id' &&
+      (options.dataUserApplicationIds?.length ?? 0) > 0
+    ) {
+      return {
+        ...(responseFor(input, requests) as Readonly<Record<string, unknown>>),
+        applicationId: options.dataUserApplicationIds?.shift(),
+      };
+    }
+    if (
+      input.method === 'GET' &&
       input.path.startsWith('users/') &&
       Object.hasOwn(options.userActivityResponses ?? {}, input.targetRole)
     ) {
@@ -490,7 +503,12 @@ const withDefaultRequestServer = async <Result>(
     requests: Request[],
     metrics: { oversizedChunksWritten: number }
   ) => Promise<Result>,
-  options: Readonly<{ streamOversizedSignIn?: boolean }> = {}
+  options: Readonly<{
+    streamOversizedSignIn?: boolean;
+    textSignIn?: boolean;
+    unexpectedTextMutation?: 'sign-in-patch' | 'user-create' | 'user-patch';
+    acknowledgementStatus?: number;
+  }> = {}
 ): Promise<Result> => {
   const requests: Request[] = [];
   const metrics = { oversizedChunksWritten: 0 };
@@ -508,6 +526,31 @@ const withDefaultRequestServer = async <Result>(
       ...(bodyText.length > 0 && { body: JSON.parse(bodyText) as unknown }),
     };
     requests.push(structuredClone(request));
+
+    if (options.textSignIn && request.method === 'GET' && request.path === 'sign-in-exp') {
+      response.statusCode = 200;
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      response.end('OK');
+      return;
+    }
+
+    const unexpectedTextMutation =
+      (options.unexpectedTextMutation === 'sign-in-patch' &&
+        request.method === 'PATCH' &&
+        request.path === 'sign-in-exp') ||
+      (options.unexpectedTextMutation === 'user-create' &&
+        request.method === 'POST' &&
+        request.path === 'users') ||
+      (options.unexpectedTextMutation === 'user-patch' &&
+        request.method === 'PATCH' &&
+        /^users\/[^/]+$/u.test(request.path));
+
+    if (unexpectedTextMutation) {
+      response.statusCode = request.method === 'POST' ? 201 : 200;
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      response.end('Created');
+      return;
+    }
 
     if (
       options.streamOversizedSignIn &&
@@ -535,11 +578,14 @@ const withDefaultRequestServer = async <Result>(
       response.end();
       return;
     }
-    if (
-      request.method === 'POST' &&
-      (/^roles\/[^/]+\/users$/u.test(request.path) || request.path.endsWith('/user-consent-scopes'))
-    ) {
-      response.statusCode = 201;
+    if (request.method === 'POST' && /^roles\/[^/]+\/users$/u.test(request.path)) {
+      response.statusCode = options.acknowledgementStatus ?? 201;
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      response.end(response.statusCode === 204 ? undefined : 'Created');
+      return;
+    }
+    if (request.method === 'POST' && request.path.endsWith('/user-consent-scopes')) {
+      response.statusCode = options.acknowledgementStatus ?? 201;
       response.end();
       return;
     }
@@ -680,7 +726,7 @@ describe('reference Phase 1 fixture provisioner', () => {
     ).toEqual(['PATCH']);
   });
 
-  it('accepts empty successful mutation responses from the default black-box client', async () => {
+  it('accepts non-JSON successful mutation acknowledgements from the default client', async () => {
     await withDefaultRequestServer(async (baseUrl, requests) => {
       const provisioner = createReferencePhase1FixtureProvisioner({
         profile,
@@ -705,6 +751,81 @@ describe('reference Phase 1 fixture provisioner', () => {
       ).toHaveLength(2);
     });
   });
+
+  it('rejects a non-JSON successful read response from the default client', async () => {
+    await withDefaultRequestServer(
+      async (baseUrl) => {
+        const provisioner = createReferencePhase1FixtureProvisioner({
+          profile,
+          target: {
+            label: 'oracle',
+            coreUrl: baseUrl,
+            adminUrl: baseUrl.replace('127.0.0.1', 'localhost'),
+          },
+          isolation: referenceIsolation,
+          createAllocationId: () => 'text-read-response-allocation',
+          createSecret: () => 'text-read-response-password-9517',
+        });
+
+        await expect(provisioner.provision('dataProtocol')).rejects.toThrow(
+          'Reference fixture operation failed'
+        );
+      },
+      { textSignIn: true }
+    );
+  });
+
+  it.each([200, 202, 204])(
+    'rejects a non-JSON mutation acknowledgement with status %i',
+    async (acknowledgementStatus) => {
+      await withDefaultRequestServer(
+        async (baseUrl) => {
+          const provisioner = createReferencePhase1FixtureProvisioner({
+            profile,
+            target: {
+              label: 'oracle',
+              coreUrl: baseUrl,
+              adminUrl: baseUrl.replace('127.0.0.1', 'localhost'),
+            },
+            isolation: referenceIsolation,
+            createAllocationId: () => `status-${acknowledgementStatus}-allocation`,
+            createSecret: () => `status-${acknowledgementStatus}-password-9517`,
+          });
+
+          await expect(provisioner.provision('dataProtocol')).rejects.toThrow(
+            /Reference fixture (?:operation|provisioning and cleanup) failed/u
+          );
+        },
+        { acknowledgementStatus }
+      );
+    }
+  );
+
+  it.each(['sign-in-patch', 'user-create', 'user-patch'] as const)(
+    'rejects an unexpected non-JSON successful %s mutation response',
+    async (unexpectedTextMutation) => {
+      await withDefaultRequestServer(
+        async (baseUrl) => {
+          const provisioner = createReferencePhase1FixtureProvisioner({
+            profile,
+            target: {
+              label: 'oracle',
+              coreUrl: baseUrl,
+              adminUrl: baseUrl.replace('127.0.0.1', 'localhost'),
+            },
+            isolation: referenceIsolation,
+            createAllocationId: () => `text-${unexpectedTextMutation}-allocation`,
+            createSecret: () => `text-${unexpectedTextMutation}-password-9517`,
+          });
+
+          await expect(provisioner.provision('dataProtocol')).rejects.toThrow(
+            /Reference fixture (?:operation|provisioning and cleanup) failed/u
+          );
+        },
+        { unexpectedTextMutation }
+      );
+    }
+  );
 
   it('cancels an oversized streamed default response before buffering the full body', async () => {
     await withDefaultRequestServer(
@@ -897,6 +1018,57 @@ describe('reference Phase 1 fixture provisioner', () => {
       'GET:roles/data-role-id/users',
     ]);
   });
+
+  it('accepts and pins the expected first-consent application mutation', async () => {
+    const thirdPartyApplicationId = 'data-phase-1-consent-client-id';
+    const { provisioner } = createHarness({
+      dataUserApplicationIds: [null, thirdPartyApplicationId, thirdPartyApplicationId, null],
+    });
+    const fixture = await provisioner.provision('dataProtocol');
+
+    try {
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it.each([
+    ['the first observation', ['unexpected-application-id'], 0],
+    ['a transition after null', [null, 'unexpected-application-id'], 1],
+  ] as const)(
+    'rejects an unexpected user application id on %s',
+    async (_name, dataUserApplicationIds, successfulReads) => {
+      const { provisioner } = createHarness({
+        dataUserApplicationIds: [...dataUserApplicationIds],
+      });
+      const fixture = await provisioner.provision('dataProtocol');
+
+      try {
+        if (successfulReads === 1) {
+          await expect(provisioner.projectState(fixture)).resolves.toEqual(
+            createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+          );
+        }
+        await expect(provisioner.projectState(fixture)).rejects.toThrow(
+          'Invalid reference fixture response'
+        );
+      } finally {
+        await provisioner.cleanup(fixture);
+      }
+    }
+  );
 
   it('reads only the logical data or admin user last-sign-in state', async () => {
     const { provisioner, requests } = createHarness({

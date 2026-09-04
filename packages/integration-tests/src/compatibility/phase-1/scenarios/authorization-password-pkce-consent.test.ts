@@ -52,6 +52,8 @@ const authorizationCode = 'code-private-value';
 const verificationId = 'verification-private-value';
 const firstResume = 'login-resume-private';
 const consentResume = 'consent-resume-private';
+const encodedConsentResume = 'consent-%72esume-private';
+const unrelatedEncodedCookiePath = '/cookie%2Fprefix%25literal%3Bmarker';
 const interactionCookie = 'interaction-private-value';
 
 const profile = {
@@ -187,10 +189,22 @@ const fixtureMap = {
   ],
 };
 
-const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> = {}) => {
+const createHarness = (
+  harnessOptions: Readonly<{
+    includeResource?: boolean;
+    consentResumeCredential?: string;
+    secondaryCookieCredential?: string;
+    secondaryCookiePath?: string;
+    overlapCookieCredential?: string;
+  }> = {}
+) => {
   const store = new MemoryProtocolSecretStore();
   const records: RecordedRequest[] = [];
   const semanticReads: string[] = [];
+  const activeConsentResume = harnessOptions.consentResumeCredential ?? encodedConsentResume;
+  const secondaryCookieCredential =
+    harnessOptions.secondaryCookieCredential ?? 'secondary-private-value';
+  const secondaryCookiePath = harnessOptions.secondaryCookiePath ?? `/${secondaryCookieCredential}`;
   const applyResponseCookies = (
     raw: ReturnType<typeof response>,
     requestUrl: URL
@@ -239,8 +253,16 @@ const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> =
               ],
               [
                 'set-cookie',
-                `_secondary=secondary-private-value; Path=/${interactionCookie}; HttpOnly; SameSite=Lax`,
+                `_secondary=${secondaryCookieCredential}; Path=${secondaryCookiePath}; HttpOnly; SameSite=Lax`,
               ],
+              ...(harnessOptions.overlapCookieCredential
+                ? [
+                    [
+                      'set-cookie',
+                      `_overlap=${harnessOptions.overlapCookieCredential}; Path=/; HttpOnly; SameSite=Lax`,
+                    ] as const,
+                  ]
+                : []),
             ]),
             requestUrl
           );
@@ -252,6 +274,10 @@ const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> =
             response(303, `Redirecting to ${location}.`, [
               ['location', location],
               ['set-cookie', `_session=session-private; Path=/; HttpOnly; SameSite=Lax`],
+              [
+                'set-cookie',
+                `_interaction_resume=; Path=/oidc/auth/${firstResume}; Max-Age=0; HttpOnly; SameSite=Lax`,
+              ],
             ]),
             requestUrl
           );
@@ -262,7 +288,10 @@ const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> =
           return applyResponseCookies(
             response(303, `Redirecting to ${location.replaceAll('&', '&amp;')}.`, [
               ['location', location],
-              ['set-cookie', '_interaction=; Path=/oidc/auth; Max-Age=0; HttpOnly; SameSite=Lax'],
+              [
+                'set-cookie',
+                `_interaction=; Path=${unrelatedEncodedCookiePath}/oidc/auth/${activeConsentResume}; Max-Age=0; HttpOnly; SameSite=Lax`,
+              ],
             ]),
             requestUrl
           );
@@ -346,9 +375,11 @@ const createHarness = (harnessOptions: Readonly<{ includeResource?: boolean }> =
           );
         }
         if (operation === 'consent-post') {
-          return response(200, { redirectTo: `${target.coreUrl}oidc/auth/${consentResume}` }, [
-            ['content-type', 'application/json'],
-          ]);
+          return response(
+            200,
+            { redirectTo: `${target.coreUrl}oidc/auth/${activeConsentResume}` },
+            [['content-type', 'application/json']]
+          );
         }
 
         throw new Error(`unexpected consent operation: ${operation}`);
@@ -481,7 +512,7 @@ describe('authorization.password-pkce-consent', () => {
     ]);
     expect(harness.management.requestManagement).not.toHaveBeenCalled();
     expect(harness.records[5]?.path).toBe(`oidc/auth/${firstResume}`);
-    expect(harness.records[8]?.path).toBe(`oidc/auth/${consentResume}`);
+    expect(harness.records[8]?.path).toBe(`oidc/auth/${encodedConsentResume}`);
     expect(new Set(harness.records.map(({ store }) => store))).toEqual(new Set([harness.store]));
     expect(harness.records.slice(1).every(({ cookie }) => Boolean(cookie))).toBe(true);
     expect(harness.records.map(({ contentType }) => contentType)).toEqual([
@@ -525,6 +556,9 @@ describe('authorization.password-pkce-consent', () => {
     expect(steps[4]?.value).toMatchObject({
       outcomes: [{ kind: 'unobserved-consent-bridge', response: { status: 303 } }],
     });
+    const bridgeEvidence = JSON.stringify(steps[4]?.value.outcomes);
+    expect(bridgeEvidence).toContain('"name":"_interaction_resume"');
+    expect(bridgeEvidence).toContain('"path":"/oidc/auth/aster-cookie-attribute-value"');
     expect(steps[0]?.value).toMatchObject({
       body: 'Redirecting to <response-location>.',
       generatedIds: { interaction: '<interaction.1>' },
@@ -534,7 +568,19 @@ describe('authorization.password-pkce-consent', () => {
     );
     expect(steps[7]?.value).toMatchObject({
       body: 'Redirecting to <response-location>.',
+      cookies: [
+        expect.objectContaining({
+          path: `${unrelatedEncodedCookiePath}/oidc/auth/aster-cookie-attribute-value`,
+        }),
+      ],
     });
+    expect(steps[8]?.value.cookies).toContainEqual(
+      expect.objectContaining({
+        path: `${unrelatedEncodedCookiePath}/oidc/auth/aster-cookie-attribute-value`,
+      })
+    );
+    expect(JSON.stringify(steps)).not.toContain(encodedConsentResume);
+    expect(JSON.stringify(steps)).not.toContain(firstResume);
     expect(steps[9]?.value).toMatchObject({
       body: harness.scenarioState.body,
       semanticState: {
@@ -591,6 +637,112 @@ describe('authorization.password-pkce-consent', () => {
     expect(steps).toHaveLength(10);
     expect(Object.values(steps).some((value) => typeof value === 'function')).toBe(false);
     expect(JSON.stringify(steps)).not.toContain(authorizationCode);
+  });
+
+  it.each([
+    [
+      'a 1536-byte resume credential',
+      { consentResumeCredential: 'r'.repeat(1536) },
+      'r'.repeat(1536),
+    ],
+    ['a 4096-byte cookie value', { secondaryCookieCredential: 'c'.repeat(4096) }, 'c'.repeat(4096)],
+  ] as const)('sanitizes %s without regex-size failure', async (_name, options, credential) => {
+    const harness = createHarness(options);
+    const steps = await runAuthorizationPasswordPkceConsent(harness.context, {
+      random: harness.random,
+    });
+
+    expect(steps).toHaveLength(10);
+    expect(JSON.stringify(steps)).not.toContain(credential);
+  });
+
+  it.each([
+    [
+      'start',
+      (encoded: string) => ({
+        path: `%FF${encoded}`,
+        expected: '%FFaster-cookie-attribute-value',
+      }),
+    ],
+    [
+      'middle',
+      (encoded: string) => ({
+        path: `%41%FF${encoded}`,
+        expected: '%41%FFaster-cookie-attribute-value',
+      }),
+    ],
+    [
+      'end',
+      (encoded: string) => ({
+        path: `${encoded}%FF`,
+        expected: 'aster-cookie-attribute-value%FF',
+      }),
+    ],
+  ] as const)(
+    'preserves an invalid UTF-8 percent run with the invalid byte at the %s',
+    async (_position, invalidRun) => {
+      const credential = 'abcdefgh';
+      const encodedCredential = [...credential]
+        .map((character) => `%${character.codePointAt(0)?.toString(16)}`)
+        .join('');
+      const rawRun = invalidRun(encodedCredential);
+      const harness = createHarness({
+        secondaryCookieCredential: credential,
+        secondaryCookiePath: `/${rawRun.path}`,
+      });
+      const steps = await runAuthorizationPasswordPkceConsent(harness.context, {
+        random: harness.random,
+      });
+
+      expect(steps[0]?.value.cookies).toContainEqual(
+        expect.objectContaining({ name: '_secondary', path: `/${rawRun.expected}` })
+      );
+    }
+  );
+
+  it('keeps adjacent credential spans distinct in the cookie projection', async () => {
+    const credential = 'abcdefgh';
+    const harness = createHarness({
+      secondaryCookieCredential: credential,
+      secondaryCookiePath: `/${credential}${credential}`,
+    });
+    const steps = await runAuthorizationPasswordPkceConsent(harness.context, {
+      random: harness.random,
+    });
+
+    expect(JSON.stringify(steps)).toContain(
+      '/aster-cookie-attribute-valueaster-cookie-attribute-value'
+    );
+  });
+
+  it('merges truly overlapping credentials without changing surrounding bytes', async () => {
+    const harness = createHarness({
+      secondaryCookieCredential: 'abcdefgh',
+      secondaryCookiePath: '/prefix-abcdefghij-suffix',
+      overlapCookieCredential: 'cdefghij',
+    });
+    const steps = await runAuthorizationPasswordPkceConsent(harness.context, {
+      random: harness.random,
+    });
+
+    expect(JSON.stringify(steps)).toContain('/prefix-aster-cookie-attribute-value-suffix');
+  });
+
+  it('maps a percent-encoded Unicode credential to its exact raw span', async () => {
+    const credential = 'token-🔐-value';
+    const encoded = encodeURIComponent(credential);
+    const harness = createHarness({
+      secondaryCookieCredential: encoded,
+      secondaryCookiePath: `/prefix/${encoded}/suffix`,
+    });
+    const steps = await runAuthorizationPasswordPkceConsent(harness.context, {
+      random: harness.random,
+    });
+    const serialized = JSON.stringify(steps);
+
+    expect(serialized).toContain('/prefix/aster-cookie-attribute-value/suffix');
+    expect(serialized).not.toContain(encoded);
+    expect(serialized).not.toContain(credential);
   });
 
   it('executes hidden preparation without cross-scenario state reads', async () => {
