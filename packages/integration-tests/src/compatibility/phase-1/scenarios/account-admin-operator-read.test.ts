@@ -1,6 +1,8 @@
 import { runAccountAdminOperatorRead } from './account-admin-operator-read.js';
 import { PositiveAdminSession } from './positive-admin-flow.js';
 import {
+  adminInitialResponseScope,
+  adminRequestedScope,
   adminRuntime,
   adminSecrets,
   adminTestTarget,
@@ -8,9 +10,6 @@ import {
   createAdminTestSigner,
   tokenBody,
 } from './positive-admin-flow.test-helpers.js';
-
-const effectiveScope =
-  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
 
 describe('account.admin-operator-read', () => {
   it('authorizes the account read with the opaque admin token', async () => {
@@ -30,7 +29,7 @@ describe('account.admin-operator-read', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
       },
       accountBody: {
@@ -53,6 +52,8 @@ describe('account.admin-operator-read', () => {
       { method: 'GET', includeCookies: false }
     );
     expect(harness.store.getToken('account')).toBe(adminSecrets.initialAccess);
+    expect(adminRequestedScope.split(' ')).toContain('all');
+    expect(adminInitialResponseScope.split(' ')).not.toContain('all');
     expect(steps.map(({ stepId }) => stepId)).toEqual(['account', 'state']);
     expect(steps[0]?.value).toMatchObject({
       status: 200,

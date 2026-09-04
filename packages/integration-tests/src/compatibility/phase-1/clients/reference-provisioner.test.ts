@@ -2,6 +2,8 @@
 import { createServer } from 'node:http';
 import { inspect } from 'node:util';
 
+import { ReservedResource } from '@logto/core-kit';
+
 import type { TargetConfig } from '../../model.js';
 import type { Phase1Profile } from '../profile-types.js';
 import { createExpectedPhase1FixtureStateProjection } from '../fixture-map.js';
@@ -106,20 +108,20 @@ const profile = {
         { indicator: 'https://admin.logto.app/me', scopes: ['all'] },
         {
           indicator: 'urn:logto:resource:organizations',
-          scopes: ['urn:logto:scope:organizations'],
+          scopes: ['urn:logto:scope:organizations', 'urn:logto:scope:organization_roles'],
         },
       ],
       tenantOrganization: {
         id: 't-default',
         name: 'Tenant default',
         memberUserIds: ['phase1-admin'],
-        scopes: ['read:data'],
+        scopes: ['write:data', 'read:data'],
         organizationRoles: [
           {
             id: 'admin',
             name: 'admin',
             type: 'User',
-            scopeNames: ['read:data'],
+            scopeNames: ['write:data', 'read:data'],
             userIds: ['phase1-admin'],
           },
         ],
@@ -189,6 +191,9 @@ const configuredSignInExperience = {
   passwordPolicy: {},
 };
 
+const organizationScopeRows = (...names: readonly string[]) =>
+  names.map((name, index) => ({ id: `admin-organization-scope-${index + 1}`, name }));
+
 const generatedIdFor = (request: Request): string | undefined => {
   if (request.method !== 'POST') {
     return undefined;
@@ -254,12 +259,23 @@ const responseFor = (request: Request, history: readonly Request[] = []): unknow
   if (request.method === 'GET' && request.path === 'organization-roles') {
     return [{ id: 'admin', name: 'admin', type: 'User' }];
   }
+  if (request.method === 'GET' && request.path === 'organization-scopes') {
+    return organizationScopeRows(
+      ...profile.fixtures.adminTenant.tenantOrganization.scopes.toSorted()
+    );
+  }
   if (request.method === 'GET' && request.path === 'resources') {
-    return profile.fixtures.adminTenant.resources.map(({ indicator }, index) => ({
-      id: `admin-resource-${index + 1}`,
-      name: `Admin resource ${index + 1}`,
-      indicator,
-    }));
+    return profile.fixtures.adminTenant.resources.flatMap(({ indicator }, index) =>
+      indicator === ReservedResource.Organization
+        ? []
+        : [
+            {
+              id: `admin-resource-${index + 1}`,
+              name: `Admin resource ${index + 1}`,
+              indicator,
+            },
+          ]
+    );
   }
   if (request.method === 'GET' && request.path === 'organizations') {
     return [{ id: 't-default', name: 'Tenant default' }];
@@ -428,6 +444,11 @@ const createHarness = (
     userActivityResponses?: Partial<Record<'data' | 'admin', unknown>>;
     // eslint-disable-next-line @typescript-eslint/ban-types -- The reference API returns JSON null before first consent.
     dataUserApplicationIds?: Array<string | null>;
+    // eslint-disable-next-line @typescript-eslint/ban-types -- The reference API returns JSON null before first consent.
+    adminUserApplicationIds?: Array<string | null>;
+    hiddenAdminResourceIndicators?: readonly string[];
+    adminOrganizationScopesResponse?: unknown;
+    includeReservedAdminResource?: boolean;
   } = {}
 ) => {
   const requests: Request[] = [];
@@ -461,6 +482,39 @@ const createHarness = (
     }
     if (
       input.method === 'GET' &&
+      input.targetRole === 'admin' &&
+      input.path === 'resources' &&
+      options.includeReservedAdminResource
+    ) {
+      return [
+        ...(responseFor(input, requests) as readonly unknown[]),
+        {
+          id: 'unexpected-reserved-organization-resource',
+          name: 'Unexpected reserved organization resource',
+          indicator: ReservedResource.Organization,
+        },
+      ];
+    }
+    if (
+      input.method === 'GET' &&
+      input.targetRole === 'admin' &&
+      input.path === 'organization-scopes' &&
+      options.adminOrganizationScopesResponse !== undefined
+    ) {
+      return options.adminOrganizationScopesResponse;
+    }
+    if (
+      input.method === 'GET' &&
+      input.targetRole === 'admin' &&
+      input.path === 'resources' &&
+      (options.hiddenAdminResourceIndicators?.length ?? 0) > 0
+    ) {
+      return (
+        responseFor(input, requests) as ReadonlyArray<Readonly<{ indicator: string }>>
+      ).filter(({ indicator }) => !options.hiddenAdminResourceIndicators?.includes(indicator));
+    }
+    if (
+      input.method === 'GET' &&
       input.targetRole === 'data' &&
       input.path === 'users/data-phase1_user-id' &&
       (options.dataUserApplicationIds?.length ?? 0) > 0
@@ -468,6 +522,17 @@ const createHarness = (
       return {
         ...(responseFor(input, requests) as Readonly<Record<string, unknown>>),
         applicationId: options.dataUserApplicationIds?.shift(),
+      };
+    }
+    if (
+      input.method === 'GET' &&
+      input.targetRole === 'admin' &&
+      input.path === 'users/admin-phase1_admin-id' &&
+      (options.adminUserApplicationIds?.length ?? 0) > 0
+    ) {
+      return {
+        ...(responseFor(input, requests) as Readonly<Record<string, unknown>>),
+        applicationId: options.adminUserApplicationIds?.shift(),
       };
     }
     if (
@@ -1041,6 +1106,84 @@ describe('reference Phase 1 fixture provisioner', () => {
     }
   });
 
+  it('accepts and pins the expected admin auto-consent application mutation', async () => {
+    const { provisioner } = createHarness({
+      adminUserApplicationIds: [null, 'admin-console', 'admin-console', null],
+    });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it('rejects an unexpected admin application mutation after auto-consent', async () => {
+    const { provisioner } = createHarness({
+      adminUserApplicationIds: [null, 'unexpected-admin-application'],
+    });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it('accepts an already-completed admin auto-consent on the first observation', async () => {
+    const { provisioner } = createHarness({
+      adminUserApplicationIds: ['admin-console', 'admin-console', null],
+    });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).resolves.toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it('rejects an unknown admin application on the first observation', async () => {
+    const { provisioner } = createHarness({
+      adminUserApplicationIds: ['unexpected-admin-application'],
+    });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
   it.each([
     ['the first observation', ['unexpected-application-id'], 0],
     ['a transition after null', [null, 'unexpected-application-id'], 1],
@@ -1157,6 +1300,85 @@ describe('reference Phase 1 fixture provisioner', () => {
       await expect(provisioner.cleanup(fixture)).resolves.toBeUndefined();
     }
   );
+
+  it('projects reserved organization template scopes without querying a reserved resource endpoint', async () => {
+    const { provisioner, requests } = createHarness();
+    const fixture = await provisioner.provision('adminConsole');
+    const provisionRequestCount = requests.length;
+
+    try {
+      const projection = await provisioner.projectState(fixture);
+
+      expect(projection).toEqual(
+        createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+      );
+      expect(
+        projection.allocations[0]?.entities.find(
+          ({ logicalId }) => logicalId === 'admin.resource.3'
+        )?.snapshot
+      ).toMatchObject({ scopeNames: ['write:data', 'read:data'] });
+      const projectionPaths = requests
+        .slice(provisionRequestCount)
+        .map(({ method, path }) => `${method}:${path}`);
+
+      expect(projectionPaths).toContain('GET:resources');
+      expect(projectionPaths).toContain('GET:organization-scopes');
+      expect(projectionPaths).toContain('GET:resources/admin-resource-1/scopes');
+      expect(projectionPaths).toContain('GET:resources/admin-resource-2/scopes');
+      expect(projectionPaths).not.toContain('GET:resources/admin-resource-3/scopes');
+      expect(projectionPaths).not.toContain(
+        `GET:resources/${encodeURIComponent(ReservedResource.Organization)}/scopes`
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it.each([
+    ['missing', organizationScopeRows('read:data')],
+    ['extra', organizationScopeRows('delete:data', 'read:data', 'write:data')],
+    ['duplicate', organizationScopeRows('read:data', 'write:data', 'write:data')],
+    ['wrong', organizationScopeRows('delete:data', 'read:data')],
+  ] as const)('rejects %s organization template scope evidence', async (_name, response) => {
+    const { provisioner } = createHarness({ adminOrganizationScopesResponse: response });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it('rejects a reserved organization row returned by Management resources', async () => {
+    const { provisioner } = createHarness({ includeReservedAdminResource: true });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
+
+  it('rejects a missing non-reserved configured admin resource', async () => {
+    const { provisioner } = createHarness({
+      hiddenAdminResourceIndicators: ['https://default.logto.app/api'],
+    });
+    const fixture = await provisioner.provision('adminConsole');
+
+    try {
+      await expect(provisioner.projectState(fixture)).rejects.toThrow(
+        'Invalid reference fixture response'
+      );
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
+  });
 
   it('rejects an organization role held only by a pre-existing member', async () => {
     const { provisioner } = createHarness({
@@ -1493,8 +1715,8 @@ describe('reference Phase 1 fixture provisioner', () => {
         'Error: Reference fixture operation failed',
         'Error: Reference fixture cleanup operation failed',
       ]);
-      expect(inspect(caught)).not.toContain(credential);
-      expect(JSON.stringify(caught)).not.toContain(credential);
+      expect(inspect(caught, { depth: null })).not.toContain(credential);
+      expect(String(caught)).not.toContain(credential);
     }
   );
 

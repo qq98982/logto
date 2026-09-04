@@ -1,6 +1,8 @@
 import { runConsoleAdminOrganizationTokenRefresh } from './console-admin-organization-token-refresh.js';
 import { readPositiveAdminSession, withPositiveAdminSession } from './positive-admin-flow.js';
 import {
+  adminInitialResponseScope,
+  adminRequestedScope,
   adminRuntime,
   adminSecrets,
   adminTestTarget,
@@ -38,7 +40,7 @@ describe('console.admin-organization-token-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all'
+          adminInitialResponseScope
         ),
         organization: tokenBody(organizationAccess, idToken, adminSecrets.organizationRefresh, ''),
       },
@@ -69,6 +71,8 @@ describe('console.admin-organization-token-refresh', () => {
       organization_id: 't-default',
     });
     expect(organizationRequest?.options?.body).not.toMatch(/(?:^|&)resource=|(?:^|&)scope=/u);
+    expect(adminRequestedScope.split(' ')).toContain('all');
+    expect(adminInitialResponseScope.split(' ')).not.toContain('all');
     expect(harness.stateReads).toEqual([]);
     expect(harness.store.getToken('organization')).toBe(organizationAccess);
   });
@@ -99,7 +103,7 @@ describe('console.admin-organization-token-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all'
+          adminInitialResponseScope
         ),
         organization: tokenBody(organizationAccess, idToken, adminSecrets.organizationRefresh, ''),
       },
@@ -181,7 +185,7 @@ describe('console.admin-organization-token-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all'
+          adminInitialResponseScope
         ),
         organization: tokenBody(invalidAccess, idToken, adminSecrets.organizationRefresh, ''),
       },

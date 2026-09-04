@@ -2,6 +2,8 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
+import { ReservedResource } from '@logto/core-kit';
+
 import { SymbolTable } from '../symbol-table.js';
 
 import type { Phase1FixtureRecipe } from './model.js';
@@ -790,7 +792,12 @@ const expectedEntitySnapshot = (
       return Object.freeze({
         name: null,
         indicator: assertSafeString(resource.indicator),
-        scopeNames: Object.freeze(resource.scopes.map(assertSafeString)),
+        scopeNames: Object.freeze(
+          (resource.indicator === ReservedResource.Organization
+            ? profile.fixtures.adminTenant.tenantOrganization.scopes
+            : resource.scopes
+          ).map(assertSafeString)
+        ),
       });
     }
     const { resource } = profile.fixtures.dataTenant;

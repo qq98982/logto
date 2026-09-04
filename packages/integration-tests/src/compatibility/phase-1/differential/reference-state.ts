@@ -2,6 +2,8 @@
 import path from 'node:path';
 import { types as nodeTypes, isDeepStrictEqual } from 'node:util';
 
+import { userClaims } from '@logto/core-kit';
+
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
 import {
@@ -104,7 +106,7 @@ export type ReferenceStateSnapshotReader = (
 ) => Promise<ReferenceStateDriverSnapshot>;
 
 export type ReferenceScenarioStateProjectorOptions = Readonly<{
-  profile: Pick<Phase1Profile, 'fixtures'>;
+  profile: Pick<Phase1Profile, 'fixtures' | 'consoleAuthentication'>;
   primaryContainerId: string;
   foreignContainerId?: string;
   projectName: string;
@@ -903,6 +905,213 @@ const projectConsentBoundaryState = (
   );
 };
 
+const sortedStrings = (values: readonly string[]) => [...values].sort();
+
+const sortedResources = (resources: readonly ReferenceStateResource[]) =>
+  resources
+    .map(({ indicator, scopes }) => ({ indicator, scopes: sortedStrings(scopes) }))
+    .sort((left, right) =>
+      left.indicator === right.indicator ? 0 : left.indicator < right.indicator ? -1 : 1
+    );
+
+const userClaimScopeNames = new Set(Object.keys(userClaims));
+
+const expectedAdminGrantOidcScopes = (
+  profile: Pick<Phase1Profile, 'consoleAuthentication'>
+): readonly string[] =>
+  profile.consoleAuthentication.effectiveScopes.filter((scope) => userClaimScopeNames.has(scope));
+
+const expectedAdminGrantResources = (
+  profile: Pick<Phase1Profile, 'fixtures' | 'consoleAuthentication'>
+): readonly ReferenceStateResource[] => {
+  const effectiveScopeNames = new Set(profile.consoleAuthentication.effectiveScopes);
+
+  return profile.consoleAuthentication.effectiveResources
+    .map((indicator) => {
+      const configured = profile.fixtures.adminTenant.resources.find(
+        (resource) => resource.indicator === indicator
+      );
+
+      if (!configured) {
+        return fail();
+      }
+
+      return Object.freeze({
+        indicator,
+        scopes: Object.freeze(
+          configured.scopes.filter(
+            (scope) => effectiveScopeNames.has(scope) && !userClaimScopeNames.has(scope)
+          )
+        ),
+      });
+    })
+    .filter(({ scopes }) => scopes.length > 0);
+};
+
+const adminAutoConsentTopology = (
+  scenarioId: Phase1DifferentialScenarioId,
+  stepId: string
+): 'code-token' | 'refreshed' => {
+  if (scenarioId === 'console.admin-auth-resource-refresh') {
+    if (stepId === 'code-token') {
+      return 'code-token';
+    }
+    if (stepId === 'management-refresh' || stepId === 'state') {
+      return 'refreshed';
+    }
+  }
+  if (
+    scenarioId === 'console.admin-organization-token-refresh' &&
+    (stepId === 'organization-refresh' || stepId === 'state')
+  ) {
+    return 'refreshed';
+  }
+
+  return fail();
+};
+
+const assertAdminPreConsentState = (
+  options: ReferenceScenarioStateProjectorOptions,
+  fixture: ProvisionedPhase1Fixture,
+  sourced: readonly SourcedSnapshot[],
+  models: readonly ReferenceStateModel[]
+): void => {
+  const identity = adminIdentity(options.profile, fixture);
+  const interactions = models.filter(({ kind }) => kind === 'interaction');
+  const [interaction] = interactions;
+  const extensions = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.extensions)
+    .filter(
+      ({ tenantId, accountId, clientId }) =>
+        tenantId === identity.tenantId &&
+        accountId === identity.userId &&
+        clientId === identity.clientId
+    );
+  const users = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.users)
+    .filter(({ tenantId, id }) => tenantId === identity.tenantId && id === identity.userId);
+  const verificationCount = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.verificationRecords)
+    .filter(({ tenantId, userId }) => tenantId === identity.tenantId && userId === identity.userId)
+    .reduce((total, record) => total + record.count, 0);
+
+  if (
+    interactions.length !== 1 ||
+    !interaction?.active ||
+    interaction.accountId !== null ||
+    interaction.identified ||
+    interaction.verificationCount !== 0 ||
+    models.some(({ kind }) => kind !== 'interaction') ||
+    extensions.length > 0 ||
+    users.length !== 1 ||
+    users[0]?.applicationId !== null ||
+    verificationCount !== 0
+  ) {
+    return fail();
+  }
+};
+
+const assertAdminAutoConsentState = (
+  options: ReferenceScenarioStateProjectorOptions,
+  fixture: ProvisionedPhase1Fixture,
+  sourced: readonly SourcedSnapshot[],
+  models: readonly ReferenceStateModel[],
+  scenarioId: Phase1DifferentialScenarioId,
+  stepId: string
+): void => {
+  const identity = adminIdentity(options.profile, fixture);
+  const topology = adminAutoConsentTopology(scenarioId, stepId);
+  const grants = models.filter(({ kind }) => kind === 'grant');
+  const sessions = models.filter(({ kind }) => kind === 'session');
+  const oneTimes = models.filter(({ kind }) => kind === 'one-time');
+  const rotations = models.filter(({ kind }) => kind === 'rotation');
+  const interactions = models.filter(({ kind }) => kind === 'interaction');
+  const [grant] = grants;
+  const [session] = sessions;
+  const [oneTime] = oneTimes;
+  const initialRotations = rotations.filter(({ rotation }) => rotation === 0);
+  const replacementRotations = rotations.filter(({ rotation }) => rotation === 1);
+  const [initialRotation] = initialRotations;
+  const [replacementRotation] = replacementRotations;
+  const expectedOidcScopes = expectedAdminGrantOidcScopes(options.profile);
+  const expectedResources = expectedAdminGrantResources(options.profile);
+  const extensions = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.extensions)
+    .filter(
+      ({ tenantId, accountId, clientId }) =>
+        tenantId === identity.tenantId &&
+        accountId === identity.userId &&
+        clientId === identity.clientId
+    );
+  const users = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.users)
+    .filter(({ tenantId, id }) => tenantId === identity.tenantId && id === identity.userId);
+  const verificationCount = sourced
+    .filter(({ source }) => source === 'primary')
+    .flatMap(({ snapshot }) => snapshot.verificationRecords)
+    .filter(({ tenantId, userId }) => tenantId === identity.tenantId && userId === identity.userId)
+    .reduce((total, record) => total + record.count, 0);
+  const familyFingerprint = grant?.familyFingerprint;
+  const commonTopologyValid =
+    grants.length === 1 &&
+    grant?.active === true &&
+    !grant.consumed &&
+    grant.rotation === null &&
+    typeof familyFingerprint === 'string' &&
+    sessions.length === 1 &&
+    session?.active === true &&
+    !session.consumed &&
+    session.rotation === null &&
+    session.familyFingerprint === familyFingerprint &&
+    oneTimes.length === 1 &&
+    oneTime?.active === true &&
+    oneTime.consumed &&
+    oneTime.rotation === null &&
+    oneTime.familyFingerprint === familyFingerprint &&
+    interactions.length === 0 &&
+    models.every(({ verificationCount }) => verificationCount === 0) &&
+    verificationCount === 0;
+  const rotationTopologyValid =
+    topology === 'code-token'
+      ? models.length === 4 &&
+        rotations.length === 1 &&
+        initialRotations.length === 1 &&
+        initialRotation?.active === true &&
+        !initialRotation.consumed &&
+        initialRotation.familyFingerprint === familyFingerprint
+      : models.length === 5 &&
+        rotations.length === 2 &&
+        initialRotations.length === 1 &&
+        initialRotation?.active === true &&
+        initialRotation.consumed &&
+        initialRotation.familyFingerprint === familyFingerprint &&
+        replacementRotations.length === 1 &&
+        replacementRotation?.active === true &&
+        !replacementRotation.consumed &&
+        replacementRotation.familyFingerprint === familyFingerprint;
+  const grantProjectionValid =
+    grant !== undefined &&
+    isDeepStrictEqual(sortedStrings(grant.oidcScopes), sortedStrings(expectedOidcScopes)) &&
+    isDeepStrictEqual(sortedResources(grant.resources), sortedResources(expectedResources));
+
+  if (
+    !commonTopologyValid ||
+    !rotationTopologyValid ||
+    !grantProjectionValid ||
+    extensions.length !== 1 ||
+    extensions[0]?.loginAccountId !== identity.userId ||
+    users.length !== 1 ||
+    users[0]?.applicationId !== identity.clientId
+  ) {
+    return fail();
+  }
+};
+
 const projectScenarioState = (
   options: ReferenceScenarioStateProjectorOptions,
   input: Parameters<Phase1TargetRuntime['projectScenarioState']>[0],
@@ -986,6 +1195,11 @@ const projectScenarioState = (
     }
     case 'console.admin-auth-resource-refresh':
     case 'console.admin-organization-token-refresh': {
+      if (scenarioId === 'console.admin-auth-resource-refresh' && stepId === 'authorize') {
+        assertAdminPreConsentState(options, fixture, sourced, adminModels);
+      } else {
+        assertAdminAutoConsentState(options, fixture, sourced, adminModels, scenarioId, stepId);
+      }
       const facts = familyFacts(adminModels);
       const fingerprint = [...facts.familyFingerprints][0];
       if (fingerprint) {

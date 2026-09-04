@@ -1,6 +1,8 @@
 /* eslint-disable complexity, max-lines -- The flow validates one closed profile, fixture, browser action sequence, and three independent network fact classes. */
 import { isDeepStrictEqual } from 'node:util';
 
+import { ReservedScope, userClaims } from '@logto/core-kit';
+
 import { assertEvidenceIsSanitized } from '../../../evidence.js';
 import type { JsonObject } from '../../../normalize.js';
 import {
@@ -29,6 +31,17 @@ const signInPaths = Object.freeze(['/sign-in'] as const);
 const identifierSelector = 'form input[name="identifier"]';
 const passwordSelector = 'form input[name="password"]';
 const submitSelector = 'form button[name="submit"]';
+const userClaimScopeNames = new Set(Object.keys(userClaims));
+
+const initialResponseScope = (effectiveScopes: readonly string[]): string =>
+  effectiveScopes
+    .filter(
+      (scope) =>
+        scope === ReservedScope.OpenId ||
+        scope === ReservedScope.OfflineAccess ||
+        userClaimScopeNames.has(scope)
+    )
+    .join(' ');
 
 const requireAllocation = (
   allocations: readonly Phase1FixtureAllocation[],
@@ -235,7 +248,8 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
       !initial.initialRefreshPresent ||
       initial.resource !== null ||
       initial.organizationId !== null ||
-      initial.responseScope !== context.profile.consoleAuthentication.effectiveScopes.join(' ') ||
+      initial.responseScope !==
+        initialResponseScope(context.profile.consoleAuthentication.effectiveScopes) ||
       initial.accessKind !== 'opaque' ||
       initial.compactAccess !== undefined ||
       management.resource !== managementResource ||

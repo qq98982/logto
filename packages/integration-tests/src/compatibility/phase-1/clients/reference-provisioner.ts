@@ -2,6 +2,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
+import { ReservedResource } from '@logto/core-kit';
 import {
   ApplicationType,
   RoleType,
@@ -252,6 +253,31 @@ const responseStringList = (value: unknown): readonly string[] => {
   }
 
   return snapshot.map(safeText);
+};
+
+const reservedAdminResourceProjection = (
+  profile: Pick<Phase1Profile, 'fixtures'>,
+  indicator: string
+):
+  | Readonly<{
+      resource: Readonly<Record<string, unknown>>;
+    }>
+  | undefined => {
+  if (indicator !== ReservedResource.Organization) {
+    return undefined;
+  }
+  const matches = profile.fixtures.adminTenant.resources.filter(
+    (resource) => resource.indicator === indicator
+  );
+  const [configured] = matches;
+
+  if (matches.length !== 1 || !configured) {
+    throw new TypeError(invalidReferenceConfiguration);
+  }
+
+  return Object.freeze({
+    resource: Object.freeze({ indicator }),
+  });
 };
 
 const projectAddressProfile = (value: unknown): unknown => {
@@ -1331,6 +1357,24 @@ export const createReferencePhase1FixtureProvisioner = (
                 await call({ targetRole: allocation.role, method: 'GET', path: 'resources' })
               )
             : [];
+
+        if (allResources.some(({ indicator }) => indicator === ReservedResource.Organization)) {
+          throw new TypeError(invalidReferenceResponse);
+        }
+        const reservedOrganizationScopes =
+          allocation.role === 'admin' &&
+          allocation.entities.some(
+            ({ kind, runtimeId }) =>
+              kind === 'resource' && runtimeId === ReservedResource.Organization
+          )
+            ? responseList(
+                await call({
+                  targetRole: allocation.role,
+                  method: 'GET',
+                  path: 'organization-scopes',
+                })
+              )
+            : [];
         const allOrganizations = allocation.entities.some(({ kind }) => kind === 'organization')
           ? responseList(
               await call({ targetRole: allocation.role, method: 'GET', path: 'organizations' })
@@ -1436,18 +1480,22 @@ export const createReferencePhase1FixtureProvisioner = (
               const expectedPrimaryPhone =
                 expectedSnapshot.primaryPhone === null ? null : namespacedPhone(namespace);
               const observedApplicationId = result.applicationId;
-              const firstConsentApplication = options.profile.fixtures.dataTenant.applications.find(
-                ({ isThirdParty }) => isThirdParty
-              );
-              const firstConsentApplicationId =
+              const firstConsentApplicationLogicalId =
                 allocation.role === 'data' &&
-                candidate.logicalId === options.profile.fixtures.dataTenant.subject.id &&
-                expectedApplicationId === null &&
-                firstConsentApplication
+                candidate.logicalId === options.profile.fixtures.dataTenant.subject.id
+                  ? options.profile.fixtures.dataTenant.applications.find(
+                      ({ isThirdParty }) => isThirdParty
+                    )?.id
+                  : allocation.role === 'admin' &&
+                      candidate.logicalId === options.profile.fixtures.adminTenant.operator.id
+                    ? options.profile.fixtures.adminTenant.application.id
+                    : undefined;
+              const firstConsentApplicationId =
+                expectedApplicationId === null && firstConsentApplicationLogicalId
                   ? runtimeIdForLogical(
                       allocation,
                       'application',
-                      safeText(firstConsentApplication.id)
+                      safeText(firstConsentApplicationLogicalId)
                     )
                   : undefined;
 
@@ -1573,8 +1621,13 @@ export const createReferencePhase1FixtureProvisioner = (
               break;
             }
             case 'resource': {
-              const result =
+              const reserved =
                 allocation.role === 'admin'
+                  ? reservedAdminResourceProjection(options.profile, candidate.runtimeId)
+                  : undefined;
+              const result =
+                reserved?.resource ??
+                (allocation.role === 'admin'
                   ? findExactRecord(allResources, 'indicator', candidate.runtimeId)
                   : responseRecord(
                       await call({
@@ -1582,8 +1635,10 @@ export const createReferencePhase1FixtureProvisioner = (
                         method: 'GET',
                         path: `resources/${encodeURIComponent(candidate.runtimeId)}`,
                       })
-                    );
-              const scopes = await readResourceScopes(safeText(result.id));
+                    ));
+              const scopes = reserved
+                ? reservedOrganizationScopes
+                : await readResourceScopes(safeText(result.id));
               const expectedName = expectedSnapshot.name;
               const expectedIndicator = safeText(expectedSnapshot.indicator);
               const expectedScopeNames = (expectedSnapshot.scopeNames as readonly unknown[])

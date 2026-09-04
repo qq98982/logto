@@ -9,6 +9,8 @@ import {
   withPositiveAdminSession,
 } from './positive-admin-flow.js';
 import {
+  adminInitialResponseScope,
+  adminRequestedScope,
   adminRuntime,
   adminSecrets,
   adminTestTarget,
@@ -25,9 +27,6 @@ import {
   refreshPositiveAdminUserInfoTokenWithoutOpenId,
 } from './positive-admin-token.js';
 
-const effectiveScope =
-  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
-
 const adminCallbackLocation = (mutate?: (callback: URL) => string): string => {
   const callback = new URL(`${adminTestTarget.adminUrl}console/callback`);
 
@@ -36,6 +35,53 @@ const adminCallbackLocation = (mutate?: (callback: URL) => string): string => {
   callback.searchParams.set('iss', `${adminTestTarget.adminUrl}oidc`);
   return mutate?.(callback) ?? callback.href;
 };
+
+const adminConsentBridgeLocation = (mutate?: (bridge: URL) => string): string => {
+  const bridge = new URL(`${adminTestTarget.adminUrl}consent`);
+
+  bridge.searchParams.set('app_id', 'admin-console');
+  return mutate?.(bridge) ?? `${bridge.pathname}${bridge.search}`;
+};
+
+const adminConsentResumeLocation = (mutate?: (resume: URL) => string): string => {
+  const resume = new URL(`${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.consentResume}`);
+
+  return mutate?.(resume) ?? resume.href;
+};
+
+const initialResponseScopeMutants = [
+  [
+    'missing the organizations user scope',
+    adminInitialResponseScope
+      .split(' ')
+      .filter((scope) => scope !== 'urn:logto:scope:organizations')
+      .join(' '),
+  ],
+  [
+    'missing the organization roles user scope',
+    adminInitialResponseScope
+      .split(' ')
+      .filter((scope) => scope !== 'urn:logto:scope:organization_roles')
+      .join(' '),
+  ],
+  ['including the resource-only all scope', `${adminInitialResponseScope} all`],
+] as const;
+
+const cookiePairs = (value: string | undefined): readonly string[] =>
+  value
+    ?.split(';')
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .toSorted() ?? [];
+
+type AdminHarnessOptions = Omit<Parameters<typeof createAdminScenarioHarness>[0], 'jwk' | 'tokens'>;
+
+type AdminIntermediateExpectation = Readonly<{
+  expectedMessage: string;
+  forbiddenValues: readonly string[];
+  absentOperations: readonly string[];
+  unregisteredValues?: readonly string[];
+}>;
 
 type CallbackHarnessOptions = Pick<
   Parameters<typeof createAdminScenarioHarness>[0],
@@ -65,8 +111,8 @@ const expectAdminCallbackRejection = async (
   expect((caught as Error).message).toBe(expectedMessage);
   expect(String(caught)).toBe(`Error: ${expectedMessage}`);
   for (const value of forbiddenValues) {
-    expect(inspect(caught)).not.toContain(value);
-    expect(JSON.stringify(caught)).not.toContain(value);
+    expect(inspect(caught, { depth: null })).not.toContain(value);
+    expect(String(caught)).not.toContain(value);
   }
   for (const value of unregisteredValues) {
     expect(() => {
@@ -101,8 +147,8 @@ const expectAdminResumeRedirectRejection = async (
   expect((caught as Error).message).toBe(expectedMessage);
   expect(String(caught)).toBe(`Error: ${expectedMessage}`);
   for (const value of forbiddenValues) {
-    expect(inspect(caught)).not.toContain(value);
-    expect(JSON.stringify(caught)).not.toContain(value);
+    expect(inspect(caught, { depth: null })).not.toContain(value);
+    expect(String(caught)).not.toContain(value);
   }
   for (const value of unregisteredValues) {
     expect(() => {
@@ -113,11 +159,91 @@ const expectAdminResumeRedirectRejection = async (
     false
   );
   expect(
+    harness.records.some(({ operation }) => operation === 'admin-authorization-consent-bridge')
+  ).toBe(false);
+  expect(harness.records.some(({ operation }) => operation === 'admin-consent-auto')).toBe(false);
+  expect(
     harness.records.some(({ operation }) => operation === 'admin-token-authorization-code')
   ).toBe(false);
 };
 
+const expectAdminIntermediateRejection = async (
+  options: AdminHarnessOptions,
+  expectation: AdminIntermediateExpectation
+): Promise<void> => {
+  const {
+    expectedMessage,
+    forbiddenValues,
+    absentOperations,
+    unregisteredValues = [],
+  } = expectation;
+  const signer = await createAdminTestSigner();
+  const harness = createAdminScenarioHarness({
+    jwk: signer.jwk,
+    tokens: { initial: {} },
+    ...options,
+  });
+  const caught: unknown = await runConsoleAdminAuthResourceRefresh(harness.context, {
+    random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+  }).then(
+    () => new Error('Expected the intermediate admin authorization step to be rejected'),
+    (error: unknown) => error
+  );
+
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).toBe(expectedMessage);
+  expect(String(caught)).toBe(`Error: ${expectedMessage}`);
+  for (const value of forbiddenValues) {
+    expect(inspect(caught, { depth: null })).not.toContain(value);
+    expect(String(caught)).not.toContain(value);
+  }
+  for (const value of unregisteredValues) {
+    expect(() => {
+      harness.store.assertNoCredentialMaterial(value);
+    }).not.toThrow();
+  }
+  for (const operation of absentOperations) {
+    expect(harness.records.some((record) => record.operation === operation)).toBe(false);
+  }
+};
+
 describe('console.admin-auth-resource-refresh', () => {
+  it.each(initialResponseScopeMutants)(
+    'rejects an initial token response %s',
+    async (_name, responseScope) => {
+      const signer = await createAdminTestSigner();
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await signer.sign({
+        iss: `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud: 'admin-console',
+        iat: now,
+        exp: now + 3600,
+      });
+      const harness = createAdminScenarioHarness({
+        jwk: signer.jwk,
+        tokens: {
+          initial: tokenBody(
+            adminSecrets.initialAccess,
+            idToken,
+            adminSecrets.initialRefresh,
+            responseScope
+          ),
+        },
+      });
+
+      await expect(
+        withPositiveAdminSession(
+          harness.context,
+          {
+            random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+          },
+          async () => null
+        )
+      ).rejects.toThrow('Phase 1 admin authorization code exchange failed');
+    }
+  );
+
   it('issues, rotates, and privately installs a signature-valid Account-resource token', async () => {
     const signer = await createAdminTestSigner();
     const now = Math.floor(Date.now() / 1000);
@@ -144,7 +270,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         accountAuthority: tokenBody(
           accountAccess,
@@ -217,7 +343,7 @@ describe('console.admin-auth-resource-refresh', () => {
             adminSecrets.initialAccess,
             idToken,
             adminSecrets.initialRefresh,
-            effectiveScope
+            adminInitialResponseScope
           ),
           accountAuthority: tokenBody(
             accountAccess,
@@ -274,7 +400,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         managementMissingScope: tokenBody(managementAccess, idToken, replacementRefresh, ''),
       },
@@ -342,7 +468,7 @@ describe('console.admin-auth-resource-refresh', () => {
             adminSecrets.initialAccess,
             idToken,
             adminSecrets.initialRefresh,
-            effectiveScope
+            adminInitialResponseScope
           ),
           managementMissingScope: tokenBody(
             managementAccess,
@@ -392,7 +518,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         userinfoMissingOpenId: {
           access_token: opaqueAccess,
@@ -449,7 +575,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         userinfoMissingOpenId: invalidTokenBody,
       },
@@ -498,7 +624,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         management: tokenBody(managementAccess, idToken, adminSecrets.managementRefresh, 'all'),
       },
@@ -519,6 +645,8 @@ describe('console.admin-auth-resource-refresh', () => {
       'experience:admin-experience-password',
       'experience:admin-experience-identify',
       'experience:admin-experience-submit',
+      'oidc:admin-authorization-consent-bridge',
+      'oidc:admin-consent-auto',
       'oidc:admin-authorization-resume',
       'oidc:admin-token-authorization-code',
       'oidc:admin-token-jwks',
@@ -530,6 +658,10 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(authorize.searchParams.get('code_challenge')).toBe(
       createHash('sha256').update(adminSecrets.verifier).digest('base64url')
     );
+    expect(authorize.searchParams.get('scope')).toBe(adminRequestedScope);
+    expect(adminRequestedScope.split(' ')).toContain('all');
+    expect(adminInitialResponseScope.split(' ')).not.toContain('all');
+    expect(adminInitialResponseScope).not.toBe(adminRequestedScope);
     expect(authorize.searchParams.get('scope')?.split(' ')).toEqual([
       'openid',
       'offline_access',
@@ -547,20 +679,64 @@ describe('console.admin-auth-resource-refresh', () => {
       'https://admin.logto.app/me',
       'urn:logto:resource:organizations',
     ]);
-    expect(requestForm(harness.records[6])).toEqual({
+    expect(
+      requestForm(
+        harness.records.find(({ operation }) => operation === 'admin-token-authorization-code')
+      )
+    ).toEqual({
       client_id: 'admin-console',
       code: adminSecrets.code,
       code_verifier: adminSecrets.verifier,
       redirect_uri: `${adminTestTarget.adminUrl}console/callback`,
       grant_type: 'authorization_code',
     });
-    expect(requestForm(harness.records[8])).toEqual({
+    const managementRefresh = harness.records.find(
+      ({ operation }) => operation === 'admin-token-management-refresh'
+    );
+    expect(requestForm(managementRefresh)).toEqual({
       client_id: 'admin-console',
       refresh_token: adminSecrets.initialRefresh,
       grant_type: 'refresh_token',
       resource: 'https://default.logto.app/api',
     });
-    expect(requestContentType(harness.records[8])).toBe('application/x-www-form-urlencoded');
+    expect(requestContentType(managementRefresh)).toBe('application/x-www-form-urlencoded');
+    const consentAuto = harness.records.find(({ operation }) => operation === 'admin-consent-auto');
+    const consentBridge = harness.records.find(
+      ({ operation }) => operation === 'admin-authorization-consent-bridge'
+    );
+    const consentResume = harness.records.find(
+      ({ operation }) => operation === 'admin-authorization-resume'
+    );
+
+    expect(consentAuto?.path).toBe('consent?app_id=admin-console');
+    expect(consentAuto?.options?.method).toBe('GET');
+    expect(consentAuto?.options?.includeCookies).toBe(true);
+    expect(cookiePairs(consentAuto?.cookie)).toEqual([
+      '_interaction.sig=private-admin-consent-cookie-signature',
+      '_interaction=private-admin-consent-cookie',
+    ]);
+    expect(cookiePairs(consentAuto?.cookie)).not.toContain('_interaction=private-admin-cookie');
+    expect(cookiePairs(consentAuto?.cookie)).not.toContain(
+      '_interaction.sig=private-admin-cookie-signature'
+    );
+    expect(consentBridge?.options?.method).toBe('GET');
+    expect(consentBridge?.options?.includeCookies).toBe(true);
+    expect(cookiePairs(consentBridge?.cookie)).toEqual([
+      '_interaction.sig=private-admin-cookie-signature',
+      '_interaction=private-admin-cookie',
+      `_interaction_resume=${adminSecrets.resume}`,
+    ]);
+    expect(cookiePairs(consentResume?.cookie)).toEqual([
+      '_interaction.sig=private-admin-consent-cookie-signature',
+      '_interaction=private-admin-consent-cookie',
+      `_interaction_resume=${adminSecrets.consentResume}`,
+    ]);
+    expect(cookiePairs(consentResume?.cookie)).not.toContain('_interaction=private-admin-cookie');
+    expect(cookiePairs(consentResume?.cookie)).not.toContain(
+      '_interaction.sig=private-admin-cookie-signature'
+    );
+    expect(consentResume?.options?.method).toBe('GET');
+    expect(consentResume?.options?.includeCookies).toBe(true);
     expect(harness.store.getToken('management')).toBeUndefined();
     expect(harness.dataStore.getToken('management')).toBeUndefined();
     expect(steps[1]?.value).toMatchObject({
@@ -622,7 +798,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         management: tokenBody(managementAccess, idToken, adminSecrets.managementRefresh, 'all'),
       },
@@ -637,6 +813,293 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(harness.store.getToken('management')).toBeUndefined();
     expect(harness.dataStore.getToken('management')).toBe(managementAccess);
   });
+
+  it.each([200, 302, 307, 308])('rejects an admin consent bridge with HTTP %i', async (status) => {
+    await expectAdminIntermediateRejection(
+      { consentBridgeStatus: status },
+      {
+        expectedMessage: 'Phase 1 admin authorization consent bridge failed',
+        forbiddenValues: [adminSecrets.code, adminSecrets.state],
+        absentOperations: [
+          'admin-consent-auto',
+          'admin-authorization-resume',
+          'admin-token-authorization-code',
+        ],
+      }
+    );
+  });
+
+  it.each([
+    ['missing Location', []],
+    ['duplicate Location', [adminConsentBridgeLocation(), adminConsentBridgeLocation()]],
+  ] as const)('rejects an admin consent bridge with %s', async (_name, locations) => {
+    await expectAdminIntermediateRejection(
+      { consentBridgeLocations: locations },
+      {
+        expectedMessage: 'Phase 1 admin consent bridge redirect is invalid',
+        forbiddenValues: [adminSecrets.code, adminSecrets.state],
+        absentOperations: [
+          'admin-consent-auto',
+          'admin-authorization-resume',
+          'admin-token-authorization-code',
+        ],
+      }
+    );
+  });
+
+  it.each([
+    [
+      'missing app_id',
+      (bridge: URL) => {
+        bridge.searchParams.delete('app_id');
+        return bridge.href;
+      },
+    ],
+    [
+      'empty app_id',
+      (bridge: URL) => {
+        bridge.searchParams.set('app_id', '');
+        return bridge.href;
+      },
+    ],
+    [
+      'wrong app_id',
+      (bridge: URL) => {
+        bridge.searchParams.set('app_id', 'wrong-admin-client');
+        return bridge.href;
+      },
+    ],
+    [
+      'duplicate app_id',
+      (bridge: URL) => {
+        bridge.searchParams.append('app_id', 'second-admin-client');
+        return bridge.href;
+      },
+    ],
+    [
+      'wrong origin',
+      (bridge: URL) => {
+        bridge.hostname = 'attacker.example';
+        return bridge.href;
+      },
+    ],
+    [
+      'scheme downgrade',
+      (bridge: URL) => {
+        bridge.protocol = 'http:';
+        return bridge.href;
+      },
+    ],
+    [
+      'wrong port',
+      (bridge: URL) => {
+        bridge.port = '444';
+        return bridge.href;
+      },
+    ],
+    [
+      'wrong path',
+      (bridge: URL) => {
+        bridge.pathname = '/wrong-consent';
+        return bridge.href;
+      },
+    ],
+    [
+      'fragment',
+      (bridge: URL) => {
+        bridge.hash = 'unexpected';
+        return bridge.href;
+      },
+    ],
+    [
+      'username',
+      (bridge: URL) => {
+        bridge.username = 'unexpected-user';
+        return bridge.href;
+      },
+    ],
+    [
+      'password',
+      (bridge: URL) => {
+        bridge.password = 'unexpected-password';
+        return bridge.href;
+      },
+    ],
+    [
+      'extra parameter',
+      (bridge: URL) => {
+        bridge.searchParams.set('unexpected', 'value');
+        return bridge.href;
+      },
+    ],
+    ['query-only relative Location', (bridge: URL) => bridge.search],
+    ['path-relative Location', (bridge: URL) => `consent${bridge.search}`],
+  ] as const)('rejects an admin consent bridge with %s', async (_name, mutate) => {
+    const location = adminConsentBridgeLocation(mutate);
+
+    await expectAdminIntermediateRejection(
+      { consentBridgeLocations: [location] },
+      {
+        expectedMessage: 'Phase 1 admin consent bridge redirect is invalid',
+        forbiddenValues: [location, adminSecrets.code, adminSecrets.state],
+        absentOperations: [
+          'admin-consent-auto',
+          'admin-authorization-resume',
+          'admin-token-authorization-code',
+        ],
+      }
+    );
+  });
+
+  it.each([200, 303, 307, 308])('rejects admin auto-consent with HTTP %i', async (status) => {
+    await expectAdminIntermediateRejection(
+      { consentAutoStatus: status },
+      {
+        expectedMessage: 'Phase 1 admin auto-consent failed',
+        forbiddenValues: [adminSecrets.code, adminSecrets.state],
+        absentOperations: ['admin-authorization-resume', 'admin-token-authorization-code'],
+      }
+    );
+  });
+
+  it.each([
+    ['missing Location', []],
+    ['duplicate Location', [adminConsentResumeLocation(), adminConsentResumeLocation()]],
+  ] as const)('rejects admin auto-consent with %s', async (_name, locations) => {
+    await expectAdminIntermediateRejection(
+      { consentResumeLocations: locations },
+      {
+        expectedMessage: 'Phase 1 admin consent resume redirect is invalid',
+        forbiddenValues: [adminSecrets.code, adminSecrets.state],
+        absentOperations: ['admin-authorization-resume', 'admin-token-authorization-code'],
+      }
+    );
+  });
+
+  it('rejects a consent resume credential reused from the login bridge', async () => {
+    const signer = await createAdminTestSigner();
+    const loginResumeLocation = `${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.resume}`;
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: { initial: {} },
+      consentResumeLocations: [loginResumeLocation],
+    });
+    const registerSecret = import.meta.jest.spyOn(harness.store, 'registerSecret');
+    const expectedMessage = 'Phase 1 admin consent resume redirect is invalid';
+    const caught: unknown = await runConsoleAdminAuthResourceRefresh(harness.context, {
+      random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+    }).then(
+      () => new Error('Expected the reused consent resume credential to be rejected'),
+      (error: unknown) => error
+    );
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe(expectedMessage);
+    expect(String(caught)).toBe(`Error: ${expectedMessage}`);
+    expect(inspect(caught, { depth: null })).not.toContain(loginResumeLocation);
+    expect(inspect(caught, { depth: null })).not.toContain(adminSecrets.resume);
+    expect(
+      harness.records.some(({ operation }) => operation === 'admin-authorization-resume')
+    ).toBe(false);
+    expect(
+      harness.records.some(({ operation }) => operation === 'admin-token-authorization-code')
+    ).toBe(false);
+    expect(
+      registerSecret.mock.calls.filter(([value]) => value === adminSecrets.resume)
+    ).toHaveLength(2);
+  });
+
+  it.each([
+    [
+      'wrong origin',
+      (resume: URL) => {
+        resume.hostname = 'attacker.example';
+        return resume.href;
+      },
+    ],
+    [
+      'scheme downgrade',
+      (resume: URL) => {
+        resume.protocol = 'http:';
+        return resume.href;
+      },
+    ],
+    [
+      'wrong port',
+      (resume: URL) => {
+        resume.port = '444';
+        return resume.href;
+      },
+    ],
+    [
+      'wrong path',
+      (resume: URL) => {
+        resume.pathname = '/wrong-resume';
+        return resume.href;
+      },
+    ],
+    [
+      'query',
+      (resume: URL) => {
+        resume.searchParams.set('unexpected', 'value');
+        return resume.href;
+      },
+    ],
+    [
+      'fragment',
+      (resume: URL) => {
+        resume.hash = 'unexpected';
+        return resume.href;
+      },
+    ],
+    [
+      'username',
+      (resume: URL) => {
+        resume.username = 'unexpected-user';
+        return resume.href;
+      },
+    ],
+    [
+      'password',
+      (resume: URL) => {
+        resume.password = 'unexpected-password';
+        return resume.href;
+      },
+    ],
+  ] as const)('rejects an admin consent resume URL containing a %s', async (_name, mutate) => {
+    const location = adminConsentResumeLocation(mutate);
+
+    await expectAdminIntermediateRejection(
+      { consentResumeLocations: [location] },
+      {
+        expectedMessage: 'Phase 1 admin consent resume redirect is invalid',
+        forbiddenValues: [location, adminSecrets.code, adminSecrets.state],
+        absentOperations: ['admin-authorization-resume', 'admin-token-authorization-code'],
+      }
+    );
+  });
+
+  it.each([
+    ['a malformed percent escape', 'private%GGconsent-resume', 'private%GGconsent-resume'],
+    ['a decoded control character', 'private%00consent-resume', 'private\u0000consent-resume'],
+    ['an encoded slash', 'private%2Fconsent-resume', 'private/consent-resume'],
+    ['an encoded backslash', 'private%5Cconsent-resume', 'private\\consent-resume'],
+  ] as const)(
+    'rejects an admin consent resume URL containing %s',
+    async (_name, encodedCredential, decodedCredential) => {
+      const location = `${adminTestTarget.adminUrl}oidc/auth/${encodedCredential}`;
+
+      await expectAdminIntermediateRejection(
+        { consentResumeLocations: [location] },
+        {
+          expectedMessage: 'Phase 1 admin consent resume redirect is invalid',
+          forbiddenValues: [location, encodedCredential, adminSecrets.code, adminSecrets.state],
+          absentOperations: ['admin-authorization-resume', 'admin-token-authorization-code'],
+          unregisteredValues: [encodedCredential, decodedCredential],
+        }
+      );
+    }
+  );
 
   it.each([
     [
@@ -854,10 +1317,11 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
       },
       callbackLocations: [rootRelativeCallback],
+      consentResumeLocations: [`/oidc/auth/${adminSecrets.consentResume}`],
     });
 
     await withPositiveAdminSession(
@@ -882,8 +1346,10 @@ describe('console.admin-auth-resource-refresh', () => {
       exp: now + 3600,
     });
     const callbackCode = "opaque+code/=~:@!$&'()*";
-    const resumeCredential = "opaque!$&'()*+,;=:@~resume";
-    const encodedResumeCredential = encodeURIComponent(resumeCredential);
+    const loginResumeCredential = "opaque!$&'()*+,;=:@~login-resume";
+    const consentResumeCredential = "opaque!$&'()*+,;=:@~consent-resume";
+    const encodedLoginResumeCredential = encodeURIComponent(loginResumeCredential);
+    const encodedConsentResumeCredential = encodeURIComponent(consentResumeCredential);
     const callbackLocation = adminCallbackLocation((callback) => {
       callback.searchParams.set('code', callbackCode);
       return callback.href;
@@ -895,11 +1361,14 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
       },
       callbackLocations: [callbackLocation],
-      resumeRedirectTo: `${adminTestTarget.adminUrl}oidc/auth/${encodedResumeCredential}`,
+      resumeRedirectTo: `${adminTestTarget.adminUrl}oidc/auth/${encodedLoginResumeCredential}`,
+      consentResumeLocations: [
+        `${adminTestTarget.adminUrl}oidc/auth/${encodedConsentResumeCredential}`,
+      ],
     });
 
     await withPositiveAdminSession(
@@ -909,8 +1378,12 @@ describe('console.admin-auth-resource-refresh', () => {
     );
 
     expect(
+      harness.records.find(({ operation }) => operation === 'admin-authorization-consent-bridge')
+        ?.path
+    ).toBe(`oidc/auth/${encodedLoginResumeCredential}`);
+    expect(
       harness.records.find(({ operation }) => operation === 'admin-authorization-resume')?.path
-    ).toBe(`oidc/auth/${encodedResumeCredential}`);
+    ).toBe(`oidc/auth/${encodedConsentResumeCredential}`);
     expect(
       requestForm(
         harness.records.find(({ operation }) => operation === 'admin-token-authorization-code')
@@ -970,7 +1443,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
       },
     });
@@ -1013,7 +1486,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         management: tokenBody(managementAccess, idToken, adminSecrets.managementRefresh, 'all'),
       },
@@ -1063,7 +1536,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         management: tokenBody(managementAccess, idToken, adminSecrets.managementRefresh, 'all'),
       },
@@ -1106,7 +1579,7 @@ describe('console.admin-auth-resource-refresh', () => {
           adminSecrets.initialAccess,
           idToken,
           adminSecrets.initialRefresh,
-          effectiveScope
+          adminInitialResponseScope
         ),
         management: tokenBody(managementAccess, idToken, adminSecrets.initialAccess, 'all'),
       },

@@ -47,6 +47,10 @@ const runtime = Object.freeze({
   userUsername: getPhase1FixtureRuntimeUsername('phase1-user', dataAllocationId),
   userEmail: getPhase1FixtureRuntimeEmail('phase1-user@example.com', dataAllocationId),
 });
+const requestedScope =
+  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
+const initialResponseScope =
+  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles';
 
 const profile = {
   fixtures: {
@@ -88,7 +92,7 @@ const profile = {
       'https://admin.logto.app/me',
       'urn:logto:resource:organizations',
     ],
-    effectiveScopes: ['openid', 'offline_access', 'profile', 'email', 'all'],
+    effectiveScopes: requestedScope.split(' '),
   },
   browserFlows: [
     {
@@ -159,7 +163,7 @@ const initialFact = Object.freeze({
   replacementFresh: true,
   resource: null,
   organizationId: null,
-  responseScope: profile.consoleAuthentication.effectiveScopes.join(' '),
+  responseScope: initialResponseScope,
   accessKind: 'opaque' as const,
 });
 const managementFact = Object.freeze({
@@ -559,6 +563,10 @@ describe('Phase 1 ordered Console browser flows', () => {
     const session = new FakeSession(facts);
     const result = await consoleCleanAuthenticationFlow.run(createContext({ session }));
 
+    expect(signInFact.scope).toBe(requestedScope);
+    expect(signInFact.scope.split(' ')).toContain('all');
+    expect(initialFact.responseScope).toBe(initialResponseScope);
+    expect(initialFact.responseScope.split(' ')).not.toContain('all');
     expect(result).toEqual({
       route: '/console/applications',
       initialExchange: {
@@ -683,6 +691,57 @@ describe('Phase 1 ordered Console browser flows', () => {
         ...authorizationFacts,
         exchanges: [
           { ...initialFact, initialRefreshPresent: false, replacementFresh: false },
+          managementFact,
+          organizationFact,
+        ],
+        accountReads: [accountFact],
+      },
+    },
+    {
+      name: 'an initial response missing the organizations user scope',
+      facts: {
+        ...emptyFacts(),
+        ...authorizationFacts,
+        exchanges: [
+          {
+            ...initialFact,
+            responseScope: initialResponseScope
+              .split(' ')
+              .filter((scope) => scope !== 'urn:logto:scope:organizations')
+              .join(' '),
+          },
+          managementFact,
+          organizationFact,
+        ],
+        accountReads: [accountFact],
+      },
+    },
+    {
+      name: 'an initial response missing the organization roles user scope',
+      facts: {
+        ...emptyFacts(),
+        ...authorizationFacts,
+        exchanges: [
+          {
+            ...initialFact,
+            responseScope: initialResponseScope
+              .split(' ')
+              .filter((scope) => scope !== 'urn:logto:scope:organization_roles')
+              .join(' '),
+          },
+          managementFact,
+          organizationFact,
+        ],
+        accountReads: [accountFact],
+      },
+    },
+    {
+      name: 'an initial response containing the resource-only all scope',
+      facts: {
+        ...emptyFacts(),
+        ...authorizationFacts,
+        exchanges: [
+          { ...initialFact, responseScope: `${initialResponseScope} all` },
           managementFact,
           organizationFact,
         ],

@@ -105,13 +105,13 @@ const profile = {
         id: 't-default',
         name: 'Tenant default',
         memberUserIds: ['phase1-admin'],
-        scopes: ['read:data'],
+        scopes: ['write:data', 'read:data'],
         organizationRoles: [
           {
             id: 'admin',
             name: 'admin',
             type: 'User',
-            scopeNames: ['read:data'],
+            scopeNames: ['write:data', 'read:data'],
             userIds: ['phase1-admin'],
           },
         ],
@@ -479,8 +479,8 @@ describe('createPhase1FixtureMap', () => {
       error = caught;
     }
 
-    expect(inspect(error)).not.toContain(secret);
-    expect(JSON.stringify(error)).not.toContain(secret);
+    expect(inspect(error, { depth: null })).not.toContain(secret);
+    expect(String(error)).not.toContain(secret);
   });
 });
 
@@ -506,6 +506,43 @@ describe('createPhase1FixtureStateProjection', () => {
     expect(JSON.stringify(projection)).not.toContain('allocationId');
     expect(JSON.stringify(projection)).not.toContain('runtimeId');
     expect(JSON.stringify(projection)).not.toContain('data-user');
+  });
+
+  it('projects the reserved organization resource from organization template scopes', () => {
+    const projection = createExpectedPhase1FixtureStateProjection(map, profile);
+    const resources = projection.allocations
+      .find(({ role }) => role === 'admin')
+      ?.entities.filter(({ kind }) => kind === 'resource');
+
+    expect(resources).toEqual([
+      {
+        kind: 'resource',
+        logicalId: 'admin.resource.1',
+        snapshot: {
+          name: null,
+          indicator: 'https://default.logto.app/api',
+          scopeNames: ['all'],
+        },
+      },
+      {
+        kind: 'resource',
+        logicalId: 'admin.resource.2',
+        snapshot: {
+          name: null,
+          indicator: 'https://admin.logto.app/me',
+          scopeNames: ['all'],
+        },
+      },
+      {
+        kind: 'resource',
+        logicalId: 'admin.resource.3',
+        snapshot: {
+          name: null,
+          indicator: 'urn:logto:resource:organizations',
+          scopeNames: ['write:data', 'read:data'],
+        },
+      },
+    ]);
   });
 
   it.each(phase1FixtureEntityKinds)(

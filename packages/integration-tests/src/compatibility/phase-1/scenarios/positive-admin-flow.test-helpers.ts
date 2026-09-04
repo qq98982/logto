@@ -19,6 +19,11 @@ export const adminTestTarget = Object.freeze({
   adminUrl: 'https://oracle-admin.example/',
 });
 
+export const adminRequestedScope =
+  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
+export const adminInitialResponseScope =
+  'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles';
+
 const allocationId = 'admin-allocation';
 export const adminRuntime = Object.freeze({
   userId: 'runtime-admin-user',
@@ -32,6 +37,7 @@ export const adminSecrets = Object.freeze({
   state: 'private-admin-state',
   verificationId: 'private-admin-verification',
   resume: 'private-admin-resume',
+  consentResume: 'private-admin-consent-resume',
   code: 'private-admin-code',
   initialAccess: 'private-admin-opaque-access',
   initialRefresh: 'private-admin-initial-refresh',
@@ -285,6 +291,14 @@ const callbackLocation = () => {
   return callback.href;
 };
 
+const consentBridgeLocation = () =>
+  `/consent?${new URLSearchParams({
+    app_id: profile.consoleAuthentication.applicationId,
+  }).toString()}`;
+
+const consentResumeLocation = () =>
+  `${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.consentResume}`;
+
 const headerValue = (
   headers: ProtocolRequestOptions['headers'],
   name: string
@@ -299,6 +313,12 @@ export const createAdminScenarioHarness = (
     resumeStatus?: number;
     callbackLocations?: readonly string[];
     resumeBody?: string;
+    consentBridgeStatus?: number;
+    consentBridgeLocations?: readonly string[];
+    consentBridgeBody?: string;
+    consentAutoStatus?: number;
+    consentResumeLocations?: readonly string[];
+    consentAutoBody?: string;
     resumeRedirectTo?: string;
     accountBody?: JsonObject;
   }>
@@ -346,7 +366,13 @@ export const createAdminScenarioHarness = (
     options: ProtocolRequestOptions | undefined,
     url: URL
   ) => {
-    records.push({ client, operation, path, options, cookie: store.getCookieHeader(url) });
+    records.push({
+      client,
+      operation,
+      path,
+      options,
+      cookie: options?.includeCookies === false ? undefined : store.getCookieHeader(url),
+    });
   };
   const oidc = {
     store,
@@ -368,7 +394,50 @@ export const createAdminScenarioHarness = (
             url
           );
         }
+        if (operation === 'admin-authorization-consent-bridge') {
+          if (options?.method !== 'GET') {
+            throw new Error('unexpected admin consent bridge method');
+          }
+          const locations = input.consentBridgeLocations ?? [consentBridgeLocation()];
+
+          return applyCookies(
+            response(input.consentBridgeStatus ?? 303, input.consentBridgeBody ?? 'Redirecting.', [
+              ...locations.map((location) => ['location', location] as const),
+              ['content-type', 'text/html; charset=utf-8'],
+              [
+                'set-cookie',
+                '_interaction=private-admin-consent-cookie; Path=/; HttpOnly; SameSite=Lax',
+              ],
+              [
+                'set-cookie',
+                '_interaction.sig=private-admin-consent-cookie-signature; Path=/; HttpOnly; SameSite=Lax',
+              ],
+              [
+                'set-cookie',
+                `_interaction_resume=${adminSecrets.consentResume}; Path=/oidc/auth/${adminSecrets.consentResume}; HttpOnly; SameSite=Lax`,
+              ],
+            ]),
+            url
+          );
+        }
+        if (operation === 'admin-consent-auto') {
+          if (options?.method !== 'GET') {
+            throw new Error('unexpected admin auto-consent method');
+          }
+          const locations = input.consentResumeLocations ?? [consentResumeLocation()];
+
+          return applyCookies(
+            response(input.consentAutoStatus ?? 302, input.consentAutoBody ?? 'Redirecting.', [
+              ...locations.map((location) => ['location', location] as const),
+              ['content-type', 'text/html; charset=utf-8'],
+            ]),
+            url
+          );
+        }
         if (operation === 'admin-authorization-resume') {
+          if (options?.method !== 'GET') {
+            throw new Error('unexpected admin consent resume method');
+          }
           const locations = input.callbackLocations ?? [callbackLocation()];
 
           return applyCookies(

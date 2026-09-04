@@ -1,6 +1,7 @@
 /* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax -- The admin authorization boundary keeps one cookie jar, password lease, PKCE credentials, query callback, token response, and redacted projections in one auditable flow. */
 import { createHash, randomBytes } from 'node:crypto';
 
+import { ReservedScope, userClaims } from '@logto/core-kit';
 import { decodeJwt, decodeProtectedHeader, type JSONWebKeySet } from 'jose';
 
 import { jsonValueGuard } from '../../model.js';
@@ -26,6 +27,7 @@ const formContentType = 'application/x-www-form-urlencoded';
 const jsonContentType = 'application/json';
 const codeVerifierPattern = /^[A-Za-z0-9._~-]{43,128}$/u;
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
+const userClaimScopeNames = new Set(Object.keys(userClaims));
 
 export type PositiveAdminFlowRandomSource = Readonly<{
   codeVerifier(): string;
@@ -345,6 +347,73 @@ const parseCallbackRedirect = (
   }
 };
 
+const parseAdminResumeRedirect = (
+  value: unknown,
+  adminUrl: string,
+  diagnostic: string
+): Readonly<{ href: string; path: string; credential: string }> => {
+  try {
+    const resumeUrl = new URL(requireText(value, diagnostic));
+    const segments = resumeUrl.pathname.split('/');
+    const encodedCredential = segments[3];
+
+    if (
+      resumeUrl.origin !== new URL(adminUrl).origin ||
+      resumeUrl.username.length > 0 ||
+      resumeUrl.password.length > 0 ||
+      resumeUrl.search.length > 0 ||
+      resumeUrl.hash.length > 0 ||
+      segments.length !== 4 ||
+      segments[1] !== 'oidc' ||
+      segments[2] !== 'auth' ||
+      !encodedCredential
+    ) {
+      throw new TypeError('invalid resume URL');
+    }
+    const credential = decodeURIComponent(encodedCredential);
+
+    if (credential.includes('/') || credential.includes('\\')) {
+      throw new TypeError('invalid resume credential');
+    }
+
+    return Object.freeze({
+      href: resumeUrl.href,
+      path: `oidc/auth/${encodedCredential}`,
+      credential: requireText(credential, 'invalid resume credential'),
+    });
+  } catch {
+    throw new Error(diagnostic);
+  }
+};
+
+const requireAdminConsentBridge = (
+  location: string,
+  adminUrl: string,
+  clientId: string
+): string => {
+  try {
+    const bridge = new URL(location);
+    const applicationIds = bridge.searchParams.getAll('app_id');
+
+    if (
+      bridge.origin !== new URL(adminUrl).origin ||
+      bridge.username.length > 0 ||
+      bridge.password.length > 0 ||
+      bridge.pathname !== '/consent' ||
+      bridge.hash.length > 0 ||
+      applicationIds.length !== 1 ||
+      applicationIds[0] !== clientId ||
+      Array.from(bridge.searchParams.keys()).some((key) => key !== 'app_id')
+    ) {
+      throw new TypeError('invalid consent bridge');
+    }
+
+    return `${bridge.pathname.slice(1)}${bridge.search}`;
+  } catch {
+    throw new Error('Phase 1 admin consent bridge redirect is invalid');
+  }
+};
+
 const adminAllocation = (context: Phase1ScenarioRunContext) => {
   const allocation = context.fixture.public.allocations.find(({ role }) => role === 'admin');
 
@@ -514,6 +583,16 @@ const assertInitialIdToken = async (
   }
 };
 
+const initialAdminResponseScope = (effectiveScopes: readonly string[]): string =>
+  effectiveScopes
+    .filter(
+      (scope) =>
+        scope === ReservedScope.OpenId ||
+        scope === ReservedScope.OfflineAccess ||
+        userClaimScopeNames.has(scope)
+    )
+    .join(' ');
+
 const parseInitialTokenResponse = async (
   context: Phase1ScenarioRunContext,
   response: RawProtocolResponse
@@ -535,13 +614,16 @@ const parseInitialTokenResponse = async (
     'Phase 1 admin authorization code exchange failed'
   );
   const clientId = context.profile.consoleAuthentication.applicationId;
+  const expectedResponseScope = initialAdminResponseScope(
+    context.profile.consoleAuthentication.effectiveScopes
+  );
 
   if (
     markedJwt(accessToken) ||
     !markedJwt(idToken) ||
     new Set([accessToken, idToken, refreshToken]).size !== 3 ||
     body.token_type !== 'Bearer' ||
-    body.scope !== context.profile.consoleAuthentication.effectiveScopes.join(' ') ||
+    body.scope !== expectedResponseScope ||
     typeof body.expires_in !== 'number' ||
     !Number.isSafeInteger(body.expires_in) ||
     body.expires_in <= 0
@@ -740,54 +822,64 @@ export const withPositiveAdminSession = async <Result>(
         .redirectTo,
       'Phase 1 admin interaction submission failed'
     );
-    const resumeUrl = (() => {
-      try {
-        return new URL(redirectTo);
-      } catch {
-        throw new Error('Phase 1 admin interaction resume redirect is invalid');
-      }
-    })();
-    const segments = resumeUrl.pathname.split('/');
-    const encodedResumeCredential = segments[3];
+    const loginResume = parseAdminResumeRedirect(
+      redirectTo,
+      context.target.adminUrl,
+      'Phase 1 admin interaction resume redirect is invalid'
+    );
+    store.registerSecret(loginResume.credential);
+    const consentBridgeResponse = requireStatus(
+      await clients.oidc.request('admin-authorization-consent-bridge', loginResume.path, {
+        method: 'GET',
+        includeCookies: true,
+      }),
+      303,
+      'Phase 1 admin authorization consent bridge failed'
+    );
+    const consentBridgeLocation = requireLocation(
+      consentBridgeResponse.headers,
+      loginResume.href,
+      'Phase 1 admin consent bridge redirect is invalid'
+    );
+    const consentPath = requireAdminConsentBridge(
+      consentBridgeLocation,
+      context.target.adminUrl,
+      context.profile.consoleAuthentication.applicationId
+    );
+    const consentResponse = requireStatus(
+      await clients.oidc.request('admin-consent-auto', consentPath, {
+        method: 'GET',
+        includeCookies: true,
+      }),
+      302,
+      'Phase 1 admin auto-consent failed'
+    );
+    const consentResumeLocation = requireLocation(
+      consentResponse.headers,
+      consentBridgeLocation,
+      'Phase 1 admin consent resume redirect is invalid'
+    );
+    const consentResume = parseAdminResumeRedirect(
+      consentResumeLocation,
+      context.target.adminUrl,
+      'Phase 1 admin consent resume redirect is invalid'
+    );
 
-    if (
-      resumeUrl.origin !== new URL(context.target.adminUrl).origin ||
-      resumeUrl.username.length > 0 ||
-      resumeUrl.password.length > 0 ||
-      resumeUrl.search.length > 0 ||
-      resumeUrl.hash.length > 0 ||
-      segments.length !== 4 ||
-      segments[1] !== 'oidc' ||
-      segments[2] !== 'auth' ||
-      !encodedResumeCredential
-    ) {
-      throw new Error('Phase 1 admin interaction resume redirect is invalid');
+    if (consentResume.credential === loginResume.credential) {
+      throw new Error('Phase 1 admin consent resume redirect is invalid');
     }
-    const resumeCredential = (() => {
-      try {
-        const decoded = decodeURIComponent(encodedResumeCredential);
-
-        if (decoded.includes('/') || decoded.includes('\\')) {
-          throw new TypeError('invalid resume credential');
-        }
-
-        return requireText(decoded, 'invalid resume credential');
-      } catch {
-        throw new Error('Phase 1 admin interaction resume redirect is invalid');
-      }
-    })();
-    store.registerSecret(resumeCredential);
+    store.registerSecret(consentResume.credential);
     const resumeResponse = requireStatus(
-      await clients.oidc.request(
-        'admin-authorization-resume',
-        `oidc/auth/${encodedResumeCredential}`
-      ),
+      await clients.oidc.request('admin-authorization-resume', consentResume.path, {
+        method: 'GET',
+        includeCookies: true,
+      }),
       303,
       'Phase 1 admin authorization resume failed'
     );
     const callbackLocation = requireLocation(
       resumeResponse.headers,
-      resumeUrl.href,
+      consentResume.href,
       'Phase 1 admin authorization callback is invalid'
     );
     const code = parseCallbackRedirect(
