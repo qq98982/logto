@@ -488,11 +488,13 @@ const assertAllocation = (value: unknown): Phase1FixtureAllocation => {
   const logicalIds = entities.map(
     ({ kind, logicalId }) => `${kind}.${assertSafeString(logicalId)}`
   );
-  const runtimeIds = entities.map(({ runtimeId }) => assertSafeString(runtimeId));
+  const scopedRuntimeIds = entities.map(
+    ({ kind, runtimeId }) => `${kind}\u0000${assertSafeString(runtimeId)}`
+  );
 
   if (
     new Set(logicalIds).size !== logicalIds.length ||
-    new Set(runtimeIds).size !== runtimeIds.length ||
+    new Set(scopedRuntimeIds).size !== scopedRuntimeIds.length ||
     !entities.some(({ kind }) => kind === 'tenant')
   ) {
     fail();
@@ -938,9 +940,19 @@ class FixtureSymbolTables implements Phase1FixtureSymbolTables {
   constructor(map: Phase1FixtureMap) {
     const tables = map.allocations.map(({ allocationId, entities }) => {
       const table = new SymbolTable();
+      const runtimeIdCounts = new Map(
+        [...new Set(entities.map(({ runtimeId }) => runtimeId))].map((runtimeId) => [
+          runtimeId,
+          entities.filter((entity) => entity.runtimeId === runtimeId).length,
+        ])
+      );
 
       for (const { kind, logicalId, runtimeId } of entities) {
-        table.bind(`${kind}.${logicalId}`, runtimeId);
+        // Entity APIs have independent ID namespaces. Keep a cross-kind collision public and
+        // exact instead of assigning the same literal to an arbitrary logical replacement.
+        if (runtimeIdCounts.get(runtimeId) === 1) {
+          table.bind(`${kind}.${logicalId}`, runtimeId);
+        }
       }
 
       return [allocationId, table] as const;

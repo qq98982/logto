@@ -252,7 +252,7 @@ const responseFor = (request: Request, history: readonly Request[] = []): unknow
     ];
   }
   if (request.method === 'GET' && request.path === 'organization-roles') {
-    return [{ id: 'runtime-admin-organization-role', name: 'admin', type: 'User' }];
+    return [{ id: 'admin', name: 'admin', type: 'User' }];
   }
   if (request.method === 'GET' && request.path === 'resources') {
     return profile.fixtures.adminTenant.resources.map(({ indicator }, index) => ({
@@ -271,12 +271,9 @@ const responseFor = (request: Request, history: readonly Request[] = []): unknow
     request.method === 'GET' &&
     request.path === 'organizations/t-default/users/admin-phase1_admin-id/roles'
   ) {
-    return [{ id: 'runtime-admin-organization-role' }];
+    return [{ id: 'admin' }];
   }
-  if (
-    request.method === 'GET' &&
-    request.path === 'organization-roles/runtime-admin-organization-role/scopes'
-  ) {
+  if (request.method === 'GET' && request.path === 'organization-roles/admin/scopes') {
     return [
       'read:data',
       'write:data',
@@ -459,7 +456,7 @@ const createHarness = (
         return [];
       }
       if (input.path === 'organizations/t-default/users/preexisting-admin-id/roles') {
-        return [{ id: 'runtime-admin-organization-role' }];
+        return [{ id: 'admin' }];
       }
     }
     if (

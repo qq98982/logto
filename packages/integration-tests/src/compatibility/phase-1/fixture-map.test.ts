@@ -328,6 +328,49 @@ describe('createPhase1FixtureMap', () => {
     );
   });
 
+  it('allows cross-kind runtime collisions without inventing an ambiguous symbol', () => {
+    const admin = allocation('admin', 'console-1', 'admin');
+    const colliding = {
+      ...admin,
+      entities: admin.entities.map((entity) =>
+        entity.kind === 'organization-role' ? { ...entity, runtimeId: 'admin' } : entity
+      ),
+    };
+    const map = createPhase1FixtureMap(fixtureMap('adminConsole', [colliding]));
+    const symbols = bindPhase1FixtureSymbols(map).get('console-1');
+
+    expect(getPhase1FixtureRuntimeId(map, 'console-1', 'tenant', 'admin')).toBe('admin');
+    expect(getPhase1FixtureRuntimeId(map, 'console-1', 'organization-role', 'admin')).toBe('admin');
+    expect(symbols?.getLogicalName('admin')).toBeUndefined();
+    expect(symbols?.replace('admin')).toBe('admin');
+  });
+
+  it('rejects runtime collisions inside one entity namespace', () => {
+    const data = allocation('data', 'data');
+    const firstApplicationRuntimeId = data.entities.find(
+      ({ kind }) => kind === 'application'
+    )?.runtimeId;
+    let seenApplication = false;
+    const colliding = {
+      ...data,
+      entities: data.entities.map((entity) => {
+        if (entity.kind !== 'application') {
+          return entity;
+        }
+        if (!seenApplication) {
+          seenApplication = true;
+          return entity;
+        }
+
+        return { ...entity, runtimeId: firstApplicationRuntimeId ?? entity.runtimeId };
+      }),
+    };
+
+    expect(() => createPhase1FixtureMap(fixtureMap('dataProtocol', [colliding]))).toThrow(
+      'Invalid Phase 1 fixture map'
+    );
+  });
+
   it('allows primary tenant allocations to share persistence but not cookie or signing identities', () => {
     const data = allocation('data', 'experience-1');
     const admin = allocation('admin', 'console-1');
@@ -376,18 +419,6 @@ describe('createPhase1FixtureMap', () => {
           entities: [
             { kind: 'tenant', logicalId: 'default', runtimeId: 'one' },
             { kind: 'tenant', logicalId: 'default', runtimeId: 'two' },
-          ],
-        },
-      ]),
-    ],
-    [
-      'duplicate runtime ID in one allocation',
-      fixtureMap('dataProtocol', [
-        {
-          ...allocation('data', 'data'),
-          entities: [
-            { kind: 'tenant', logicalId: 'default', runtimeId: 'same' },
-            { kind: 'user', logicalId: 'phase1-user', runtimeId: 'same' },
           ],
         },
       ]),
