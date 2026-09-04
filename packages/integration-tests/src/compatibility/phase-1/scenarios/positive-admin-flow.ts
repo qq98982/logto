@@ -22,6 +22,8 @@ import {
   type RawHttpObservation,
 } from '../projections/index.js';
 
+import { sanitizeSetCookieHeaders } from './positive-oidc-flow.js';
+
 const managementScenarioId = 'console.admin-auth-resource-refresh';
 const formContentType = 'application/x-www-form-urlencoded';
 const jsonContentType = 'application/json';
@@ -668,7 +670,7 @@ const rawObservation = (
 ): RawHttpObservation => ({
   ...state,
   status: response.status,
-  headers: response.headers,
+  headers: sanitizeSetCookieHeaders(response.headers),
   body,
   ...overrides,
 });

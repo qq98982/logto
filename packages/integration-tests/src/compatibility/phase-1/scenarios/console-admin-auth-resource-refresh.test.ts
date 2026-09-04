@@ -208,6 +208,142 @@ const expectAdminIntermediateRejection = async (
 };
 
 describe('console.admin-auth-resource-refresh', () => {
+  it('sanitizes noncompliant state and resume cookie values before projecting authorization', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const rawStateCookie = '_logto={"appId":"admin-console"}; Path=/; SameSite=Lax';
+    const rawInteractionCookie = `_interaction=private-admin-interaction-cookie; Path=/oidc/auth/${adminSecrets.resume}; HttpOnly; SameSite=Lax`;
+    const rawInteractionSignatureCookie = `_interaction.sig=private-admin-interaction-signature; Path=/oidc/auth/${adminSecrets.resume}; HttpOnly; SameSite=Lax`;
+    const rawResumeCookie = `_interaction_resume=${adminSecrets.resume}; Path=/oidc/auth/${adminSecrets.resume}; HttpOnly; SameSite=Lax`;
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          adminInitialResponseScope
+        ),
+      },
+      authorizeSetCookieHeaders: [
+        rawStateCookie,
+        rawInteractionCookie,
+        rawInteractionSignatureCookie,
+        rawResumeCookie,
+      ],
+    });
+    const output = await withPositiveAdminSession(
+      harness.context,
+      {
+        random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+        captureAuthorize: true,
+        captureCodeToken: false,
+      },
+      async () => null
+    );
+    const authorize = output.steps[0]?.value;
+    const authorizeCookies = harness.authorizeCookieSnapshots[0];
+
+    expect(cookiePairs(authorizeCookies?.root)).toEqual(['_logto={"appId":"admin-console"}']);
+    expect(cookiePairs(authorizeCookies?.resume)).toEqual([
+      '_interaction.sig=private-admin-interaction-signature',
+      '_interaction=private-admin-interaction-cookie',
+      '_interaction_resume=private-admin-resume',
+      '_logto={"appId":"admin-console"}',
+    ]);
+    expect(
+      cookiePairs(harness.store.getCookieHeader(new URL('/', adminTestTarget.adminUrl)))
+    ).toContain('_logto={"appId":"admin-console"}');
+    expect(
+      cookiePairs(
+        harness.records.find(({ operation }) => operation === 'admin-experience-bootstrap')?.cookie
+      )
+    ).toContain('_logto={"appId":"admin-console"}');
+
+    expect(authorize?.cookies).toEqual([
+      {
+        name: '_logto',
+        path: '/',
+        httpOnly: false,
+        secure: false,
+        sameSite: 'Lax',
+        extensions: [],
+      },
+      {
+        name: '_interaction',
+        path: '/oidc/auth/aster-cookie-attribute-value',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Lax',
+        extensions: [],
+      },
+      {
+        name: '_interaction.sig',
+        path: '/oidc/auth/aster-cookie-attribute-value',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Lax',
+        extensions: [],
+      },
+      {
+        name: '_interaction_resume',
+        path: '/oidc/auth/aster-cookie-attribute-value',
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Lax',
+        extensions: [],
+      },
+    ]);
+    expect(authorize?.headers['set-cookie']).toEqual(authorize?.cookies);
+    const serialized = JSON.stringify(output.steps);
+
+    expect(serialized).toContain('"name":"_logto"');
+    expect(serialized).toContain('"name":"_interaction"');
+    expect(serialized).toContain('"name":"_interaction.sig"');
+    expect(serialized).toContain('"name":"_interaction_resume"');
+    expect(serialized).not.toContain('{"appId":"admin-console"}');
+    expect(serialized).not.toContain('private-admin-interaction-cookie');
+    expect(serialized).not.toContain('private-admin-interaction-signature');
+    expect(serialized).not.toContain(adminSecrets.resume);
+  });
+
+  it('rejects a malformed cookie name before projecting authorization', async () => {
+    const signer = await createAdminTestSigner();
+    const rawCookieValue = 'private-admin-state-cookie';
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: { initial: {} },
+      authorizeSetCookieHeaders: [`_logto =${rawCookieValue}; Path=/; SameSite=Lax`],
+    });
+    const caught: unknown = await withPositiveAdminSession(
+      harness.context,
+      {
+        random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+        captureAuthorize: true,
+        captureCodeToken: false,
+      },
+      async () => null
+    ).then(
+      () => new Error('Expected the malformed admin authorization cookie to be rejected'),
+      (error: unknown) => error
+    );
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('Invalid phase 1 HTTP projection');
+    expect(inspect(caught, { depth: null })).not.toContain(rawCookieValue);
+    expect(String(caught)).not.toContain(rawCookieValue);
+    expect(
+      harness.records.some(({ operation }) => operation === 'admin-experience-bootstrap')
+    ).toBe(false);
+  });
+
   it.each(initialResponseScopeMutants)(
     'rejects an initial token response %s',
     async (_name, responseScope) => {

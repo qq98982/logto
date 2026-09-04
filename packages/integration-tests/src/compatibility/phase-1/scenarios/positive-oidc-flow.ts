@@ -380,7 +380,7 @@ const parseSetCookieHeader = (header: string): ParsedSetCookie => {
   if (separator < 1) {
     throw new Error('Phase 1 response cookie is invalid');
   }
-  const name = pair.slice(0, separator).trim();
+  const name = pair.slice(0, separator);
   const rawValue = pair.slice(separator + 1).trim();
   const unquotedValue =
     rawValue.startsWith('"') && rawValue.endsWith('"') ? rawValue.slice(1, -1) : rawValue;
@@ -705,7 +705,7 @@ const sanitizeCookieAttributes = (attributes: string, credentials: readonly stri
 };
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
 
-const sanitizeSetCookieHeaders = (
+export const sanitizeSetCookieHeaders = (
   headers: ReadonlyArray<readonly [string, string]>,
   attributeCredentials: readonly string[] = []
 ): ReadonlyArray<readonly [string, string]> => {

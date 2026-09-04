@@ -321,12 +321,16 @@ export const createAdminScenarioHarness = (
     consentAutoBody?: string;
     resumeRedirectTo?: string;
     accountBody?: JsonObject;
+    authorizeSetCookieHeaders?: readonly string[];
   }>
 ) => {
   const store = new MemoryProtocolSecretStore();
   const dataStore = new MemoryProtocolSecretStore();
   const records: AdminRecordedRequest[] = [];
   const stateReads: string[] = [];
+  const authorizeCookieSnapshots: Array<
+    Readonly<{ root: string | undefined; resume: string | undefined }>
+  > = [];
   const symbols = new SymbolTable();
   const dataSymbols = new SymbolTable();
   const [allocation] = fixtureMap.allocations;
@@ -382,17 +386,29 @@ export const createAdminScenarioHarness = (
         record('oidc', operation, path, options, url);
 
         if (operation === 'admin-authorization-start') {
-          return applyCookies(
+          const raw = applyCookies(
             response(303, 'Redirecting to /sign-in.', [
               ['location', '/sign-in'],
-              ['set-cookie', '_interaction=private-admin-cookie; Path=/; HttpOnly; SameSite=Lax'],
-              [
-                'set-cookie',
-                '_interaction.sig=private-admin-cookie-signature; Path=/; HttpOnly; SameSite=Lax',
-              ],
+              ...(
+                input.authorizeSetCookieHeaders ?? [
+                  '_interaction=private-admin-cookie; Path=/; HttpOnly; SameSite=Lax',
+                  '_interaction.sig=private-admin-cookie-signature; Path=/; HttpOnly; SameSite=Lax',
+                ]
+              ).map((header) => ['set-cookie', header] as const),
             ]),
             url
           );
+
+          authorizeCookieSnapshots.push(
+            Object.freeze({
+              root: store.getCookieHeader(new URL('/', adminTestTarget.adminUrl)),
+              resume: store.getCookieHeader(
+                new URL(`/oidc/auth/${adminSecrets.resume}`, adminTestTarget.adminUrl)
+              ),
+            })
+          );
+
+          return raw;
         }
         if (operation === 'admin-authorization-consent-bridge') {
           if (options?.method !== 'GET') {
@@ -633,6 +649,7 @@ export const createAdminScenarioHarness = (
     context,
     records,
     stateReads,
+    authorizeCookieSnapshots,
     store,
     dataStore,
     management,
