@@ -1,8 +1,7 @@
-/* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax -- The admin authorization boundary keeps one cookie jar, password lease, PKCE credentials, callback form, token response, and redacted projections in one auditable flow. */
+/* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax -- The admin authorization boundary keeps one cookie jar, password lease, PKCE credentials, query callback, token response, and redacted projections in one auditable flow. */
 import { createHash, randomBytes } from 'node:crypto';
 
 import { decodeJwt, decodeProtectedHeader, type JSONWebKeySet } from 'jose';
-import { parse, type DefaultTreeAdapterTypes } from 'parse5';
 
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue, NormalizationContext } from '../../normalize.js';
@@ -308,80 +307,26 @@ const normalizeRedirectBody = (
   return normalized;
 };
 
-const descendantElements = (
-  node: DefaultTreeAdapterTypes.ParentNode
-): readonly DefaultTreeAdapterTypes.Element[] =>
-  node.childNodes.flatMap((child) => [
-    ...('tagName' in child ? [child] : []),
-    ...('childNodes' in child ? descendantElements(child) : []),
-  ]);
-
-const attributeValue = (
-  element: DefaultTreeAdapterTypes.Element,
-  name: string
-): string | undefined => element.attrs.find((attribute) => attribute.name === name)?.value;
-
-const hasExactAttributes = (
-  element: DefaultTreeAdapterTypes.Element,
-  names: readonly string[]
-): boolean =>
-  element.attrs.length === names.length &&
-  names.every((name) => element.attrs.some((attribute) => attribute.name === name));
-
-const parseCallbackForm = (
-  html: string,
+const parseCallbackRedirect = (
+  location: string,
   redirectUri: string,
   expectedState: string,
   issuer: string
 ): string => {
   try {
-    const document = parse(html);
-    const forms = descendantElements(document).filter(({ tagName }) => tagName === 'form');
-    const form = forms[0];
-    const action = form && attributeValue(form, 'action');
-
-    if (
-      forms.length !== 1 ||
-      !form ||
-      !hasExactAttributes(form, ['action', 'method']) ||
-      attributeValue(form, 'method')?.toLowerCase() !== 'post' ||
-      !action
-    ) {
-      throw new TypeError('missing callback form');
-    }
+    const callback = new URL(location);
     const registered = new URL(redirectUri);
-    const callback = new URL(action);
-
-    if (callback.href !== registered.href) {
-      throw new TypeError('invalid callback action');
-    }
-    const inputs = descendantElements(form).filter(({ tagName }) => tagName === 'input');
-
-    if (inputs.length !== 3) {
-      throw new TypeError('invalid callback fields');
-    }
-    for (const input of inputs) {
-      const name = attributeValue(input, 'name');
-      const value = attributeValue(input, 'value');
-
-      if (
-        input.parentNode !== form ||
-        !hasExactAttributes(input, ['name', 'type', 'value']) ||
-        attributeValue(input, 'type')?.toLowerCase() !== 'hidden' ||
-        !name ||
-        !value
-      ) {
-        throw new TypeError('invalid callback field');
-      }
-      callback.searchParams.append(name, value);
-    }
     const codes = callback.searchParams.getAll('code');
     const states = callback.searchParams.getAll('state');
     const issuers = callback.searchParams.getAll('iss');
 
     if (
+      callback.username.length > 0 ||
+      callback.password.length > 0 ||
+      callback.origin !== registered.origin ||
+      callback.pathname !== registered.pathname ||
+      callback.hash !== registered.hash ||
       codes.length !== 1 ||
-      !codes[0] ||
       states.length !== 1 ||
       states[0] !== expectedState ||
       issuers.length !== 1 ||
@@ -394,7 +339,7 @@ const parseCallbackForm = (
       throw new TypeError('invalid callback parameters');
     }
 
-    return codes[0];
+    return requireText(codes[0], 'invalid callback code');
   } catch {
     throw new Error('Phase 1 admin authorization callback is invalid');
   }
@@ -803,32 +748,50 @@ export const withPositiveAdminSession = async <Result>(
       }
     })();
     const segments = resumeUrl.pathname.split('/');
+    const encodedResumeCredential = segments[3];
 
     if (
       resumeUrl.origin !== new URL(context.target.adminUrl).origin ||
+      resumeUrl.username.length > 0 ||
+      resumeUrl.password.length > 0 ||
       resumeUrl.search.length > 0 ||
       resumeUrl.hash.length > 0 ||
       segments.length !== 4 ||
       segments[1] !== 'oidc' ||
       segments[2] !== 'auth' ||
-      !segments[3]
+      !encodedResumeCredential
     ) {
       throw new Error('Phase 1 admin interaction resume redirect is invalid');
     }
-    const resumeCredential = decodeURIComponent(segments[3]);
+    const resumeCredential = (() => {
+      try {
+        const decoded = decodeURIComponent(encodedResumeCredential);
+
+        if (decoded.includes('/') || decoded.includes('\\')) {
+          throw new TypeError('invalid resume credential');
+        }
+
+        return requireText(decoded, 'invalid resume credential');
+      } catch {
+        throw new Error('Phase 1 admin interaction resume redirect is invalid');
+      }
+    })();
     store.registerSecret(resumeCredential);
     const resumeResponse = requireStatus(
-      await clients.oidc.request('admin-authorization-resume', `oidc/auth/${segments[3]}`),
-      200,
+      await clients.oidc.request(
+        'admin-authorization-resume',
+        `oidc/auth/${encodedResumeCredential}`
+      ),
+      303,
       'Phase 1 admin authorization resume failed'
     );
-    requireMediaType(
+    const callbackLocation = requireLocation(
       resumeResponse.headers,
-      'text/html',
+      resumeUrl.href,
       'Phase 1 admin authorization callback is invalid'
     );
-    const code = parseCallbackForm(
-      resumeResponse.body,
+    const code = parseCallbackRedirect(
+      callbackLocation,
       redirectUriFor(context),
       state,
       issuerFor(context)

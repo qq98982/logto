@@ -1,5 +1,6 @@
-/* eslint-disable max-lines -- The focused admin authorization and refresh security matrix stays in one harness. */
+/* eslint-disable max-lines, @silverhand/fp/no-mutation -- The focused admin authorization and refresh security matrix stays in one harness. */
 import { createHash } from 'node:crypto';
+import { inspect } from 'node:util';
 
 import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
 import {
@@ -26,6 +27,95 @@ import {
 
 const effectiveScope =
   'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles all';
+
+const adminCallbackLocation = (mutate?: (callback: URL) => string): string => {
+  const callback = new URL(`${adminTestTarget.adminUrl}console/callback`);
+
+  callback.searchParams.set('code', adminSecrets.code);
+  callback.searchParams.set('state', adminSecrets.state);
+  callback.searchParams.set('iss', `${adminTestTarget.adminUrl}oidc`);
+  return mutate?.(callback) ?? callback.href;
+};
+
+type CallbackHarnessOptions = Pick<
+  Parameters<typeof createAdminScenarioHarness>[0],
+  'resumeStatus' | 'callbackLocations' | 'resumeBody'
+>;
+
+const expectAdminCallbackRejection = async (
+  options: CallbackHarnessOptions,
+  forbiddenValues: readonly string[],
+  expectedMessage = 'Phase 1 admin authorization callback is invalid',
+  unregisteredValues: readonly string[] = [adminSecrets.code]
+): Promise<void> => {
+  const signer = await createAdminTestSigner();
+  const harness = createAdminScenarioHarness({
+    jwk: signer.jwk,
+    tokens: { initial: {} },
+    ...options,
+  });
+  const caught: unknown = await runConsoleAdminAuthResourceRefresh(harness.context, {
+    random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+  }).then(
+    () => new Error('Expected the admin callback to be rejected'),
+    (error: unknown) => error
+  );
+
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).toBe(expectedMessage);
+  expect(String(caught)).toBe(`Error: ${expectedMessage}`);
+  for (const value of forbiddenValues) {
+    expect(inspect(caught)).not.toContain(value);
+    expect(JSON.stringify(caught)).not.toContain(value);
+  }
+  for (const value of unregisteredValues) {
+    expect(() => {
+      harness.store.assertNoCredentialMaterial(value);
+    }).not.toThrow();
+  }
+  expect(
+    harness.records.some(({ operation }) => operation === 'admin-token-authorization-code')
+  ).toBe(false);
+};
+
+const expectAdminResumeRedirectRejection = async (
+  resumeRedirectTo: string,
+  forbiddenValues: readonly string[],
+  unregisteredValues: readonly string[]
+): Promise<void> => {
+  const signer = await createAdminTestSigner();
+  const harness = createAdminScenarioHarness({
+    jwk: signer.jwk,
+    tokens: { initial: {} },
+    resumeRedirectTo,
+  });
+  const expectedMessage = 'Phase 1 admin interaction resume redirect is invalid';
+  const caught: unknown = await runConsoleAdminAuthResourceRefresh(harness.context, {
+    random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+  }).then(
+    () => new Error('Expected the interaction resume redirect to be rejected'),
+    (error: unknown) => error
+  );
+
+  expect(caught).toBeInstanceOf(Error);
+  expect((caught as Error).message).toBe(expectedMessage);
+  expect(String(caught)).toBe(`Error: ${expectedMessage}`);
+  for (const value of forbiddenValues) {
+    expect(inspect(caught)).not.toContain(value);
+    expect(JSON.stringify(caught)).not.toContain(value);
+  }
+  for (const value of unregisteredValues) {
+    expect(() => {
+      harness.store.assertNoCredentialMaterial(value);
+    }).not.toThrow();
+  }
+  expect(harness.records.some(({ operation }) => operation === 'admin-authorization-resume')).toBe(
+    false
+  );
+  expect(
+    harness.records.some(({ operation }) => operation === 'admin-token-authorization-code')
+  ).toBe(false);
+};
 
 describe('console.admin-auth-resource-refresh', () => {
   it('issues, rotates, and privately installs a signature-valid Account-resource token', async () => {
@@ -548,23 +638,319 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(harness.dataStore.getToken('management')).toBe(managementAccess);
   });
 
-  it('rejects callback inputs reassociated away from the submitted form', async () => {
-    const signer = await createAdminTestSigner();
-    const harness = createAdminScenarioHarness({
-      jwk: signer.jwk,
-      tokens: { initial: {} },
-      callbackBody: `<!doctype html><form method="post" action="${adminTestTarget.adminUrl}console/callback"><input type="hidden" name="code" value="${adminSecrets.code}" form="other"><input type="hidden" name="state" value="${adminSecrets.state}"><input type="hidden" name="iss" value="${adminTestTarget.adminUrl}oidc"></form>`,
+  it.each([
+    [
+      'missing code',
+      (callback: URL) => {
+        callback.searchParams.delete('code');
+        return callback.href;
+      },
+    ],
+    [
+      'empty code',
+      (callback: URL) => {
+        callback.searchParams.set('code', '');
+        return callback.href;
+      },
+    ],
+    [
+      'duplicate code',
+      (callback: URL) => {
+        callback.searchParams.append('code', 'second-code');
+        return callback.href;
+      },
+    ],
+    [
+      'missing state',
+      (callback: URL) => {
+        callback.searchParams.delete('state');
+        return callback.href;
+      },
+    ],
+    [
+      'empty state',
+      (callback: URL) => {
+        callback.searchParams.set('state', '');
+        return callback.href;
+      },
+    ],
+    [
+      'wrong state',
+      (callback: URL) => {
+        callback.searchParams.set('state', 'wrong-state');
+        return callback.href;
+      },
+    ],
+    [
+      'duplicate state',
+      (callback: URL) => {
+        callback.searchParams.append('state', 'second-state');
+        return callback.href;
+      },
+    ],
+    [
+      'missing issuer',
+      (callback: URL) => {
+        callback.searchParams.delete('iss');
+        return callback.href;
+      },
+    ],
+    [
+      'empty issuer',
+      (callback: URL) => {
+        callback.searchParams.set('iss', '');
+        return callback.href;
+      },
+    ],
+    [
+      'wrong issuer',
+      (callback: URL) => {
+        callback.searchParams.set('iss', 'https://wrong.example/oidc');
+        return callback.href;
+      },
+    ],
+    [
+      'duplicate issuer',
+      (callback: URL) => {
+        callback.searchParams.append('iss', 'second-issuer');
+        return callback.href;
+      },
+    ],
+    [
+      'wrong origin',
+      (callback: URL) => {
+        callback.hostname = 'attacker.example';
+        return callback.href;
+      },
+    ],
+    [
+      'scheme downgrade',
+      (callback: URL) => {
+        callback.protocol = 'http:';
+        return callback.href;
+      },
+    ],
+    [
+      'wrong port',
+      (callback: URL) => {
+        callback.port = '444';
+        return callback.href;
+      },
+    ],
+    [
+      'wrong path',
+      (callback: URL) => {
+        callback.pathname = '/wrong-callback';
+        return callback.href;
+      },
+    ],
+    [
+      'fragment',
+      (callback: URL) => {
+        callback.hash = 'unexpected';
+        return callback.href;
+      },
+    ],
+    [
+      'username',
+      (callback: URL) => {
+        callback.username = 'unexpected-user';
+        return callback.href;
+      },
+    ],
+    [
+      'password',
+      (callback: URL) => {
+        callback.password = 'unexpected-password';
+        return callback.href;
+      },
+    ],
+    [
+      'extra parameter',
+      (callback: URL) => {
+        callback.searchParams.set('unexpected', 'value');
+        return callback.href;
+      },
+    ],
+    ['query-only relative Location', (callback: URL) => `${callback.search}${callback.hash}`],
+    [
+      'path-relative Location',
+      (callback: URL) => `console/callback${callback.search}${callback.hash}`,
+    ],
+  ] as const)('rejects callback locations with %s', async (_name, mutate) => {
+    const location = adminCallbackLocation(mutate);
+
+    await expectAdminCallbackRejection({ callbackLocations: [location] }, [
+      location,
+      adminSecrets.code,
+      adminSecrets.state,
+    ]);
+  });
+
+  it('rejects a callback code containing a decoded control character', async () => {
+    const controlCode = 'private\u0000admin-code';
+    const location = adminCallbackLocation((callback) => {
+      callback.searchParams.set('code', controlCode);
+      return callback.href;
     });
 
-    await expect(
-      runConsoleAdminAuthResourceRefresh(harness.context, {
-        random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
-      })
-    ).rejects.toThrow('Phase 1 admin authorization callback is invalid');
+    await expectAdminCallbackRejection(
+      { callbackLocations: [location] },
+      [location, controlCode, adminSecrets.state],
+      'Phase 1 admin authorization callback is invalid',
+      [controlCode]
+    );
+  });
+
+  it.each([
+    ['HTTP 302 redirect', { resumeStatus: 302 }, 'Phase 1 admin authorization resume failed'],
+    ['HTTP 307 redirect', { resumeStatus: 307 }, 'Phase 1 admin authorization resume failed'],
+    ['HTTP 308 redirect', { resumeStatus: 308 }, 'Phase 1 admin authorization resume failed'],
+    [
+      'HTTP 200 form_post downgrade',
+      {
+        resumeStatus: 200,
+        callbackLocations: [],
+        resumeBody: `<form action="${adminTestTarget.adminUrl}console/callback"><input name="code" value="${adminSecrets.code}"><input name="state" value="${adminSecrets.state}"></form>`,
+      },
+      'Phase 1 admin authorization resume failed',
+    ],
+    [
+      'missing Location',
+      { callbackLocations: [] },
+      'Phase 1 admin authorization callback is invalid',
+    ],
+    [
+      'duplicate Location',
+      { callbackLocations: [adminCallbackLocation(), adminCallbackLocation()] },
+      'Phase 1 admin authorization callback is invalid',
+    ],
+  ] as const)('rejects a resume response with %s', async (_name, options, expectedMessage) => {
+    const callbackOptions: CallbackHarnessOptions = options;
+    const forbiddenValues = callbackOptions.resumeBody
+      ? [adminSecrets.code, adminSecrets.state, callbackOptions.resumeBody]
+      : [adminSecrets.code, adminSecrets.state];
+
+    await expectAdminCallbackRejection(callbackOptions, forbiddenValues, expectedMessage);
+  });
+
+  it('accepts a root-relative callback Location resolved against the resume origin', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const rootRelativeCallback = adminCallbackLocation(
+      (callback) => `${callback.pathname}${callback.search}`
+    );
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+      },
+      callbackLocations: [rootRelativeCallback],
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async () => null
+    );
+
     expect(
       harness.records.some(({ operation }) => operation === 'admin-token-authorization-code')
-    ).toBe(false);
+    ).toBe(true);
   });
+
+  it('preserves non-slug opaque callback and resume credentials', async () => {
+    const signer = await createAdminTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${adminTestTarget.adminUrl}oidc`,
+      sub: adminRuntime.userId,
+      aud: 'admin-console',
+      iat: now,
+      exp: now + 3600,
+    });
+    const callbackCode = "opaque+code/=~:@!$&'()*";
+    const resumeCredential = "opaque!$&'()*+,;=:@~resume";
+    const encodedResumeCredential = encodeURIComponent(resumeCredential);
+    const callbackLocation = adminCallbackLocation((callback) => {
+      callback.searchParams.set('code', callbackCode);
+      return callback.href;
+    });
+    const harness = createAdminScenarioHarness({
+      jwk: signer.jwk,
+      tokens: {
+        initial: tokenBody(
+          adminSecrets.initialAccess,
+          idToken,
+          adminSecrets.initialRefresh,
+          effectiveScope
+        ),
+      },
+      callbackLocations: [callbackLocation],
+      resumeRedirectTo: `${adminTestTarget.adminUrl}oidc/auth/${encodedResumeCredential}`,
+    });
+
+    await withPositiveAdminSession(
+      harness.context,
+      { random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state } },
+      async () => null
+    );
+
+    expect(
+      harness.records.find(({ operation }) => operation === 'admin-authorization-resume')?.path
+    ).toBe(`oidc/auth/${encodedResumeCredential}`);
+    expect(
+      requestForm(
+        harness.records.find(({ operation }) => operation === 'admin-token-authorization-code')
+      ).code
+    ).toBe(callbackCode);
+  });
+
+  it.each(['username', 'password'] as const)(
+    'rejects an interaction resume URL containing a %s',
+    async (component) => {
+      const resumeUrl = new URL(`${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.resume}`);
+      const embeddedCredential = `embedded-${component}`;
+
+      resumeUrl[component] = embeddedCredential;
+
+      await expectAdminResumeRedirectRejection(
+        resumeUrl.href,
+        [resumeUrl.href, embeddedCredential],
+        [embeddedCredential]
+      );
+    }
+  );
+
+  it.each([
+    ['a malformed percent escape', 'private%GGresume', 'private%GGresume'],
+    ['a decoded control character', 'private%00resume', 'private\u0000resume'],
+    ['an encoded slash', 'private%2Fresume', 'private/resume'],
+    ['an encoded backslash', 'private%5Cresume', 'private\\resume'],
+  ] as const)(
+    'rejects an interaction resume credential containing %s',
+    async (_name, encodedCredential, decodedCredential) => {
+      const resumeRedirectTo = `${adminTestTarget.adminUrl}oidc/auth/${encodedCredential}`;
+
+      await expectAdminResumeRedirectRejection(
+        resumeRedirectTo,
+        [resumeRedirectTo, encodedCredential, decodedCredential],
+        [encodedCredential, decodedCredential]
+      );
+    }
+  );
 
   it('rejects an initial ID token that is not valid yet', async () => {
     const signer = await createAdminTestSigner();
@@ -736,5 +1122,7 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(harness.dataStore.getToken('management')).toBeUndefined();
   });
 });
+
+/* eslint-enable @silverhand/fp/no-mutation */
 
 /* eslint-enable max-lines */

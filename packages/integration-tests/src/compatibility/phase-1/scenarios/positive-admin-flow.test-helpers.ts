@@ -276,8 +276,14 @@ const response = (
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
 
-const callbackHtml = () =>
-  `<!doctype html><form method="post" action="${profile.consoleAuthentication.redirectUri}"><input type="hidden" name="code" value="${adminSecrets.code}"><input type="hidden" name="state" value="${adminSecrets.state}"><input type="hidden" name="iss" value="${profile.consoleAuthentication.issuer}"></form>`;
+const callbackLocation = () => {
+  const callback = new URL(profile.consoleAuthentication.redirectUri);
+
+  callback.searchParams.set('code', adminSecrets.code);
+  callback.searchParams.set('state', adminSecrets.state);
+  callback.searchParams.set('iss', profile.consoleAuthentication.issuer);
+  return callback.href;
+};
 
 const headerValue = (
   headers: ProtocolRequestOptions['headers'],
@@ -290,7 +296,10 @@ export const createAdminScenarioHarness = (
     jwk: JWK;
     tokens: AdminTokenBodies;
     includeDataAllocation?: boolean;
-    callbackBody?: string;
+    resumeStatus?: number;
+    callbackLocations?: readonly string[];
+    resumeBody?: string;
+    resumeRedirectTo?: string;
     accountBody?: JsonObject;
   }>
 ) => {
@@ -360,8 +369,11 @@ export const createAdminScenarioHarness = (
           );
         }
         if (operation === 'admin-authorization-resume') {
+          const locations = input.callbackLocations ?? [callbackLocation()];
+
           return applyCookies(
-            response(200, input.callbackBody ?? callbackHtml(), [
+            response(input.resumeStatus ?? 303, input.resumeBody ?? 'Redirecting.', [
+              ...locations.map((location) => ['location', location] as const),
               ['content-type', 'text/html; charset=utf-8'],
               ['set-cookie', '_interaction=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'],
             ]),
@@ -419,7 +431,11 @@ export const createAdminScenarioHarness = (
           return applyCookies(
             response(
               200,
-              { redirectTo: `${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.resume}` },
+              {
+                redirectTo:
+                  input.resumeRedirectTo ??
+                  `${adminTestTarget.adminUrl}oidc/auth/${adminSecrets.resume}`,
+              },
               [
                 ['content-type', 'application/json'],
                 [
