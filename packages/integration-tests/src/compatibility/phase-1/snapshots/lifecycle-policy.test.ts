@@ -28,6 +28,21 @@ const phase0Services = phase0StackNames.flatMap((stack) => [
   `${stack}-core`,
 ]);
 
+type LifecycleComposeDocument = {
+  services: Record<string, Record<string, unknown>>;
+  networks: Record<string, unknown>;
+  volumes: Record<string, unknown>;
+};
+
+const assertInternalNetworkPolicy = (document: LifecycleComposeDocument): void => {
+  const expectedNetworks = [...isolatedStackNames, ...hostBoundaryNetworks];
+
+  expect(Object.keys(document.networks)).toEqual(expectedNetworks);
+  for (const network of expectedNetworks) {
+    expect(document.networks[network]).toEqual({ internal: true });
+  }
+};
+
 afterEach(async () => {
   await Promise.all(
     [...temporaryRoots].map(async (root) => rm(root, { recursive: true, force: true }))
@@ -37,11 +52,7 @@ afterEach(async () => {
 
 describe('Phase 1 lifecycle source policy', () => {
   it('defines four measured stacks, two disposable Phase 0 stacks, and three authority-free hosts', async () => {
-    const document = JSON.parse(await readFile(composePath, 'utf8')) as {
-      services: Record<string, Record<string, unknown>>;
-      networks: Record<string, unknown>;
-      volumes: Record<string, unknown>;
-    };
+    const document = JSON.parse(await readFile(composePath, 'utf8')) as LifecycleComposeDocument;
 
     expect(Object.keys(document.services)).toEqual([
       ...baseServices,
@@ -50,10 +61,7 @@ describe('Phase 1 lifecycle source policy', () => {
       'candidate-saml-host',
       'candidate-script-host',
     ]);
-    expect(Object.keys(document.networks)).toEqual([
-      ...isolatedStackNames,
-      ...hostBoundaryNetworks,
-    ]);
+    assertInternalNetworkPolicy(document);
     expect(Object.keys(document.volumes)).toEqual(
       isolatedStackNames.flatMap((stack) => [`${stack}-postgres`, `${stack}-redis`])
     );
@@ -69,6 +77,7 @@ describe('Phase 1 lifecycle source policy', () => {
       );
       expect(postgres).not.toHaveProperty('ports');
       expect(redis).not.toHaveProperty('ports');
+      expect(core).not.toHaveProperty('ports');
       expect(JSON.stringify(core)).toContain(`${stack.toUpperCase().replaceAll('-', '_')}_`);
     }
 
@@ -91,7 +100,7 @@ describe('Phase 1 lifecycle source policy', () => {
     );
   });
 
-  it('uses digest-injected images and keeps Phase 0 on four dedicated loopback ports', async () => {
+  it('uses digest-injected images and delegates all loopback exposure to the runner', async () => {
     const source = await readFile(composePath, 'utf8');
     const document = JSON.parse(source) as { services: Record<string, Record<string, unknown>> };
     const ports = [...baseServices, ...phase0Services].flatMap((name) => {
@@ -99,20 +108,7 @@ describe('Phase 1 lifecycle source policy', () => {
       return Array.isArray(value) ? value : [];
     });
 
-    expect(ports).toEqual([
-      '127.0.0.1:3311:3001',
-      '127.0.0.1:3411:3002',
-      '127.0.0.1:3312:3001',
-      '127.0.0.1:3412:3002',
-      '127.0.0.1:3321:3001',
-      '127.0.0.1:3421:3002',
-      '127.0.0.1:3322:3001',
-      '127.0.0.1:3422:3002',
-      '127.0.0.1:3331:3001',
-      '127.0.0.1:3431:3002',
-      '127.0.0.1:3341:3001',
-      '127.0.0.1:3441:3002',
-    ]);
+    expect(ports).toEqual([]);
     expect(source).not.toMatch(
       /\bbuild:|host-gateway|docker\.sock|network_mode:|privileged:|cap_add:/u
     );
@@ -173,6 +169,14 @@ describe('Phase 1 lifecycle source policy', () => {
       '--no-replace-objects',
       '/usr/bin/docker',
       '/usr/bin/setsid',
+      '/usr/bin/socat',
+      'LOOPBACK_PROXY_BINDINGS',
+      'container_network_ipv4',
+      'start_loopback_proxy',
+      'TCP4-LISTEN:',
+      'bind=127.0.0.1',
+      'PROXY_PIDS',
+      'PROXY_PGIDS',
       "'v22.23.2'",
       "'10.15.1'",
       'compose.env',
@@ -286,10 +290,13 @@ fi
     const scriptPath = path.join(root, 'verify-owned-group.sh');
     const pidPath = path.join(root, 'pids');
     const functions = source.slice(start, end);
+    const ownershipToken = 'a'.repeat(64);
     const harness = `#!/usr/bin/env bash
 set -euo pipefail
+PS_BIN=/usr/bin/ps
+AWK_BIN=/usr/bin/awk
 ${functions}
-/usr/bin/setsid /bin/sh -c 'printf "%s %s\\n" "$$" "$(/usr/bin/ps -o pgid= -p $$ | tr -d "[:space:]")" > "$1"; trap "" HUP TERM; /usr/bin/sleep 300 &' sh ${JSON.stringify(pidPath)} &
+/usr/bin/setsid /usr/bin/env -i PATH=/usr/bin:/bin ASTER_PHASE1_PROCESS_TOKEN=${ownershipToken} /bin/sh -c 'printf "%s %s\\n" "$$" "$(/usr/bin/ps -o pgid= -p $$ | tr -d "[:space:]")" > "$1"; trap "" HUP TERM; /usr/bin/sleep 300 &' sh ${JSON.stringify(pidPath)} &
 launcher=$!
 for ((attempt=0; attempt<200; attempt++)); do
   [[ -s ${JSON.stringify(pidPath)} ]] && break
@@ -298,7 +305,7 @@ done
 read -r leader pgid < ${JSON.stringify(pidPath)}
 wait "\${launcher}" || true
 owned_process_group_exists "\${pgid}"
-terminate_owned_process_group "\${leader}" "\${pgid}"
+terminate_owned_process_group "\${leader}" "\${pgid}" ${ownershipToken}
 ! owned_process_group_exists "\${pgid}"
 `;
     await writeFile(scriptPath, harness, { mode: 0o700 });

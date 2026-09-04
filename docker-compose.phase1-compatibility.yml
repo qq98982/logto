@@ -50,8 +50,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": ["oracle-primary"],
-      "ports": ["127.0.0.1:3311:3001", "127.0.0.1:3411:3002"]
+      "networks": ["oracle-primary"]
     },
     "oracle-foreign-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -103,8 +102,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": ["oracle-foreign"],
-      "ports": ["127.0.0.1:3312:3001", "127.0.0.1:3412:3002"]
+      "networks": ["oracle-foreign"]
     },
     "candidate-primary-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -161,8 +159,7 @@
         "candidate-connector-boundary",
         "candidate-saml-boundary",
         "candidate-script-boundary"
-      ],
-      "ports": ["127.0.0.1:3321:3001", "127.0.0.1:3421:3002"]
+      ]
     },
     "candidate-foreign-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -214,8 +211,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": ["candidate-foreign"],
-      "ports": ["127.0.0.1:3322:3001", "127.0.0.1:3422:3002"]
+      "networks": ["candidate-foreign"]
     },
     "oracle-phase0-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -267,8 +263,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": ["oracle-phase0"],
-      "ports": ["127.0.0.1:3331:3001", "127.0.0.1:3431:3002"]
+      "networks": ["oracle-phase0"]
     },
     "candidate-phase0-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -320,8 +315,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": ["candidate-phase0"],
-      "ports": ["127.0.0.1:3341:3001", "127.0.0.1:3441:3002"]
+      "networks": ["candidate-phase0"]
     },
     "candidate-connector-host": {
       "profiles": ["candidate-connectors"],

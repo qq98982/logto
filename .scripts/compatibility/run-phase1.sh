@@ -24,6 +24,20 @@ readonly SERVICES=(
   candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441)
+readonly LOOPBACK_PROXY_BINDINGS=(
+  'oracle-primary-core|oracle-primary|3311|3001'
+  'oracle-primary-core|oracle-primary|3411|3002'
+  'oracle-foreign-core|oracle-foreign|3312|3001'
+  'oracle-foreign-core|oracle-foreign|3412|3002'
+  'candidate-primary-core|candidate-primary|3321|3001'
+  'candidate-primary-core|candidate-primary|3421|3002'
+  'candidate-foreign-core|candidate-foreign|3322|3001'
+  'candidate-foreign-core|candidate-foreign|3422|3002'
+  'oracle-phase0-core|oracle-phase0|3331|3001'
+  'oracle-phase0-core|oracle-phase0|3431|3002'
+  'candidate-phase0-core|candidate-phase0|3341|3001'
+  'candidate-phase0-core|candidate-phase0|3441|3002'
+)
 readonly HTTP_READY_DEADLINE_SECONDS=60
 readonly HTTP_READY_MAX_RESPONSE_CHARS=65536
 readonly HTTP_READY_READ_CHARS=4096
@@ -116,8 +130,13 @@ PNPM_BIN="$(trusted_binary pnpm)"
 TAR_BIN="$(trusted_system_binary /usr/bin/tar)"
 SS_BIN="$(trusted_system_binary /usr/bin/ss)"
 SETSID_BIN="$(trusted_system_binary /usr/bin/setsid)"
+SOCAT_BIN="$(trusted_system_binary /usr/bin/socat)"
+ENV_BIN="$(trusted_system_binary /usr/bin/env)"
+PS_BIN="$(trusted_system_binary /usr/bin/ps)"
+AWK_BIN="$(trusted_system_binary /usr/bin/awk)"
 DOCKER_BIN="$(trusted_system_binary /usr/bin/docker)"
-readonly GIT_BIN NODE_BIN PNPM_BIN TAR_BIN SS_BIN SETSID_BIN DOCKER_BIN
+readonly GIT_BIN NODE_BIN PNPM_BIN TAR_BIN SS_BIN SETSID_BIN SOCAT_BIN ENV_BIN PS_BIN AWK_BIN
+readonly DOCKER_BIN
 export GIT_NO_REPLACE_OBJECTS=1
 readonly GIT_AUTHORITY=("${GIT_BIN}" --no-replace-objects)
 
@@ -151,10 +170,24 @@ immutable_image() {
 }
 
 port_is_listening() {
-  "${SS_BIN}" -H -ltn | awk -v expected="$1" '
+  # shellcheck disable=SC2016
+  "${SS_BIN}" -H -ltn | "${AWK_BIN}" -v expected="$1" '
     { address=$4; sub(/^.*:/, "", address); if (address == expected) found=1 }
     END { exit found ? 0 : 1 }
   '
+}
+
+port_is_listened_by_pid() {
+  local port=$1 pid=$2
+
+  [[ "${port}" =~ ^[1-9][0-9]{0,4}$ && "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+  # shellcheck disable=SC2016
+  "${SS_BIN}" -H -ltnp | "${AWK_BIN}" \
+    -v expected_address="127.0.0.1:${port}" \
+    -v expected_process="pid=${pid}([,)]|$)" '
+      $4 == expected_address && $0 ~ expected_process { found=1 }
+      END { exit found ? 0 : 1 }
+    '
 }
 
 capture_build_root_identity
@@ -174,8 +207,12 @@ readonly RUN_DIR EVIDENCE_DIR CONFORMANCE_ROOT SNAPSHOT_ROOT ORACLE_SNAPSHOT_PAT
 
 project_started=0
 container_ids=()
+PROXY_PIDS=()
+PROXY_PGIDS=()
+PROXY_TOKENS=()
 NODE_RUN_PID=''
 NODE_RUN_PGID=''
+NODE_RUN_TOKEN=''
 COMPOSE_ENV="${RUN_DIR}/compose.env"
 PRIVATE_HOME="${RUN_DIR}/home"
 BROWSER_TMP="${RUN_DIR}/browser-tmp"
@@ -205,10 +242,60 @@ readonly CLOSED_BUILD_ENV
 project_name="aster-phase1-$(random_hex 8)"
 readonly project_name
 
+docker_cli() {
+  "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" "${DOCKER_BIN}" "$@"
+}
+
 compose() {
-  env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
-    "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" \
+  docker_cli compose --env-file "${COMPOSE_ENV}" \
     --project-name "${project_name}" --file "${COMPOSE_FILE}" "$@"
+}
+
+container_network_ipv4() {
+  local service=$1 network=$2 container_id network_name result
+
+  container_id="$(compose ps -q "${service}" 2>/dev/null || true)"
+  [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || fail
+  network_name="${project_name}_${network}"
+  result="$(docker_cli inspect --format \
+    "{{with index .NetworkSettings.Networks \"${network_name}\"}}{{.IPAddress}}{{end}}" \
+    "${container_id}" 2>/dev/null || true)"
+  [[ "${result}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || fail
+  printf '%s' "${result}"
+}
+
+start_loopback_proxy() {
+  local service=$1 network=$2 host_port=$3 container_port=$4
+  local target_ip ownership_token proxy_pid proxy_pgid observed_pgid ownership_index attempt
+
+  target_ip="$(container_network_ipv4 "${service}" "${network}")"
+  ownership_token="$(random_hex 32)"
+  ASTER_PHASE1_PROCESS_TOKEN="${ownership_token}" \
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' "ASTER_PHASE1_PROCESS_TOKEN=${ownership_token}" \
+    "${SETSID_BIN}" "${SOCAT_BIN}" \
+    "TCP4-LISTEN:${host_port},bind=127.0.0.1,reuseaddr,fork" \
+    "TCP4:${target_ip}:${container_port}" </dev/null >/dev/null 2>&1 &
+  proxy_pid=$!
+  proxy_pgid="${proxy_pid}"
+  PROXY_PIDS+=("${proxy_pid}")
+  PROXY_PGIDS+=("${proxy_pgid}")
+  PROXY_TOKENS+=("${ownership_token}")
+  for ((attempt=0; attempt<100; attempt++)); do
+    kill -0 "${proxy_pid}" 2>/dev/null || break
+    observed_pgid="$("${PS_BIN}" -o pgid= -p "${proxy_pid}" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+    if [[ "${observed_pgid}" == "${proxy_pgid}" ]] && \
+      process_has_ownership_token "${proxy_pid}" "${ownership_token}" && \
+      port_is_listened_by_pid "${host_port}" "${proxy_pid}"; then
+      return 0
+    fi
+    /usr/bin/sleep 0.05
+  done
+  if terminate_owned_process_group "${proxy_pid}" "${proxy_pgid}" "${ownership_token}"; then
+    ownership_index=$((${#PROXY_PIDS[@]} - 1))
+    unset "PROXY_PIDS[${ownership_index}]" "PROXY_PGIDS[${ownership_index}]" \
+      "PROXY_TOKENS[${ownership_index}]"
+  fi
+  fail
 }
 
 owned_process_group_exists() {
@@ -218,25 +305,118 @@ owned_process_group_exists() {
   kill -0 -- "-${pgid}" 2>/dev/null
 }
 
-terminate_owned_process_group() {
-  local pid=$1 pgid=$2 attempt
+process_group_has_live_members() {
+  local pgid=$1 process_table
 
-  if owned_process_group_exists "${pgid}"; then
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ ]] || return 2
+  process_table="$("${PS_BIN}" -eo pgid=,stat=)" || return 2
+  # shellcheck disable=SC2016
+  "${AWK_BIN}" -v expected="${pgid}" '
+    $1 == expected && $2 !~ /^Z/ { found=1 }
+    END { exit found ? 0 : 1 }
+  ' <<<"${process_table}"
+}
+
+process_has_ownership_token() {
+  local pid=$1 token=$2 entry
+
+  [[ "${pid}" =~ ^[1-9][0-9]*$ && "${token}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ -r "/proc/${pid}/environ" ]] || return 1
+  while IFS= read -r -d '' entry; do
+    [[ "${entry}" == "ASTER_PHASE1_PROCESS_TOKEN=${token}" ]] && return 0
+  done <"/proc/${pid}/environ"
+  return 1
+}
+
+process_group_has_trusted_leader() {
+  local pid=$1 pgid=$2 token=$3 leader_identity observed_pgid observed_sid
+
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+  leader_identity="$("${PS_BIN}" -o pgid=,sid= -p "${pid}" 2>/dev/null || true)"
+  read -r observed_pgid observed_sid <<<"${leader_identity}"
+  [[ "${observed_pgid}" == "${pgid}" && "${observed_sid}" == "${pgid}" ]] || return 1
+  process_has_ownership_token "${pid}" "${token}"
+}
+
+process_group_is_owned() {
+  local pgid=$1 token=$2 member_pid member_pgid member_sid member_state
+  local process_table found=0
+
+  process_table="$("${PS_BIN}" -eo pid=,pgid=,sid=,stat=)" || return 1
+
+  while read -r member_pid member_pgid member_sid member_state; do
+    [[ "${member_pgid}" == "${pgid}" && "${member_state}" != Z* ]] || continue
+    [[ "${member_sid}" == "${pgid}" ]] || return 1
+    process_has_ownership_token "${member_pid}" "${token}" || return 1
+    found=1
+  done <<<"${process_table}"
+  [[ "${found}" == 1 ]]
+}
+
+process_group_is_same_session() {
+  local pgid=$1 member_pid member_pgid member_sid member_state process_table found=0
+
+  process_table="$("${PS_BIN}" -eo pid=,pgid=,sid=,stat=)" || return 1
+  while read -r member_pid member_pgid member_sid member_state; do
+    [[ "${member_pgid}" == "${pgid}" && "${member_state}" != Z* ]] || continue
+    [[ "${member_sid}" == "${pgid}" ]] || return 1
+    found=1
+  done <<<"${process_table}"
+  [[ "${found}" == 1 ]]
+}
+
+terminate_owned_process_group() {
+  local pid=$1 pgid=$2 token=$3 attempt group_status trusted_session=0
+
+  group_status=0
+  process_group_has_live_members "${pgid}" || group_status=$?
+  if ((group_status == 0)); then
+    if process_group_has_trusted_leader "${pid}" "${pgid}" "${token}"; then
+      trusted_session=1
+    else
+      process_group_is_owned "${pgid}" "${token}" || return 1
+    fi
     kill -TERM -- "-${pgid}" 2>/dev/null || true
     for ((attempt=0; attempt<20; attempt++)); do
-      owned_process_group_exists "${pgid}" || break
+      group_status=0
+      process_group_has_live_members "${pgid}" || group_status=$?
+      ((group_status == 0)) || break
       /usr/bin/sleep 0.05
     done
-    if owned_process_group_exists "${pgid}"; then
+    ((group_status < 2)) || return 1
+    if ((group_status == 0)); then
+      if ((trusted_session == 1)); then
+        process_group_is_same_session "${pgid}" || return 1
+      else
+        process_group_is_owned "${pgid}" "${token}" || return 1
+      fi
       kill -KILL -- "-${pgid}" 2>/dev/null || true
     fi
     for ((attempt=0; attempt<200; attempt++)); do
-      owned_process_group_exists "${pgid}" || break
+      group_status=0
+      process_group_has_live_members "${pgid}" || group_status=$?
+      ((group_status == 0)) || break
       /usr/bin/sleep 0.01
     done
+    ((group_status < 2)) || return 1
+  elif ((group_status > 1)); then
+    return 1
+  elif [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+    process_has_ownership_token "${pid}" "${token}" || return 1
+    kill -TERM -- "${pid}" 2>/dev/null || true
+    for ((attempt=0; attempt<20; attempt++)); do
+      kill -0 "${pid}" 2>/dev/null || break
+      /usr/bin/sleep 0.05
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      process_has_ownership_token "${pid}" "${token}" || return 1
+      kill -KILL -- "${pid}" 2>/dev/null || true
+    fi
   fi
   [[ -z "${pid}" ]] || wait "${pid}" 2>/dev/null || true
-  ! owned_process_group_exists "${pgid}"
+  group_status=0
+  process_group_has_live_members "${pgid}" || group_status=$?
+  ((group_status == 1))
 }
 
 cleanup() {
@@ -244,35 +424,48 @@ cleanup() {
   trap - EXIT INT TERM HUP
 
   if [[ -n "${NODE_RUN_PGID}" ]]; then
-    terminate_owned_process_group "${NODE_RUN_PID}" "${NODE_RUN_PGID}" || cleanup_failed=1
+    terminate_owned_process_group \
+      "${NODE_RUN_PID}" "${NODE_RUN_PGID}" "${NODE_RUN_TOKEN}" || cleanup_failed=1
   elif [[ -n "${NODE_RUN_PID}" ]] && kill -0 "${NODE_RUN_PID}" 2>/dev/null; then
-    kill -TERM -- "${NODE_RUN_PID}" 2>/dev/null || cleanup_failed=1
-    wait "${NODE_RUN_PID}" 2>/dev/null || true
+    process_has_ownership_token "${NODE_RUN_PID}" "${NODE_RUN_TOKEN}" || cleanup_failed=1
+    if [[ "${cleanup_failed}" == 0 ]]; then
+      kill -TERM -- "${NODE_RUN_PID}" 2>/dev/null || cleanup_failed=1
+      wait "${NODE_RUN_PID}" 2>/dev/null || true
+    fi
   fi
   NODE_RUN_PID=''
   NODE_RUN_PGID=''
+  NODE_RUN_TOKEN=''
+
+  for ((index=${#PROXY_PGIDS[@]} - 1; index >= 0; index--)); do
+    terminate_owned_process_group \
+      "${PROXY_PIDS[index]}" "${PROXY_PGIDS[index]}" "${PROXY_TOKENS[index]}" || cleanup_failed=1
+  done
+  PROXY_PIDS=()
+  PROXY_PGIDS=()
+  PROXY_TOKENS=()
 
   if [[ "${project_started}" == 1 ]]; then
     for ((index=${#container_ids[@]} - 1; index >= 0; index--)); do
-      "${DOCKER_BIN}" rm --force "${container_ids[index]}" >/dev/null 2>&1 || cleanup_failed=1
+      docker_cli rm --force "${container_ids[index]}" >/dev/null 2>&1 || cleanup_failed=1
     done
-    remaining="$("${DOCKER_BIN}" ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     while IFS= read -r resource_id; do
-      [[ -z "${resource_id}" ]] || "${DOCKER_BIN}" rm --force "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      [[ -z "${resource_id}" ]] || docker_cli rm --force "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
     done <<<"${remaining}"
-    remaining="$("${DOCKER_BIN}" ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     [[ -z "${remaining}" ]] || cleanup_failed=1
-    remaining="$("${DOCKER_BIN}" network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     while IFS= read -r resource_id; do
-      [[ -z "${resource_id}" ]] || "${DOCKER_BIN}" network rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      [[ -z "${resource_id}" ]] || docker_cli network rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
     done <<<"${remaining}"
-    remaining="$("${DOCKER_BIN}" network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     [[ -z "${remaining}" ]] || cleanup_failed=1
-    remaining="$("${DOCKER_BIN}" volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     while IFS= read -r resource_id; do
-      [[ -z "${resource_id}" ]] || "${DOCKER_BIN}" volume rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      [[ -z "${resource_id}" ]] || docker_cli volume rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
     done <<<"${remaining}"
-    remaining="$("${DOCKER_BIN}" volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
+    remaining="$(docker_cli volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null || true)"
     [[ -z "${remaining}" ]] || cleanup_failed=1
   fi
   rm -f -- "${COMPOSE_ENV}"
@@ -287,7 +480,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-"${DOCKER_BIN}" compose version >/dev/null 2>&1 || fail
+docker_cli compose version >/dev/null 2>&1 || fail
 [[ -f "${REPO_ROOT}/.scripts/compatibility/run-phase1-conformance.sh" ]] || fail
 [[ -f "${REPO_ROOT}/.scripts/compatibility/phase1-reference-state-driver.sh" ]] || fail
 
@@ -309,7 +502,7 @@ prepare_mirror_image() {
   "${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" archive --format=tar "${REFERENCE_COMMIT}" | "${TAR_BIN}" -x -C "${context}" || fail
   [[ -f "${context}/Dockerfile.integration" ]] || fail
   iid_file="${RUN_DIR}/mirror-image-id"
-  "${DOCKER_BIN}" build --iidfile "${iid_file}" --file "${context}/Dockerfile.integration" "${context}" >/dev/null || fail
+  docker_cli build --iidfile "${iid_file}" --file "${context}/Dockerfile.integration" "${context}" >/dev/null || fail
   image_id="$(tr -d '[:space:]' <"${iid_file}")"
   immutable_image "${image_id}" || fail
   "${CLOSED_BUILD_ENV[@]}" "${PNPM_BIN}" --dir "${REPO_ROOT}/packages/integration-tests" build >/dev/null || fail
@@ -396,6 +589,11 @@ done
 [[ -n "${ORACLE_PRIMARY_POSTGRES_CONTAINER_ID}" && -n "${ORACLE_FOREIGN_POSTGRES_CONTAINER_ID}" && -n "${CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID}" && -n "${CANDIDATE_FOREIGN_POSTGRES_CONTAINER_ID}" ]] || fail
 readonly ORACLE_PRIMARY_POSTGRES_CONTAINER_ID ORACLE_FOREIGN_POSTGRES_CONTAINER_ID
 readonly CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID CANDIDATE_FOREIGN_POSTGRES_CONTAINER_ID
+for binding in "${LOOPBACK_PROXY_BINDINGS[@]}"; do
+  IFS='|' read -r proxy_service proxy_network proxy_host_port proxy_container_port <<<"${binding}"
+  start_loopback_proxy \
+    "${proxy_service}" "${proxy_network}" "${proxy_host_port}" "${proxy_container_port}"
+done
 rm -f -- "${COMPOSE_ENV}"
 
 http_ready() {
@@ -461,7 +659,7 @@ done
 
 key_set_sha256() {
   local container_id=$1 tenant_id=$2 config_key=$3 result
-  result="$("${DOCKER_BIN}" exec --interactive --user postgres "${container_id}" \
+  result="$(docker_cli exec --interactive --user postgres "${container_id}" \
     psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
     --set="tenant_id=${tenant_id}" --set="config_key=${config_key}" \
     --username aster --dbname aster <<'SQL'
@@ -502,7 +700,7 @@ readonly CANDIDATE_FOREIGN_COOKIE_KEY_SET_SHA256 CANDIDATE_FOREIGN_SIGNING_KEY_S
 
 canonical_image_id() {
   local image_id
-  image_id="$("${DOCKER_BIN}" image inspect --format '{{.Id}}' "$1" 2>/dev/null || true)"
+  image_id="$(docker_cli image inspect --format '{{.Id}}' "$1" 2>/dev/null || true)"
   [[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
   printf '%s' "${image_id}"
 }
@@ -527,12 +725,14 @@ if [[ "${ASTER_PHASE1_RECORD_ORACLE:-0}" == 1 ]]; then
   [[ -z "$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail
   run_arguments+=(--record-oracle)
 fi
+NODE_RUN_TOKEN="$(random_hex 32)"
 PUBLIC_ENV=(
   env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}"
   TMPDIR="${BROWSER_TMP}"
   XDG_RUNTIME_DIR="${XDG_RUNTIME}"
   PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_PATH}"
   ASTER_PHASE1_MODE="${MODE}"
+  ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}"
   ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}"
   ASTER_PHASE1_ORACLE_IMAGE_DIGEST="${ORACLE_IMAGE_DIGEST}"
   ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE_DIGEST}"
@@ -569,17 +769,24 @@ PUBLIC_ENV=(
   ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL='http://localhost:3441'
   ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"
 )
-"${SETSID_BIN}" "${PUBLIC_ENV[@]}" "${NODE_BIN}" "${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js" "${run_arguments[@]}" >/dev/null &
+ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}" \
+  "${SETSID_BIN}" "${PUBLIC_ENV[@]}" "${NODE_BIN}" "${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js" "${run_arguments[@]}" >/dev/null &
 NODE_RUN_PID=$!
 NODE_RUN_PGID="${NODE_RUN_PID}"
-observed_node_pgid="$(/usr/bin/ps -o pgid= -p "${NODE_RUN_PID}" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
-[[ -n "${observed_node_pgid}" ]] || fail
+observed_node_pgid=''
+for ((attempt=0; attempt<100; attempt++)); do
+  kill -0 "${NODE_RUN_PID}" 2>/dev/null || break
+  observed_node_pgid="$("${PS_BIN}" -o pgid= -p "${NODE_RUN_PID}" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+  [[ "${observed_node_pgid}" == "${NODE_RUN_PGID}" ]] && break
+  /usr/bin/sleep 0.01
+done
 [[ "${observed_node_pgid}" == "${NODE_RUN_PGID}" ]] || fail
 node_run_status=0
 wait "${NODE_RUN_PID}" || node_run_status=$?
-terminate_owned_process_group "${NODE_RUN_PID}" "${NODE_RUN_PGID}" || fail
+terminate_owned_process_group "${NODE_RUN_PID}" "${NODE_RUN_PGID}" "${NODE_RUN_TOKEN}" || fail
 NODE_RUN_PID=''
 NODE_RUN_PGID=''
+NODE_RUN_TOKEN=''
 ((node_run_status == 0)) || fail
 
 for artifact in "${EVIDENCE_NAMES[@]}"; do
