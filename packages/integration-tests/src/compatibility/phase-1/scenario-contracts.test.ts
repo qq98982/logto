@@ -27,7 +27,7 @@ const expectedRows = [
       'experience-bootstrap:http+cookie-metadata',
       'password:http+cookie-metadata',
       'identify:http+cookie-metadata',
-      'submit:http+cookie-metadata',
+      'submit:http+redirect+cookie-metadata',
       'consent-get:http+cookie-metadata',
       'consent-post:http+redirect+cookie-metadata',
       'resume:redirect+cookie-metadata',
@@ -36,6 +36,7 @@ const expectedRows = [
     ],
     explicit: [
       '/steps/authorize/value/generatedIds/interaction',
+      '/steps/submit/value/redirect/resumeCredential',
       '/steps/consent-post/value/redirect/resumeCredential',
       '/steps/state/value/semanticState/session/updatedAt',
     ],
@@ -350,7 +351,7 @@ const goldenDigest = (...parts: readonly string[]) => parts.join('');
 const expectedScenarioAuthorityDigests = {
   'discovery.config': '44882ffbd5c4dc39289c091e5db05d2d063d6b57596af03530f12e6f3f8d087f',
   'authorization.password-pkce-consent':
-    '271f36cd48a73aa748a3f8be086d2dc9c1411782d58542717fff226d1e3b8145',
+    '06b5d7aad0203dd66cac521fedb00a27261b032d0937f78f43da8675549770e6',
   'token.authorization-code': goldenDigest(
     'dda63aad3155dc29',
     '4d1d48b59253ae68',

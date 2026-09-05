@@ -88,7 +88,7 @@ const rawContracts: readonly RawContract[] = [
       ['experience-bootstrap', ['http', 'cookie-metadata']],
       ['password', ['http', 'cookie-metadata']],
       ['identify', ['http', 'cookie-metadata']],
-      ['submit', ['http', 'cookie-metadata']],
+      ['submit', ['http', 'redirect', 'cookie-metadata']],
       ['consent-get', ['http', 'cookie-metadata']],
       ['consent-post', ['http', 'redirect', 'cookie-metadata']],
       ['resume', ['redirect', 'cookie-metadata']],
@@ -97,6 +97,7 @@ const rawContracts: readonly RawContract[] = [
     ],
     explicit: [
       '/steps/authorize/value/generatedIds/interaction',
+      '/steps/submit/value/redirect/resumeCredential',
       '/steps/consent-post/value/redirect/resumeCredential',
       '/steps/state/value/semanticState/session/updatedAt',
     ],
@@ -363,6 +364,7 @@ const explicitProjectionLeaves = {
   ],
   'authorization.password-pkce-consent': [
     '/steps/authorize/value/generatedIds/interaction',
+    '/steps/submit/value/redirect/resumeCredential',
     '/steps/consent-post/value/redirect/resumeCredential',
     '/steps/state/value/semanticState/session/updatedAt',
   ],

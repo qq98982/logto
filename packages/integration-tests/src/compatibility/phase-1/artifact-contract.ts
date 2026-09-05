@@ -174,9 +174,12 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
         isArtifactRecord(nested) &&
         exactArtifactKeys(nested, ['value']);
       const resumeStepId = path[5];
+      const isCanonicalRedirectCredential = path.length === 8 && parentKey === 'redirect';
+      const isBodyRedirectMirrorCredential =
+        path.length === 9 && path[7] === 'body' && parentKey === 'redirectTo';
       const allowedResumeCredential =
         key === 'resumeCredential' &&
-        path.length === 8 &&
+        (isCanonicalRedirectCredential || isBodyRedirectMirrorCredential) &&
         path[0] === 'scenarios' &&
         typeof path[1] === 'string' &&
         denseArrayIndexPattern.test(path[1]) &&
@@ -185,7 +188,6 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
         path[4] === 'steps' &&
         typeof resumeStepId === 'string' &&
         path[6] === 'value' &&
-        parentKey === 'redirect' &&
         typeof ownedScenarioId === 'string' &&
         resumeCredentialStepIdsByScenario.get(ownedScenarioId)?.has(resumeStepId) === true &&
         typeof nested === 'string' &&
