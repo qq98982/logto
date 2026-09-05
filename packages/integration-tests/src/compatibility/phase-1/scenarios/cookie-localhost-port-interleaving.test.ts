@@ -26,6 +26,8 @@ type TenantServerOptions = Readonly<{
   leakEncodedCookieAttribute?: boolean;
   leakCookieCredentialHeader?: boolean;
   signInRedirectUrl?: string;
+  registeredRedirectUri?: string;
+  authorizationRedirectUri?: 'registered' | 'runtime';
 }>;
 type TenantServerFactory = (
   role: TenantRole,
@@ -96,6 +98,15 @@ const listen = async (
     const url = new URL(request.url ?? '/', 'http://localhost');
 
     if (request.method === 'GET' && url.pathname === '/oidc/auth') {
+      const runtimeRedirectUri = `${origin}${role === 'admin' ? '/console/callback' : '/demo-app'}`;
+      const registeredRedirectUri = options.registeredRedirectUri ?? runtimeRedirectUri;
+      const expectedRedirectUri =
+        options.authorizationRedirectUri === 'runtime' ? runtimeRedirectUri : registeredRedirectUri;
+
+      if (url.searchParams.get('redirect_uri') !== expectedRedirectUri) {
+        json(response, 400, { code: 'oidc.invalid_redirect_uri' });
+        return;
+      }
       interactionSequence += 1;
       activeInteraction = `${role}-interaction-${interactionSequence}`;
       activeSignature = `${role}-signature-${interactionSequence}`;
@@ -123,7 +134,10 @@ const listen = async (
       if (options.leakCookieCredentialHeader) {
         response.setHeader('x-cookie-leak', '/browser-cookie-secret-private');
       }
-      response.end();
+      const redirectBody = 'Redirecting to <a href="/sign-in">/sign-in</a>.';
+      response.setHeader('content-type', 'text/html; charset=utf-8');
+      response.setHeader('content-length', String(Buffer.byteLength(redirectBody)));
+      response.end(redirectBody);
       return;
     }
 
@@ -384,6 +398,29 @@ describe('cookie.localhost-port-interleaving', () => {
       false,
     ],
     [
+      'uses the registered logical data redirect URI while browsing the runtime core origin',
+      { data: { registeredRedirectUri: 'http://localhost:3001/demo-app' } },
+      false,
+      false,
+    ],
+    [
+      'preserves the exact registered data redirect URI bytes',
+      { data: { registeredRedirectUri: 'http://localhost:3001' } },
+      false,
+      false,
+    ],
+    [
+      'rebinds the logical admin redirect path to the runtime admin origin',
+      {
+        admin: {
+          registeredRedirectUri: 'http://localhost:3002/console/callback',
+          authorizationRedirectUri: 'runtime',
+        },
+      },
+      false,
+      false,
+    ],
+    [
       'redacts a multi-encoded cookie credential copied into an attribute',
       { admin: { leakEncodedCookieAttribute: true } },
       false,
@@ -414,6 +451,10 @@ describe('cookie.localhost-port-interleaving', () => {
     });
 
     try {
+      const adminRedirectUri =
+        effectiveServerOptions.admin?.registeredRedirectUri ?? `${admin.origin}/console/callback`;
+      const dataRedirectUri =
+        effectiveServerOptions.data?.registeredRedirectUri ?? `${data.origin}/demo-app`;
       const adminSymbols = new SymbolTable();
       const dataSymbols = new SymbolTable();
       adminSymbols.bind('application.admin-console', adminApplicationId);
@@ -440,7 +481,7 @@ describe('cookie.localhost-port-interleaving', () => {
               operator: { id: 'phase1-admin', username: 'phase1-admin' },
               application: {
                 id: 'admin-console',
-                oidcClientMetadata: { redirectUris: [`${admin.origin}/console/callback`] },
+                oidcClientMetadata: { redirectUris: [adminRedirectUri] },
               },
             },
             dataTenant: {
@@ -450,7 +491,7 @@ describe('cookie.localhost-port-interleaving', () => {
                 {
                   id: 'phase1-browser',
                   isThirdParty: true,
-                  oidcClientMetadata: { redirectUris: [`${data.origin}/demo-app`] },
+                  oidcClientMetadata: { redirectUris: [dataRedirectUri] },
                 },
               ],
               browserClientConfiguration: {
@@ -465,7 +506,7 @@ describe('cookie.localhost-port-interleaving', () => {
           },
           consoleAuthentication: {
             applicationId: adminApplicationId,
-            redirectUri: `${admin.origin}/console/callback`,
+            redirectUri: adminRedirectUri,
             prompt: ['login'],
             effectiveScopes: ['openid', 'profile'],
             effectiveResources: [],

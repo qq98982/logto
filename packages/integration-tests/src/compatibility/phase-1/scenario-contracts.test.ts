@@ -140,7 +140,7 @@ const expectedRows = [
   },
   {
     id: 'authorization.redirect-uri-rejected',
-    steps: ['authorize:http+redirect+cookie-metadata', 'state:semantic-state'],
+    steps: ['authorize:http+cookie-metadata', 'state:semantic-state'],
     explicit: [],
   },
   {
@@ -346,7 +346,7 @@ const expectedScenarioAuthorityDigests = {
   'cookie.localhost-port-interleaving':
     '100063bb17e6f516221b62241b015b156f0c975575dbe9793431fd6fbd029e7b',
   'authorization.redirect-uri-rejected':
-    '5a80f4b048f7fa6bd2f9d9726220945cf6f6e4f2f442bfd2ca9bbe71d1184d93',
+    '7b1ee0311283a9753c085a18806d7c4cc07962c9d3397a38eb4b02ca6fa49e37',
   'authorization.pkce-method-rejected':
     '30e99586ce7d7c9406392bc3c1cfe14f3da5cdcf9d59029445976676646be941',
   'token.pkce-verifier-rejected':

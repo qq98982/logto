@@ -2,8 +2,10 @@
 import { SymbolTable } from '../../symbol-table.js';
 import { MemoryProtocolSecretStore, type ProtocolRequestOptions } from '../clients/oidc.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
 
 import { runAuthorizationRedirectUriRejected } from './authorization-redirect-uri-rejected.js';
+import { phase1DifferentialScenarios } from './index.js';
 
 const verifier = 'v'.repeat(64);
 const responseBody = {
@@ -200,6 +202,16 @@ describe('authorization.redirect-uri-rejected', () => {
       cookies: [],
     });
     expect(steps[1]?.value).toMatchObject(stateProjection);
+    const contract = phase1DifferentialScenarios.find(
+      ({ id }) => id === 'authorization.redirect-uri-rejected'
+    );
+    if (!contract) {
+      throw new Error('missing redirect rejection scenario contract');
+    }
+    expect(validateExactPhase1ScenarioSteps(contract, steps).map(({ stepId }) => stepId)).toEqual([
+      'authorize',
+      'state',
+    ]);
     expect(JSON.stringify(steps)).not.toMatch(/vvvv|unused-private-state/u);
   });
 

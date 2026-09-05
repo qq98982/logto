@@ -319,9 +319,23 @@ const redirectUriFor = (context: Phase1ScenarioRunContext, role: TenantRole): st
   if (!configured) {
     throw new Error('Phase 1 localhost cookie redirect URI is unavailable');
   }
-  const url = new URL(configured);
+  const url = (() => {
+    try {
+      const parsed = new URL(configured);
 
-  return new URL(`${url.pathname}${url.search}${url.hash}`, baseUrl).href;
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new TypeError('invalid redirect URI');
+      }
+
+      return parsed;
+    } catch {
+      throw new Error('Phase 1 localhost cookie redirect URI is unavailable');
+    }
+  })();
+
+  return role === 'data'
+    ? configured
+    : new URL(`${url.pathname}${url.search}${url.hash}`, baseUrl).href;
 };
 
 const authorizationUrl = (
@@ -481,7 +495,12 @@ const captureAuthorizationResponse = async (
     return Object.freeze({
       status: captured.status(),
       headers,
-      body: await capturedResponseBody(captured, headers),
+      // Playwright intentionally does not expose redirect response bodies. Authorization-start
+      // evidence publishes the status, Location, and sanitized cookies instead of this body.
+      body:
+        captured.status() >= 300 && captured.status() < 400
+          ? ''
+          : await capturedResponseBody(captured, headers),
     });
   } catch (error: unknown) {
     if (error instanceof PlaywrightObservationError) {

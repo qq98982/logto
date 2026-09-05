@@ -208,7 +208,7 @@ const rawContracts: readonly RawContract[] = [
   {
     id: 'authorization.redirect-uri-rejected',
     steps: [
-      ['authorize', ['http', 'redirect', 'cookie-metadata']],
+      ['authorize', ['http', 'cookie-metadata']],
       ['state', ['semantic-state']],
     ],
     explicit: [],
