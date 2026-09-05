@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import type { NormalizationContext } from '../../normalize.js';
 import { normalizeLogicalFixtureIds, normalizeResumeRedirect } from '../normalizers.js';
 
@@ -23,7 +25,7 @@ export const projectConsentObservation = (
     !Array.isArray(body) &&
     typeof body.redirectTo === 'string'
   ) {
-    return projectHttpObservation(
+    const projection = projectHttpObservation(
       {
         ...value,
         body: { ...body, redirectTo: normalizeResumeRedirect(body.redirectTo, context) },
@@ -31,6 +33,18 @@ export const projectConsentObservation = (
       },
       context
     );
+    const projectedBody = projection.body;
+
+    if (
+      typeof projectedBody !== 'object' ||
+      projectedBody === null ||
+      Array.isArray(projectedBody) ||
+      !isDeepStrictEqual(projectedBody.redirectTo, projection.redirect)
+    ) {
+      throw new TypeError('Invalid phase 1 consent projection');
+    }
+
+    return projection;
   }
 
   return projectHttpObservation(value, context);

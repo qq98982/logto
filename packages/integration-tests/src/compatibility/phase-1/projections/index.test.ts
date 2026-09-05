@@ -112,6 +112,48 @@ describe('phase 1 projections', () => {
     expect(JSON.stringify(projection)).not.toMatch(/private-(?:cookie|code)/u);
   });
 
+  it('canonicalizes configured issuer origins while keeping foreign issuers exact', () => {
+    const targetProjection = projectHttpObservation(
+      raw({
+        issuer: 'https://candidate.example.com/oidc',
+        iss: 'https://candidate-console.example.com/oidc',
+      }),
+      context
+    );
+    const foreignProjection = projectHttpObservation(
+      raw({ issuer: 'https://foreign.example/oidc', iss: 'https://other.example/oidc' }),
+      context
+    );
+
+    expect(targetProjection.body).toEqual({
+      issuer: '<target.core-url>/oidc',
+      iss: '<target.admin-url>/oidc',
+    });
+    expect(targetProjection.urls.map(({ origin, path }) => ({ origin, path }))).toEqual([
+      { origin: '<target.core-url>', path: '/oidc' },
+      { origin: '<target.admin-url>', path: '/oidc' },
+    ]);
+    expect(foreignProjection.body).toEqual({
+      issuer: 'https://foreign.example/oidc',
+      iss: 'https://other.example/oidc',
+    });
+    for (const nearMiss of [
+      'https://candidate.example.com:443/oidc',
+      'http://candidate.example.com/oidc',
+      'https://candidate.example.com.attacker.test/oidc',
+    ]) {
+      expect(projectHttpObservation(raw({ issuer: nearMiss }), context).body).toEqual({
+        issuer: nearMiss,
+      });
+    }
+    expect(() =>
+      projectHttpObservation(
+        raw({ metadata: { issuer: 'https://candidate.example.com/oidc?code=private' } }),
+        context
+      )
+    ).toThrow('Invalid phase 1 HTTP projection');
+  });
+
   it('rejects non-faithful body values with a fixed diagnostic', () => {
     expect(() =>
       projectHttpObservation(
@@ -176,7 +218,7 @@ describe('phase 1 projections', () => {
     });
     expect(projection.headers.location).toEqual([projection.redirect]);
     expect(projection.body).toMatchObject({
-      redirectTo: { origin: 'https://candidate.example.com' },
+      redirectTo: { origin: '<target.core-url>' },
     });
     expect(JSON.stringify(projection)).not.toContain('private-resume');
   });
@@ -413,7 +455,7 @@ describe('phase 1 projections', () => {
       claims: {
         iat: { $timestamp: 1000, $toleranceSeconds: 30 },
         exp: { $timestamp: 4600, $toleranceSeconds: 30 },
-        auth_time: 950,
+        auth_time: { $timestamp: 950, $toleranceSeconds: 30 },
       },
     });
   });

@@ -231,6 +231,18 @@ export const phase1HttpProjectionGuard = z
         path: ['cookies'],
       });
     }
+    const locations = projection.headers.location ?? [];
+
+    if (
+      locations.length > 0 &&
+      (projection.redirect === null || !isDeepStrictEqual(locations, [projection.redirect]))
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Normalized redirect projections do not match',
+        path: ['redirect'],
+      });
+    }
   });
 
 const credentialFieldPattern =
@@ -261,7 +273,7 @@ export const boundedTimestampPathsFor = (
     throw new TypeError('Invalid phase 1 projection coordinates');
   }
   return Object.freeze(
-    contract.explicitNormalizablePointers
+    contract.normalizablePointers
       .flatMap((pointer) => {
         const segments = pointer.split('/').slice(1);
         const step = segments[1];
@@ -357,7 +369,9 @@ const liftBodyUrls = (
   const urls = additionalUrls.map((value) =>
     normalizeRedirect(value, context, { targetOrigin: 'symbol' })
   );
-  const visit = (value: JsonValue, field = ''): JsonValue => {
+  const visit = (value: JsonValue, path: readonly string[] = []): JsonValue => {
+    const field = path.at(-1) ?? '';
+
     if (typeof value === 'string') {
       let url: URL;
 
@@ -367,23 +381,43 @@ const liftBodyUrls = (
         return value;
       }
       if (url.protocol === 'http:' || url.protocol === 'https:') {
-        if (exactUrlFields.has(field) && (url.search.length > 0 || url.hash.length > 0)) {
+        const issuerNamedUrl = exactUrlFields.has(field);
+        const exactUrl = path.length === 1 && issuerNamedUrl;
+
+        if (issuerNamedUrl && (url.search.length > 0 || url.hash.length > 0)) {
           throw new TypeError('Invalid phase 1 HTTP projection');
         }
         const index = urls.length;
-        urls.push(normalizeRedirect(value, context, { targetOrigin: 'symbol' }));
-        return exactUrlFields.has(field) ? value : { $url: index };
+        const normalizedUrl = normalizeRedirect(value, context, { targetOrigin: 'symbol' });
+        urls.push(normalizedUrl);
+        if (exactUrl) {
+          const suffix = value.slice(url.origin.length);
+          const hasExactOriginBoundary =
+            value.startsWith(url.origin) &&
+            (suffix.length === 0 ||
+              suffix.startsWith('/') ||
+              suffix.startsWith('?') ||
+              suffix.startsWith('#'));
+
+          return hasExactOriginBoundary &&
+            (normalizedUrl.origin === '<target.core-url>' ||
+              normalizedUrl.origin === '<target.admin-url>')
+            ? `${normalizedUrl.origin}${suffix}`
+            : value;
+        }
+
+        return { $url: index };
       }
     }
     if (isStructuredRedirect(value)) {
       return value;
     }
     if (Array.isArray(value)) {
-      return value.map((item) => visit(item, field));
+      return value.map((item, index) => visit(item, [...path, String(index)]));
     }
     if (typeof value === 'object' && value !== null) {
       return Object.fromEntries(
-        Object.entries(value).map(([key, nested]) => [key, visit(nested, key)])
+        Object.entries(value).map(([key, nested]) => [key, visit(nested, [...path, key])])
       );
     }
 

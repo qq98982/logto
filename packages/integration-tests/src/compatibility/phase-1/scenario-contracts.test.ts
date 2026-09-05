@@ -97,6 +97,8 @@ const expectedRows = [
       '/steps/authorize/value/generatedIds/interaction',
       '/steps/management-refresh/value/tokens/*/claims/iat',
       '/steps/management-refresh/value/tokens/*/claims/exp',
+      '/steps/management-refresh/value/tokens/*/claims/created_at',
+      '/steps/management-refresh/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -106,12 +108,18 @@ const expectedRows = [
     explicit: [
       '/steps/organization-refresh/value/tokens/*/claims/iat',
       '/steps/organization-refresh/value/tokens/*/claims/exp',
+      '/steps/organization-refresh/value/tokens/*/claims/created_at',
+      '/steps/organization-refresh/value/tokens/*/claims/updated_at',
     ],
   },
   {
     id: 'account.admin-operator-read',
     steps: ['account:http', 'state:semantic-state'],
-    explicit: ['/steps/account/value/body/createdAt', '/steps/account/value/body/updatedAt'],
+    explicit: [
+      '/steps/account/value/body/createdAt',
+      '/steps/account/value/body/updatedAt',
+      '/steps/account/value/body/lastSignInAt',
+    ],
   },
   {
     id: 'cors.management-list',
@@ -159,6 +167,8 @@ const expectedRows = [
     explicit: [
       '/steps/first-exchange/value/tokens/*/claims/iat',
       '/steps/first-exchange/value/tokens/*/claims/exp',
+      '/steps/first-exchange/value/tokens/*/claims/created_at',
+      '/steps/first-exchange/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -207,6 +217,8 @@ const expectedRows = [
     explicit: [
       '/steps/rotate/value/tokens/*/claims/iat',
       '/steps/rotate/value/tokens/*/claims/exp',
+      '/steps/rotate/value/tokens/*/claims/created_at',
+      '/steps/rotate/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -233,6 +245,8 @@ const expectedRows = [
       '/steps/state/value/generatedIds/tokenFamily',
       '/steps/*/value/tokens/*/claims/iat',
       '/steps/*/value/tokens/*/claims/exp',
+      '/steps/*/value/tokens/*/claims/created_at',
+      '/steps/*/value/tokens/*/claims/updated_at',
     ],
   },
 ] as const;
@@ -266,24 +280,32 @@ const expectedKindRuleSignatures = {
     'exact mediaType/subtype',
     'exact mediaType/parameters/*/*',
     'exact error/**',
+    'target-symbol error/iss',
+    'target-symbol error/issuer',
     'exact headers/*/*',
     'bounded-timestamp headers/date/*',
     'sanitized-body-byte-length headers/content-length/*',
     'exact body/**',
+    'target-symbol body/iss',
+    'target-symbol body/issuer',
     'exact sideEffects/**',
     'exact urls/*/**',
     'exact urls/*/scheme',
     'target-symbol urls/*/origin',
     'exact urls/*/path',
     'exact urls/*/query/*/*',
+    'generated-id urls/*/query/app_id/*',
+    'target-symbol urls/*/query/iss/*',
     'exact urls/*/fragment',
   ],
   redirect: [
     'exact redirect/**',
     'exact redirect/scheme',
-    'exact redirect/origin',
+    'target-symbol redirect/origin',
     'exact redirect/path',
     'exact redirect/query/*/*',
+    'generated-id redirect/query/app_id/*',
+    'target-symbol redirect/query/iss/*',
     'exact redirect/fragment',
   ],
   'cookie-metadata': [
@@ -304,7 +326,7 @@ const expectedKindRuleSignatures = {
   ],
   'jwt-claims': [
     'exact tokens/*/claims/**',
-    'exact tokens/*/claims/iss',
+    'target-symbol tokens/*/claims/iss',
     'exact tokens/*/claims/aud',
     'exact tokens/*/claims/scope',
     'bounded-timestamp tokens/*/claims/iat',
@@ -319,56 +341,56 @@ const expectedKindRuleSignatures = {
 const goldenDigest = (...parts: readonly string[]) => parts.join('');
 
 const expectedScenarioAuthorityDigests = {
-  'discovery.config': '4c81e3314f3fdee33a7f9b7d0e443ab013f5b0d9adc98c241eaca608cbc81056',
+  'discovery.config': '849bedae16eab47b34128f8b8f7b7aff80db40d55f230c99a6ef37e62a38556b',
   'authorization.password-pkce-consent':
-    'd497886476efea56d4ab9e45828f64b48ade7c90903acdf21cb7065536f67651',
+    '54087afde0b2bdd68622a8de1b8327ce86629362c490750a6c3c58bfe2c72aa6',
   'token.authorization-code': goldenDigest(
-    '7f6ade1b642dfc43',
-    'e7b2a659260d5c66',
-    'ff076141954081cd',
-    '69d83c0ee5a16faf'
+    '59826f21de2bbb8e',
+    '2e49eda89fee1fc6',
+    'c91c2cbcbd9b0359',
+    '0dc70633841f2c66'
   ),
   'token.refresh-rotation': goldenDigest(
-    '25480c5b3734db7c',
-    '3ae16b94e969e0aa',
-    'f60c4f56a10fde70',
-    '6179d057e12a2125'
+    '4520fa374d877b27',
+    'fbd44e70e4e9cc9e',
+    'c8459e3af1b16513',
+    'ab95d2a6adfe2329'
   ),
-  'userinfo.openid': 'ea14f29a082935dae44dc718d5dc2be3cc43d1371ecbb4d1fc690899dfc15222',
-  'management.application-read': '0740e1a9002404bba5464f8d8c54f27f0f166b0e0d5339abe2b89be0f376befa',
-  'management.user-read': '87ecd541a2e0950a8a1c8fd4cbc9deb49b351cd90f10aa0877625d8375a1a63b',
+  'userinfo.openid': 'e3694ee8b1518679e0d4ed589581dff962b1fcdcb74c0c71ea03ef4cd91dd1bb',
+  'management.application-read': '616e978e50c7fd4fdd4c2094c7719f130a738efa7aedd3b1b9f12c5513216a4a',
+  'management.user-read': 'a5a56d5748ac4ef7fc02b7b13cda98560942c8645c60c9e07f248c748c6f5652',
   'console.admin-auth-resource-refresh':
-    '3d65bf558d7c95aa5c5334fb1a733b3fd23ca77822da91d41688b7b659acf613',
+    '9aeeacaa5925665bb0c7d7ec15c258f8d6f8b2fa18062698a9a8accee199bffd',
   'console.admin-organization-token-refresh':
-    'f80bd1a322622f939816fc6304666c257b9ef853df30166bd9cd840c1ecd48c8',
-  'account.admin-operator-read': '2a75c6eb164b26d596fe88b052046b92c0d0a6c895822d912383445f5f50dbaf',
-  'cors.management-list': '0344d0e5c4f2cc3cd609cbe8756d56f270ffc5a9d7c299d5dc3d5b0fd9bcc699',
+    '0e6d4d97e1e3eb85d886230e0711d030e210e45512650f32108084d9b37b2f0f',
+  'account.admin-operator-read': 'd2ec1a35292a0925b6414ce17ccba9e18418884fd23132ad5a6f241e90200ccc',
+  'cors.management-list': 'c6408d82d5980f6bc877fd7f8a4103821325ec896cbf1a1c0eaedb909a512e18',
   'cookie.localhost-port-interleaving':
-    '100063bb17e6f516221b62241b015b156f0c975575dbe9793431fd6fbd029e7b',
+    '5dcef7e3c51903adb5a6269d646a8ca21d139772319210da44d8e234540fd681',
   'authorization.redirect-uri-rejected':
-    '7b1ee0311283a9753c085a18806d7c4cc07962c9d3397a38eb4b02ca6fa49e37',
+    '0d7dd564d31aa4a122023355a19c5a619a3bc5aeb294e92f2c5072e50b288394',
   'authorization.pkce-method-rejected':
-    '30e99586ce7d7c9406392bc3c1cfe14f3da5cdcf9d59029445976676646be941',
+    'cf47390ba1854c7edebeb8581cf085baec6795b31e7e10e20adeb1155e5d2b66',
   'token.pkce-verifier-rejected':
-    '0a85dd174d46b753defd0aee061675277188ffb3635c2818f19e6bc838877f15',
+    '8f5585a5e8fe73789fb052453895c66d44f1f80cf73560ba3504c036462d891c',
   'token.code-reuse-rejected': goldenDigest(
-    '6ab5375e86074704',
-    '58d48628bb1037f8',
-    '76fee073180ad1c6',
-    '3dadda15aa9d9a05'
+    'a5a422589a416865',
+    'c5a3173c783a8a09',
+    'cca8c6bb970661b6',
+    'ab86d7751f4f90f0'
   ),
   'interaction.password-rejected':
-    'b8b73a3b521abc41bf6de4ddcf3b620d17cc75b5be4246b101272cc3d2ff5eb8',
+    '4223430804f75f4c7e1fe8e250a1513c87614d477e4bc178b6b7b58082ec9292',
   'interaction.consent-session-boundary':
-    'ba903c971e14699e982583bc7ca05e138980b02f1c895d63ef88459b511f65be',
+    '8ac08dbae83e12bb1975626c33a439598987ae14d4d6feb0f01b325d99f854c7',
   'token.refresh-reuse-rejected':
-    'e9438f3f1002b8c202c421fcdd8d551e843e85a081f597aec8d0641594071bc2',
+    '1b1cd8788f6af5549e9ad10e818846ee8e55b6df32e768ad8fcc788d07c7f096',
   'token.issuer-audience-scope-rejected':
-    'f9710a27167379e161a8f5fcc4515e0a5e0929a07788115055b564b2305b69b6',
+    '7ab2d12fef9b3748a59d552105ce43d2ab2775fb13fd1881c94e712dd4eb8bc8',
   'token.concurrent-code-single-winner':
-    '3fea7681d96701d472f1135f16fa628a5539b2a84a565f2c4c729197f165940b',
+    'e72dacabad66a0a3e17291aaa37909be1696d61dd0469c7cc0dda255ac053be3',
   'token.concurrent-refresh-single-winner':
-    '5d06cb9754010d871bf08b2d957265e4f218794e75a23dcdbfe688819bba2c5e',
+    'c70fc94d8b8242956ff0b80288ac82947b91e1d520b3b4e5e54ca9d77a2539a2',
 } as const satisfies Record<Phase1ScenarioContract['id'], string>;
 
 describe('phase 1 observation and normalization contract', () => {
@@ -517,8 +539,18 @@ describe('phase 1 observation and normalization contract', () => {
       '/steps/*/value/headers/date/*',
       '/steps/*/value/headers/content-length/*',
       '/steps/*/value/cookies/*/expires',
+      '/steps/*/value/error/iss',
+      '/steps/*/value/error/issuer',
+      '/steps/*/value/body/iss',
+      '/steps/*/value/body/issuer',
+      '/steps/*/value/redirect/origin',
+      '/steps/*/value/redirect/query/app_id/*',
+      '/steps/*/value/redirect/query/iss/*',
       '/steps/*/value/urls/*/origin',
+      '/steps/*/value/urls/*/query/app_id/*',
+      '/steps/*/value/urls/*/query/iss/*',
       '/steps/*/value/tokens/*/header/kid',
+      '/steps/*/value/tokens/*/claims/iss',
       '/steps/*/value/tokens/*/claims/iat',
       '/steps/*/value/tokens/*/claims/exp',
       '/steps/*/value/tokens/*/claims/auth_time',
@@ -542,6 +574,20 @@ describe('phase 1 observation and normalization contract', () => {
         }
       }
     }
+  });
+
+  it('classifies Account last-sign-in time as a bounded timestamp', () => {
+    const account = phase1ScenarioContracts.find(({ id }) => id === 'account.admin-operator-read');
+
+    expect(account).toBeDefined();
+    expect(
+      compileScenarioContract(account!).projectionSchema.find(
+        ({ path }) => path === '/steps/account/value/body/lastSignInAt'
+      )
+    ).toEqual({
+      path: '/steps/account/value/body/lastSignInAt',
+      normalization: 'bounded-timestamp',
+    });
   });
 
   it('defines a closed classified projection leaf schema for every step kind', () => {
@@ -802,13 +848,12 @@ describe('phase 1 observation and normalization contract', () => {
     });
   });
 
-  it('rejects normalizers for status media error algorithm issuer audience scope and unknown fields', () => {
+  it('rejects normalizers for status media error algorithm audience scope and unknown fields', () => {
     const forbidden = [
       ['discovery.config', '/steps/oidc-discovery/value/status'],
       ['discovery.config', '/steps/oidc-discovery/value/mediaType'],
       ['discovery.config', '/steps/oidc-discovery/value/error/code'],
       ['discovery.config', '/steps/oidc-discovery/value/headers/content-type/*'],
-      ['discovery.config', '/steps/oidc-discovery/value/body/issuer'],
       ['discovery.config', '/steps/oidc-discovery/value/sideEffects/count'],
       ['discovery.config', '/steps/oidc-discovery/value/tokens/*/claims/iat'],
       ['authorization.password-pkce-consent', '/steps/authorize/value/cookies/*/secure'],
@@ -817,7 +862,6 @@ describe('phase 1 observation and normalization contract', () => {
       ['authorization.password-pkce-consent', '/steps/authorize/value/redirect/fragment'],
       ['authorization.password-pkce-consent', '/steps/state/value/tokens/*/claims/iat'],
       ['token.authorization-code', '/steps/token/value/tokens/*/header/alg'],
-      ['token.authorization-code', '/steps/token/value/tokens/*/claims/iss'],
       ['token.authorization-code', '/steps/token/value/tokens/*/claims/aud'],
       ['token.authorization-code', '/steps/token/value/tokens/*/claims/scope'],
       ['discovery.config', '/steps/oidc-discovery/value/unknown'],

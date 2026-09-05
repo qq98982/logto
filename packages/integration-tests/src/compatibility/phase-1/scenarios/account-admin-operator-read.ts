@@ -31,6 +31,7 @@ export type AccountAdminOperatorReadDependencies = Readonly<{
   withPositiveAdminSession?: typeof withPositiveAdminSession;
   installPositiveAdminAccountToken?: typeof installPositiveAdminAccountToken;
   positiveAdminNormalizationContext?: typeof positiveAdminNormalizationContext;
+  now?: () => number;
 }>;
 
 const isJsonObject = (value: unknown): value is JsonObject =>
@@ -61,7 +62,12 @@ const requireJsonResponse = (response: RawProtocolResponse): JsonObject => {
   }
 };
 
-const assertOperator = (context: Phase1ScenarioRunContext, body: JsonObject): void => {
+// eslint-disable-next-line complexity -- The closed Account contract validates identity, millisecond timestamps, and sign-in freshness at one boundary.
+const assertOperator = (
+  context: Phase1ScenarioRunContext,
+  body: JsonObject,
+  minimumLastSignInAt: number
+): void => {
   const allocation = context.fixture.public.allocations.find(({ role }) => role === 'admin');
 
   if (!allocation) {
@@ -78,7 +84,7 @@ const assertOperator = (context: Phase1ScenarioRunContext, body: JsonObject): vo
     username: getPhase1FixtureRuntimeUsername(operator.username, allocation.allocationId),
     primaryEmail: getPhase1FixtureRuntimeEmail(operator.primaryEmail, allocation.allocationId),
   };
-  const { createdAt, updatedAt } = body;
+  const { createdAt, updatedAt, lastSignInAt } = body;
 
   if (
     Object.entries(expected).some(([key, value]) => body[key] !== value) ||
@@ -88,7 +94,11 @@ const assertOperator = (context: Phase1ScenarioRunContext, body: JsonObject): vo
     typeof updatedAt !== 'number' ||
     !Number.isSafeInteger(updatedAt) ||
     updatedAt < minimumEpochMilliseconds ||
-    updatedAt < createdAt
+    updatedAt < createdAt ||
+    typeof lastSignInAt !== 'number' ||
+    !Number.isSafeInteger(lastSignInAt) ||
+    lastSignInAt < createdAt ||
+    lastSignInAt < minimumLastSignInAt
   ) {
     throw new Error('Phase 1 Account operator is invalid');
   }
@@ -112,6 +122,14 @@ export const runAccountAdminOperatorRead = async (
   const runSession = dependencies.withPositiveAdminSession ?? withPositiveAdminSession;
   const installAccount =
     dependencies.installPositiveAdminAccountToken ?? installPositiveAdminAccountToken;
+  const minimumLastSignInAt = (dependencies.now ?? Date.now)();
+
+  if (
+    !Number.isSafeInteger(minimumLastSignInAt) ||
+    minimumLastSignInAt < minimumEpochMilliseconds
+  ) {
+    throw new Error('Phase 1 Account clock is invalid');
+  }
   const { result } = await runSession(
     context,
     { ...dependencies.sessionOptions, captureAuthorize: false, captureCodeToken: false },
@@ -128,7 +146,7 @@ export const runAccountAdminOperatorRead = async (
           includeCookies: false,
         });
       const body = requireJsonResponse(response);
-      assertOperator(context, body);
+      assertOperator(context, body, minimumLastSignInAt);
       const accountState = await context.projectScenarioState({
         scenarioId,
         stepId: 'account',

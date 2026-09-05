@@ -196,7 +196,7 @@ describe('authorization.pkce-method-rejected', () => {
         query: {
           error: ['invalid_request'],
           error_description: ['not supported value of code_challenge_method'],
-          iss: ['https://oracle.example/oidc'],
+          iss: ['<target.core-url>/oidc'],
         },
         redactedParameters: [{ component: 'query', name: 'state', count: 1 }],
       },

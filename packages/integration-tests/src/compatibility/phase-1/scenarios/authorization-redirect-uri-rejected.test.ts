@@ -20,7 +20,7 @@ const projectedResponseBody = {
   message: responseBody.message,
   error: responseBody.error,
   error_description: responseBody.error_description,
-  iss: responseBody.iss,
+  iss: '<target.core-url>/oidc',
 };
 const stateProjection = {
   body: {},

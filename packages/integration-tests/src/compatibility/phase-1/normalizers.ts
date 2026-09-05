@@ -30,7 +30,13 @@ const redirectCredentialKeyPattern =
 const boundedTimestampToleranceSeconds = 30;
 const allowedJwtTimestampFields = new Set(['iat', 'exp', 'auth_time', 'created_at', 'updated_at']);
 const allowedUserInfoTimestampFields = new Set(['created_at', 'updated_at']);
-const entityTimestampFields = new Set(['createdAt', 'created_at', 'updatedAt', 'updated_at']);
+const entityTimestampFields = new Set([
+  'createdAt',
+  'created_at',
+  'updatedAt',
+  'updated_at',
+  'lastSignInAt',
+]);
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const redirectCredentialFragmentPattern =
   /(?:^|[?&#])(?:code|state|token|credential|session|interaction|resume|verification|nonce)=/iu;
@@ -149,6 +155,43 @@ const normalizeRedirectOrigin = (url: URL, context: NormalizationContext): strin
   return url.origin;
 };
 
+const assertCredentialFreeUrl = (url: URL): void => {
+  if (
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    Array.from(url.searchParams.keys()).some((key) => redirectCredentialKeyPattern.test(key)) ||
+    redirectCredentialFragmentPattern.test(url.hash)
+  ) {
+    fixedFailure('Invalid phase 1 credential-bearing URL');
+  }
+};
+
+const normalizeConfiguredTargetUrl = (value: string, context: NormalizationContext): string => {
+  const url = (() => {
+    try {
+      return new URL(value);
+    } catch {}
+  })();
+
+  if (!url) {
+    return value;
+  }
+  assertCredentialFreeUrl(url);
+  const normalizedOrigin = normalizeRedirectOrigin(url, context);
+  const suffix = value.slice(url.origin.length);
+  const hasExactOriginBoundary =
+    value.startsWith(url.origin) &&
+    (suffix.length === 0 ||
+      suffix.startsWith('/') ||
+      suffix.startsWith('?') ||
+      suffix.startsWith('#'));
+
+  return hasExactOriginBoundary &&
+    (normalizedOrigin === '<target.core-url>' || normalizedOrigin === '<target.admin-url>')
+    ? `${normalizedOrigin}${suffix}`
+    : value;
+};
+
 const normalizeCoreRequestId = (value: string): JsonValue =>
   coreRequestIdPattern.test(value)
     ? '<per-request-id>'
@@ -235,14 +278,7 @@ const normalizeExactLogicalJson = (
     try {
       const url = new URL(value);
 
-      if (
-        url.username.length > 0 ||
-        url.password.length > 0 ||
-        Array.from(url.searchParams.keys()).some((key) => redirectCredentialKeyPattern.test(key)) ||
-        redirectCredentialFragmentPattern.test(url.hash)
-      ) {
-        return fixedFailure('Invalid phase 1 credential-bearing URL');
-      }
+      assertCredentialFreeUrl(url);
     } catch (error: unknown) {
       if (
         error instanceof TypeError &&
@@ -349,8 +385,22 @@ export const normalizeRedirect = (
         }
         const normalizedKey = key;
         const existing = result[normalizedKey] ?? [];
+        const normalizedValue = (() => {
+          if (key === 'app_id') {
+            return normalizeExactLogicalJson(rawValue, context, [key]);
+          }
+          if (key === 'iss') {
+            const normalizedIssuer = normalizeExactLogicalJson(rawValue, context, [key]);
 
-        return { ...result, [normalizedKey]: [...existing, rawValue] };
+            return typeof normalizedIssuer === 'string'
+              ? normalizeConfiguredTargetUrl(normalizedIssuer, context)
+              : fixedFailure('Invalid phase 1 redirect');
+          }
+
+          return rawValue;
+        })();
+
+        return { ...result, [normalizedKey]: [...existing, normalizedValue] };
       },
       {}
     );
@@ -358,8 +408,7 @@ export const normalizeRedirect = (
 
     return Object.freeze({
       scheme: url.protocol.slice(0, -1).toLowerCase(),
-      origin:
-        options.targetOrigin === 'symbol' ? normalizeRedirectOrigin(url, context) : url.origin,
+      origin: options.targetOrigin === 'exact' ? url.origin : normalizeRedirectOrigin(url, context),
       path: url.pathname,
       query: Object.freeze(
         Object.fromEntries(
@@ -383,7 +432,10 @@ export const normalizeResumeRedirect = (
   value: string,
   context: NormalizationContext
 ): Phase1RedirectProjection => {
-  const projection = normalizeRedirect(value, context, { allowResumePath: true });
+  const projection = normalizeRedirect(value, context, {
+    allowResumePath: true,
+    targetOrigin: 'symbol',
+  });
   const prefix = '/oidc/auth/';
   const { origin } = new URL(value);
   const targetOrigins = new Set([
@@ -903,6 +955,13 @@ const normalizeClaimObject = (
       if (['sid', 'jti'].includes(key) && typeof rawValue === 'string') {
         return [[key, bindGenerated(`${tokenKind}.${key}`, rawValue, context)]];
       }
+      if (key === 'iss' && typeof rawValue === 'string') {
+        const normalizedIssuer = normalizeExactLogicalJson(rawValue, context, [key]);
+
+        return typeof normalizedIssuer === 'string'
+          ? [[key, normalizeConfiguredTargetUrl(normalizedIssuer, context)]]
+          : fixedFailure('Invalid phase 1 claims');
+      }
 
       return [[key, stableJson(normalizeExactLogicalJson(rawValue, context, [key]))]];
     })
@@ -1052,12 +1111,46 @@ export const normalizeDiscovery = (value: unknown, context: NormalizationContext
       return fixedFailure('Invalid phase 1 discovery');
     }
 
+    const keyMaterialMembers = new Set<string>(
+      kty === 'EC' ? ['x', 'y'] : kty === 'OKP' ? ['x'] : ['n']
+    );
+    const publicMetadata = Object.fromEntries(
+      Object.entries(rawKey).filter(([member]) => !keyMaterialMembers.has(member))
+    );
+    const publicKeyBitLength = (() => {
+      if (kty !== 'RSA') {
+        return;
+      }
+      const modulus = rawKey.n;
+
+      if (typeof modulus !== 'string' || !/^[A-Za-z0-9_-]+$/u.test(modulus)) {
+        return fixedFailure('Invalid phase 1 discovery');
+      }
+      const bytes = Buffer.from(modulus, 'base64url');
+      const leading = bytes[0];
+
+      if (
+        bytes.length === 0 ||
+        leading === undefined ||
+        leading === 0 ||
+        bytes.toString('base64url') !== modulus
+      ) {
+        return fixedFailure('Invalid phase 1 discovery');
+      }
+
+      return (bytes.length - 1) * 8 + Math.floor(Math.log2(leading)) + 1;
+    })();
+    const fingerprint = createHash('sha256').update(JSON.stringify(canonical)).digest('base64url');
+
     return {
-      ...rawKey,
+      ...publicMetadata,
       ...(kid === undefined ? {} : { kid: bindGenerated('signing-key.kid', kid, context) }),
-      publicKeyFingerprint: createHash('sha256')
-        .update(JSON.stringify(canonical))
-        .digest('base64url'),
+      ...(publicKeyBitLength === undefined ? {} : { publicKeyBitLength }),
+      publicKeyFingerprint: bindGenerated(
+        'signing-key.public-key-fingerprint',
+        `public-key-fingerprint:${fingerprint}`,
+        context
+      ),
     };
   });
 

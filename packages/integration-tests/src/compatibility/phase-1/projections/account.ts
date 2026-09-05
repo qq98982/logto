@@ -17,6 +17,6 @@ export const projectAccountObservation = (
     boundedTimestampPaths: boundedTimestampPathsFor(
       coordinates,
       ['body'],
-      new Set(['createdAt', 'updatedAt'])
+      new Set(['createdAt', 'updatedAt', 'lastSignInAt'])
     ),
   });

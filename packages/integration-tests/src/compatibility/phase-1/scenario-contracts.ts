@@ -14,8 +14,18 @@ export const commonNormalizationPointers = Object.freeze([
   '/steps/*/value/headers/date/*',
   '/steps/*/value/headers/content-length/*',
   '/steps/*/value/cookies/*/expires',
+  '/steps/*/value/error/iss',
+  '/steps/*/value/error/issuer',
+  '/steps/*/value/body/iss',
+  '/steps/*/value/body/issuer',
+  '/steps/*/value/redirect/origin',
+  '/steps/*/value/redirect/query/app_id/*',
+  '/steps/*/value/redirect/query/iss/*',
   '/steps/*/value/urls/*/origin',
+  '/steps/*/value/urls/*/query/app_id/*',
+  '/steps/*/value/urls/*/query/iss/*',
   '/steps/*/value/tokens/*/header/kid',
+  '/steps/*/value/tokens/*/claims/iss',
   '/steps/*/value/tokens/*/claims/iat',
   '/steps/*/value/tokens/*/claims/exp',
   '/steps/*/value/tokens/*/claims/auth_time',
@@ -158,6 +168,8 @@ const rawContracts: readonly RawContract[] = [
       '/steps/authorize/value/generatedIds/interaction',
       '/steps/management-refresh/value/tokens/*/claims/iat',
       '/steps/management-refresh/value/tokens/*/claims/exp',
+      '/steps/management-refresh/value/tokens/*/claims/created_at',
+      '/steps/management-refresh/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -170,6 +182,8 @@ const rawContracts: readonly RawContract[] = [
     explicit: [
       '/steps/organization-refresh/value/tokens/*/claims/iat',
       '/steps/organization-refresh/value/tokens/*/claims/exp',
+      '/steps/organization-refresh/value/tokens/*/claims/created_at',
+      '/steps/organization-refresh/value/tokens/*/claims/updated_at',
     ],
   },
   {
@@ -178,7 +192,11 @@ const rawContracts: readonly RawContract[] = [
       ['account', ['http']],
       ['state', ['semantic-state']],
     ],
-    explicit: ['/steps/account/value/body/createdAt', '/steps/account/value/body/updatedAt'],
+    explicit: [
+      '/steps/account/value/body/createdAt',
+      '/steps/account/value/body/updatedAt',
+      '/steps/account/value/body/lastSignInAt',
+    ],
   },
   {
     id: 'cors.management-list',
@@ -240,6 +258,8 @@ const rawContracts: readonly RawContract[] = [
     explicit: [
       '/steps/first-exchange/value/tokens/*/claims/iat',
       '/steps/first-exchange/value/tokens/*/claims/exp',
+      '/steps/first-exchange/value/tokens/*/claims/created_at',
+      '/steps/first-exchange/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -288,6 +308,8 @@ const rawContracts: readonly RawContract[] = [
     explicit: [
       '/steps/rotate/value/tokens/*/claims/iat',
       '/steps/rotate/value/tokens/*/claims/exp',
+      '/steps/rotate/value/tokens/*/claims/created_at',
+      '/steps/rotate/value/tokens/*/claims/updated_at',
       '/steps/state/value/generatedIds/tokenFamily',
     ],
   },
@@ -324,6 +346,8 @@ const rawContracts: readonly RawContract[] = [
       '/steps/state/value/generatedIds/tokenFamily',
       '/steps/*/value/tokens/*/claims/iat',
       '/steps/*/value/tokens/*/claims/exp',
+      '/steps/*/value/tokens/*/claims/created_at',
+      '/steps/*/value/tokens/*/claims/updated_at',
     ],
   },
 ];
@@ -369,15 +393,20 @@ const explicitProjectionLeaves = {
     '/steps/authorize/value/generatedIds/interaction',
     '/steps/management-refresh/value/tokens/0/claims/iat',
     '/steps/management-refresh/value/tokens/0/claims/exp',
+    '/steps/management-refresh/value/tokens/0/claims/created_at',
+    '/steps/management-refresh/value/tokens/0/claims/updated_at',
     '/steps/state/value/generatedIds/tokenFamily',
   ],
   'console.admin-organization-token-refresh': [
     '/steps/organization-refresh/value/tokens/0/claims/iat',
     '/steps/organization-refresh/value/tokens/0/claims/exp',
+    '/steps/organization-refresh/value/tokens/0/claims/created_at',
+    '/steps/organization-refresh/value/tokens/0/claims/updated_at',
   ],
   'account.admin-operator-read': [
     '/steps/account/value/body/createdAt',
     '/steps/account/value/body/updatedAt',
+    '/steps/account/value/body/lastSignInAt',
   ],
   'cors.management-list': [],
   'cookie.localhost-port-interleaving': [
@@ -396,6 +425,8 @@ const explicitProjectionLeaves = {
   'token.code-reuse-rejected': [
     '/steps/first-exchange/value/tokens/0/claims/iat',
     '/steps/first-exchange/value/tokens/0/claims/exp',
+    '/steps/first-exchange/value/tokens/0/claims/created_at',
+    '/steps/first-exchange/value/tokens/0/claims/updated_at',
     '/steps/state/value/generatedIds/tokenFamily',
   ],
   'interaction.password-rejected': ['/steps/experience-bootstrap/value/generatedIds/interaction'],
@@ -406,6 +437,8 @@ const explicitProjectionLeaves = {
   'token.refresh-reuse-rejected': [
     '/steps/rotate/value/tokens/0/claims/iat',
     '/steps/rotate/value/tokens/0/claims/exp',
+    '/steps/rotate/value/tokens/0/claims/created_at',
+    '/steps/rotate/value/tokens/0/claims/updated_at',
     '/steps/state/value/generatedIds/tokenFamily',
   ],
   'token.issuer-audience-scope-rejected': [],
@@ -417,6 +450,10 @@ const explicitProjectionLeaves = {
     '/steps/attempt-b/value/tokens/0/claims/iat',
     '/steps/attempt-a/value/tokens/0/claims/exp',
     '/steps/attempt-b/value/tokens/0/claims/exp',
+    '/steps/attempt-a/value/tokens/0/claims/created_at',
+    '/steps/attempt-b/value/tokens/0/claims/created_at',
+    '/steps/attempt-a/value/tokens/0/claims/updated_at',
+    '/steps/attempt-b/value/tokens/0/claims/updated_at',
   ],
 } as const satisfies Record<Phase1DifferentialScenarioId, readonly string[]>;
 
@@ -439,16 +476,25 @@ const stepProjectionLeaves = ({
         leaf(`/steps/${id}/value/mediaType/subtype`, 'exact'),
         leaf(`/steps/${id}/value/mediaType/parameters/*/*`, 'exact'),
         leaf(`/steps/${id}/value/error/**`, 'exact'),
+        leaf(`/steps/${id}/value/error/iss`, 'target-symbol'),
+        leaf(`/steps/${id}/value/error/issuer`, 'target-symbol'),
+        // Structured Location/Set-Cookie mirrors remain under the exact header envelope, but the
+        // HTTP projection guard requires them to equal the canonical redirect/cookie projections.
         leaf(`/steps/${id}/value/headers/*/*`, 'exact'),
         leaf(`/steps/${id}/value/headers/date/*`, 'bounded-timestamp'),
         leaf(`/steps/${id}/value/headers/content-length/*`, 'sanitized-body-byte-length'),
+        // Projectors that publish a structured body redirect mirror must prove it equals redirect.
         leaf(`/steps/${id}/value/body/**`, 'exact'),
+        leaf(`/steps/${id}/value/body/iss`, 'target-symbol'),
+        leaf(`/steps/${id}/value/body/issuer`, 'target-symbol'),
         leaf(`/steps/${id}/value/sideEffects/**`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/**`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/scheme`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/origin`, 'target-symbol'),
         leaf(`/steps/${id}/value/urls/*/path`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/query/*/*`, 'exact'),
+        leaf(`/steps/${id}/value/urls/*/query/app_id/*`, 'generated-id'),
+        leaf(`/steps/${id}/value/urls/*/query/iss/*`, 'target-symbol'),
         leaf(`/steps/${id}/value/urls/*/fragment`, 'exact'),
       ]
     : []),
@@ -456,9 +502,11 @@ const stepProjectionLeaves = ({
     ? [
         leaf(`/steps/${id}/value/redirect/**`, 'exact'),
         leaf(`/steps/${id}/value/redirect/scheme`, 'exact'),
-        leaf(`/steps/${id}/value/redirect/origin`, 'exact'),
+        leaf(`/steps/${id}/value/redirect/origin`, 'target-symbol'),
         leaf(`/steps/${id}/value/redirect/path`, 'exact'),
         leaf(`/steps/${id}/value/redirect/query/*/*`, 'exact'),
+        leaf(`/steps/${id}/value/redirect/query/app_id/*`, 'generated-id'),
+        leaf(`/steps/${id}/value/redirect/query/iss/*`, 'target-symbol'),
         leaf(`/steps/${id}/value/redirect/fragment`, 'exact'),
       ]
     : []),
@@ -485,7 +533,7 @@ const stepProjectionLeaves = ({
   ...(kinds.includes('jwt-claims')
     ? [
         leaf(`/steps/${id}/value/tokens/*/claims/**`, 'exact'),
-        leaf(`/steps/${id}/value/tokens/*/claims/iss`, 'exact'),
+        leaf(`/steps/${id}/value/tokens/*/claims/iss`, 'target-symbol'),
         leaf(`/steps/${id}/value/tokens/*/claims/aud`, 'exact'),
         leaf(`/steps/${id}/value/tokens/*/claims/scope`, 'exact'),
         leaf(`/steps/${id}/value/tokens/*/claims/iat`, 'bounded-timestamp'),
@@ -508,7 +556,9 @@ const explicitTreatment = (path: string): Exclude<NormalizationTreatment, 'exact
   if (path.endsWith('/outcomes')) {
     return 'stable-semantic-sort';
   }
-  if (/\/(?:iat|exp|auth_time|createdAt|created_at|updatedAt|updated_at)$/u.test(path)) {
+  if (
+    /\/(?:iat|exp|auth_time|createdAt|created_at|updatedAt|updated_at|lastSignInAt)$/u.test(path)
+  ) {
     return 'bounded-timestamp';
   }
 

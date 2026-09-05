@@ -22,6 +22,8 @@ const context = () => ({
   },
   symbols: new SymbolTable(),
 });
+const rsaModulus = (fill: number, byteLength = 256) =>
+  Buffer.alloc(byteLength, fill).toString('base64url');
 
 describe('phase 1 field-specific normalizers', () => {
   it('exports exactly the twelve reviewed named normalizers', () => {
@@ -224,6 +226,68 @@ describe('phase 1 field-specific normalizers', () => {
     });
   });
 
+  it('canonicalizes only configured target URLs and bound logical query values', () => {
+    const normalizationContext = context();
+    normalizationContext.symbols.bind('fixture.application', 'runtime-application');
+    const projection = normalizeRedirect(
+      'https://oracle.example.com/oidc/auth?app_id=runtime-application&client_id=runtime-application&iss=https%3A%2F%2Foracle.example.com%2Foidc&scope=openid',
+      normalizationContext
+    );
+
+    expect(projection).toMatchObject({
+      origin: '<target.core-url>',
+      path: '/oidc/auth',
+      query: {
+        app_id: ['<fixture.application>'],
+        client_id: ['runtime-application'],
+        iss: ['<target.core-url>/oidc'],
+        scope: ['openid'],
+      },
+    });
+    expect(
+      normalizeRedirect(
+        'https://client.example/callback?iss=https%3A%2F%2Fforeign.example%2Foidc',
+        normalizationContext
+      ).query
+    ).toEqual({ iss: ['https://foreign.example/oidc'] });
+    expect(
+      normalizers.normalizeClaims(
+        {
+          iss: 'https://oracle.example.com/oidc',
+          aud: 'https://oracle.example.com/api',
+          scope: 'read',
+        },
+        normalizationContext
+      )
+    ).toEqual({
+      iss: '<target.core-url>/oidc',
+      aud: 'https://oracle.example.com/api',
+      scope: 'read',
+    });
+    expect(
+      normalizers.normalizeClaims(
+        { iss: 'https://foreign.example/oidc', aud: 'urn:api', scope: 'read' },
+        normalizationContext
+      )
+    ).toEqual({ iss: 'https://foreign.example/oidc', aud: 'urn:api', scope: 'read' });
+    for (const nearMiss of [
+      'https://oracle.example.com.attacker.test/oidc',
+      'http://oracle.example.com/oidc',
+      'https://oracle.example.com:443/oidc',
+      'https://oracle.example.com:444/oidc',
+    ]) {
+      expect(normalizers.normalizeClaims({ iss: nearMiss }, normalizationContext)).toEqual({
+        iss: nearMiss,
+      });
+    }
+    expect(() =>
+      normalizers.normalizeClaims(
+        { iss: 'https://oracle.example.com/oidc?token=private', aud: 'urn:api' },
+        normalizationContext
+      )
+    ).toThrow('Invalid phase 1 credential-bearing URL');
+  });
+
   it('projects a one-time resume credential separately from its path template', () => {
     const projection = normalizeResumeRedirect(
       'https://oracle.example.com/oidc/auth/private-resume-credential',
@@ -231,34 +295,218 @@ describe('phase 1 field-specific normalizers', () => {
     );
 
     expect(projection).toMatchObject({
-      origin: 'https://oracle.example.com',
+      origin: '<target.core-url>',
       path: '/oidc/auth/{one-time-resume-credential}',
       resumeCredential: '<redirect.resume-credential.1>',
     });
     expect(JSON.stringify(projection)).not.toContain('private-resume-credential');
   });
 
-  it('derives RFC 7638 fingerprints and only symbolizes JWKS key IDs', async () => {
-    const jwk = { kty: 'RSA', e: 'AQAB', n: 'public-modulus', kid: 'runtime-kid' } as const;
-    const fingerprint = await calculateJwkThumbprint(jwk);
-    const projection = normalizers.normalizeDiscovery(
-      { issuer: 'https://issuer.example', kid: 'discovery-extra-kid', keys: [jwk] },
+  it('derives generated JWKS fingerprints while preserving exact public metadata', async () => {
+    const first = normalizers.normalizeDiscovery(
+      {
+        issuer: 'https://issuer.example',
+        kid: 'discovery-extra-kid',
+        keys: [
+          {
+            kty: 'RSA',
+            e: 'AQAB',
+            n: rsaModulus(0x80),
+            kid: 'first-runtime-kid',
+            use: 'sig',
+            alg: 'RS256',
+          },
+        ],
+      },
+      context()
+    );
+    const second = normalizers.normalizeDiscovery(
+      {
+        issuer: 'https://issuer.example',
+        kid: 'discovery-extra-kid',
+        keys: [
+          {
+            kty: 'RSA',
+            e: 'AQAB',
+            n: rsaModulus(0x81),
+            kid: 'second-runtime-kid',
+            use: 'sig',
+            alg: 'RS256',
+          },
+        ],
+      },
       context()
     );
 
-    expect(projection).toEqual({
+    expect(first).toEqual({
       issuer: 'https://issuer.example',
       kid: 'discovery-extra-kid',
       keys: [
         {
-          e: 'AQAB',
           kid: '<signing-key.kid.1>',
           kty: 'RSA',
-          n: 'public-modulus',
-          publicKeyFingerprint: fingerprint,
+          use: 'sig',
+          alg: 'RS256',
+          e: 'AQAB',
+          publicKeyBitLength: 2048,
+          publicKeyFingerprint: '<signing-key.public-key-fingerprint.1>',
         },
       ],
     });
+    expect(second).toEqual(first);
+    expect(
+      normalizers.normalizeDiscovery(
+        {
+          issuer: 'https://issuer.example',
+          kid: 'discovery-extra-kid',
+          keys: [
+            {
+              kty: 'RSA',
+              e: 'AQAB',
+              n: rsaModulus(0x82),
+              kid: 'third-runtime-kid',
+              use: 'sig',
+              alg: 'PS256',
+            },
+          ],
+        },
+        context()
+      )
+    ).not.toEqual(first);
+    const twoKeys = (reverse: boolean) => {
+      const keys = [
+        {
+          kty: 'RSA',
+          e: 'AQAB',
+          n: rsaModulus(0x83),
+          kid: 'ordered-runtime-kid-a',
+          use: 'sig',
+          alg: 'RS256',
+        },
+        {
+          kty: 'RSA',
+          e: 'AQAB',
+          n: rsaModulus(0x84),
+          kid: 'ordered-runtime-kid-b',
+          use: 'sig',
+          alg: 'RS256',
+        },
+      ];
+
+      return normalizers.normalizeDiscovery(
+        {
+          issuer: 'https://issuer.example',
+          kid: 'discovery-extra-kid',
+          keys: reverse ? keys.toReversed() : keys,
+        },
+        context()
+      );
+    };
+    const ordered = twoKeys(false);
+
+    expect(ordered).not.toEqual(first);
+    // A JWKS is a set keyed by `kid`; ordering independent keys with identical metadata is not semantic.
+    expect(twoKeys(true)).toEqual(ordered);
+    expect(
+      normalizers.normalizeDiscovery(
+        {
+          issuer: 'https://issuer.example',
+          kid: 'discovery-extra-kid',
+          keys: [
+            {
+              kty: 'RSA',
+              e: 'AQAB',
+              n: rsaModulus(0x85, 128),
+              kid: 'weak-runtime-kid',
+              use: 'sig',
+              alg: 'RS256',
+            },
+          ],
+        },
+        context()
+      )
+    ).not.toEqual(first);
+    expect(
+      normalizers.normalizeDiscovery(
+        {
+          issuer: 'https://issuer.example',
+          kid: 'discovery-extra-kid',
+          keys: [
+            {
+              kty: 'RSA',
+              e: 'Aw',
+              n: rsaModulus(0x80),
+              kid: 'different-exponent-runtime-kid',
+              use: 'sig',
+              alg: 'RS256',
+            },
+          ],
+        },
+        context()
+      )
+    ).not.toEqual(first);
+    const thumbprintKey = {
+      kty: 'RSA',
+      e: 'AQAB',
+      n: rsaModulus(0x86),
+      use: 'sig',
+      alg: 'RS256',
+    } as const;
+    const thumbprint = await calculateJwkThumbprint(thumbprintKey);
+    const thumbprintProjection = normalizers.normalizeDiscovery(
+      { keys: [{ ...thumbprintKey, kid: thumbprint }] },
+      context()
+    );
+
+    expect(thumbprintProjection.keys).toEqual([
+      expect.objectContaining({
+        kid: '<signing-key.kid.1>',
+        publicKeyFingerprint: '<signing-key.public-key-fingerprint.1>',
+      }),
+    ]);
+    const elliptic = normalizers.normalizeDiscovery(
+      {
+        keys: [
+          {
+            kty: 'EC',
+            crv: 'P-384',
+            x: 'ec-public-x',
+            y: 'ec-public-y',
+            kid: 'ec-runtime-kid',
+            use: 'sig',
+            alg: 'ES384',
+          },
+          {
+            kty: 'OKP',
+            crv: 'Ed25519',
+            x: 'okp-public-x',
+            kid: 'okp-runtime-kid',
+            use: 'sig',
+            alg: 'EdDSA',
+          },
+        ],
+      },
+      context()
+    );
+
+    expect(elliptic.keys).toEqual([
+      {
+        alg: 'ES384',
+        crv: 'P-384',
+        kid: '<signing-key.kid.1>',
+        kty: 'EC',
+        publicKeyFingerprint: '<signing-key.public-key-fingerprint.1>',
+        use: 'sig',
+      },
+      {
+        alg: 'EdDSA',
+        crv: 'Ed25519',
+        kid: '<signing-key.kid.2>',
+        kty: 'OKP',
+        publicKeyFingerprint: '<signing-key.public-key-fingerprint.2>',
+        use: 'sig',
+      },
+    ]);
   });
 
   it('redacts credential-bearing fragments while preserving ordinary fragment fields', () => {
