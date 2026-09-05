@@ -41,6 +41,10 @@ const forbiddenPropertyFragments = Object.freeze([
 const permittedSensitiveMetadataKeys = new Set(['haspassword', 'passwordalgorithm']);
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const logicalResumeCredentialPattern = /^<redirect\.resume-credential\.[1-9]\d*>$/u;
+const logicalCookieInteractionPatterns = new Map<string, RegExp>([
+  ['data-finish', /^<interaction\.data\.first\.[1-9]\d*>$/u],
+  ['admin-finish-reverse', /^<interaction\.admin\.reverse\.[1-9]\d*>$/u],
+]);
 const denseArrayIndexPattern = /^(?:0|[1-9]\d*)$/u;
 const resumeCredentialStepIdsByScenario = new Map<string, ReadonlySet<string>>(
   phase1ScenarioContracts
@@ -177,6 +181,15 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
       const isCanonicalRedirectCredential = path.length === 8 && parentKey === 'redirect';
       const isBodyRedirectMirrorCredential =
         path.length === 9 && path[7] === 'body' && parentKey === 'redirectTo';
+      const cookieInteractionPattern =
+        ownedScenarioId === 'cookie.localhost-port-interleaving' && typeof resumeStepId === 'string'
+          ? logicalCookieInteractionPatterns.get(resumeStepId)
+          : undefined;
+      const hasAllowedLogicalCredentialShape =
+        typeof nested === 'string' &&
+        ((ownedScenarioId !== 'cookie.localhost-port-interleaving' &&
+          logicalResumeCredentialPattern.test(nested)) ||
+          cookieInteractionPattern?.test(nested) === true);
       const allowedResumeCredential =
         key === 'resumeCredential' &&
         (isCanonicalRedirectCredential || isBodyRedirectMirrorCredential) &&
@@ -190,8 +203,7 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
         path[6] === 'value' &&
         typeof ownedScenarioId === 'string' &&
         resumeCredentialStepIdsByScenario.get(ownedScenarioId)?.has(resumeStepId) === true &&
-        typeof nested === 'string' &&
-        logicalResumeCredentialPattern.test(nested);
+        hasAllowedLogicalCredentialShape;
 
       if (
         !allowedResumeCredential &&

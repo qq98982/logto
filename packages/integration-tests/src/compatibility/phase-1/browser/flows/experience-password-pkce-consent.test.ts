@@ -69,6 +69,7 @@ type SessionOptions = Readonly<{
   networkFacts?: Phase1BrowserNetworkFacts;
   offRouteBeforeCredential?: boolean;
   signal?: AbortSignal;
+  profileRoute?: string;
 }>;
 
 const initialFacts = Object.freeze({
@@ -114,7 +115,9 @@ const initialFacts = Object.freeze({
       replacementFresh: true,
       resource: null,
       organizationId: null,
-      responseScope: runtimeEffectiveScopes.join(' '),
+      responseScope: runtimeEffectiveScopes
+        .filter((scope) => scope !== runtime.scopeName)
+        .join(' '),
       accessKind: 'opaque' as const,
     }),
   ]),
@@ -373,8 +376,24 @@ const createHarness = (options: SessionOptions = {}) => {
   let activityIndex = 0;
   const state = Object.freeze({ schemaVersion: 1, recipe: 'fullPhase1', allocations: [] });
   const missingClientSecret: string | undefined = undefined;
+  const effectiveProfile =
+    options.profileRoute === undefined
+      ? profile
+      : {
+          ...profile,
+          fixtures: {
+            ...profile.fixtures,
+            dataTenant: {
+              ...profile.fixtures.dataTenant,
+              browserClientConfiguration: {
+                ...profile.fixtures.dataTenant.browserClientConfiguration,
+                route: options.profileRoute,
+              },
+            },
+          },
+        };
   const context: Phase1BrowserFlowContext = {
-    profile: profile as never,
+    profile: effectiveProfile as never,
     target: {
       label: 'candidate',
       coreUrl: 'https://data.example/',
@@ -420,7 +439,7 @@ describe('experience.password-pkce-consent browser flow', () => {
     ]);
     expect(session.records).toEqual([
       'preload:preload-demo:logto:demo-app:dev:config',
-      `navigate:open-demo:core:/demo-app?app_id=${runtime.applicationId}`,
+      'navigate:open-demo:core:/demo-app',
       'wait:wait-sign-in:core:/sign-in|/sign-in/password',
       'assert:fill-username-route:core:/sign-in|/sign-in/password',
       `fill:fill-username:input[name="identifier"]:${runtime.username}`,
@@ -537,6 +556,18 @@ describe('experience.password-pkce-consent browser flow', () => {
         exchanges: [{ ...initialFacts.exchanges[0]!, requestCorrelationValid: false }],
       },
     ],
+    [
+      'an initial response containing the resource-only scope',
+      {
+        ...initialFacts,
+        exchanges: [
+          {
+            ...initialFacts.exchanges[0]!,
+            responseScope: runtimeEffectiveScopes.join(' '),
+          },
+        ],
+      },
+    ],
   ] as const)('rejects %s in the browser authorization chain', async (_name, networkFacts) => {
     const { context } = createHarness({ networkFacts });
 
@@ -553,6 +584,19 @@ describe('experience.password-pkce-consent browser flow', () => {
     );
     expect(session.records.some((record) => record.includes('<secret>'))).toBe(false);
     expect(session.records.some((record) => record.startsWith('click:'))).toBe(false);
+  });
+
+  it.each([
+    ['a mismatched app ID', '/demo-app?app_id=another-application'],
+    ['an extra forwarded parameter', '/demo-app?app_id=phase1-browser&unexpected=value'],
+    ['an empty app ID query', '/demo-app?app_id='],
+  ])('rejects %s in the profiled demo route', async (_name, profileRoute) => {
+    const { context, session } = createHarness({ profileRoute });
+
+    await expect(experiencePasswordPkceConsentFlow.run(context)).rejects.toThrow(
+      'Phase 1 Experience browser profile is invalid'
+    );
+    expect(session.records).toEqual([]);
   });
 
   it('stops activity convergence when the group signal is aborted', async () => {

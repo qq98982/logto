@@ -167,7 +167,20 @@ const resolveFixture = (context: Phase1BrowserFlowContext) => {
       .map((candidate) => resolveScope(candidate))
       .join(' ');
     const route = new URL(configuration.route, 'https://browser.invalid');
-    route.searchParams.set('app_id', applicationId);
+
+    if (
+      route.origin !== 'https://browser.invalid' ||
+      route.pathname !== demoPath ||
+      route.hash.length > 0 ||
+      !isDeepStrictEqual([...route.searchParams.keys()], ['app_id']) ||
+      route.searchParams.get('app_id') !== configuration.localStorageValue.appId
+    ) {
+      throw new Error(invalidProfile);
+    }
+    const initialResponseScope = configuration.effectiveScopes
+      .map((candidate) => resolveScope(candidate))
+      .filter((candidate) => candidate !== scopeName)
+      .join(' ');
 
     return Object.freeze({
       applicationId,
@@ -175,6 +188,7 @@ const resolveFixture = (context: Phase1BrowserFlowContext) => {
       dataTenant,
       email,
       effectiveScopes,
+      initialResponseScope,
       issuer: new URL('/oidc', context.target.coreUrl).href.replace(/\/$/u, ''),
       prompt: configuration.localStorageValue.prompt,
       redirectUri: new URL(demoPath, context.target.coreUrl).href,
@@ -182,7 +196,10 @@ const resolveFixture = (context: Phase1BrowserFlowContext) => {
       resourceName,
       scope,
       scopeName,
-      startPath: `${route.pathname}?${route.searchParams.toString()}`,
+      // The demo app already receives the runtime app ID through localStorage and forwards every
+      // page query parameter into OIDC `extraParams`; navigate on the canonical path so `app_id`
+      // remains configuration metadata instead of becoming an invalid authorization parameter.
+      startPath: route.pathname,
       subjectId,
       username,
     });
@@ -293,7 +310,7 @@ const assertInitialBrowserChain = (
     !exchange.replacementFresh ||
     exchange.resource !== null ||
     exchange.organizationId !== null ||
-    exchange.responseScope !== expected.effectiveScopes ||
+    exchange.responseScope !== expected.initialResponseScope ||
     exchange.accessKind !== 'opaque' ||
     exchange.compactAccess !== undefined
   ) {

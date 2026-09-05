@@ -82,6 +82,27 @@ describe('Phase 1 artifact authority', () => {
           candidate: { value: { steps: {} } },
           differences: [],
         },
+        {
+          id: 'cookie.localhost-port-interleaving',
+          oracle: {
+            value: {
+              steps: {
+                'data-finish': {
+                  value: {
+                    redirect: { resumeCredential: '<interaction.data.first.1>' },
+                  },
+                },
+                'admin-finish-reverse': {
+                  value: {
+                    redirect: { resumeCredential: '<interaction.admin.reverse.1>' },
+                  },
+                },
+              },
+            },
+          },
+          candidate: { value: { steps: {} } },
+          differences: [],
+        },
       ],
     };
 
@@ -122,6 +143,26 @@ describe('Phase 1 artifact authority', () => {
             redirectTo: { resumeCredential: '<redirect.resume-credential.1>' },
           },
         },
+      }),
+      scenarioCredentialArtifact({
+        scenarioId: 'cookie.localhost-port-interleaving',
+        stepId: 'admin-finish',
+        value: { redirect: { resumeCredential: '<interaction.admin.first.1>' } },
+      }),
+      scenarioCredentialArtifact({
+        scenarioId: 'cookie.localhost-port-interleaving',
+        stepId: 'data-finish',
+        value: { redirect: { resumeCredential: '<redirect.resume-credential.1>' } },
+      }),
+      scenarioCredentialArtifact({
+        scenarioId: 'cookie.localhost-port-interleaving',
+        stepId: 'data-finish',
+        value: { redirect: { resumeCredential: '<interaction.admin.reverse.1>' } },
+      }),
+      scenarioCredentialArtifact({
+        scenarioId: 'cookie.localhost-port-interleaving',
+        stepId: 'data-finish',
+        value: { redirect: { resumeCredential: '<interaction.foreign.first.1>' } },
       }),
       scenarioCredentialArtifact({
         scenarioId: 'authorization.password-pkce-consent',

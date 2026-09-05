@@ -106,12 +106,16 @@ const executePhase1BrowserRuntime = async (
       target: context.targets.oracle.primary,
       foreignTarget: context.targets.oracle.foreign,
       isolation: context.isolationAttestations.oracle,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
     });
     const candidateProvisioner = dependencies.createReferenceProvisioner({
       profile: context.authorization.profile,
       target: context.targets.candidate.primary,
       foreignTarget: context.targets.candidate.foreign,
       isolation: context.isolationAttestations.candidate,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
     });
     const controller = new AbortController();
     const oracle = await dependencies.runBrowserFlows({

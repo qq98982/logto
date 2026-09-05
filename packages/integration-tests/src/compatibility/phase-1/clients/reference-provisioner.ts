@@ -50,6 +50,10 @@ import {
 import type { Phase1FixtureRecipe } from '../model.js';
 
 type ReferenceTargetRole = Phase1FixtureAllocationRole;
+type ApplicationRedirectUriMode = 'profile' | 'target';
+type SignInExperienceBrandingMode = 'preserve' | 'clear';
+type ApplicationOidcClientMetadata =
+  Phase1Profile['fixtures']['dataTenant']['applications'][number]['oidcClientMetadata'];
 
 type ReferenceRequest = Readonly<{
   targetRole: ReferenceTargetRole;
@@ -72,6 +76,8 @@ type ReferenceProvisionerOptions = Readonly<{
   request?: ReferenceRequestFunction;
   createAllocationId?: () => string;
   createSecret?: () => string;
+  applicationRedirectUriMode?: ApplicationRedirectUriMode;
+  signInExperienceBrandingMode?: SignInExperienceBrandingMode;
 }>;
 
 type CleanupStep = {
@@ -605,8 +611,14 @@ export const createReferencePhase1FixtureProvisioner = (
   const foreignTarget = options.foreignTarget
     ? validateTargetConfig(options.foreignTarget)
     : undefined;
+  const applicationRedirectUriMode = options.applicationRedirectUriMode ?? 'profile';
+  const signInExperienceBrandingMode = options.signInExperienceBrandingMode ?? 'preserve';
 
-  if (!phase1TargetOriginsArePairwiseDisjoint(target, foreignTarget)) {
+  if (
+    !['profile', 'target'].includes(applicationRedirectUriMode) ||
+    !['preserve', 'clear'].includes(signInExperienceBrandingMode) ||
+    !phase1TargetOriginsArePairwiseDisjoint(target, foreignTarget)
+  ) {
     throw new TypeError(invalidReferenceConfiguration);
   }
   try {
@@ -618,6 +630,89 @@ export const createReferencePhase1FixtureProvisioner = (
   const request = options.request ?? createDefaultRequest(target, foreignTarget);
   const createAllocationId = options.createAllocationId ?? randomUUID;
   const createSecret = options.createSecret ?? (() => randomBytes(32).toString('base64url'));
+  const configuredUsernamePasswordExperience =
+    signInExperienceBrandingMode === 'clear'
+      ? Object.freeze({ ...fixedUsernamePasswordExperience, branding: Object.freeze({}) })
+      : fixedUsernamePasswordExperience;
+  const applicationBaseUrl = (role: ReferenceTargetRole): string => {
+    const baseUrl =
+      role === 'admin'
+        ? target.adminUrl
+        : role === 'foreign'
+          ? foreignTarget?.coreUrl
+          : target.coreUrl;
+
+    if (!baseUrl) {
+      throw new TypeError(invalidReferenceConfiguration);
+    }
+
+    return baseUrl;
+  };
+  const rebaseApplicationUri = (role: ReferenceTargetRole, value: string): string => {
+    const parsed = (() => {
+      try {
+        return new URL(safeText(value));
+      } catch {
+        throw new TypeError(invalidReferenceConfiguration);
+      }
+    })();
+
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new TypeError(invalidReferenceConfiguration);
+    }
+
+    const targetUrl = new URL(applicationBaseUrl(role));
+    const targetOrigin = targetUrl.origin;
+    targetUrl.pathname = parsed.pathname;
+    targetUrl.search = parsed.search;
+    targetUrl.hash = parsed.hash;
+
+    if (targetUrl.origin !== targetOrigin) {
+      throw new TypeError(invalidReferenceConfiguration);
+    }
+
+    return targetUrl.href;
+  };
+  const applicationOidcClientMetadata = (
+    role: ReferenceTargetRole,
+    metadata: ApplicationOidcClientMetadata
+  ): ApplicationOidcClientMetadata =>
+    Object.freeze({
+      redirectUris: Object.freeze(
+        metadata.redirectUris.map((value) =>
+          applicationRedirectUriMode === 'target'
+            ? rebaseApplicationUri(role, value)
+            : safeText(value)
+        )
+      ),
+      postLogoutRedirectUris: Object.freeze(
+        metadata.postLogoutRedirectUris.map((value) =>
+          applicationRedirectUriMode === 'target'
+            ? rebaseApplicationUri(role, value)
+            : safeText(value)
+        )
+      ),
+    });
+  const applicationOidcClientMetadataFromUnknown = (
+    role: ReferenceTargetRole,
+    value: unknown
+  ): ApplicationOidcClientMetadata => {
+    const metadata = responseRecord(value);
+
+    if (
+      !isDeepStrictEqual(Object.keys(metadata).toSorted(), [
+        'postLogoutRedirectUris',
+        'redirectUris',
+      ])
+    ) {
+      throw new TypeError(invalidReferenceConfiguration);
+    }
+
+    return applicationOidcClientMetadata(role, {
+      redirectUris: responseStringList(metadata.redirectUris),
+      postLogoutRedirectUris: responseStringList(metadata.postLogoutRedirectUris),
+    });
+  };
   const states = new WeakMap<object, ProvisioningState>();
   const claimedAllocationIds = new Set<string>();
   const pendingProvisioningCleanups = new Set<RecoverableCleanupState>();
@@ -868,7 +963,7 @@ export const createReferencePhase1FixtureProvisioner = (
           targetRole: role,
           method: 'PATCH',
           path: 'sign-in-exp',
-          body: fixedUsernamePasswordExperience,
+          body: configuredUsernamePasswordExperience,
         });
         state.ready = true;
       }
@@ -969,7 +1064,7 @@ export const createReferencePhase1FixtureProvisioner = (
           name: namespacedText(firstParty.name, namespace),
           type: firstParty.type as ApplicationType,
           isThirdParty: false,
-          oidcClientMetadata: firstParty.oidcClientMetadata,
+          oidcClientMetadata: applicationOidcClientMetadata('data', firstParty.oidcClientMetadata),
           customClientMetadata: firstParty.customClientMetadata,
         },
       },
@@ -985,7 +1080,7 @@ export const createReferencePhase1FixtureProvisioner = (
           name: namespacedText(thirdParty.name, namespace),
           type: thirdParty.type as ApplicationType,
           isThirdParty: true,
-          oidcClientMetadata: thirdParty.oidcClientMetadata,
+          oidcClientMetadata: applicationOidcClientMetadata('data', thirdParty.oidcClientMetadata),
           customClientMetadata: thirdParty.customClientMetadata,
         },
       },
@@ -1129,6 +1224,11 @@ export const createReferencePhase1FixtureProvisioner = (
     targetAllocation?: Phase1FixtureAllocation
   ): Promise<Phase1FixtureAllocation | undefined> => {
     const fixture = options.profile.fixtures.dataTenant;
+    const thirdParty = fixture.applications.find(({ isThirdParty }) => isThirdParty);
+
+    if (!thirdParty) {
+      throw new TypeError(invalidReferenceConfiguration);
+    }
     const password = safeText(createSecret());
     const username = namespacedUsername(`${fixture.subject.username}_boundary_b`, namespace);
     const userRuntimeId = await createWithCleanup(
@@ -1151,7 +1251,10 @@ export const createReferencePhase1FixtureProvisioner = (
           name: namespacedText(`${logicalPrefix} client B`, namespace),
           type: ApplicationType.SPA,
           isThirdParty: true,
-          oidcClientMetadata: fixture.applications[1]?.oidcClientMetadata,
+          oidcClientMetadata: applicationOidcClientMetadata(
+            targetRole,
+            thirdParty.oidcClientMetadata
+          ),
           customClientMetadata: {},
         },
       },
@@ -1635,7 +1738,10 @@ export const createReferencePhase1FixtureProvisioner = (
                     : { name: namespacedText(safeText(expectedName), namespace) }),
                   type: expectedSnapshot.type,
                   isThirdParty: expectedSnapshot.isThirdParty,
-                  oidcClientMetadata: expectedSnapshot.oidcClientMetadata,
+                  oidcClientMetadata: applicationOidcClientMetadataFromUnknown(
+                    allocation.role,
+                    expectedSnapshot.oidcClientMetadata
+                  ),
                   customClientMetadata: expectedSnapshot.customClientMetadata,
                   consent: {
                     organizationScopes: [],

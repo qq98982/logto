@@ -226,7 +226,11 @@ const rawContracts: readonly RawContract[] = [
       ['admin-finish-reverse', ['redirect', 'cookie-metadata']],
       ['state', ['semantic-state']],
     ],
-    explicit: ['/steps/*/value/generatedIds/interaction'],
+    explicit: [
+      '/steps/*/value/generatedIds/interaction',
+      '/steps/data-finish/value/redirect/resumeCredential',
+      '/steps/admin-finish-reverse/value/redirect/resumeCredential',
+    ],
   },
   {
     id: 'authorization.redirect-uri-rejected',
@@ -424,6 +428,8 @@ const explicitProjectionLeaves = {
     '/steps/admin-start-reverse/value/generatedIds/interaction',
     '/steps/data-finish-reverse/value/generatedIds/interaction',
     '/steps/admin-finish-reverse/value/generatedIds/interaction',
+    '/steps/data-finish/value/redirect/resumeCredential',
+    '/steps/admin-finish-reverse/value/redirect/resumeCredential',
   ],
   'authorization.redirect-uri-rejected': [],
   'authorization.pkce-method-rejected': [],

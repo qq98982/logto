@@ -145,7 +145,11 @@ const expectedRows = [
       'admin-finish-reverse:redirect+cookie-metadata',
       'state:semantic-state',
     ],
-    explicit: ['/steps/*/value/generatedIds/interaction'],
+    explicit: [
+      '/steps/*/value/generatedIds/interaction',
+      '/steps/data-finish/value/redirect/resumeCredential',
+      '/steps/admin-finish-reverse/value/redirect/resumeCredential',
+    ],
   },
   {
     id: 'authorization.redirect-uri-rejected',
@@ -374,7 +378,7 @@ const expectedScenarioAuthorityDigests = {
   'account.admin-operator-read': '0af97344128ba671118d54bbf27d30e53812f655326b9e602b4af6c99a8027d2',
   'cors.management-list': '8803ebb420e27515bf9ee8ee9dcbd883f1ed105b791e5962a495373dd89374f2',
   'cookie.localhost-port-interleaving':
-    '5dcef7e3c51903adb5a6269d646a8ca21d139772319210da44d8e234540fd681',
+    '8444635f45e215060b838c6e01dcfb3f1804d996fac2d8d8af747d5ec5a5a475',
   'authorization.redirect-uri-rejected':
     '87619a1cf72423c25ef515954442edf3c7424f7d77c2121eeb1abf3f138286b6',
   'authorization.pkce-method-rejected':

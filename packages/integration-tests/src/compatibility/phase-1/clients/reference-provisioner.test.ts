@@ -449,6 +449,9 @@ const createHarness = (
     hiddenAdminResourceIndicators?: readonly string[];
     adminOrganizationScopesResponse?: unknown;
     includeReservedAdminResource?: boolean;
+    applicationRedirectUriMode?: 'profile' | 'target';
+    signInExperienceBrandingMode?: 'preserve' | 'clear';
+    profileOverride?: typeof profile;
   } = {}
 ) => {
   const requests: Request[] = [];
@@ -547,13 +550,15 @@ const createHarness = (
   };
   let allocation = 0;
   const provisioner = createReferencePhase1FixtureProvisioner({
-    profile,
+    profile: options.profileOverride ?? profile,
     target: primaryTarget,
     foreignTarget,
     isolation: referenceIsolation,
     request,
     createAllocationId: options.createAllocationId ?? (() => `allocation-${++allocation}`),
     createSecret: () => 'seeded-password-value-7391',
+    applicationRedirectUriMode: options.applicationRedirectUriMode,
+    signInExperienceBrandingMode: options.signInExperienceBrandingMode,
   });
 
   return { provisioner, requests };
@@ -711,6 +716,11 @@ describe('reference Phase 1 fixture provisioner', () => {
       'admin:POST:organizations/t-default/users',
       'admin:POST:organizations/t-default/users/admin-phase1_admin-id/roles',
     ]);
+    expect(
+      requests
+        .filter(({ method, path }) => method === 'PATCH' && path === 'sign-in-exp')
+        .map(({ body }) => body)
+    ).toEqual([configuredSignInExperience, configuredSignInExperience]);
     expect(requests.find(({ path }) => path === 'organizations/t-default/users')?.body).toEqual({
       userIds: ['admin-phase1_admin-id'],
     });
@@ -734,6 +744,87 @@ describe('reference Phase 1 fixture provisioner', () => {
       expect(lease.getPassword('phase1-admin')).toBe('seeded-password-value-7391');
     });
     revokeProvisionedPhase1Fixture(fixture);
+  });
+
+  it('rebases application redirect URIs for browser-target fixture provisioning', async () => {
+    const { provisioner, requests } = createHarness({
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
+    });
+    const fixture = await provisioner.provision('dataProtocol');
+    const applicationMetadata = requests
+      .filter(
+        ({ targetRole, method, path }) =>
+          targetRole === 'data' && method === 'POST' && path === 'applications'
+      )
+      .map(
+        ({ body }) =>
+          (
+            body as {
+              oidcClientMetadata: {
+                redirectUris: readonly string[];
+                postLogoutRedirectUris: readonly string[];
+              };
+            }
+          ).oidcClientMetadata
+      );
+
+    expect(applicationMetadata).toEqual([
+      {
+        redirectUris: ['http://localhost:3011/demo-app'],
+        postLogoutRedirectUris: [],
+      },
+      {
+        redirectUris: ['http://localhost:3011/demo-app'],
+        postLogoutRedirectUris: [],
+      },
+    ]);
+    expect(
+      requests.find(({ method, path }) => method === 'PATCH' && path === 'sign-in-exp')?.body
+    ).toEqual({ ...configuredSignInExperience, branding: {} });
+    await expect(provisioner.projectState(fixture)).resolves.toBeDefined();
+    await provisioner.cleanup(fixture);
+  });
+
+  it('keeps a double-slash callback path on the target origin', async () => {
+    const profileOverride = {
+      ...profile,
+      fixtures: {
+        ...profile.fixtures,
+        dataTenant: {
+          ...profile.fixtures.dataTenant,
+          applications: profile.fixtures.dataTenant.applications.map((application) => ({
+            ...application,
+            oidcClientMetadata: {
+              ...application.oidcClientMetadata,
+              redirectUris: ['http://localhost:3001//foreign.example/demo-app'],
+            },
+          })),
+        },
+      },
+    };
+    const { provisioner, requests } = createHarness({
+      applicationRedirectUriMode: 'target',
+      profileOverride,
+    });
+    const fixture = await provisioner.provision('dataProtocol');
+    const redirectUris = requests
+      .filter(
+        ({ targetRole, method, path }) =>
+          targetRole === 'data' && method === 'POST' && path === 'applications'
+      )
+      .map(
+        ({ body }) =>
+          (body as { oidcClientMetadata: { redirectUris: readonly string[] } }).oidcClientMetadata
+            .redirectUris
+      );
+
+    expect(redirectUris).toEqual([
+      ['http://localhost:3011//foreign.example/demo-app'],
+      ['http://localhost:3011//foreign.example/demo-app'],
+    ]);
+    await expect(provisioner.projectState(fixture)).resolves.toBeDefined();
+    await provisioner.cleanup(fixture);
   });
 
   it('cleans up in strict reverse dependency order and restores both sign-in snapshots', async () => {

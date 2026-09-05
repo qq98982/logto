@@ -180,10 +180,12 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
         candidate.accountReads.length > 0
     );
 
+    // Duplicate endpoint reads are an incidental Console scheduling detail. Require at least one
+    // completed read and validate every observed fact without pinning the multiplicity.
     if (
       facts.signIns.length !== 1 ||
       facts.callbacks.length !== 1 ||
-      facts.endpointDiscoveries.length !== 1 ||
+      facts.endpointDiscoveries.length === 0 ||
       facts.exchanges.length !== 3 ||
       facts.accountReads.length !== 1
     ) {
@@ -191,7 +193,6 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
     }
     const [signIn] = facts.signIns;
     const [callback] = facts.callbacks;
-    const [endpointDiscovery] = facts.endpointDiscoveries;
     const initial = requireSingleExchange(facts.exchanges, 'initial');
     const management = requireSingleExchange(facts.exchanges, 'management');
     const organization = requireSingleExchange(facts.exchanges, 'organization');
@@ -226,12 +227,14 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
       callback.issuer !== issuer ||
       !callback.codePresent ||
       !callback.fragmentEmpty ||
-      !endpointDiscovery ||
-      endpointDiscovery.authority !== 'admin' ||
-      endpointDiscovery.status !== 200 ||
-      !endpointDiscovery.queryShapeExact ||
-      !endpointDiscovery.accessAbsent ||
-      !endpointDiscovery.userOriginMatchesCore
+      facts.endpointDiscoveries.some(
+        (endpointDiscovery) =>
+          endpointDiscovery.authority !== 'admin' ||
+          endpointDiscovery.status !== 200 ||
+          !endpointDiscovery.queryShapeExact ||
+          !endpointDiscovery.accessAbsent ||
+          !endpointDiscovery.userOriginMatchesCore
+      )
     ) {
       throw new Error('Phase 1 Console browser authorization chain is invalid');
     }

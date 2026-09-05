@@ -537,23 +537,52 @@ describe('Phase 1 Playwright browser session adapter', () => {
     }
   });
 
-  it.each([
-    [
-      'external HTTP',
-      '<button id="attempt" onclick="fetch(\'http://127.0.0.1:1/private-token\').catch(() => {})">attempt</button>',
-    ],
-    [
-      'an additional page',
-      '<button id="attempt" onclick="window.open(\'about:blank\')">attempt</button>',
-    ],
-    [
-      'a WebSocket',
-      '<button id="attempt" onclick="new WebSocket(\'ws://127.0.0.1:1/private-token\')">attempt</button>',
-    ],
-  ])('fails the whole context after %s outbound attempt', async (_name, markup) => {
+  it('aborts the passive Console version check without granting external network authority', async () => {
     const server = await listen((_request, response) => {
       response.writeHead(200, { 'content-type': 'text/html' });
-      response.end(markup);
+      response.end(
+        "<button id=\"attempt\" onclick=\"fetch('https://numbers.logto.io/pull.json').catch(() => document.body.insertAdjacentHTML('beforeend', '<span id=&quot;blocked&quot;>blocked</span>'))\">attempt</button>"
+      );
+    });
+    const target: TargetConfig = Object.freeze({
+      label: 'oracle',
+      coreUrl: `${server.origin}/`,
+      adminUrl: `${server.origin}/`,
+    });
+    const observer = createPlaywrightBrowserGroupObserver(chromium);
+
+    try {
+      await expect(
+        observer.runInFreshContext(
+          'console',
+          new AbortController().signal,
+          target,
+          async (session) => {
+            await session.navigate('version-check-page', 'core', '/');
+            await session.click('version-check-attempt', '#attempt');
+            await session.expectCount('version-check-complete', '#blocked', 1);
+            await session.waitForNetworkFacts('version-check-boundary', () => true);
+          }
+        )
+      ).resolves.toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    [
+      'a query-string near miss',
+      "fetch('https://numbers.logto.io/pull.json?unexpected=1').catch(() => document.body.insertAdjacentHTML('beforeend', '<span id=&quot;version-near-miss-complete&quot;></span>'))",
+    ],
+    [
+      'a non-GET request',
+      "fetch('https://numbers.logto.io/pull.json', { method: 'POST' }).catch(() => document.body.insertAdjacentHTML('beforeend', '<span id=&quot;version-near-miss-complete&quot;></span>'))",
+    ],
+  ])('fails the Console context after %s to the version endpoint', async (_name, attempt) => {
+    const server = await listen((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.end(`<button id="attempt" onclick="${attempt}">attempt</button>`);
     });
     const target: TargetConfig = Object.freeze({
       label: 'oracle',
@@ -564,28 +593,93 @@ describe('Phase 1 Playwright browser session adapter', () => {
 
     try {
       const run = observer.runInFreshContext(
-        'experience',
+        'console',
         new AbortController().signal,
         target,
         async (session) => {
-          await session.navigate('guard-page', 'core', '/');
-          await session.click('guard-attempt', '#attempt');
-          await session.waitForNetworkFacts('guard-check', () => false);
+          await session.navigate('version-near-miss-page', 'core', '/');
+          await session.click('version-near-miss-attempt', '#attempt');
+          await session.expectCount('version-near-miss-complete', '#version-near-miss-complete', 1);
+          await session.waitForNetworkFacts('version-near-miss-boundary', () => true);
         }
       );
-      let error: unknown;
 
-      try {
-        await run;
-      } catch (error_: unknown) {
-        error = error_;
-      }
-      expect(error).toMatchObject({ errorClass: 'browser-process', stepId: 'experience' });
-      expect(`${String(error)} ${JSON.stringify(error)}`).not.toContain('private-token');
+      await expect(run).rejects.toMatchObject({
+        errorClass: 'browser-process',
+        stepId: 'console',
+      });
     } finally {
       await server.close();
     }
   });
+
+  it.each([
+    [
+      'external HTTP',
+      '<button id="attempt" onclick="fetch(\'http://127.0.0.1:1/private-token\').catch(() => {})">attempt</button>',
+      false,
+      undefined,
+    ],
+    [
+      'an additional page',
+      '<button id="attempt" onclick="window.open(\'about:blank\')">attempt</button>',
+      false,
+      undefined,
+    ],
+    [
+      'a WebSocket',
+      '<button id="attempt" onclick="new WebSocket(\'ws://127.0.0.1:1/private-token\')">attempt</button>',
+      false,
+      undefined,
+    ],
+    [
+      'the Console version URL from an Experience context',
+      "<button id=\"attempt\" onclick=\"fetch('https://numbers.logto.io/pull.json').catch(() => document.body.insertAdjacentHTML('beforeend', '<span id=&quot;experience-version-complete&quot;></span>'))\">attempt</button>",
+      true,
+      '#experience-version-complete',
+    ],
+  ])(
+    'fails the whole context after %s outbound attempt',
+    async (_name, markup, acceptImmediately, completionSelector) => {
+      const server = await listen((_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/html' });
+        response.end(markup);
+      });
+      const target: TargetConfig = Object.freeze({
+        label: 'oracle',
+        coreUrl: `${server.origin}/`,
+        adminUrl: `${server.origin}/`,
+      });
+      const observer = createPlaywrightBrowserGroupObserver(chromium);
+
+      try {
+        const run = observer.runInFreshContext(
+          'experience',
+          new AbortController().signal,
+          target,
+          async (session) => {
+            await session.navigate('guard-page', 'core', '/');
+            await session.click('guard-attempt', '#attempt');
+            if (completionSelector) {
+              await session.expectCount('guard-attempt-complete', completionSelector, 1);
+            }
+            await session.waitForNetworkFacts('guard-check', () => acceptImmediately);
+          }
+        );
+        let error: unknown;
+
+        try {
+          await run;
+        } catch (error_: unknown) {
+          error = error_;
+        }
+        expect(error).toMatchObject({ errorClass: 'browser-process', stepId: 'experience' });
+        expect(`${String(error)} ${JSON.stringify(error)}`).not.toContain('private-token');
+      } finally {
+        await server.close();
+      }
+    }
+  );
 
   it('starts the next real context without cookies, storage, or cache after a failed group', async () => {
     const server = await listen((_request, response) => {

@@ -600,9 +600,15 @@ describe('cookie.localhost-port-interleaving', () => {
       expect(steps[2]?.value.outcomes).toEqual([{ authority: 'rejected' }]);
       expect(steps[2]?.value.cookies.map(({ name }) => name)).toEqual(['_interaction.sig']);
       expect(steps[3]?.value.outcomes).toEqual([{ authority: 'accepted' }]);
+      expect(steps[3]?.value.redirect?.resumeCredential).toMatch(
+        /^<interaction\.data\.first\.[1-9]\d*>$/u
+      );
       expect(steps[6]?.value.error).toEqual({ error: 'invalid_request' });
       expect(steps[6]?.value.outcomes).toEqual([{ authority: 'rejected' }]);
       expect(steps[7]?.value.outcomes).toEqual([{ authority: 'accepted' }]);
+      expect(steps[7]?.value.redirect?.resumeCredential).toMatch(
+        /^<interaction\.admin\.reverse\.[1-9]\d*>$/u
+      );
       expect(admin.observations).toEqual([
         'prepared',
         'finish-rejected',

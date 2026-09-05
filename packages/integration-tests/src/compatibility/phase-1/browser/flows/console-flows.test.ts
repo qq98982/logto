@@ -321,7 +321,7 @@ const emptyFacts = (): Phase1BrowserNetworkFacts => ({
 const authorizationFacts = Object.freeze({
   signIns: Object.freeze([signInFact]),
   callbacks: Object.freeze([callbackFact]),
-  endpointDiscoveries: Object.freeze([endpointDiscoveryFact]),
+  endpointDiscoveries: Object.freeze([endpointDiscoveryFact, endpointDiscoveryFact]),
 });
 
 class FakeSession implements Phase1BrowserSession {
@@ -612,6 +612,20 @@ describe('Phase 1 ordered Console browser flows', () => {
     expect(JSON.stringify(result)).not.toMatch(/private-password|raw-private/u);
   });
 
+  it.each([1, 3])('accepts %i validated tenant endpoint discovery reads', async (count) => {
+    const facts: Phase1BrowserNetworkFacts = {
+      ...emptyFacts(),
+      ...authorizationFacts,
+      endpointDiscoveries: Array.from({ length: count }, () => endpointDiscoveryFact),
+      exchanges: [initialFact, managementFact, organizationFact],
+      accountReads: [accountFact],
+    };
+
+    await expect(
+      consoleCleanAuthenticationFlow.run(createContext({ session: new FakeSession(facts) }))
+    ).resolves.toMatchObject({ browserChainMatches: true });
+  });
+
   it.each([
     {
       name: 'a missing organization exchange',
@@ -669,7 +683,10 @@ describe('Phase 1 ordered Console browser flows', () => {
       facts: {
         ...emptyFacts(),
         ...authorizationFacts,
-        endpointDiscoveries: [{ ...endpointDiscoveryFact, userOriginMatchesCore: false }],
+        endpointDiscoveries: [
+          endpointDiscoveryFact,
+          { ...endpointDiscoveryFact, userOriginMatchesCore: false },
+        ],
         exchanges: [initialFact, managementFact, organizationFact],
         accountReads: [accountFact],
       },
@@ -679,7 +696,10 @@ describe('Phase 1 ordered Console browser flows', () => {
       facts: {
         ...emptyFacts(),
         ...authorizationFacts,
-        endpointDiscoveries: [{ ...endpointDiscoveryFact, accessAbsent: false }],
+        endpointDiscoveries: [
+          endpointDiscoveryFact,
+          { ...endpointDiscoveryFact, accessAbsent: false },
+        ],
         exchanges: [initialFact, managementFact, organizationFact],
         accountReads: [accountFact],
       },

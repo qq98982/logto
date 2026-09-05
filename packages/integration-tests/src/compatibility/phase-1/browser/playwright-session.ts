@@ -160,13 +160,16 @@ const exactKeys = (parameters: URLSearchParams, expected: readonly string[]): bo
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 };
 
+const suppressedPassiveExternalGetUrls = new Set(['https://numbers.logto.io/pull.json']);
+
 const matchesBase64UrlLength = (value: string | null, length: number): boolean =>
   value?.length === length && base64UrlPattern.test(value);
 
 const installContextNetworkGuard = async (
   observer: Observer,
   context: BrowserContext,
-  target: TargetConfig
+  target: TargetConfig,
+  groupId: Phase1BrowserGroupId
 ): Promise<ContextNetworkGuard> => {
   const allowedOrigins = new Set([new URL(target.coreUrl).origin, new URL(target.adminUrl).origin]);
   let violated = false;
@@ -188,6 +191,16 @@ const installContextNetworkGuard = async (
 
         if (allowedOrigins.has(url.origin) || ['data:', 'blob:'].includes(url.protocol)) {
           await route.continue();
+          return;
+        }
+        if (
+          groupId === 'console' &&
+          route.request().method() === 'GET' &&
+          suppressedPassiveExternalGetUrls.has(url.href)
+        ) {
+          // The OSS Console performs a passive version check. Abort it deterministically without
+          // granting external network authority or failing the business-flow network boundary.
+          await route.abort('blockedbyclient');
           return;
         }
       } catch {
@@ -916,7 +929,7 @@ export const createPlaywrightBrowserGroupObserver = (
             throw new Error('Browser context is not fresh');
           }
         });
-        const networkGuard = await installContextNetworkGuard(observer, context, target);
+        const networkGuard = await installContextNetworkGuard(observer, context, target, groupId);
         const page = await observer.run(fixedContext('page-create', 'browser-process'), async () =>
           context.newPage()
         );

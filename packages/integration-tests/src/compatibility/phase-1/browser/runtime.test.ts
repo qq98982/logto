@@ -218,11 +218,15 @@ describe('Phase 1 browser production runtime', () => {
       target: runtimeContext.targets.oracle.primary,
       foreignTarget: runtimeContext.targets.oracle.foreign,
       isolation: runtimeContext.isolationAttestations.oracle,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
     });
     expect(harness.provisionerInputs[1]).toMatchObject({
       target: runtimeContext.targets.candidate.primary,
       foreignTarget: runtimeContext.targets.candidate.foreign,
       isolation: runtimeContext.isolationAttestations.candidate,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
     });
     expect(Object.keys(result)).toEqual([
       'schemaVersion',
