@@ -209,7 +209,7 @@ const expectedRows = [
     id: 'token.refresh-reuse-rejected',
     steps: [
       'code-token:http',
-      'rotate:http',
+      'rotate:http+jwt-header+jwt-claims',
       'replay-old:http',
       'probe-descendant:http',
       'state:semantic-state',
@@ -239,7 +239,12 @@ const expectedRows = [
   },
   {
     id: 'token.concurrent-refresh-single-winner',
-    steps: ['attempt-a:http', 'attempt-b:http', 'race:semantic-state', 'state:semantic-state'],
+    steps: [
+      'attempt-a:http+jwt-header+jwt-claims',
+      'attempt-b:http+jwt-header+jwt-claims',
+      'race:semantic-state',
+      'state:semantic-state',
+    ],
     explicit: [
       '/steps/race/value/outcomes',
       '/steps/state/value/generatedIds/tokenFamily',
@@ -285,9 +290,11 @@ const expectedKindRuleSignatures = {
     'exact headers/*/*',
     'bounded-timestamp headers/date/*',
     'sanitized-body-byte-length headers/content-length/*',
+    'target-symbol headers/access-control-allow-origin/*',
     'exact body/**',
     'target-symbol body/iss',
     'target-symbol body/issuer',
+    'bound-scope-token-list body/scope',
     'exact sideEffects/**',
     'exact urls/*/**',
     'exact urls/*/scheme',
@@ -328,7 +335,7 @@ const expectedKindRuleSignatures = {
     'exact tokens/*/claims/**',
     'target-symbol tokens/*/claims/iss',
     'exact tokens/*/claims/aud',
-    'exact tokens/*/claims/scope',
+    'bound-scope-token-list tokens/*/claims/scope',
     'bounded-timestamp tokens/*/claims/iat',
     'bounded-timestamp tokens/*/claims/exp',
     'bounded-timestamp tokens/*/claims/auth_time',
@@ -341,56 +348,56 @@ const expectedKindRuleSignatures = {
 const goldenDigest = (...parts: readonly string[]) => parts.join('');
 
 const expectedScenarioAuthorityDigests = {
-  'discovery.config': '849bedae16eab47b34128f8b8f7b7aff80db40d55f230c99a6ef37e62a38556b',
+  'discovery.config': '44882ffbd5c4dc39289c091e5db05d2d063d6b57596af03530f12e6f3f8d087f',
   'authorization.password-pkce-consent':
-    '54087afde0b2bdd68622a8de1b8327ce86629362c490750a6c3c58bfe2c72aa6',
+    '271f36cd48a73aa748a3f8be086d2dc9c1411782d58542717fff226d1e3b8145',
   'token.authorization-code': goldenDigest(
-    '59826f21de2bbb8e',
-    '2e49eda89fee1fc6',
-    'c91c2cbcbd9b0359',
-    '0dc70633841f2c66'
+    'dda63aad3155dc29',
+    '4d1d48b59253ae68',
+    '262cf11e5c2fe863',
+    '1c2e29039aa8bfaa'
   ),
   'token.refresh-rotation': goldenDigest(
-    '4520fa374d877b27',
-    'fbd44e70e4e9cc9e',
-    'c8459e3af1b16513',
-    'ab95d2a6adfe2329'
+    '6f281295eb0fe80d',
+    'c7955d5ab0296b6e',
+    '394915f5e856fa21',
+    'f462f15e68f8d8e2'
   ),
-  'userinfo.openid': 'e3694ee8b1518679e0d4ed589581dff962b1fcdcb74c0c71ea03ef4cd91dd1bb',
-  'management.application-read': '616e978e50c7fd4fdd4c2094c7719f130a738efa7aedd3b1b9f12c5513216a4a',
-  'management.user-read': 'a5a56d5748ac4ef7fc02b7b13cda98560942c8645c60c9e07f248c748c6f5652',
+  'userinfo.openid': '0c9f5f1f9d9fb05fdc05526f44e647e1a91b909d7cfde26f2a9535dd6b111514',
+  'management.application-read': '45a237444f7432bd4734bcf037db1b382650c7b9e848028187e2249a4c211e03',
+  'management.user-read': 'c990af1ec2ed45990343d52320049c8c5aad42c15e0c5ba2493714a5c615e781',
   'console.admin-auth-resource-refresh':
-    '9aeeacaa5925665bb0c7d7ec15c258f8d6f8b2fa18062698a9a8accee199bffd',
+    '0b7a553c85505bfc4e981788f0e8cd4b0141002af94035d6a1c48b67fe1c1bc8',
   'console.admin-organization-token-refresh':
-    '0e6d4d97e1e3eb85d886230e0711d030e210e45512650f32108084d9b37b2f0f',
-  'account.admin-operator-read': 'd2ec1a35292a0925b6414ce17ccba9e18418884fd23132ad5a6f241e90200ccc',
-  'cors.management-list': 'c6408d82d5980f6bc877fd7f8a4103821325ec896cbf1a1c0eaedb909a512e18',
+    '96859293fc2e129c5e911b84a5dc5bdc65ead469aca463fad6227e56a9062b53',
+  'account.admin-operator-read': '0af97344128ba671118d54bbf27d30e53812f655326b9e602b4af6c99a8027d2',
+  'cors.management-list': '8803ebb420e27515bf9ee8ee9dcbd883f1ed105b791e5962a495373dd89374f2',
   'cookie.localhost-port-interleaving':
     '5dcef7e3c51903adb5a6269d646a8ca21d139772319210da44d8e234540fd681',
   'authorization.redirect-uri-rejected':
-    '0d7dd564d31aa4a122023355a19c5a619a3bc5aeb294e92f2c5072e50b288394',
+    '87619a1cf72423c25ef515954442edf3c7424f7d77c2121eeb1abf3f138286b6',
   'authorization.pkce-method-rejected':
-    'cf47390ba1854c7edebeb8581cf085baec6795b31e7e10e20adeb1155e5d2b66',
+    'f1fbcb6ac0861796cdc80599102179fdf0d3137ac35d89c37035df223a4e817d',
   'token.pkce-verifier-rejected':
-    '8f5585a5e8fe73789fb052453895c66d44f1f80cf73560ba3504c036462d891c',
+    '117a8e4eb1069492e499cc730df30fecd0ecf01c58f80ce161e36d853c55b55d',
   'token.code-reuse-rejected': goldenDigest(
-    'a5a422589a416865',
-    'c5a3173c783a8a09',
-    'cca8c6bb970661b6',
-    'ab86d7751f4f90f0'
+    'c1e8402582cd93c8',
+    'cf3de7ec2c65e67e',
+    '38a56fae8ab955f9',
+    '40cebcf298c8155d'
   ),
   'interaction.password-rejected':
-    '4223430804f75f4c7e1fe8e250a1513c87614d477e4bc178b6b7b58082ec9292',
+    'c0c96b2db1d995e010fcae80a182d5042e819100719c8b034faec057a860c91e',
   'interaction.consent-session-boundary':
-    '8ac08dbae83e12bb1975626c33a439598987ae14d4d6feb0f01b325d99f854c7',
+    'a9803fd9a9857f9b5d2988f4b5043aa5bef07800609b7959547644e8813deff0',
   'token.refresh-reuse-rejected':
-    '1b1cd8788f6af5549e9ad10e818846ee8e55b6df32e768ad8fcc788d07c7f096',
+    '1f9e5a0b8bee3ba4056d45872461a9178955014e19c8fc127dcd99b9dbaf3e30',
   'token.issuer-audience-scope-rejected':
-    '7ab2d12fef9b3748a59d552105ce43d2ab2775fb13fd1881c94e712dd4eb8bc8',
+    '9baebe480e95b9dffdb4f8bc0effb3bb5d55ac7170c5b091682114ca2db2a640',
   'token.concurrent-code-single-winner':
-    'e72dacabad66a0a3e17291aaa37909be1696d61dd0469c7cc0dda255ac053be3',
+    '23d837360bfe7ca6119766a6cf16f1df22c674386d1548c0f4cfc488c265495c',
   'token.concurrent-refresh-single-winner':
-    'c70fc94d8b8242956ff0b80288ac82947b91e1d520b3b4e5e54ca9d77a2539a2',
+    '92721a81681f17ead40fe83b5b93ff84d1d28b34a53d16529f1a330e1995eeb9',
 } as const satisfies Record<Phase1ScenarioContract['id'], string>;
 
 describe('phase 1 observation and normalization contract', () => {
@@ -538,11 +545,13 @@ describe('phase 1 observation and normalization contract', () => {
     expect(commonNormalizationPointers).toEqual([
       '/steps/*/value/headers/date/*',
       '/steps/*/value/headers/content-length/*',
+      '/steps/*/value/headers/access-control-allow-origin/*',
       '/steps/*/value/cookies/*/expires',
       '/steps/*/value/error/iss',
       '/steps/*/value/error/issuer',
       '/steps/*/value/body/iss',
       '/steps/*/value/body/issuer',
+      '/steps/*/value/body/scope',
       '/steps/*/value/redirect/origin',
       '/steps/*/value/redirect/query/app_id/*',
       '/steps/*/value/redirect/query/iss/*',
@@ -551,6 +560,7 @@ describe('phase 1 observation and normalization contract', () => {
       '/steps/*/value/urls/*/query/iss/*',
       '/steps/*/value/tokens/*/header/kid',
       '/steps/*/value/tokens/*/claims/iss',
+      '/steps/*/value/tokens/*/claims/scope',
       '/steps/*/value/tokens/*/claims/iat',
       '/steps/*/value/tokens/*/claims/exp',
       '/steps/*/value/tokens/*/claims/auth_time',

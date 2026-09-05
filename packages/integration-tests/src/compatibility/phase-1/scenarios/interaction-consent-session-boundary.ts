@@ -14,6 +14,7 @@ import {
 } from '../clients/oidc.js';
 import {
   getPhase1FixtureRuntimeId,
+  getPhase1FixtureRuntimeText,
   getPhase1FixtureRuntimeUsername,
   type Phase1FixtureAllocationRole,
 } from '../fixture-map.js';
@@ -570,6 +571,17 @@ export const runInteractionConsentSessionBoundary = async (
     if (!dataAllocation || !symbols) {
       throw new Error('Phase 1 consent boundary symbols are unavailable');
     }
+    symbols.bind(
+      'fixture.consent.primary.user-b.username',
+      getPhase1FixtureRuntimeUsername(
+        `${context.profile.fixtures.dataTenant.subject.username}_boundary_b`,
+        dataAllocation.allocationId
+      )
+    );
+    symbols.bind(
+      'fixture.consent.primary.client-b.name',
+      getPhase1FixtureRuntimeText('consent.primary client B', dataAllocation.allocationId)
+    );
     const projectionContext: NormalizationContext = { target: context.target, symbols };
     const primaryConsentUrl = new URL('/api/interaction/consent', context.target.coreUrl);
     const aConsentUrl = new URL('/api/interaction/consent', a.target.coreUrl);

@@ -370,7 +370,14 @@ describe('Phase 1 conformance runner', () => {
     };
 
     try {
-      for (let attempt = 0; attempt < 200; attempt += 1) {
+      // A fresh Node process loads the bundled runner before it creates the owned process group;
+      // this contract tests interruption cleanup, not a two-second module-startup budget.
+      const startupDeadline = Date.now() + 10_000;
+      while (
+        Date.now() < startupDeadline &&
+        helper.exitCode === null &&
+        helper.signalCode === null
+      ) {
         try {
           const pids = JSON.parse(await readFile(pidPath, 'utf8')) as {
             parentPid: number;

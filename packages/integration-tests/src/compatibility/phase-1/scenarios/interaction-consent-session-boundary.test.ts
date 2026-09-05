@@ -1,6 +1,7 @@
 /* eslint-disable max-lines, complexity, max-params, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-assignment -- The complete 14-request matrix, opaque store relationships, and adversarial factory override stay in one structural harness. */
 import { SymbolTable } from '../../symbol-table.js';
 import { MemoryProtocolSecretStore, type ProtocolRequestOptions } from '../clients/oidc.js';
+import { getPhase1FixtureRuntimeText, getPhase1FixtureRuntimeUsername } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
 
 import {
@@ -20,6 +21,14 @@ const foreignTarget = {
 };
 const dataAllocationId = 'consent-data-allocation';
 const foreignAllocationId = 'consent-foreign-allocation';
+const runtimePrimaryPeerUsername = getPhase1FixtureRuntimeUsername(
+  'phase1-user_boundary_b',
+  dataAllocationId
+);
+const runtimePrimaryPeerApplicationName = getPhase1FixtureRuntimeText(
+  'consent.primary client B',
+  dataAllocationId
+);
 const fixtureMap = {
   schemaVersion: 1 as const,
   recipe: 'consentBoundary' as const,
@@ -300,8 +309,11 @@ const createHarness = ({ mutateState, mutateCallback, encodedLeak }: HarnessOpti
             return response(
               200,
               {
-                application: { id: 'runtime-client-b', name: 'Client B' },
-                user: { id: 'runtime-user-b', username: 'phase1-user_boundary_b' },
+                application: {
+                  id: 'runtime-client-b',
+                  name: runtimePrimaryPeerApplicationName,
+                },
+                user: { id: 'runtime-user-b', username: runtimePrimaryPeerUsername },
                 organizations: [],
                 missingOIDCScope: [],
                 missingResourceScopes: [],
@@ -499,6 +511,16 @@ describe('interaction.consent-session-boundary', () => {
       status: 200,
       error: null,
       redirect: { resumeCredential: expect.any(String) },
+    });
+    expect(steps.find(({ stepId }) => stepId === 'get-valid-b')?.value.body).toMatchObject({
+      application: {
+        id: '<application.consent.primary.client-b>',
+        name: '<fixture.consent.primary.client-b.name>',
+      },
+      user: {
+        id: '<user.consent.primary.user-b>',
+        username: '<fixture.consent.primary.user-b.username>',
+      },
     });
     expect(
       harness.setupRequests.filter(({ operation }) => operation === 'consent-boundary-b-resume')

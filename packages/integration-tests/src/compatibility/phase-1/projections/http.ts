@@ -80,6 +80,7 @@ export const phase1CookieMetadataGuard = z
       .strict()
       .optional(),
     expiryOffsetSeconds: z.number().finite().optional(),
+    expiredAtResponse: z.literal(true).optional(),
     extensions: z.array(
       z.object({ name: z.string().min(1), value: z.string().optional() }).strict()
     ),

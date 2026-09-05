@@ -384,7 +384,7 @@ const createCorsHarness = (options: CorsHarnessOptions = {}) => {
 };
 
 describe('cors.management-list', () => {
-  it('binds runtime origins while publishing the exact logical CORS response', async () => {
+  it('binds runtime origins while publishing target-symbol CORS responses', async () => {
     const harness = createCorsHarness();
     const steps = await harness.run();
 
@@ -398,13 +398,13 @@ describe('cors.management-list', () => {
     expect(steps[0]?.value.headers).toEqual({
       'access-control-allow-headers': [requestHeaders],
       'access-control-allow-methods': ['GET,HEAD,PUT,POST,DELETE,PATCH'],
-      'access-control-allow-origin': [logicalOrigin],
+      'access-control-allow-origin': ['<target.admin-url>'],
       date: [{ $timestamp: 1000, $toleranceSeconds: 30 }],
       'logto-core-request-id': ['<per-request-id>'],
       vary: ['Origin'],
     });
     expect(steps[2]?.value.headers).toEqual({
-      'access-control-allow-origin': [logicalOrigin],
+      'access-control-allow-origin': ['<target.admin-url>'],
       'access-control-expose-headers': ['*'],
       'content-length': [2],
       'content-type': ['application/json; charset=utf-8'],
@@ -436,6 +436,17 @@ describe('cors.management-list', () => {
     expect(harness.foreignStore.getToken('management')).toBeUndefined();
     harness.dataStore.assertNoCredentialMaterial(steps);
     harness.foreignStore.assertNoCredentialMaterial(steps);
+  });
+
+  it('keeps target symbolization stable when the profile origin equals the runtime admin origin', async () => {
+    const harness = createCorsHarness({
+      profileOrigin: runtimeOrigin,
+      allowOriginResponse: runtimeOrigin,
+    });
+    const steps = await harness.run();
+
+    expect(steps[0]?.value.headers['access-control-allow-origin']).toEqual(['<target.admin-url>']);
+    expect(steps[2]?.value.headers['access-control-allow-origin']).toEqual(['<target.admin-url>']);
   });
 
   it.each([logicalOrigin, '*'])(

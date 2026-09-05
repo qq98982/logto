@@ -125,6 +125,42 @@ describe('phase 1 field-specific normalizers', () => {
     }
   });
 
+  it('normalizes only exact configured CORS origins', () => {
+    expect(
+      normalizeHeaders(
+        [
+          ['Access-Control-Allow-Origin', 'https://oracle.example.com'],
+          ['access-control-allow-origin', 'https://oracle-console.example.com'],
+          ['access-control-allow-origin', 'https://foreign.example'],
+          ['access-control-allow-origin', '*'],
+          ['access-control-allow-origin', 'null'],
+        ],
+        context()
+      )
+    ).toEqual({
+      'access-control-allow-origin': [
+        '<target.core-url>',
+        '<target.admin-url>',
+        'https://foreign.example',
+        '*',
+        'null',
+      ],
+    });
+    for (const invalid of [
+      'https://oracle.example.com/',
+      'https://oracle.example.com/path',
+      'https://oracle.example.com?query=value',
+      'https://oracle.example.com#fragment',
+      'https://user:password@oracle.example.com',
+      'https://oracle.example.com:443',
+      'not-an-origin',
+    ]) {
+      expect(() => normalizeHeaders([['access-control-allow-origin', invalid]], context())).toThrow(
+        'Invalid phase 1 headers'
+      );
+    }
+  });
+
   it('validates entity tags and binds them to the normalized body instead of raw runtime bytes', () => {
     const body = { id: '<user.subject>', roles: ['reader'] };
     const first = normalizeHeaders([['ETag', 'W/"40-runtime-one"']], context(), { body });
@@ -319,6 +355,45 @@ describe('phase 1 field-specific normalizers', () => {
     expect(() =>
       normalizers.normalizeClaims(
         { iss: 'https://oracle.example.com/oidc?token=private', aud: 'urn:api' },
+        normalizationContext
+      )
+    ).toThrow('Invalid phase 1 credential-bearing URL');
+  });
+
+  it('normalizes only exact bound scope tokens while preserving order and spacing', () => {
+    const normalizationContext = context();
+    normalizationContext.symbols.bind('fixture.data.scope-name', 'runtime-scope-value');
+
+    expect(
+      normalizers.normalizeClaims(
+        { scope: 'openid runtime-scope-value  profile' },
+        normalizationContext
+      )
+    ).toEqual({ scope: 'openid <fixture.data.scope-name>  profile' });
+    expect(
+      normalizeTokenResponse(
+        {
+          access_token: 'opaque-private-access-token',
+          scope: 'openid runtime-scope-value  profile',
+        },
+        normalizationContext
+      ).scope
+    ).toBe('openid <fixture.data.scope-name>  profile');
+    expect(
+      normalizers.normalizeClaims(
+        { scope: 'openid prefixruntime-scope-value suffix' },
+        normalizationContext
+      )
+    ).toEqual({ scope: 'openid prefixruntime-scope-value suffix' });
+    expect(
+      normalizers.normalizeClaims(
+        { scope: 'openid https://resource.example/scope' },
+        normalizationContext
+      )
+    ).toEqual({ scope: 'openid https://resource.example/scope' });
+    expect(() =>
+      normalizers.normalizeClaims(
+        { scope: 'openid https://resource.example/scope?token=private' },
         normalizationContext
       )
     ).toThrow('Invalid phase 1 credential-bearing URL');
@@ -615,7 +690,7 @@ describe('phase 1 field-specific normalizers', () => {
     ).toThrow('Invalid phase 1 cookie continuity');
   });
 
-  it('uses 30-second timestamp bounds and preserves exact cookie expiry offsets', () => {
+  it('uses 30-second timestamp bounds and canonicalizes only epoch deletion expiry', () => {
     const first = normalizers.normalizeClaims(
       { iat: 1000, exp: 4600, nbf: 900, created_at: 990 },
       context(),
@@ -719,6 +794,70 @@ describe('phase 1 field-specific normalizers', () => {
         extensions: [],
         expires: { $timestamp: 4600, $toleranceSeconds: 30 },
         expiryOffsetSeconds: 3600,
+      },
+    ]);
+    expect(
+      normalizeHeaders(
+        [
+          [
+            'set-cookie',
+            '_interaction.sig=; Path=/; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+          ],
+          ['date', 'Thu, 01 Jan 1970 00:16:40 GMT'],
+        ],
+        context()
+      )['set-cookie']
+    ).toEqual([
+      {
+        name: '_interaction.sig',
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        extensions: [],
+        expires: { $timestamp: 0, $toleranceSeconds: 30 },
+        expiredAtResponse: true,
+      },
+    ]);
+    const normalizeCookieAtResponseDate = (expires: string) =>
+      normalizeHeaders(
+        [
+          ['set-cookie', `interaction=value; Path=/; HttpOnly; Expires=${expires}`],
+          ['date', 'Thu, 01 Jan 1970 00:16:40 GMT'],
+        ],
+        context()
+      )['set-cookie'];
+
+    expect(normalizeCookieAtResponseDate('Thu, 01 Jan 1970 00:16:39 GMT')).toEqual([
+      {
+        name: 'interaction',
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        extensions: [],
+        expires: { $timestamp: 999, $toleranceSeconds: 30 },
+        expiryOffsetSeconds: -1,
+      },
+    ]);
+    expect(normalizeCookieAtResponseDate('Thu, 01 Jan 1970 00:16:40 GMT')).toEqual([
+      {
+        name: 'interaction',
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        extensions: [],
+        expires: { $timestamp: 1000, $toleranceSeconds: 30 },
+        expiryOffsetSeconds: 0,
+      },
+    ]);
+    expect(normalizeCookieAtResponseDate('Thu, 01 Jan 1970 00:16:41 GMT')).toEqual([
+      {
+        name: 'interaction',
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        extensions: [],
+        expires: { $timestamp: 1001, $toleranceSeconds: 30 },
+        expiryOffsetSeconds: 1,
       },
     ]);
     expect(() =>

@@ -47,5 +47,5 @@ export const projectConsentObservation = (
     return projection;
   }
 
-  return projectHttpObservation(value, context);
+  return projectHttpObservation({ ...value, body }, context);
 };

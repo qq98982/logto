@@ -13,11 +13,13 @@ import {
 export const commonNormalizationPointers = Object.freeze([
   '/steps/*/value/headers/date/*',
   '/steps/*/value/headers/content-length/*',
+  '/steps/*/value/headers/access-control-allow-origin/*',
   '/steps/*/value/cookies/*/expires',
   '/steps/*/value/error/iss',
   '/steps/*/value/error/issuer',
   '/steps/*/value/body/iss',
   '/steps/*/value/body/issuer',
+  '/steps/*/value/body/scope',
   '/steps/*/value/redirect/origin',
   '/steps/*/value/redirect/query/app_id/*',
   '/steps/*/value/redirect/query/iss/*',
@@ -26,6 +28,7 @@ export const commonNormalizationPointers = Object.freeze([
   '/steps/*/value/urls/*/query/iss/*',
   '/steps/*/value/tokens/*/header/kid',
   '/steps/*/value/tokens/*/claims/iss',
+  '/steps/*/value/tokens/*/claims/scope',
   '/steps/*/value/tokens/*/claims/iat',
   '/steps/*/value/tokens/*/claims/exp',
   '/steps/*/value/tokens/*/claims/auth_time',
@@ -54,6 +57,7 @@ export type Phase1ProjectionLeaf = Readonly<{
     | 'bounded-timestamp'
     | 'sanitized-body-byte-length'
     | 'target-symbol'
+    | 'bound-scope-token-list'
     | 'generated-id'
     | 'stable-semantic-sort';
 }>;
@@ -300,7 +304,7 @@ const rawContracts: readonly RawContract[] = [
     id: 'token.refresh-reuse-rejected',
     steps: [
       ['code-token', ['http']],
-      ['rotate', ['http']],
+      ['rotate', ['http', 'jwt-header', 'jwt-claims']],
       ['replay-old', ['http']],
       ['probe-descendant', ['http']],
       ['state', ['semantic-state']],
@@ -336,8 +340,8 @@ const rawContracts: readonly RawContract[] = [
   {
     id: 'token.concurrent-refresh-single-winner',
     steps: [
-      ['attempt-a', ['http']],
-      ['attempt-b', ['http']],
+      ['attempt-a', ['http', 'jwt-header', 'jwt-claims']],
+      ['attempt-b', ['http', 'jwt-header', 'jwt-claims']],
       ['race', ['semantic-state']],
       ['state', ['semantic-state']],
     ],
@@ -483,10 +487,12 @@ const stepProjectionLeaves = ({
         leaf(`/steps/${id}/value/headers/*/*`, 'exact'),
         leaf(`/steps/${id}/value/headers/date/*`, 'bounded-timestamp'),
         leaf(`/steps/${id}/value/headers/content-length/*`, 'sanitized-body-byte-length'),
+        leaf(`/steps/${id}/value/headers/access-control-allow-origin/*`, 'target-symbol'),
         // Projectors that publish a structured body redirect mirror must prove it equals redirect.
         leaf(`/steps/${id}/value/body/**`, 'exact'),
         leaf(`/steps/${id}/value/body/iss`, 'target-symbol'),
         leaf(`/steps/${id}/value/body/issuer`, 'target-symbol'),
+        leaf(`/steps/${id}/value/body/scope`, 'bound-scope-token-list'),
         leaf(`/steps/${id}/value/sideEffects/**`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/**`, 'exact'),
         leaf(`/steps/${id}/value/urls/*/scheme`, 'exact'),
@@ -535,7 +541,7 @@ const stepProjectionLeaves = ({
         leaf(`/steps/${id}/value/tokens/*/claims/**`, 'exact'),
         leaf(`/steps/${id}/value/tokens/*/claims/iss`, 'target-symbol'),
         leaf(`/steps/${id}/value/tokens/*/claims/aud`, 'exact'),
-        leaf(`/steps/${id}/value/tokens/*/claims/scope`, 'exact'),
+        leaf(`/steps/${id}/value/tokens/*/claims/scope`, 'bound-scope-token-list'),
         leaf(`/steps/${id}/value/tokens/*/claims/iat`, 'bounded-timestamp'),
         leaf(`/steps/${id}/value/tokens/*/claims/exp`, 'bounded-timestamp'),
         leaf(`/steps/${id}/value/tokens/*/claims/auth_time`, 'bounded-timestamp'),

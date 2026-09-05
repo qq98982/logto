@@ -262,6 +262,28 @@ describe('phase 1 projections', () => {
     expect(JSON.stringify(projection)).not.toContain('private-resume');
   });
 
+  it('publishes the normalized consent body when no redirect is present', () => {
+    const symbols = new SymbolTable();
+    symbols.bind('application.consent.primary.client-b', 'runtime-client-b');
+    symbols.bind('fixture.consent.primary.client-b.name', 'runtime-client-name');
+    const projection = projectConsentObservation(
+      raw({
+        application: { id: 'runtime-client-b', name: 'runtime-client-name' },
+      }),
+      {
+        ...context,
+        symbols,
+      }
+    );
+
+    expect(projection.body).toEqual({
+      application: {
+        id: '<application.consent.primary.client-b>',
+        name: '<fixture.consent.primary.client-b.name>',
+      },
+    });
+  });
+
   it('auto-detects an unhinted target resume Location without leaking its path credential', () => {
     const resumeUrl = 'https://candidate.example.com/oidc/auth/unhinted-private-resume';
     const projection = projectHttpObservation(

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Raw CORS validation, branch-specific rejection, and canonical HTTP projection stay adjacent as one auditable protocol boundary. */
 import { isDeepStrictEqual } from 'node:util';
 
 import { jsonValueGuard } from '../../model.js';
@@ -99,23 +98,15 @@ const validateLinkHeader = (value: string, runtimeTargetOrigin: string): string 
   return value;
 };
 
-const canonicalCorsHeaders = (
+const validateCorsHeaders = (
   headers: RawProtocolResponse['headers'],
-  origins: Readonly<{
-    runtime: string;
-    logical: string;
-    runtimeTarget: string;
-  }>
+  runtimeTargetOrigin: string
 ): RawProtocolResponse['headers'] =>
   Object.freeze(
     headers.map(([name, value]) => {
       const normalizedName = name.toLowerCase();
       const canonicalValue =
-        normalizedName === 'access-control-allow-origin' && value === origins.runtime
-          ? origins.logical
-          : normalizedName === 'link'
-            ? validateLinkHeader(value, origins.runtimeTarget)
-            : value;
+        normalizedName === 'link' ? validateLinkHeader(value, runtimeTargetOrigin) : value;
 
       return Object.freeze([name, canonicalValue] as const);
     })
@@ -314,11 +305,7 @@ export const runCorsManagementList = async (
               {
                 ...state,
                 status: response.status,
-                headers: canonicalCorsHeaders(response.headers, {
-                  runtime: runtimeOrigin,
-                  logical: allowOriginResponse,
-                  runtimeTarget: runtimeTargetOrigin,
-                }),
+                headers: validateCorsHeaders(response.headers, runtimeTargetOrigin),
                 body,
               },
               normalizationContext
@@ -338,5 +325,3 @@ export const runCorsManagementList = async (
 
   return result;
 };
-
-/* eslint-enable max-lines */

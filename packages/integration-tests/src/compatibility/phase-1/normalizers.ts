@@ -74,6 +74,7 @@ export type Phase1CookieMetadata = Omit<CookieMetadata, 'expires'> &
     extensions: ReadonlyArray<Readonly<{ name: string; value?: string }>>;
     expires?: Readonly<{ $timestamp: number; $toleranceSeconds: 30 }>;
     expiryOffsetSeconds?: number;
+    expiredAtResponse?: true;
   }>;
 
 const fixedFailure = (message: string): never => {
@@ -201,6 +202,31 @@ const normalizeConfiguredTargetUrl = (value: string, context: NormalizationConte
     (normalizedOrigin === '<target.core-url>' || normalizedOrigin === '<target.admin-url>')
     ? `${normalizedOrigin}${suffix}`
     : value;
+};
+
+const normalizeCorsOrigin = (value: string, context: NormalizationContext): string => {
+  if (value === '*' || value === 'null') {
+    return value;
+  }
+
+  const url = (() => {
+    try {
+      return new URL(value);
+    } catch {}
+  })();
+
+  if (
+    !url ||
+    value !== url.origin ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    return fixedFailure('Invalid phase 1 CORS origin');
+  }
+
+  return normalizeRedirectOrigin(url, context);
 };
 
 const normalizeCoreRequestId = (value: string): JsonValue =>
@@ -332,6 +358,17 @@ const normalizeExactLogicalJson = (
 
   return value;
 };
+
+const normalizeBoundScopeTokens = (value: string, context: NormalizationContext): string =>
+  value
+    .split(' ')
+    .map((scope) => {
+      assertCredentialFreeUrlValue(scope);
+      const logicalName = context.symbols.getLogicalName(scope);
+
+      return logicalName ? `<${logicalName}>` : scope;
+    })
+    .join(' ');
 
 const credentialParameterCounts = <Component extends 'query' | 'fragment'>(
   entries: ReadonlyArray<readonly [string, string]>,
@@ -848,7 +885,9 @@ const normalizeCookieMetadata = (
     }),
     ...(responseDateSeconds === undefined
       ? {}
-      : { expiryOffsetSeconds: expirationSeconds - responseDateSeconds }),
+      : expirationSeconds === 0 && expirationSeconds <= responseDateSeconds
+        ? { expiredAtResponse: true as const }
+        : { expiryOffsetSeconds: expirationSeconds - responseDateSeconds }),
   });
 };
 
@@ -877,37 +916,39 @@ const normalizeHeadersValue = (
       }
       const name = rawName.toLowerCase();
       const value: JsonValue =
-        name === 'set-cookie'
-          ? parseJson(
-              normalizeCookieMetadata(normalizeRawSetCookie(rawValue), responseDateSeconds),
-              'Invalid phase 1 Set-Cookie header'
-            )
-          : name === 'location'
+        name === 'access-control-allow-origin'
+          ? normalizeCorsOrigin(rawValue, context)
+          : name === 'set-cookie'
             ? parseJson(
-                (() => {
-                  try {
-                    return normalizeResumeRedirect(rawValue, context);
-                  } catch {
-                    return normalizeRedirect(rawValue, context);
-                  }
-                })(),
-                'Invalid phase 1 Location header'
+                normalizeCookieMetadata(normalizeRawSetCookie(rawValue), responseDateSeconds),
+                'Invalid phase 1 Set-Cookie header'
               )
-            : name === 'date'
-              ? normalizeDateHeader(rawValue)
-              : name === 'content-length'
-                ? normalizeContentLength(rawValue, options.bodyByteLength)
-                : name === 'etag'
-                  ? normalizeEntityTag(rawValue, options.body)
-                  : name === 'logto-core-request-id'
-                    ? normalizeCoreRequestId(rawValue)
-                    : name === 'link'
-                      ? normalizeLinkHeader(rawValue, context)
-                      : name === 'www-authenticate' || name === 'proxy-authenticate'
-                        ? normalizeAuthChallenge(rawValue, context)
-                        : isPhase1CredentialKey(name)
-                          ? '<redacted-header-value>'
-                          : rawValue;
+            : name === 'location'
+              ? parseJson(
+                  (() => {
+                    try {
+                      return normalizeResumeRedirect(rawValue, context);
+                    } catch {
+                      return normalizeRedirect(rawValue, context);
+                    }
+                  })(),
+                  'Invalid phase 1 Location header'
+                )
+              : name === 'date'
+                ? normalizeDateHeader(rawValue)
+                : name === 'content-length'
+                  ? normalizeContentLength(rawValue, options.bodyByteLength)
+                  : name === 'etag'
+                    ? normalizeEntityTag(rawValue, options.body)
+                    : name === 'logto-core-request-id'
+                      ? normalizeCoreRequestId(rawValue)
+                      : name === 'link'
+                        ? normalizeLinkHeader(rawValue, context)
+                        : name === 'www-authenticate' || name === 'proxy-authenticate'
+                          ? normalizeAuthChallenge(rawValue, context)
+                          : isPhase1CredentialKey(name)
+                            ? '<redacted-header-value>'
+                            : rawValue;
       result[name] = [...(result[name] ?? []), value];
     }
 
@@ -991,6 +1032,9 @@ const normalizeClaimObject = (
         return typeof normalizedIssuer === 'string'
           ? [[key, normalizeConfiguredTargetUrl(normalizedIssuer, context)]]
           : fixedFailure('Invalid phase 1 claims');
+      }
+      if (key === 'scope' && typeof rawValue === 'string') {
+        return [[key, normalizeBoundScopeTokens(rawValue, context)]];
       }
 
       return [[key, stableJson(normalizeExactLogicalJson(rawValue, context, [key]))]];
@@ -1388,7 +1432,7 @@ export const normalizeTokenResponse = (
         if (typeof rawValue !== 'string') {
           return fixedFailure('Invalid phase 1 token response');
         }
-        normalized.scope = rawValue;
+        normalized.scope = normalizeBoundScopeTokens(rawValue, context);
         break;
       }
       default: {
