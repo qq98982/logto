@@ -173,7 +173,8 @@ describe('phase 1 field-specific normalizers', () => {
 
   it('preserves authentication challenge semantics while redacting only credentials', () => {
     const normalized = normalizeAuthChallenge(
-      'Bearer realm="api", error="invalid_token", scope="read write", token="private-token", Basic realm="fallback,api"'
+      'Bearer realm="api", error="invalid_token", scope="read write", token="private-token", Basic realm="fallback,api"',
+      context()
     );
 
     expect(normalized).toEqual({
@@ -196,12 +197,47 @@ describe('phase 1 field-specific normalizers', () => {
       ],
     });
     expect(JSON.stringify(normalized)).not.toContain('private-token');
-    expect(normalizeAuthChallenge('Negotiate private-token68==')).toEqual({
+    expect(normalizeAuthChallenge('Negotiate private-token68==', context())).toEqual({
       challenges: [
         {
           scheme: 'Negotiate',
           format: 'token68',
           parameters: ['<redacted-auth-token68>'],
+        },
+      ],
+    });
+    expect(
+      normalizeAuthChallenge(
+        'Bearer realm="https://oracle.example.com/oidc", error="invalid_token"',
+        context()
+      )
+    ).toEqual({
+      challenges: [
+        {
+          scheme: 'Bearer',
+          format: 'parameters',
+          parameters: [
+            { name: 'realm', value: '<target.core-url>/oidc', quoted: true },
+            { name: 'error', value: 'invalid_token', quoted: true },
+          ],
+        },
+      ],
+    });
+    expect(
+      normalizeAuthChallenge('Bearer realm="https://foreign.example/oidc"', context())
+    ).toMatchObject({
+      challenges: [
+        {
+          parameters: [{ name: 'realm', value: 'https://foreign.example/oidc', quoted: true }],
+        },
+      ],
+    });
+    expect(
+      normalizeAuthChallenge('Bearer realm="https://oracle-console.example.com/oidc"', context())
+    ).toMatchObject({
+      challenges: [
+        {
+          parameters: [{ name: 'realm', value: '<target.admin-url>/oidc', quoted: true }],
         },
       ],
     });

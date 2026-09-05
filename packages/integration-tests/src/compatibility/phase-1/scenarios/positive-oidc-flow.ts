@@ -174,6 +174,7 @@ export type PositiveOidcFlowOptions = Readonly<{
   random?: PositiveOidcFlowRandomSource;
   includeResource?: boolean;
   captureSteps?: boolean;
+  expectOidcConsentAlreadyGranted?: boolean;
 }>;
 
 export type PositiveOidcAuthorizationRequestOptions = Readonly<{
@@ -1495,12 +1496,16 @@ export const withPositiveOidcFlow = async <Result>(
       consentGetResponse.body,
       'Phase 1 consent response is invalid'
     );
+    const missingOidcScopesMatch = options.expectOidcConsentAlreadyGranted
+      ? consentGetBody.missingOIDCScope === undefined ||
+        isDeepStrictEqual(consentGetBody.missingOIDCScope, [])
+      : isDeepStrictEqual(consentGetBody.missingOIDCScope, application.userConsentScopes);
 
     if (
       (consentGetBody.application as JsonObject | undefined)?.id !== clientId ||
       (consentGetBody.user as JsonObject | undefined)?.id !== userId ||
       consentGetBody.redirectUri !== redirectUri ||
-      !isDeepStrictEqual(consentGetBody.missingOIDCScope, application.userConsentScopes) ||
+      !missingOidcScopesMatch ||
       !isDeepStrictEqual(
         consentGetBody.missingResourceScopes,
         resource

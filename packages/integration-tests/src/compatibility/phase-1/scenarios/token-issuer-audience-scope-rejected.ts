@@ -232,7 +232,7 @@ const requireRejectedResponse = (
   response: RawProtocolResponse,
   surface: 'management' | 'userinfo',
   expected: ExpectedRejection,
-  userinfoIssuer: string
+  expectedChallengeIssuer?: string
 ): JsonObject => {
   const diagnostic = `Phase 1 ${surface} authority rejection is invalid`;
   const mediaTypes = headerValues(response, 'content-type').map((value) =>
@@ -240,9 +240,16 @@ const requireRejectedResponse = (
   );
   const body = parseJson(response, diagnostic);
   const challenges = headerValues(response, 'www-authenticate');
-  const expectedChallenge = expected.challenge
-    ? `Bearer realm="${userinfoIssuer}", error="${expected.challenge.error}", error_description="${expected.challenge.description}"${expected.challenge.scope ? `, scope="${expected.challenge.scope}"` : ''}`
-    : undefined;
+  const expectedChallenge = (() => {
+    if (!expected.challenge) {
+      return;
+    }
+    if (!expectedChallengeIssuer) {
+      throw new Error(diagnostic);
+    }
+
+    return `Bearer realm="${expectedChallengeIssuer}", error="${expected.challenge.error}", error_description="${expected.challenge.description}"${expected.challenge.scope ? `, scope="${expected.challenge.scope}"` : ''}`;
+  })();
 
   if (
     response.status !== expected.status ||
@@ -292,17 +299,40 @@ const projectPair = async (
   normalizationContext: NormalizationContext
 ): Promise<Phase1ScenarioStepResult> => {
   const contract = authorityContracts[variant];
+  const { issuerPath } = context.profile.oidc;
+
+  if (!issuerPath.startsWith('/') || issuerPath.slice(1).startsWith('/')) {
+    throw new Error('Phase 1 issuer path is invalid');
+  }
+  const userinfoIssuer = (() => {
+    try {
+      const issuer = new URL(issuerPath, context.target.adminUrl);
+
+      if (
+        issuer.origin !== new URL(context.target.adminUrl).origin ||
+        issuer.username.length > 0 ||
+        issuer.password.length > 0 ||
+        issuer.search.length > 0 ||
+        issuer.hash.length > 0
+      ) {
+        throw new TypeError('invalid issuer path');
+      }
+
+      return issuer.href.replace(/\/$/u, '');
+    } catch {
+      throw new Error('Phase 1 issuer path is invalid');
+    }
+  })();
   const managementBody = requireRejectedResponse(
     pair.management,
     'management',
-    expectedManagementRejection(variant, pair.managementToken),
-    context.profile.consoleAuthentication.issuer
+    expectedManagementRejection(variant, pair.managementToken)
   );
   const userinfoBody = requireRejectedResponse(
     pair.userinfo,
     'userinfo',
     contract.userinfo,
-    context.profile.consoleAuthentication.issuer
+    userinfoIssuer
   );
   const state = await context.projectScenarioState({
     scenarioId,
@@ -439,7 +469,12 @@ export const runTokenIssuerAudienceScopeRejected = async (
       }
       const { result: authorityResult } = await runOidcFlow(
         context,
-        { ...dependencies.oidcFlowOptions, captureSteps: false, includeResource: true },
+        {
+          ...dependencies.oidcFlowOptions,
+          captureSteps: false,
+          includeResource: true,
+          expectOidcConsentAlreadyGranted: false,
+        },
         async (authorizationGrant) => {
           const dataGrant = await exchangeDataCode(context, authorizationGrant);
           try {
@@ -454,7 +489,12 @@ export const runTokenIssuerAudienceScopeRejected = async (
             }
             const { result: unresourcedResult } = await runOidcFlow(
               context,
-              { ...dependencies.oidcFlowOptions, captureSteps: false, includeResource: false },
+              {
+                ...dependencies.oidcFlowOptions,
+                captureSteps: false,
+                includeResource: false,
+                expectOidcConsentAlreadyGranted: true,
+              },
               async (unresourcedAuthorizationGrant) => {
                 const unresourcedGrant = await exchangeDataCode(
                   context,

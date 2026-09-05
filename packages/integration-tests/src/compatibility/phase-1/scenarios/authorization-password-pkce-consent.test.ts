@@ -196,6 +196,8 @@ const createHarness = (
     secondaryCookieCredential?: string;
     secondaryCookiePath?: string;
     overlapCookieCredential?: string;
+    missingOidcScopes?: readonly string[];
+    omitMissingOidcScopes?: boolean;
   }> = {}
 ) => {
   const store = new MemoryProtocolSecretStore();
@@ -349,7 +351,16 @@ const createHarness = (
               application: { id: runtimeApplicationId, name: runtimeApplicationName },
               user: { id: runtimeUserId, username: runtimeUsername },
               organizations: [],
-              missingOIDCScope: ['profile', 'email', 'address', 'phone'],
+              ...(harnessOptions.omitMissingOidcScopes
+                ? {}
+                : {
+                    missingOIDCScope: harnessOptions.missingOidcScopes ?? [
+                      'profile',
+                      'email',
+                      'address',
+                      'phone',
+                    ],
+                  }),
               missingResourceScopes:
                 harnessOptions.includeResource === false
                   ? []
@@ -626,6 +637,58 @@ describe('authorization.password-pkce-consent', () => {
     expect(serialized).not.toMatch(
       /fixture-password-private|state-private-value|code-private-value|verification-private-value|interaction-private-value|resume-private|session-private|signature-private/u
     );
+  });
+
+  it.each([
+    ['an omitted field', { omitMissingOidcScopes: true }],
+    ['an exact empty array', { missingOidcScopes: [] }],
+  ] as const)('accepts %s after prior OIDC consent', async (_name, consentShape) => {
+    const harness = createHarness({ includeResource: false, ...consentShape });
+    const consume = import.meta.jest.fn(async () => null);
+    const output = await withPositiveOidcFlow(
+      harness.context,
+      {
+        random: harness.random,
+        captureSteps: false,
+        includeResource: false,
+        expectOidcConsentAlreadyGranted: true,
+      },
+      consume
+    );
+
+    expect(output).toEqual({ steps: [], result: null });
+    expect(consume).toHaveBeenCalledTimes(1);
+    expect(harness.semanticReads).toEqual([]);
+    expect(harness.records.map(({ operation }) => operation)).toContain('consent-get');
+  });
+
+  it('rejects non-empty missing scopes after prior OIDC consent', async () => {
+    const harness = createHarness({ includeResource: false, missingOidcScopes: ['profile'] });
+
+    await expect(
+      withPositiveOidcFlow(
+        harness.context,
+        {
+          random: harness.random,
+          captureSteps: false,
+          includeResource: false,
+          expectOidcConsentAlreadyGranted: true,
+        },
+        async () => null
+      )
+    ).rejects.toThrow('Phase 1 consent response is invalid');
+  });
+
+  it('keeps an omitted missing-scope field invalid for a fresh consent flow', async () => {
+    const harness = createHarness({ includeResource: false, omitMissingOidcScopes: true });
+
+    await expect(
+      withPositiveOidcFlow(
+        harness.context,
+        { random: harness.random, captureSteps: false, includeResource: false },
+        async () => null
+      )
+    ).rejects.toThrow('Phase 1 consent response is invalid');
   });
 
   it('publishes the authorization scenario without the credential handle', async () => {

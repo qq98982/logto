@@ -4,6 +4,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { SymbolTable } from '../../symbol-table.js';
 import { createDifferentialEvidence } from '../evidence.js';
 import { oracleCommit, phase0HarnessCommit } from '../model.js';
+import { normalizeHeaders } from '../normalizers.js';
 
 import {
   phase1ProjectionModuleIds,
@@ -149,6 +150,44 @@ describe('phase 1 projections', () => {
     expect(() =>
       projectHttpObservation(
         raw({ metadata: { issuer: 'https://candidate.example.com/oidc?code=private' } }),
+        context
+      )
+    ).toThrow('Invalid phase 1 HTTP projection');
+  });
+
+  it('preserves validated nested header projections without bypassing credential scans', () => {
+    const headers = normalizeHeaders(
+      [
+        ['x-upstream', 'https://foreign.example/resource'],
+        [
+          'www-authenticate',
+          'Bearer realm="https://candidate-console.example.com/oidc", error="invalid_token"',
+        ],
+      ],
+      context
+    );
+    const projection = projectHttpObservation(raw({ nested: { headers } }), context);
+
+    expect(projection.body).toEqual({ nested: { headers } });
+    expect(headers['www-authenticate']).toMatchObject([
+      {
+        challenges: [
+          {
+            parameters: [
+              { name: 'realm', value: '<target.admin-url>/oidc', quoted: true },
+              { name: 'error', value: 'invalid_token', quoted: true },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(() =>
+      projectHttpObservation(
+        raw({
+          nested: {
+            headers: { 'x-upstream': ['https://client.example/callback?code=private-code'] },
+          },
+        }),
         context
       )
     ).toThrow('Invalid phase 1 HTTP projection');

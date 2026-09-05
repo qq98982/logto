@@ -166,6 +166,17 @@ const assertCredentialFreeUrl = (url: URL): void => {
   }
 };
 
+const assertCredentialFreeUrlValue = (value: string): void => {
+  try {
+    assertCredentialFreeUrl(new URL(value));
+  } catch (error: unknown) {
+    if (error instanceof TypeError && error.message === 'Invalid phase 1 credential-bearing URL') {
+      throw error;
+    }
+    // Ordinary non-URL header values remain exact.
+  }
+};
+
 const normalizeConfiguredTargetUrl = (value: string, context: NormalizationContext): string => {
   const url = (() => {
     try {
@@ -560,19 +571,28 @@ const readAuthQuotedValue = (cursor: AuthChallengeCursor): string => {
   return fixedFailure('Invalid phase 1 authentication challenge');
 };
 
-const sanitizeAuthParameter = (name: string, value: string): string => {
+const sanitizeAuthParameter = (
+  name: string,
+  value: string,
+  context: NormalizationContext
+): string => {
   if (authCredentialParameterPattern.test(name)) {
     return '<redacted-auth-parameter>';
   }
   try {
-    assertEvidenceIsSanitized({ value });
-    return value;
+    const normalized =
+      name.toLowerCase() === 'realm' ? normalizeConfiguredTargetUrl(value, context) : value;
+    assertEvidenceIsSanitized({ value: normalized });
+    return normalized;
   } catch {
     return '<redacted-auth-parameter>';
   }
 };
 
-const readAuthParameter = (cursor: AuthChallengeCursor): JsonObject => {
+const readAuthParameter = (
+  cursor: AuthChallengeCursor,
+  context: NormalizationContext
+): JsonObject => {
   const name = readAuthToken(cursor);
   skipAuthWhitespace(cursor);
   if (cursor.value[cursor.offset] !== '=') {
@@ -583,7 +603,7 @@ const readAuthParameter = (cursor: AuthChallengeCursor): JsonObject => {
   const quoted = cursor.value[cursor.offset] === '"';
   const rawValue = quoted ? readAuthQuotedValue(cursor) : readAuthToken(cursor);
 
-  return Object.freeze({ name, value: sanitizeAuthParameter(name, rawValue), quoted });
+  return Object.freeze({ name, value: sanitizeAuthParameter(name, rawValue, context), quoted });
 };
 
 const nextAuthItemIsParameter = (cursor: AuthChallengeCursor): boolean => {
@@ -598,11 +618,14 @@ const nextAuthItemIsParameter = (cursor: AuthChallengeCursor): boolean => {
   }
 };
 
-const readAuthParameters = (cursor: AuthChallengeCursor): JsonValue[] => {
+const readAuthParameters = (
+  cursor: AuthChallengeCursor,
+  context: NormalizationContext
+): JsonValue[] => {
   const parameters: JsonValue[] = [];
 
   while (cursor.offset < cursor.value.length) {
-    parameters.push(readAuthParameter(cursor));
+    parameters.push(readAuthParameter(cursor, context));
     skipAuthWhitespace(cursor);
     if (cursor.offset === cursor.value.length) {
       break;
@@ -620,7 +643,7 @@ const readAuthParameters = (cursor: AuthChallengeCursor): JsonValue[] => {
   return parameters;
 };
 
-export const normalizeAuthChallenge = (value: string): JsonValue => {
+export const normalizeAuthChallenge = (value: string, context: NormalizationContext): JsonValue => {
   if (typeof value !== 'string' || value.length === 0) {
     return fixedFailure('Invalid phase 1 authentication challenge');
   }
@@ -666,7 +689,11 @@ export const normalizeAuthChallenge = (value: string): JsonValue => {
       continue;
     }
     challenges.push(
-      Object.freeze({ scheme, format: 'parameters', parameters: readAuthParameters(cursor) })
+      Object.freeze({
+        scheme,
+        format: 'parameters',
+        parameters: readAuthParameters(cursor, context),
+      })
     );
   }
 
@@ -877,7 +904,7 @@ const normalizeHeadersValue = (
                     : name === 'link'
                       ? normalizeLinkHeader(rawValue, context)
                       : name === 'www-authenticate' || name === 'proxy-authenticate'
-                        ? normalizeAuthChallenge(rawValue)
+                        ? normalizeAuthChallenge(rawValue, context)
                         : isPhase1CredentialKey(name)
                           ? '<redacted-header-value>'
                           : rawValue;
@@ -901,7 +928,10 @@ const normalizeHeadersValue = (
 
 export const normalizeHeaders = Object.freeze(
   // eslint-disable-next-line @silverhand/fp/no-mutating-assign -- Keep the credential classifier attached to the existing reviewed normalizer export instead of widening the exact module authority surface.
-  Object.assign(normalizeHeadersValue, { isCredentialKey: isPhase1CredentialKey })
+  Object.assign(normalizeHeadersValue, {
+    isCredentialKey: isPhase1CredentialKey,
+    assertCredentialFreeUrlValue,
+  })
 );
 
 const normalizeClaimObject = (

@@ -5,8 +5,11 @@ import {
   protocolHeaderPairs,
   type ProtocolRequestOptions,
 } from '../clients/oidc.js';
+import { assertPhase1RuntimeCredentialGraphIsSanitized } from '../fixtures.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
 
+import { phase1DifferentialScenarios } from './index.js';
 import type { PositiveAdminSession } from './positive-admin-flow.js';
 import {
   runTokenIssuerAudienceScopeRejected,
@@ -83,6 +86,8 @@ const createHarness = (
     mismatchJosePayload?: boolean;
     signatureOnly?: boolean;
     ignoredAuthority?: 'audience' | 'scope';
+    wrongUserinfoRealm?: boolean;
+    issuerPath?: string;
   }> = {}
 ) => {
   const adminStore = new MemoryProtocolSecretStore();
@@ -161,6 +166,9 @@ const createHarness = (
                 error_description: 'invalid token provided',
               };
     const leaked = variant === options.leakVariant ? encodeAll(token) : undefined;
+    const userinfoRealm = options.wrongUserinfoRealm
+      ? 'https://logical-admin.example/oidc'
+      : `${target.adminUrl}oidc`;
 
     return {
       status,
@@ -172,8 +180,8 @@ const createHarness = (
               [
                 'www-authenticate',
                 status === 403
-                  ? `Bearer realm="${target.adminUrl}oidc", error="insufficient_scope", error_description="access token missing openid scope", scope="openid"`
-                  : `Bearer realm="${target.adminUrl}oidc", error="invalid_token", error_description="invalid token provided"`,
+                  ? `Bearer realm="${userinfoRealm}", error="insufficient_scope", error_description="access token missing openid scope", scope="openid"`
+                  : `Bearer realm="${userinfoRealm}", error="invalid_token", error_description="invalid token provided"`,
               ],
             ] as const)
           : []),
@@ -219,8 +227,8 @@ const createHarness = (
           },
         },
       },
-      oidc: { userinfoPath: '/oidc/me' },
-      consoleAuthentication: { issuer: `${target.adminUrl}oidc` },
+      oidc: { issuerPath: options.issuerPath ?? '/oidc', userinfoPath: '/oidc/me' },
+      consoleAuthentication: { issuer: 'https://logical-admin.example/oidc' },
     },
     target,
     fixture: {
@@ -307,8 +315,13 @@ const createHarness = (
   };
   const resourceAuthorizationGrant = Object.freeze({ source: 'resource-authorization' }) as never;
   const userInfoAuthorizationGrant = Object.freeze({ source: 'userinfo-authorization' }) as never;
-  const oidcFlowOptions: Array<Readonly<{ captureSteps?: boolean; includeResource?: boolean }>> =
-    [];
+  const oidcFlowOptions: Array<
+    Readonly<{
+      captureSteps?: boolean;
+      includeResource?: boolean;
+      expectOidcConsentAlreadyGranted?: boolean;
+    }>
+  > = [];
   const withPositiveOidcFlow: NonNullable<
     TokenIssuerAudienceScopeRejectedDependencies['withPositiveOidcFlow']
   > = async (_context, flowOptions, consume) => {
@@ -378,8 +391,15 @@ describe('token.issuer-audience-scope-rejected', () => {
   it('rejects wrong issuer audience and scope without exposing credentials or target-tenant data', async () => {
     const harness = createHarness();
     const steps = await runTokenIssuerAudienceScopeRejected(harness.context, harness.dependencies);
+    const contract = phase1DifferentialScenarios.find(
+      ({ id }) => id === 'token.issuer-audience-scope-rejected'
+    );
 
-    expect(steps.map(({ stepId }) => stepId)).toEqual([
+    if (!contract) {
+      throw new Error('missing authority rejection scenario contract');
+    }
+
+    expect(validateExactPhase1ScenarioSteps(contract, steps).map(({ stepId }) => stepId)).toEqual([
       'wrong-issuer',
       'wrong-audience',
       'missing-scope',
@@ -428,8 +448,16 @@ describe('token.issuer-audience-scope-rejected', () => {
     expect(missingScopeRequests[1]?.token).not.toContain('.');
     expect(harness.requests.every(({ options }) => options?.includeCookies === false)).toBe(true);
     expect(harness.oidcFlowOptions).toEqual([
-      { captureSteps: false, includeResource: true },
-      { captureSteps: false, includeResource: false },
+      {
+        captureSteps: false,
+        includeResource: true,
+        expectOidcConsentAlreadyGranted: false,
+      },
+      {
+        captureSteps: false,
+        includeResource: false,
+        expectOidcConsentAlreadyGranted: true,
+      },
     ]);
     expect(harness.verifyPositiveTokenGrant).toHaveBeenCalledTimes(2);
     expect(harness.verifyPositiveTokenGrant).toHaveBeenNthCalledWith(
@@ -532,6 +560,9 @@ describe('token.issuer-audience-scope-rejected', () => {
       /account-signature|data-signature|runtime-admin|opaque-data-openid-token|opaque-userinfo-profile-only-token/u
     );
     expect(JSON.stringify(steps[1])).not.toContain('"payload"');
+    expect(() => {
+      assertPhase1RuntimeCredentialGraphIsSanitized(steps);
+    }).not.toThrow();
   });
 
   it.each([
@@ -555,6 +586,47 @@ describe('token.issuer-audience-scope-rejected', () => {
     await expect(
       runTokenIssuerAudienceScopeRejected(harness.context, harness.dependencies)
     ).rejects.toThrow('Phase 1 management authority rejection is invalid');
+  });
+
+  it('rejects a UserInfo challenge that uses the logical instead of runtime admin issuer', async () => {
+    const harness = createHarness({ wrongUserinfoRealm: true });
+
+    await expect(
+      runTokenIssuerAudienceScopeRejected(harness.context, harness.dependencies)
+    ).rejects.toThrow('Phase 1 userinfo authority rejection is invalid');
+  });
+
+  it.each(['https://foreign.example/oidc', '/\\foreign.example/oidc'])(
+    'rejects issuer path %s when it escapes the target origin',
+    async (issuerPath) => {
+      const harness = createHarness({ issuerPath });
+
+      await expect(
+        runTokenIssuerAudienceScopeRejected(harness.context, harness.dependencies)
+      ).rejects.toThrow('Phase 1 issuer path is invalid');
+    }
+  );
+
+  it('forces fresh consent on the first flow when injected options request prior consent', async () => {
+    const harness = createHarness();
+
+    await runTokenIssuerAudienceScopeRejected(harness.context, {
+      ...harness.dependencies,
+      oidcFlowOptions: { expectOidcConsentAlreadyGranted: true },
+    });
+
+    expect(harness.oidcFlowOptions).toEqual([
+      {
+        captureSteps: false,
+        includeResource: true,
+        expectOidcConsentAlreadyGranted: false,
+      },
+      {
+        captureSteps: false,
+        includeResource: false,
+        expectOidcConsentAlreadyGranted: true,
+      },
+    ]);
   });
 
   it('rejects an opaque foreign UserInfo source grant without openid scope', async () => {

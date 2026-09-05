@@ -412,6 +412,21 @@ const liftBodyUrls = (
     if (isStructuredRedirect(value)) {
       return value;
     }
+    // A normalized header multimap is an already validated typed projection. Re-walking its
+    // structured Location, Cookie, ETag, or authentication-challenge values would invalidate it.
+    const normalizedHeaders =
+      path.at(-1) === 'headers' ? phase1HeaderMultimapGuard.safeParse(value) : undefined;
+
+    if (normalizedHeaders?.success) {
+      for (const values of Object.values(normalizedHeaders.data)) {
+        for (const headerValue of values) {
+          if (typeof headerValue === 'string') {
+            normalizeHeaders.assertCredentialFreeUrlValue(headerValue);
+          }
+        }
+      }
+      return value;
+    }
     if (Array.isArray(value)) {
       return value.map((item, index) => visit(item, [...path, String(index)]));
     }

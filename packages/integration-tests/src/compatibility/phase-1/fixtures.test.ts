@@ -434,6 +434,56 @@ describe('ProvisionedPhase1Fixture secret leases', () => {
     }
   });
 
+  it('allows parsed authentication challenges only inside validated normalized headers', () => {
+    const challenge = {
+      challenges: [
+        {
+          scheme: 'Bearer',
+          format: 'parameters',
+          parameters: [
+            { name: 'realm', value: 'https://issuer.example/oidc', quoted: true },
+            { name: 'error', value: 'invalid_token', quoted: true },
+            { name: 'token', value: '<redacted-auth-parameter>', quoted: true },
+          ],
+        },
+      ],
+    } as const;
+
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized({
+        headers: {
+          'proxy-authenticate': [challenge],
+          'www-authenticate': [challenge],
+        },
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized({
+        headers: { 'www-authenticate': ['Bearer private-token'] },
+      })
+    ).toThrow('Phase 1 runtime output contains forbidden credential material');
+    expect(() =>
+      assertPhase1RuntimeCredentialGraphIsSanitized(
+        {
+          headers: {
+            'www-authenticate': [
+              {
+                challenges: [
+                  {
+                    scheme: 'Bearer',
+                    format: 'parameters',
+                    parameters: [{ name: 'realm', value: secret, quoted: true }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        [secret]
+      )
+    ).toThrow('Phase 1 runtime output contains forbidden credential material');
+  });
+
   it('allows reviewed sanitized credential metadata wrappers while still scanning their values', () => {
     const normalizedCookie = {
       name: 'interaction',
