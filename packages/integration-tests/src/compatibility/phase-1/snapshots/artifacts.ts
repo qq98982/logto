@@ -17,15 +17,23 @@ import {
   type SecureJsonPublication,
 } from '../secure-evidence-sink.js';
 
-export const phase1EvidenceArtifactNames = phase1EvidenceFileNames;
-export const phase1ManifestArtifactNames = Object.freeze([
+const frozenSortedArtifactNames = (names: readonly string[]): readonly string[] => {
+  const sorted = [...names];
+  // eslint-disable-next-line @silverhand/fp/no-mutating-methods -- The private copy is sorted once before it becomes the immutable exported allowlist.
+  sorted.sort();
+
+  return Object.freeze(sorted);
+};
+
+export const phase1EvidenceArtifactNames = frozenSortedArtifactNames(phase1EvidenceFileNames);
+export const phase1ManifestArtifactNames = frozenSortedArtifactNames([
   ...phase1EvidenceArtifactNames,
   phase1EvidenceManifestName,
-] as const);
-export const phase1FinalArtifactNames = Object.freeze([
+]);
+export const phase1FinalArtifactNames = frozenSortedArtifactNames([
   ...phase1ManifestArtifactNames,
   phase1HarnessResultName,
-] as const);
+]);
 
 export type Phase1ArtifactStage = 'evidence' | 'manifest' | 'final';
 

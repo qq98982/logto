@@ -1,4 +1,5 @@
 /* eslint-disable max-lines, complexity, max-params, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The public result derives several closed aggregate contracts and owns a bounded CLI parser. */
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -628,8 +629,34 @@ type HarnessResultCliCommand = Readonly<{
   outputPath: string;
 }>;
 
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const findIntegrationTestsPackageRoot = (): string => {
+  let current = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
+
+  for (let remaining = 8; remaining > 0; remaining -= 1) {
+    if (
+      path.basename(current) === 'integration-tests' &&
+      path.basename(path.dirname(current)) === 'packages' &&
+      existsSync(path.join(current, 'package.json'))
+    ) {
+      return current;
+    }
+
+    current = path.dirname(current);
+  }
+
+  return fail();
+};
+
+const packageRoot = findIntegrationTestsPackageRoot();
 const logtoRoot = path.resolve(packageRoot, '../..');
+
+export const resolvePhase1HarnessLogtoRootForTesting = (): string => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return logtoRoot;
+};
 
 const parseHarnessResultCliArguments = (arguments_: readonly string[]): HarnessResultCliCommand => {
   const values = new Map<string, string>();

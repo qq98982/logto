@@ -13,12 +13,26 @@ import { createSecureEvidenceSink } from '../secure-evidence-sink.js';
 import {
   assertExactPhase1ArtifactTree,
   phase1EvidenceArtifactNames,
+  phase1FinalArtifactNames,
+  phase1ManifestArtifactNames,
   readPreparedMirrorRecord,
   writePreparedMirrorRecord,
 } from './artifacts.js';
 
 const roots = new Set<string>();
 const executeFile = promisify(execFile);
+const expectedEvidenceNames = [
+  'phase-1-browser.json',
+  'phase-1-candidate-invariants.json',
+  'phase-1-conformance.json',
+  'phase-1-differential.json',
+] as const;
+const expectedManifestNames = ['evidence-manifest.json', ...expectedEvidenceNames] as const;
+const expectedFinalNames = [
+  'evidence-manifest.json',
+  'harness-result.json',
+  ...expectedEvidenceNames,
+] as const;
 
 const createRoot = async (label: string): Promise<string> => {
   const root = path.join(
@@ -37,6 +51,17 @@ afterEach(async () => {
 });
 
 describe('Phase 1 lifecycle artifact boundary', () => {
+  it('exports frozen canonical allowlists for every lifecycle stage', () => {
+    expect(phase1EvidenceArtifactNames).toEqual(expectedEvidenceNames);
+    expect(phase1ManifestArtifactNames).toEqual(expectedManifestNames);
+    expect(phase1FinalArtifactNames).toEqual(expectedFinalNames);
+    expect(
+      [phase1EvidenceArtifactNames, phase1ManifestArtifactNames, phase1FinalArtifactNames].every(
+        (names) => Object.isFrozen(names)
+      )
+    ).toBe(true);
+  });
+
   it('accepts exactly the four sanitized evidence files and rejects missing or extra entries', async () => {
     const root = await createRoot('artifacts');
     const sink = await createSecureEvidenceSink(root, phase1EvidenceArtifactNames);
@@ -99,6 +124,39 @@ describe('Phase 1 lifecycle artifact boundary', () => {
       );
     }
     await expect(verifyFreshProcess(rejectedRoot)).rejects.toMatchObject({ code: 1 });
+  });
+
+  it('accepts manifest and final artifact stages in canonical filename order', async () => {
+    const serialized = canonicalPhase1ArtifactBytes({ schemaVersion: 1, passed: true });
+
+    for (const [stage, names] of [
+      ['manifest', phase1ManifestArtifactNames],
+      ['final', phase1FinalArtifactNames],
+    ] as const) {
+      const root = await createRoot(stage);
+      for (const name of names) {
+        await writeFile(path.join(root, name), serialized, { mode: 0o600 });
+      }
+
+      await expect(assertExactPhase1ArtifactTree(root, stage)).resolves.toHaveLength(names.length);
+
+      const extraRoot = await createRoot(`${stage}-extra`);
+      for (const name of names) {
+        await writeFile(path.join(extraRoot, name), serialized, { mode: 0o600 });
+      }
+      await writeFile(path.join(extraRoot, 'unexpected.json'), serialized, { mode: 0o600 });
+      await expect(assertExactPhase1ArtifactTree(extraRoot, stage)).rejects.toThrow(
+        /^Invalid phase 1 lifecycle artifact tree$/u
+      );
+
+      const missingRoot = await createRoot(`${stage}-missing`);
+      for (const name of names.slice(1)) {
+        await writeFile(path.join(missingRoot, name), serialized, { mode: 0o600 });
+      }
+      await expect(assertExactPhase1ArtifactTree(missingRoot, stage)).rejects.toThrow(
+        /^Invalid phase 1 lifecycle artifact tree$/u
+      );
+    }
   });
 
   it('writes only the exact pinned mirror source and canonical image ID', async () => {

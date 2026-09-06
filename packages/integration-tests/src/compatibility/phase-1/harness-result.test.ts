@@ -16,6 +16,7 @@ import { writePhase1EvidenceManifest } from './evidence-manifest.js';
 import {
   assertPhase1HarnessResultUploadable,
   parsePhase1HarnessResultBytes,
+  resolvePhase1HarnessLogtoRootForTesting,
   runPhase1HarnessResultCli,
   serializePhase1HarnessResultForTesting,
   verifyPhase1HarnessResultBytes,
@@ -229,6 +230,18 @@ const createFixture = async (
 };
 
 describe('Phase 1 harness result', () => {
+  it('resolves a repository root with the canonical integration package markers', async () => {
+    const root = resolvePhase1HarnessLogtoRootForTesting();
+    const packageDocument = JSON.parse(
+      await readFile(path.join(root, 'packages/integration-tests/package.json'), 'utf8')
+    ) as unknown;
+
+    expect(packageDocument).toMatchObject({ name: '@logto/integration-tests' });
+    await expect(
+      readFile(path.join(root, 'compatibility/phases/phase-1-capabilities.json'))
+    ).resolves.toBeInstanceOf(Buffer);
+  });
+
   it('derives the exact closed mirror result from profile schema manifest and evidence bytes', async () => {
     const fixture = await createFixture('mirror-control');
     const artifact = await writePhase1HarnessResult({
