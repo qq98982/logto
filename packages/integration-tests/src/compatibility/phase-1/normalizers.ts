@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { decodeJwt, decodeProtectedHeader } from 'jose';
 import { z } from 'zod';
 
+import { isTimestampMarker } from '../compare.js';
 import { assertEvidenceIsSanitized } from '../evidence.js';
 import { jsonValueGuard } from '../model.js';
 import {
@@ -115,19 +116,9 @@ const stableEntityTagJson = (value: JsonValue): JsonValue => {
   }
   if (isObject(value)) {
     const keys = Object.keys(value).toSorted(compareText);
-    const timestamp = value.$timestamp;
-    const tolerance = value.$toleranceSeconds;
 
-    if (
-      keys.length === 2 &&
-      keys[0] === '$timestamp' &&
-      keys[1] === '$toleranceSeconds' &&
-      typeof timestamp === 'number' &&
-      Number.isFinite(timestamp) &&
-      typeof tolerance === 'number' &&
-      Number.isFinite(tolerance) &&
-      tolerance >= 0
-    ) {
+    if (isTimestampMarker(value)) {
+      // This marker is hash-input-only for ETag stabilization and must never enter a projection.
       return { $boundedTimestamp: true };
     }
 

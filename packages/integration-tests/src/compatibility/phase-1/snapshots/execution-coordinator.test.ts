@@ -161,6 +161,8 @@ const scenarioStepValue = () => ({
   outcomes: [],
 });
 
+const boundedTimestamp = (value: number) => ({ $timestamp: value, $toleranceSeconds: 30 });
+
 const scenarioComparable = (id: string) => {
   const contract = phase1ScenarioContracts.find((candidate) => candidate.id === id);
 
@@ -188,6 +190,43 @@ const differential = (runtime: Phase1EvidenceRuntimeContext): JsonValue => ({
   sanitizerSuccess: true,
   scenarios: [...differentialScenarioIds].toSorted().map((id) => scenarioComparable(id)),
 });
+
+const differentialWithAccountTimestamps = (
+  runtime: Phase1EvidenceRuntimeContext,
+  timestamp: number,
+  observed = true
+): JsonValue => {
+  type MutableScenario = {
+    id: string;
+    oracle: ReturnType<typeof createPhase1ProjectionEnvelope>;
+    candidate: ReturnType<typeof createPhase1ProjectionEnvelope>;
+  };
+  const artifact = JSON.parse(JSON.stringify(differential(runtime))) as {
+    scenarios: MutableScenario[];
+  };
+  const scenario = artifact.scenarios.find(
+    (candidate) => candidate.id === 'account.admin-operator-read'
+  );
+
+  if (!scenario) {
+    throw new TypeError('missing Account scenario');
+  }
+  const projection = JSON.parse(JSON.stringify(scenario.oracle.value)) as Record<string, any>;
+  const account = projection.steps.account.value;
+
+  account.headers.date = [boundedTimestamp(timestamp)];
+  account.body = {
+    ...account.body,
+    observed,
+    createdAt: boundedTimestamp(timestamp),
+    updatedAt: boundedTimestamp(timestamp + 1),
+    lastSignInAt: boundedTimestamp(timestamp + 2),
+  };
+  scenario.oracle = createPhase1ProjectionEnvelope('oracle', projection);
+  scenario.candidate = createPhase1ProjectionEnvelope('candidate', projection);
+
+  return artifact as JsonValue;
+};
 
 const browser = (runtime: Phase1EvidenceRuntimeContext): JsonValue => ({
   schemaVersion: 1,
@@ -298,6 +337,44 @@ describe('Phase 1 evidence execution coordinator', () => {
     expect(after.ino).toBe(before.ino);
     expect(after.mtimeMs).toBe(before.mtimeMs);
     expect(after.mode % 0o1000).toBe(0o400);
+  });
+
+  it('replays when only declared bounded timestamp values advance between runs', async () => {
+    const firstEvidence = await createRoot();
+    const runRoot = path.dirname(firstEvidence);
+    const firstPorts = ports();
+
+    await executeForTesting(context(firstEvidence), {
+      ...firstPorts,
+      differential: async (runtime) => differentialWithAccountTimestamps(runtime, 1_700_000_000),
+    });
+    const snapshotPath = path.join(runRoot, 'snapshots', 'oracle-snapshots.json');
+    const before = await stat(snapshotPath);
+    const secondEvidence = path.join(runRoot, 'evidence-bounded-time-replay');
+    await mkdir(secondEvidence, { mode: 0o700 });
+    const secondPorts = ports();
+
+    await expect(
+      executeForTesting(context(secondEvidence, false), {
+        ...secondPorts,
+        differential: async (runtime) => differentialWithAccountTimestamps(runtime, 1_800_000_000),
+      })
+    ).resolves.toHaveLength(4);
+    const after = await stat(snapshotPath);
+    expect(after.ino).toBe(before.ino);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+
+    const changedEvidence = path.join(runRoot, 'evidence-nontime-change');
+    await mkdir(changedEvidence, { mode: 0o700 });
+    const changedPorts = ports();
+    await expect(
+      executeForTesting(context(changedEvidence, false), {
+        ...changedPorts,
+        differential: async (runtime) =>
+          differentialWithAccountTimestamps(runtime, 1_900_000_000, false),
+      })
+    ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+    await expect(readdir(changedEvidence)).resolves.toEqual([]);
   });
 
   it('leaves the evidence directory empty when the final port fails', async () => {

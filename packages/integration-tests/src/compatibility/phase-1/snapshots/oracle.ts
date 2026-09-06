@@ -1,6 +1,8 @@
 /* eslint-disable no-restricted-syntax, @typescript-eslint/no-unnecessary-boolean-literal-compare -- Snapshot construction validates one exact closed cross-registry set. */
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
+import { isTimestampMarker } from '../../compare.js';
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
 import { canonicalBrowserFlows } from '../browser/index.js';
@@ -51,6 +53,51 @@ const imageDigestPattern = /^sha256:[0-9a-f]{64}$/u;
 const bytewiseCompare = (left: string, right: string): number =>
   Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
 
+const snapshotTimestampMarker = '$boundedTimestamp';
+
+const hasInvalidSnapshotTimestampMarker = (
+  value: JsonValue,
+  allowCanonicalMarker: boolean
+): boolean => {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasInvalidSnapshotTimestampMarker(item, allowCanonicalMarker));
+  }
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  if (Object.hasOwn(value, snapshotTimestampMarker)) {
+    const marker = value[snapshotTimestampMarker];
+
+    return (
+      !allowCanonicalMarker ||
+      Object.keys(value).length !== 1 ||
+      typeof marker !== 'number' ||
+      !Number.isFinite(marker) ||
+      marker < 0
+    );
+  }
+
+  return Object.values(value).some((nested) =>
+    hasInvalidSnapshotTimestampMarker(nested, allowCanonicalMarker)
+  );
+};
+
+const canonicalSnapshotValue = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalSnapshotValue(item));
+  }
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  if (isTimestampMarker(value)) {
+    return { [snapshotTimestampMarker]: value.$toleranceSeconds };
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, canonicalSnapshotValue(nested)])
+  );
+};
+
 const canonicalValue = (value: JsonValue): JsonValue => {
   if (Array.isArray(value)) {
     return value.map((item) => canonicalValue(item));
@@ -80,7 +127,10 @@ const hasExactSnapshotKeys = (value: unknown): boolean =>
   Reflect.has(value, 'projectionSha256') &&
   Reflect.has(value, 'value');
 
-export const createOracleSnapshotSet = (input: OracleSnapshotInput): OracleSnapshotSet => {
+const buildOracleSnapshotSet = (
+  input: OracleSnapshotInput,
+  allowCanonicalTimestampMarkers: boolean
+): OracleSnapshotSet => {
   try {
     if (
       !input.recordOracle ||
@@ -98,8 +148,25 @@ export const createOracleSnapshotSet = (input: OracleSnapshotInput): OracleSnaps
           throw new TypeError(diagnostic);
         }
         assertSerializedPhase1ArtifactEvidenceIsSanitized(value);
+        if (hasInvalidSnapshotTimestampMarker(value, allowCanonicalTimestampMarkers)) {
+          throw new TypeError(diagnostic);
+        }
+        const canonicalProjection = canonicalSnapshotValue(value);
 
-        return cloneAndDeepFreeze({ id, projectionSha256: projectionHash(value), value });
+        if (
+          typeof canonicalProjection !== 'object' ||
+          canonicalProjection === null ||
+          Array.isArray(canonicalProjection)
+        ) {
+          throw new TypeError(diagnostic);
+        }
+        assertSerializedPhase1ArtifactEvidenceIsSanitized(canonicalProjection);
+
+        return cloneAndDeepFreeze({
+          id,
+          projectionSha256: projectionHash(canonicalProjection),
+          value: canonicalProjection,
+        });
       })
       .toSorted((left, right) => bytewiseCompare(left.id, right.id));
 
@@ -122,6 +189,9 @@ export const createOracleSnapshotSet = (input: OracleSnapshotInput): OracleSnaps
   }
 };
 
+export const createOracleSnapshotSet = (input: OracleSnapshotInput): OracleSnapshotSet =>
+  buildOracleSnapshotSet(input, false);
+
 export const assertOracleSnapshotSet = (value: unknown): OracleSnapshotSet => {
   try {
     const parsed = snapshotClosedDataGraph<Record<string, unknown>>(value);
@@ -137,19 +207,23 @@ export const assertOracleSnapshotSet = (value: unknown): OracleSnapshotSet => {
       throw new TypeError(diagnostic);
     }
     const snapshotSet = parsed as unknown as OracleSnapshotSet;
-    const reconstructed = createOracleSnapshotSet({
-      recordOracle: true,
-      referenceCommit: snapshotSet.referenceCommit,
-      imageDigest: snapshotSet.imageDigest,
-      harnessClean: true,
-      sanitizerSuccess: snapshotSet.sanitizerSuccess,
-      projections: snapshotSet.snapshots,
-    });
+    const reconstructed = buildOracleSnapshotSet(
+      {
+        recordOracle: true,
+        referenceCommit: snapshotSet.referenceCommit,
+        imageDigest: snapshotSet.imageDigest,
+        harnessClean: true,
+        sanitizerSuccess: snapshotSet.sanitizerSuccess,
+        projections: snapshotSet.snapshots,
+      },
+      true
+    );
 
     if (
       snapshotSet.snapshots.some(
         (snapshot, index) =>
-          snapshot.projectionSha256 !== reconstructed.snapshots[index]?.projectionSha256
+          snapshot.projectionSha256 !== reconstructed.snapshots[index]?.projectionSha256 ||
+          !isDeepStrictEqual(snapshot.value, reconstructed.snapshots[index]?.value)
       )
     ) {
       throw new TypeError(diagnostic);

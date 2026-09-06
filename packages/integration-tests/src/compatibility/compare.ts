@@ -49,7 +49,7 @@ const createDisplayValue = (value: unknown): unknown => {
   return value;
 };
 
-const isTimestampMarker = (
+export const isTimestampMarker = (
   value: unknown
 ): value is { $timestamp: number; $toleranceSeconds: number } => {
   if (!isRecord(value)) {
