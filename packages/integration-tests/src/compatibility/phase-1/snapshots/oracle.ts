@@ -2,9 +2,9 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
-import { isTimestampMarker } from '../../compare.js';
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
+import { isBoundedTimestampEnvelope } from '../bounded-timestamp.js';
 import { canonicalBrowserFlows } from '../browser/index.js';
 import { assertSerializedPhase1ArtifactEvidenceIsSanitized } from '../evidence.js';
 import {
@@ -89,7 +89,7 @@ const canonicalSnapshotValue = (value: JsonValue): JsonValue => {
   if (typeof value !== 'object' || value === null) {
     return value;
   }
-  if (isTimestampMarker(value)) {
+  if (isBoundedTimestampEnvelope(value)) {
     return { [snapshotTimestampMarker]: value.$toleranceSeconds };
   }
 

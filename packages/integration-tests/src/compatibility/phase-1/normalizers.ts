@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { decodeJwt, decodeProtectedHeader } from 'jose';
 import { z } from 'zod';
 
-import { isTimestampMarker } from '../compare.js';
 import { assertEvidenceIsSanitized } from '../evidence.js';
 import { jsonValueGuard } from '../model.js';
 import {
@@ -14,6 +13,8 @@ import {
   type JsonValue,
   type NormalizationContext,
 } from '../normalize.js';
+
+import { isBoundedTimestampEnvelope } from './bounded-timestamp.js';
 
 const credentialKeyPattern =
   /^(?:authorization|proxy-authorization|cookie|set-cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|code|state|session|resume|interaction|nonce|code[_-]?verifier|code[_-]?challenge|verification[_-]?(?:id|credential|token|code))$/iu;
@@ -117,7 +118,7 @@ const stableEntityTagJson = (value: JsonValue): JsonValue => {
   if (isObject(value)) {
     const keys = Object.keys(value).toSorted(compareText);
 
-    if (isTimestampMarker(value)) {
+    if (isBoundedTimestampEnvelope(value)) {
       // This marker is hash-input-only for ETag stabilization and must never enter a projection.
       return { $boundedTimestamp: true };
     }

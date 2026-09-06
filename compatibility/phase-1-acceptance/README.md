@@ -35,6 +35,15 @@ stack. Private run state defaults below `/var/tmp/henry-build`; CI may select an
 non-system build root with `ASTER_PHASE1_BUILD_ROOT` when that directory already exists, is a real
 current-user-owned directory, and has mode `0700`.
 
+The private record/replay oracle snapshot canonicalizes every validated bounded-timestamp envelope
+from `{$timestamp, $toleranceSeconds}` to `{$boundedTimestamp: tolerance}`. It therefore pins the
+envelope position and declared tolerance, but intentionally does not pin absolute timestamps or
+cross-field time offsets. Those raw values remain subject to the same-run oracle/candidate bounded
+comparison, while explicit derived fields such as token lifetime and cookie expiry offset remain
+exact. The snapshot `projectionSha256` hashes this private canonical value and is intentionally not
+interchangeable with a published evidence-envelope hash. Snapshot files recorded before this
+canonicalization change must be discarded and recorded again.
+
 JSON Schema closes every object and ordered array. The procedural validator additionally enforces
 bytewise ordering, mirror image equality, official-result semantics, and public redaction constraints
 that JSON Schema cannot express.
