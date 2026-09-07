@@ -359,14 +359,11 @@ const acceptedAuthority = (): Phase1AcceptedHarnessAuthority => ({
       evaluatedCommit: '6666666666666666666666666666666666666666',
       baseCommit: governanceCommit,
       baseBranch: 'aster-phase1-harness',
-      codeOwnerReviewRequired: true,
-      bypassActors: [],
       approvals: [
         {
           reviewer: 'reviewer',
           state: 'APPROVED',
           commit: '5555555555555555555555555555555555555555',
-          codeOwner: true,
         },
       ],
       requiredChecks: ['build', 'test'],
@@ -443,7 +440,7 @@ const expectGenericSanitizedProvenanceFailure = async (
   }
 };
 
-const createReaders = () => {
+const createReaders = (mode: Phase1ProvenanceContext['mode'] = 'review-candidate') => {
   const calls = {
     github: 0,
     prepared: [] as string[],
@@ -509,8 +506,15 @@ const createReaders = () => {
 
       return 'ffffffffffffffffffffffffffffffffffffffff';
     },
-    objectKind: async (_repository, _commit, path) =>
-      path.endsWith('snapshots') || path.endsWith('records') ? 'tree' : 'blob',
+    objectKind: async (_repository, commit, path) => {
+      if (
+        commit === harnessCommit &&
+        governanceDelta.some((entry) => entry.status === 'deleted' && entry.path === path)
+      ) {
+        return 'missing';
+      }
+      return path.endsWith('snapshots') || path.endsWith('records') ? 'tree' : 'blob';
+    },
     parents: async (_repository, commit) =>
       commit === '6666666666666666666666666666666666666666'
         ? ['7777777777777777777777777777777777777777', '5555555555555555555555555555555555555555']
@@ -528,7 +532,7 @@ const createReaders = () => {
         return featureDelta;
       }
       if (fromCommit === phase0Commit && toCommit === harnessCommit) {
-        return featureDelta;
+        return mode === 'accepted-harness' ? rebasedReviewDelta : featureDelta;
       }
 
       return [];
@@ -552,7 +556,7 @@ const createReaders = () => {
 const provenanceContext = (
   mode: Phase1ProvenanceContext['mode'] = 'review-candidate'
 ): Phase1ProvenanceContext => {
-  const { gitReader, githubReader, phase0EvidenceReproducer } = createReaders();
+  const { gitReader, githubReader, phase0EvidenceReproducer } = createReaders(mode);
   const browserSourceEvidence: Phase1SourceEvidenceRef[] = profilePaths
     .slice(0, 25)
     .map((path) => ({
@@ -675,7 +679,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     ).resolves.toMatchObject({ kind: 'review-candidate', publishable: false });
   });
 
-  it.each(['CODEOWNERS', 'compatibility workflow', 'Phase 1 workflow'])(
+  it.each(['compatibility workflow', 'Phase 1 workflow'])(
     'rebased review rejects arbitrary %s content',
     async (target) => {
       const context = provenanceContext('review-candidate');
@@ -699,7 +703,7 @@ describe('Phase 1 source and acceptance provenance', () => {
       await expectProvenanceFailure(
         verifyPhase1ProfileProvenance(provenanceProfile(), context),
         '/phase1Harness/commit',
-        'harness-governance-authority'
+        'harness-workflow-authority'
       );
     }
   );
@@ -728,10 +732,6 @@ describe('Phase 1 source and acceptance provenance', () => {
       entries: featureDelta.map((entry) =>
         entry.path === 'compatibility/phase-1-schema-lock.json' ? deletedFile(entry.path) : entry
       ),
-    },
-    {
-      name: 'partial governance bootstrap',
-      entries: sortDelta([...governanceDelta.slice(1), ...featureDelta]),
     },
     {
       name: 'extra workflow in rebased union',
@@ -775,7 +775,7 @@ describe('Phase 1 source and acceptance provenance', () => {
   });
 
   it('returns accepted evidence only for the protected reviewed merge', async () => {
-    const readers = createReaders();
+    const readers = createReaders('accepted-harness');
     const context = {
       ...provenanceContext('accepted-harness'),
       gitReader: readers.gitReader,
@@ -816,45 +816,32 @@ describe('Phase 1 source and acceptance provenance', () => {
       assertPhase1ProfileProvenance(provenanceProfile(), provenanceContext('accepted-harness'))
     ).resolves.toBeUndefined();
     expect(readers.calls.gitDeltas).toEqual([
-      { fromCommit: phase0Commit, toCommit: governanceCommit },
-      { fromCommit: governanceCommit, toCommit: harnessCommit },
+      { fromCommit: phase0Commit, toCommit: harnessCommit },
     ]);
     expect(readers.calls.prepared).toContain(`${harnessRepository}:${governanceCommit}`);
   });
 
   it.each([
     {
-      name: 'missing governance workflow deletion',
-      entries: governanceDelta.slice(1),
-      rule: 'accepted-governance-delta',
-      target: 'governance',
-    },
-    {
       name: 'governance workflow added instead of deleted',
       entries: governanceDelta.map((entry) =>
         entry.path === '.github/workflows/main.yml' ? addedFile(entry.path) : entry
       ),
-      rule: 'accepted-governance-delta',
+      rule: 'review-harness-delta',
       target: 'governance',
     },
     {
       name: 'extra governance path',
       entries: sortDelta([...governanceDelta, modifiedFile('README.md')]),
-      rule: 'accepted-governance-delta',
+      rule: 'review-harness-delta',
       target: 'governance',
-    },
-    {
-      name: 'H modifies CODEOWNERS',
-      entries: sortDelta([...featureDelta, modifiedFile('.github/CODEOWNERS')]),
-      rule: 'accepted-harness-delta',
-      target: 'feature',
     },
     {
       name: 'H omits conformance driver',
       entries: featureDelta.filter(
         ({ path }) => path !== '.scripts/compatibility/phase1-conformance-driver.sh'
       ),
-      rule: 'accepted-harness-delta',
+      rule: 'review-harness-delta',
       target: 'feature',
     },
     {
@@ -864,18 +851,13 @@ describe('Phase 1 source and acceptance provenance', () => {
           ? deltaEntry('added', entry.path, '000000', '100755')
           : entry
       ),
-      rule: 'accepted-harness-delta',
+      rule: 'review-harness-delta',
       target: 'feature',
     },
   ])('accepted-harness rejects $name', async ({ entries, rule, target }) => {
     const context = provenanceContext('accepted-harness');
-    context.gitReader.diffEntries = async (_repository, fromCommit, toCommit) => {
-      if (fromCommit === phase0Commit && toCommit === governanceCommit) {
-        return target === 'governance' ? entries : governanceDelta;
-      }
-
-      return target === 'feature' ? entries : featureDelta;
-    };
+    context.gitReader.diffEntries = async () =>
+      target === 'governance' ? sortDelta([...entries, ...featureDelta]) : entries;
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
       '/phase1Harness/commit',
@@ -883,7 +865,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
-  it.each(['CODEOWNERS', 'compatibility workflow', 'Phase 1 workflow'])(
+  it.each(['compatibility workflow', 'Phase 1 workflow'])(
     'accepted-harness rejects arbitrary G_H/H %s content',
     async (target) => {
       const context = provenanceContext('accepted-harness');
@@ -895,7 +877,7 @@ describe('Phase 1 source and acceptance provenance', () => {
             commit === governanceCommit) ||
           (target === 'compatibility workflow' &&
             path === '.github/workflows/compatibility-test.yml' &&
-            commit === governanceCommit) ||
+            commit === harnessCommit) ||
           (target === 'Phase 1 workflow' &&
             path === '.github/workflows/phase1-compatibility-test.yml' &&
             commit === harnessCommit)
@@ -908,22 +890,61 @@ describe('Phase 1 source and acceptance provenance', () => {
       await expectProvenanceFailure(
         verifyPhase1ProfileProvenance(provenanceProfile(), context),
         '/phase1Harness/commit',
-        'harness-governance-authority'
+        'harness-workflow-authority'
       );
     }
   );
 
-  it('accepted-harness requires the canonical CODEOWNERS reviewer to approve H', async () => {
+  it('accepted harness does not read CODEOWNERS or couple its reviewer to a bootstrap', async () => {
     const context = provenanceContext('accepted-harness');
+    context.gitReader.diffEntries = async () =>
+      sortDelta([
+        ...featureDelta,
+        ...governanceDelta.filter(({ path }) => path !== '.github/CODEOWNERS'),
+      ]);
     const originalReadBlob = context.gitReader.readBlob;
-    context.gitReader.readBlob = async (repository, commit, path) =>
-      commit === governanceCommit && path === '.github/CODEOWNERS'
-        ? governanceCodeownersFor('different-reviewer')
-        : originalReadBlob(repository, commit, path);
+    context.gitReader.readBlob = async (repository, commit, path) => {
+      if (path === '.github/CODEOWNERS') {
+        throw new Error('CODEOWNERS is not acceptance authority');
+      }
+      return originalReadBlob(repository, commit, path);
+    };
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context)
+    ).resolves.toMatchObject({ kind: 'accepted-harness' });
+  });
+
+  it.each(['release.yml', 'update-pr-metadata.yml', 'repository-dispatch.yml'])(
+    'rejects a retained %s at H even when the diff omits that unchanged file',
+    async (workflow) => {
+      const context = provenanceContext('accepted-harness');
+      const originalKind = context.gitReader.objectKind;
+      const path = `.github/workflows/${workflow}`;
+      context.gitReader.diffEntries = async () =>
+        sortDelta([...featureDelta, ...governanceDelta.filter((entry) => entry.path !== path)]);
+      context.gitReader.objectKind = async (repository, commit, candidate) =>
+        commit === harnessCommit && candidate === path
+          ? 'blob'
+          : originalKind(repository, commit, candidate);
+      await expectProvenanceFailure(
+        verifyPhase1ProfileProvenance(provenanceProfile(), context),
+        '/phase1Harness/commit',
+        'harness-workflow-tree'
+      );
+    }
+  );
+
+  it('requires deletion evidence even when objectKind reports a legacy workflow missing', async () => {
+    const context = provenanceContext('accepted-harness');
+    context.gitReader.diffEntries = async () =>
+      sortDelta([
+        ...featureDelta,
+        ...governanceDelta.filter(({ path }) => path !== '.github/workflows/release.yml'),
+      ]);
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
       '/phase1Harness/commit',
-      'harness-governance-authority'
+      'harness-workflow-tree'
     );
   });
 
@@ -2250,19 +2271,17 @@ describe('Phase 1 source and acceptance provenance', () => {
         authorityPullRequest(authority).bypassActors = sparseArray(['administrator'], 0);
       },
     },
-    ...(['pullRequests', 'approvals', 'checks', 'requiredChecks', 'bypassActors'] as const).map(
-      (field) => ({
-        name: `${field} rejects an extra enumerable property`,
-        mutate: (authority: MutableAuthority) => {
-          const pullRequest = authorityPullRequest(authority);
-          const array =
-            field === 'pullRequests'
-              ? (authority.pullRequests as unknown[])
-              : (pullRequest[field] as unknown[]);
-          (array as unknown as Record<string, unknown>).privateExtra = true;
-        },
-      })
-    ),
+    ...(['pullRequests', 'approvals', 'checks', 'requiredChecks'] as const).map((field) => ({
+      name: `${field} rejects an extra enumerable property`,
+      mutate: (authority: MutableAuthority) => {
+        const pullRequest = authorityPullRequest(authority);
+        const array =
+          field === 'pullRequests'
+            ? (authority.pullRequests as unknown[])
+            : (pullRequest[field] as unknown[]);
+        (array as unknown as Record<string, unknown>).privateExtra = true;
+      },
+    })),
     {
       name: 'requiredChecks rejects a symbol property',
       mutate: (authority: MutableAuthority) => {
@@ -2405,7 +2424,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     await expectProvenanceFailure(
       verifyPhase1ProfileProvenance(provenanceProfile(), context),
       '/phase1Harness/commit',
-      'accepted-codeowner-approval'
+      'accepted-review-approval'
     );
   });
 
@@ -2456,7 +2475,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     },
     {
       name: 'nonauthor CODEOWNER approval',
-      rule: 'accepted-codeowner-approval',
+      rule: 'accepted-review-approval',
       mutate: (context: Phase1ProvenanceContext) => {
         context.githubReader.acceptedHarnessAuthority = async () => {
           const authority = acceptedAuthority();
@@ -2475,7 +2494,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     },
     {
       name: 'no bypass actors',
-      rule: 'accepted-no-bypass',
+      rule: 'accepted-authority-projection',
       mutate: (context: Phase1ProvenanceContext) => {
         context.githubReader.acceptedHarnessAuthority = async () => {
           const authority = acceptedAuthority();

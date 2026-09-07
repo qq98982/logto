@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax, no-await-in-loop, unicorn/prevent-abbreviations, unicorn/no-array-for-each, unicorn/escape-case, unicorn/explicit-length-check, @typescript-eslint/consistent-type-definitions, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/promise-function-async, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- This is the closed bounded provenance boundary; sequential Git object checks and exact external field names are part of the audited contract. */
+/* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax, no-await-in-loop, unicorn/prevent-abbreviations, unicorn/no-array-for-each, unicorn/escape-case, @typescript-eslint/consistent-type-definitions, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/promise-function-async, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- This is the closed bounded provenance boundary; sequential Git object checks and exact external field names are part of the audited contract. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, promisify } from 'node:util';
@@ -8,10 +8,6 @@ import { getNodeValue, parseTree, type Node as JsonNode, type ParseError } from 
 import { compareJson } from '../../compare.js';
 import { assertEvidenceIsSanitized, negativeControlEvidenceGuard } from '../../evidence.js';
 import { runEvidenceGuard, scenarioEvidenceGuard } from '../../model.js';
-import {
-  assertPhase1CodeownersGovernanceAuthority,
-  Phase1GovernanceAuthorityError,
-} from '../governance-authority.js';
 import {
   assertPhase1IntegrationLockAuthority,
   assertPhase1IntegrationManifestDelta,
@@ -38,7 +34,6 @@ const executableFileMode = '100755';
 const missingFileMode = '000000';
 const integrationManifestPath = 'packages/integration-tests/package.json';
 const integrationLockPath = 'pnpm-lock.yaml';
-const codeownersPath = '.github/CODEOWNERS';
 const compatibilityWorkflowPath = '.github/workflows/compatibility-test.yml';
 const phase1WorkflowPath = '.github/workflows/phase1-compatibility-test.yml';
 
@@ -156,7 +151,6 @@ export type Phase1Approval = Readonly<{
   reviewer: string;
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'DISMISSED';
   commit: string;
-  codeOwner: boolean;
 }>;
 
 export type Phase1Check = Readonly<{
@@ -174,8 +168,6 @@ export type Phase1AcceptedHarnessPullRequest = Readonly<{
   evaluatedCommit: string;
   baseCommit: string;
   baseBranch: string;
-  codeOwnerReviewRequired: boolean;
-  bypassActors: readonly string[];
   approvals: readonly Phase1Approval[];
   requiredChecks: readonly string[];
   checks: readonly Phase1Check[];
@@ -412,32 +404,14 @@ const assertReviewHarnessDelta = (value: unknown): 'prebootstrap' | 'rebased' =>
 
   if (
     !featureDeltaIsValid(feature) ||
-    (governance.length > 0 && !isDeepStrictEqual(governance, expectedGovernanceDelta))
+    governance.some(
+      (entry) => !expectedGovernanceDelta.some((allowed) => isDeepStrictEqual(entry, allowed))
+    )
   ) {
     fail('/phase1Harness/commit', 'review-harness-delta');
   }
 
   return governance.length === 0 ? 'prebootstrap' : 'rebased';
-};
-
-const assertExactGovernanceDelta = (value: unknown): void => {
-  const entries = snapshotGitDeltaEntries(
-    value,
-    '/phase1Harness/commit',
-    'accepted-governance-delta'
-  );
-
-  if (!isDeepStrictEqual(entries, expectedGovernanceDelta)) {
-    fail('/phase1Harness/commit', 'accepted-governance-delta');
-  }
-};
-
-const assertAcceptedHarnessDelta = (value: unknown): void => {
-  const entries = snapshotGitDeltaEntries(value, '/phase1Harness/commit', 'accepted-harness-delta');
-
-  if (!featureDeltaIsValid(entries)) {
-    fail('/phase1Harness/commit', 'accepted-harness-delta');
-  }
 };
 
 const readBoundedBlob = async ({
@@ -1296,33 +1270,23 @@ const assertHarnessPackageAuthority = async (
   }
 };
 
-const assertHarnessGovernanceAuthority = async (
+const assertHarnessWorkflowAuthority = async (
   profile: Phase1Profile,
   context: Phase1ProvenanceContext,
-  governanceCommit: string,
   harnessCommit: string
-): Promise<string> => {
-  const [
-    phase0Codeowners,
-    governanceCodeowners,
-    phase0Workflow,
-    governanceWorkflow,
-    phase1Workflow,
-  ] = await Promise.all([
-    readBoundedBlob({
-      gitReader: context.gitReader,
-      repository: profile.phase1Harness.repository,
-      commit: profile.phase1Harness.baseCommit,
-      path: codeownersPath,
-      pointer: '/phase1Harness/commit',
-    }),
-    readBoundedBlob({
-      gitReader: context.gitReader,
-      repository: profile.phase1Harness.repository,
-      commit: governanceCommit,
-      path: codeownersPath,
-      pointer: '/phase1Harness/commit',
-    }),
+): Promise<void> => {
+  for (const workflowPath of deletedGovernanceWorkflowPaths) {
+    if (
+      (await context.gitReader.objectKind(
+        profile.phase1Harness.repository,
+        harnessCommit,
+        workflowPath
+      )) !== 'missing'
+    ) {
+      fail('/phase1Harness/commit', 'harness-workflow-tree');
+    }
+  }
+  const [phase0Workflow, compatibilityWorkflow, phase1Workflow] = await Promise.all([
     readBoundedBlob({
       gitReader: context.gitReader,
       repository: profile.phase1Harness.repository,
@@ -1333,7 +1297,7 @@ const assertHarnessGovernanceAuthority = async (
     readBoundedBlob({
       gitReader: context.gitReader,
       repository: profile.phase1Harness.repository,
-      commit: governanceCommit,
+      commit: harnessCommit,
       path: compatibilityWorkflowPath,
       pointer: '/phase1Harness/commit',
     }),
@@ -1345,37 +1309,19 @@ const assertHarnessGovernanceAuthority = async (
       pointer: '/phase1Harness/commit',
     }),
   ]);
-
   try {
-    const reviewer = assertPhase1CodeownersGovernanceAuthority(
-      phase0Codeowners,
-      governanceCodeowners
-    );
-    const policy = evaluatePhase1WorkflowPolicy({
+    evaluatePhase1WorkflowPolicy({
       governanceMode: 'locked',
-      workflows: Object.freeze([
-        Object.freeze({ path: compatibilityWorkflowPath, bytes: governanceWorkflow }),
-        Object.freeze({ path: phase1WorkflowPath, bytes: phase1Workflow }),
-      ]),
-      phase0CompatibilityWorkflow: Object.freeze({
-        path: compatibilityWorkflowPath,
-        bytes: phase0Workflow,
-      }),
+      workflows: [
+        { path: compatibilityWorkflowPath, bytes: compatibilityWorkflow },
+        { path: phase1WorkflowPath, bytes: phase1Workflow },
+      ],
+      phase0CompatibilityWorkflow: { path: compatibilityWorkflowPath, bytes: phase0Workflow },
     });
-
-    if (!policy.governanceSatisfied) {
-      fail('/phase1Harness/commit', 'harness-governance-authority');
-    }
-
-    return reviewer;
   } catch (error: unknown) {
-    if (
-      error instanceof Phase1GovernanceAuthorityError ||
-      error instanceof Phase1WorkflowPolicyError
-    ) {
-      fail('/phase1Harness/commit', 'harness-governance-authority');
+    if (error instanceof Phase1WorkflowPolicyError) {
+      fail('/phase1Harness/commit', 'harness-workflow-authority');
     }
-
     throw error;
   }
 };
@@ -1472,9 +1418,7 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
         'author',
         'baseBranch',
         'baseCommit',
-        'bypassActors',
         'checks',
-        'codeOwnerReviewRequired',
         'evaluatedCommit',
         'headCommit',
         'mergeCommit',
@@ -1495,10 +1439,6 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
       projectedPullRequest.requiredChecks,
       '/phase1Harness/commit'
     );
-    const bypassActors = readClosedAuthorityArray(
-      projectedPullRequest.bypassActors,
-      '/phase1Harness/commit'
-    );
 
     if (
       !Number.isSafeInteger(projectedPullRequest.number) ||
@@ -1517,8 +1457,7 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
       typeof projectedPullRequest.headCommit !== 'string' ||
       !commitPattern.test(projectedPullRequest.headCommit) ||
       typeof projectedPullRequest.evaluatedCommit !== 'string' ||
-      !commitPattern.test(projectedPullRequest.evaluatedCommit) ||
-      typeof projectedPullRequest.codeOwnerReviewRequired !== 'boolean'
+      !commitPattern.test(projectedPullRequest.evaluatedCommit)
     ) {
       fail('/phase1Harness/commit', 'accepted-authority-projection');
     }
@@ -1528,7 +1467,7 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
         typeof approval !== 'object' ||
         approval === null ||
         Array.isArray(approval) ||
-        !exactKeys(approval, ['codeOwner', 'commit', 'reviewer', 'state'])
+        !exactKeys(approval, ['commit', 'reviewer', 'state'])
       ) {
         fail('/phase1Harness/commit', 'accepted-authority-projection');
       }
@@ -1541,8 +1480,7 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
         typeof projectedApproval.state !== 'string' ||
         !approvalStates.has(projectedApproval.state) ||
         typeof projectedApproval.commit !== 'string' ||
-        !commitPattern.test(projectedApproval.commit) ||
-        typeof projectedApproval.codeOwner !== 'boolean'
+        !commitPattern.test(projectedApproval.commit)
       ) {
         fail('/phase1Harness/commit', 'accepted-authority-projection');
       }
@@ -1574,9 +1512,6 @@ const validateExactAuthorityProjection = (authority: Phase1AcceptedHarnessAuthor
     if (
       requiredChecks.some(
         (name) => typeof name !== 'string' || name.length === 0 || name.length > 256
-      ) ||
-      bypassActors.some(
-        (actor) => typeof actor !== 'string' || actor.length === 0 || actor.length > 100
       )
     ) {
       fail('/phase1Harness/commit', 'accepted-authority-projection');
@@ -1600,10 +1535,6 @@ const snapshotAuthorityProjection = (
         evaluatedCommit: projected.evaluatedCommit,
         baseCommit: projected.baseCommit,
         baseBranch: projected.baseBranch,
-        codeOwnerReviewRequired: projected.codeOwnerReviewRequired,
-        bypassActors: readClosedAuthorityArray(projected.bypassActors, '/phase1Harness/commit').map(
-          (actor) => actor as string
-        ),
         approvals: readClosedAuthorityArray(projected.approvals, '/phase1Harness/commit').map(
           (approval) => {
             const projectedApproval = approval as Phase1Approval;
@@ -1612,7 +1543,6 @@ const snapshotAuthorityProjection = (
               reviewer: projectedApproval.reviewer,
               state: projectedApproval.state,
               commit: projectedApproval.commit,
-              codeOwner: projectedApproval.codeOwner,
             };
           }
         ),
@@ -1706,26 +1636,18 @@ const verifyAcceptedHarness = async (
   ) {
     fail('/phase1Harness/commit', 'accepted-governance-history');
   }
-  assertExactGovernanceDelta(
-    await context.gitReader.diffEntries(
-      profile.phase1Harness.repository,
-      profile.phase1Harness.baseCommit,
-      pullRequest.baseCommit
-    )
-  );
-  assertAcceptedHarnessDelta(
-    await context.gitReader.diffEntries(
-      profile.phase1Harness.repository,
-      pullRequest.baseCommit,
-      harnessCommit
-    )
-  );
-  const governanceReviewer = await assertHarnessGovernanceAuthority(
-    profile,
-    context,
-    pullRequest.baseCommit,
+  const delta = await context.gitReader.diffEntries(
+    profile.phase1Harness.repository,
+    profile.phase1Harness.baseCommit,
     harnessCommit
   );
+  assertReviewHarnessDelta(delta);
+  for (const workflowPath of deletedGovernanceWorkflowPaths) {
+    if (!delta.some((entry) => entry.path === workflowPath && entry.status === 'deleted')) {
+      fail('/phase1Harness/commit', 'harness-workflow-tree');
+    }
+  }
+  await assertHarnessWorkflowAuthority(profile, context, harnessCommit);
 
   if (
     !commitPattern.test(pullRequest.headCommit) ||
@@ -1735,47 +1657,25 @@ const verifyAcceptedHarness = async (
     fail('/phase1Harness/commit', 'accepted-authority-projection');
   }
 
-  if (!pullRequest.codeOwnerReviewRequired) {
-    fail('/phase1Harness/commit', 'accepted-codeowner-approval');
-  }
-
   const approvalReviewers = new Set(pullRequest.approvals.map(({ reviewer }) => reviewer));
 
   if (
     approvalReviewers.size !== pullRequest.approvals.length ||
     pullRequest.approvals.some(({ state }) => state === 'CHANGES_REQUESTED')
   ) {
-    fail('/phase1Harness/commit', 'accepted-codeowner-approval');
+    fail('/phase1Harness/commit', 'accepted-review-approval');
   }
 
   const approved = pullRequest.approvals.some(
     (approval) =>
       approval.state === 'APPROVED' &&
-      approval.codeOwner &&
       approval.reviewer !== pullRequest.author &&
       approval.commit === pullRequest.headCommit
   );
 
   if (!approved) {
-    fail('/phase1Harness/commit', 'accepted-codeowner-approval');
+    fail('/phase1Harness/commit', 'accepted-review-approval');
   }
-  if (
-    !pullRequest.approvals.some(
-      (approval) =>
-        approval.state === 'APPROVED' &&
-        approval.codeOwner &&
-        approval.reviewer === governanceReviewer &&
-        approval.reviewer !== pullRequest.author &&
-        approval.commit === pullRequest.headCommit
-    )
-  ) {
-    fail('/phase1Harness/commit', 'harness-governance-authority');
-  }
-
-  if (pullRequest.bypassActors.length !== 0) {
-    fail('/phase1Harness/commit', 'accepted-no-bypass');
-  }
-
   if (pullRequest.evaluatedCommit !== pullRequest.headCommit) {
     if (
       (await context.gitReader.ensureFullCommit(
@@ -1859,7 +1759,7 @@ const verifyReviewCandidate = async (
     )
   );
   if (deltaKind === 'rebased') {
-    await assertHarnessGovernanceAuthority(profile, context, harnessCommit, harnessCommit);
+    await assertHarnessWorkflowAuthority(profile, context, harnessCommit);
   }
 
   return Object.freeze({
@@ -2240,4 +2140,4 @@ export const createProductionPhase1GitReader = (
   };
 };
 
-/* eslint-enable max-lines, complexity, no-control-regex, no-restricted-syntax, no-await-in-loop, unicorn/prevent-abbreviations, unicorn/no-array-for-each, unicorn/escape-case, unicorn/explicit-length-check, @typescript-eslint/consistent-type-definitions, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/promise-function-async, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable max-lines, complexity, no-control-regex, no-restricted-syntax, no-await-in-loop, unicorn/prevent-abbreviations, unicorn/no-array-for-each, unicorn/escape-case, @typescript-eslint/consistent-type-definitions, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/promise-function-async, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

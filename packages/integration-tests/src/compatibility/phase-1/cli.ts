@@ -13,13 +13,11 @@ import type { CapabilityManifest } from '../model.js';
 import { canonicalBrowserSourcePaths } from './browser/index.js';
 import { candidateInvariantRegistryIds } from './candidate-invariants/index.js';
 import { assertPhase1CapabilityDocument, parsePhase1CapabilityDocument } from './capabilities.js';
+import { createProductionPhase1GithubReader } from './github-reader.js';
 import { differentialScenarioIds, oracleCommit, snapshotClosedDataGraph } from './model.js';
 import { reproducePhase0Evidence } from './phase0-reproducer.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
-import {
-  createProductionPhase1GitReader,
-  type Phase1GithubReader,
-} from './profile-semantics/provenance.js';
+import { createProductionPhase1GitReader } from './profile-semantics/provenance.js';
 import {
   assertPhase1ProfileSemantics,
   authorizePhase1ProtectedExecution,
@@ -718,12 +716,6 @@ export const preparePhase1ReviewProfileForTesting = async (
   return preparePhase1ReviewProfileWithDependencies(command, dependencies);
 };
 
-const deniedGithubReader: Phase1GithubReader = {
-  acceptedHarnessAuthority: async () => {
-    throw new Error(runFailureDiagnostic);
-  },
-};
-
 const closeReviewProvenance = (
   provenance: Phase1ProvenanceResult,
   harnessCommit: string | undefined
@@ -789,7 +781,7 @@ const verifyRunProvenance = async (
     registrySourceEvidence: phase1RegistrySourceEvidence,
     phase0EvidenceReproducer: reproducePhase0Evidence,
     gitReader,
-    githubReader: deniedGithubReader,
+    githubReader: createProductionPhase1GithubReader(),
   });
 };
 
