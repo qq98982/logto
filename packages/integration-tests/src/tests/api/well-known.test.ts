@@ -34,7 +34,8 @@ describe('.well-known api', () => {
 
   it('should return request id in headers', async () => {
     const { headers } = await adminTenantApi.get(`.well-known/endpoints/123`);
-    expect(headers.has('logto-core-request-id')).toBe(true);
+    expect(headers.has('aster-core-request-id')).toBe(true);
+    expect(headers.has('logto-core-request-id')).toBe(false);
   });
 
   it('get /.well-known/sign-in-exp for console', async () => {
