@@ -118,7 +118,7 @@ describe('OIDC discovery', () => {
           "roles",
           "urn:logto:scope:organizations",
           "urn:logto:scope:organization_roles",
-          "urn:logto:scope:sessions",
+          "urn:aster:scope:sessions",
         ],
         "subject_types_supported": [
           "public",

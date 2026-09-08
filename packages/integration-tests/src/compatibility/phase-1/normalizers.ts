@@ -86,9 +86,10 @@ const resourceAudienceMarkerIds = Object.freeze([
   'organizationResource',
   'organizationAudiencePrefix',
 ] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
-const organizationScopeMarkerIds = Object.freeze([
+const nativeScopeMarkerIds = Object.freeze([
   'organizationScope',
   'organizationRoleScope',
+  'sessionScope',
 ] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
 const projectKnownNativeSurfaceValue = (
   value: string,
@@ -435,7 +436,7 @@ const normalizeBoundScopeTokens = (value: string, context: NormalizationContext)
     .split(' ')
     .map((scope) => {
       assertCredentialFreeUrlValue(scope);
-      const projected = projectKnownNativeSurfaceValue(scope, organizationScopeMarkerIds, context);
+      const projected = projectKnownNativeSurfaceValue(scope, nativeScopeMarkerIds, context);
       const logicalName = context.symbols.getLogicalName(projected);
 
       return logicalName ? `<${logicalName}>` : projected;
@@ -1272,7 +1273,7 @@ export const normalizeDiscovery = (value: unknown, context: NormalizationContext
     return {
       ...parsed,
       scopes_supported: scopes.map((scope) =>
-        projectKnownNativeSurfaceValue(scope, organizationScopeMarkerIds, context)
+        projectKnownNativeSurfaceValue(scope, nativeScopeMarkerIds, context)
       ),
     };
   })();

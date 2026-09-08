@@ -883,13 +883,15 @@ describe('phase 1 field-specific normalizers', () => {
       normalizers.normalizeClaims(
         {
           aud: 'urn:logto:organization:t-default',
-          scope: 'openid urn:logto:scope:organizations urn:logto:scope:organization_roles',
+          scope:
+            'openid urn:logto:scope:organizations urn:logto:scope:organization_roles urn:logto:scope:sessions',
         },
         context()
       )
     ).toEqual({
       aud: 'urn:aster:organization:t-default',
-      scope: 'openid urn:aster:scope:organizations urn:aster:scope:organization_roles',
+      scope:
+        'openid urn:aster:scope:organizations urn:aster:scope:organization_roles urn:aster:scope:sessions',
     });
     expect(
       normalizers.normalizeClaims(
@@ -915,17 +917,20 @@ describe('phase 1 field-specific normalizers', () => {
     expect(() =>
       normalizeTokenResponse({ scope: 'urn:logto:scope:organizations' }, context('candidate'))
     ).toThrow('Invalid Phase 1 candidate native surface');
+    expect(() =>
+      normalizeTokenResponse({ scope: 'urn:logto:scope:sessions' }, context('candidate'))
+    ).toThrow('Invalid Phase 1 candidate native surface');
     expect(
       normalizers.normalizeDiscovery(
         {
           issuer: 'https://issuer.example',
-          scopes_supported: ['Hamlet', 'urn:logto:scope:organizations'],
+          scopes_supported: ['Hamlet', 'urn:logto:scope:organizations', 'urn:logto:scope:sessions'],
         },
         context()
       )
     ).toEqual({
       issuer: 'https://issuer.example',
-      scopes_supported: ['Hamlet', 'urn:aster:scope:organizations'],
+      scopes_supported: ['Hamlet', 'urn:aster:scope:organizations', 'urn:aster:scope:sessions'],
     });
     expect(() =>
       normalizers.normalizeDiscovery(

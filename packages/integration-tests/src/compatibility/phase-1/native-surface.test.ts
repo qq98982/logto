@@ -19,6 +19,8 @@ describe('Aster native surface projection', () => {
 
     expect(nativeSurfaceValue(value, 'oracle', 'applicationIdHeader')).toBe('logto-app-id');
     expect(nativeSurfaceValue(value, 'candidate', 'applicationIdHeader')).toBe('aster-app-id');
+    expect(nativeSurfaceValue(value, 'oracle', 'sessionScope')).toBe('urn:logto:scope:sessions');
+    expect(nativeSurfaceValue(value, 'candidate', 'sessionScope')).toBe('urn:aster:scope:sessions');
   });
 
   it('projects only complete exact and prefix reference values', () => {
@@ -60,6 +62,12 @@ describe('Aster native surface projection', () => {
     }).toThrow('Invalid Phase 1 candidate native surface');
     expect(() => {
       assertCandidateNativeSurfaceValue(value, 'generatedCookiePrefix', '_logto_session');
+    }).toThrow('Invalid Phase 1 candidate native surface');
+    expect(() => {
+      assertCandidateNativeSurfaceValue(value, 'sessionScope', 'urn:aster:scope:sessions');
+    }).not.toThrow();
+    expect(() => {
+      assertCandidateNativeSurfaceValue(value, 'sessionScope', 'urn:logto:scope:sessions');
     }).toThrow('Invalid Phase 1 candidate native surface');
   });
 

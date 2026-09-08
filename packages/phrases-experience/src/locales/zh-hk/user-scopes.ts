@@ -9,7 +9,7 @@ const user_scopes = {
     'urn:logto:scope:organizations': '你的組織信息',
     'urn:logto:scope:organization_roles': '你的組織角色',
     address: '你的地址',
-    'urn:logto:scope:sessions': '你的活動會話',
+    'urn:aster:scope:sessions': '你的活動會話',
   },
 };
 

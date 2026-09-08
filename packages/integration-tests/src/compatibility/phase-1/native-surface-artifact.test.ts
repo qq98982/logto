@@ -17,7 +17,7 @@ describe('candidate native-surface artifact boundary', () => {
                   claims: {
                     aud: 'urn:aster:organization:t-default',
                     scope:
-                      'openid urn:aster:scope:organizations urn:aster:scope:organization_roles',
+                      'openid urn:aster:scope:organizations urn:aster:scope:organization_roles urn:aster:scope:sessions',
                   },
                 },
               ],
@@ -66,7 +66,7 @@ describe('candidate native-surface artifact boundary', () => {
         cookies: [{ name: '_logto', path: '/' }],
         claims: {
           aud: 'urn:logto:organization:t-default',
-          scope: 'openid urn:logto:scope:organization_roles',
+          scope: 'openid urn:logto:scope:organization_roles urn:logto:scope:sessions',
         },
         customResource: 'https://default.logto.app/api',
       },
@@ -82,7 +82,7 @@ describe('candidate native-surface artifact boundary', () => {
       cookies: [{ name: '_aster', path: '/' }],
       claims: {
         aud: 'urn:aster:organization:t-default',
-        scope: 'openid urn:aster:scope:organization_roles',
+        scope: 'openid urn:aster:scope:organization_roles urn:aster:scope:sessions',
       },
       customResource: 'https://default.logto.app/api',
     });
@@ -98,6 +98,7 @@ describe('candidate native-surface artifact boundary', () => {
     { cookies: [{ name: '_logto', path: '/' }] },
     { claims: { aud: 'urn:logto:organization:t-default' } },
     { claims: { scope: 'openid urn:logto:scope:organizations' } },
+    { claims: { scope: 'openid urn:logto:scope:sessions' } },
     { resource: 'https://default.logto.app/api' },
     { localStorageKey: 'logto:demo-app:dev:config' },
   ])('rejects a candidate legacy marker in a controlled field', (value) => {

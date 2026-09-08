@@ -9,7 +9,7 @@ const user_scopes = {
     'urn:logto:scope:organizations': 'اطلاعات سازمان‌های شما',
     'urn:logto:scope:organization_roles': 'نقش‌های سازمانی شما',
     address: 'نشانی شما',
-    'urn:logto:scope:sessions': 'نشست‌های فعال شما',
+    'urn:aster:scope:sessions': 'نشست‌های فعال شما',
   },
 };
 

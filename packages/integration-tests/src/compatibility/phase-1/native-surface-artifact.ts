@@ -126,6 +126,7 @@ const resourceMarkerIds = Object.freeze([
 const scopeMarkerIds = Object.freeze([
   'organizationScope',
   'organizationRoleScope',
+  'sessionScope',
 ] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
 const cookieMarkerIds = Object.freeze([
   'sharedExperienceCookieSignature',

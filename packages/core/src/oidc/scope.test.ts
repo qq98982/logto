@@ -1,4 +1,4 @@
-import { type UserClaim } from '@logto/core-kit';
+import { UserScope, type UserClaim } from '@logto/core-kit';
 import { type User } from '@logto/schemas';
 
 import { mockUser } from '#src/__mocks__/user.js';
@@ -140,7 +140,7 @@ describe('OIDC getUserClaims()', () => {
     expect(
       getAcceptedUserClaims({
         use: use.idToken,
-        scope: 'openid profile urn:logto:scope:sessions',
+        scope: `openid profile ${UserScope.Sessions}`,
         rejected: [],
       })
     ).toEqual(profileExpectation);

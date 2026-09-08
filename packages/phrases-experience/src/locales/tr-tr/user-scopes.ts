@@ -9,7 +9,7 @@ const user_scopes = {
     'urn:logto:scope:organizations': 'Organizasyon bilgilerin',
     'urn:logto:scope:organization_roles': 'Organizasyon rollerin',
     address: 'Adresin',
-    'urn:logto:scope:sessions': 'Aktif oturumların',
+    'urn:aster:scope:sessions': 'Aktif oturumların',
   },
 };
 

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "phase0BaseCommit": "40135e37201f36ac05ece1eff82e37bb6d9649f1",
-  "schemaSourceCommit": "feea82c09a049a12b48a47166332d7424c5dec9f",
-  "schemaSha256": "2763606eebe768525326c41fc49e3f7ff53ad7792d4124b018530d73910061fa",
+  "schemaSourceCommit": "6a570df515acf5471ca041e36a6c04a78de12ef0",
+  "schemaSha256": "5a3c074dbaf7f64ed8190dcfcc6d538d9bafbc6caf9bd553fd72d48e235c1780",
   "phase0AuthorityBlobs": {
     "compatibility/baseline-manifest.json": "783b5487918b86f0d9b21f4ad7c131b49c4362a0",
     "docker-compose.compatibility.yml": "a34c4faf36bf349c2d77c8dc074683cad8a6035b",

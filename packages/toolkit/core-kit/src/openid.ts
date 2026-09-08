@@ -143,7 +143,7 @@ export enum UserScope {
    * Only used for session management via account API.
    * Not included in user claims, even when the scope is requested, as it's not meant for ID token or userinfo endpoint.
    */
-  Sessions = 'urn:logto:scope:sessions',
+  Sessions = 'urn:aster:scope:sessions',
 }
 
 /**

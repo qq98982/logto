@@ -15,6 +15,7 @@ const resourceMarkerIds = Object.freeze([
 const scopeMarkerIds = Object.freeze([
   'organizationScope',
   'organizationRoleScope',
+  'sessionScope',
 ] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -142,6 +143,7 @@ export const phase1ImplementationForProfile = (
   ]) {
     observeCollection('organizationScope', value);
     observeCollection('organizationRoleScope', value);
+    observeCollection('sessionScope', value);
   }
   observe('organizationAudiencePrefix', requiredAccessTokenProjection?.aud);
   for (const rawRequest of arrayField(profile, 'consoleReadRequests')) {

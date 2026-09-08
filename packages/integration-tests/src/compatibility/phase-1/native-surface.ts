@@ -28,6 +28,7 @@ export const phase1NativeSurfaceMarkerIds = Object.freeze([
   'organizationResource',
   'organizationScope',
   'organizationRoleScope',
+  'sessionScope',
   'organizationAudiencePrefix',
 ] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
 
@@ -85,6 +86,7 @@ export const asterNativeSurfaceContract = Object.freeze({
       'urn:logto:scope:organization_roles',
       'urn:aster:scope:organization_roles'
     ),
+    sessionScope: marker('exact', 'urn:logto:scope:sessions', 'urn:aster:scope:sessions'),
     organizationAudiencePrefix: marker(
       'prefix',
       'urn:logto:organization:',

@@ -48,6 +48,7 @@ export type Phase1NativeSurfaceMarkerId =
   | 'organizationResource'
   | 'organizationScope'
   | 'organizationRoleScope'
+  | 'sessionScope'
   | 'organizationAudiencePrefix';
 
 export type Phase1NativeSurfaceMarker = Readonly<{
