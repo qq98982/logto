@@ -125,7 +125,7 @@ describe('SocialVerification', () => {
         cookies: {
           get: jest.fn().mockImplementation((key) => {
             // For external Google One Tap, return the credential value for the logto cookie
-            if (key === '_logto_google_one_tap_credential') {
+            if (key === '_aster_google_one_tap_credential') {
               return 'credential';
             }
             return 'different_token';
@@ -217,7 +217,7 @@ describe('SocialVerification', () => {
         cookies: {
           get: jest.fn().mockImplementation((key) => {
             // For external Google One Tap, return the credential value for the logto cookie
-            if (key === '_logto_google_one_tap_credential') {
+            if (key === '_aster_google_one_tap_credential') {
               return 'external_credential';
             }
             return 'different_token';

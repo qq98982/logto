@@ -315,7 +315,7 @@ export const appendSharedExperienceSearchParams = (
 };
 
 /**
- * The Experience SSR middleware reads `_logto` before the client bootstraps. Reusing the same
+ * The Experience SSR middleware reads `_aster` before the client bootstraps. Reusing the same
  * cookie payload for the shared app / organization / locale params keeps device pages aligned
  * with login pages without broadening the cookie to route-specific prompt parameters.
  */

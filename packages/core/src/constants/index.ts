@@ -13,8 +13,8 @@ export const subjectTokenPrefix = 'sub_';
 /** The default lifetime of SSO SAML assertion record (in milliseconds) */
 export const defaultIdPInitiatedSamlSsoSessionTtl = 10 * 60 * 1000; // 10 minutes
 
-export const idpInitiatedSamlSsoSessionCookieName = '_logto_idp_saml_sso_session_id';
-export const spInitiatedSamlSsoSessionCookieName = '_logto_sp_saml_sso_session_id';
+export const idpInitiatedSamlSsoSessionCookieName = '_aster_idp_saml_sso_session_id';
+export const spInitiatedSamlSsoSessionCookieName = '_aster_sp_saml_sso_session_id';
 
 /** URL path segment for SSO authentication endpoints (mounted as `/api/authn/${ssoPath}/...`). */
 export const ssoPath = 'single-sign-on';

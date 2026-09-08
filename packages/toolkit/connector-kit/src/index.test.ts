@@ -9,7 +9,12 @@ import {
   validateConfig,
   getValue,
   getAccessTokenByRefreshToken,
+  logtoGoogleOneTapCookieKey,
 } from './index.js';
+
+it('uses the Aster name for the Google One Tap credential Cookie', () => {
+  expect(logtoGoogleOneTapCookieKey).toBe('_aster_google_one_tap_credential');
+});
 
 describe('validateConfig', () => {
   it('valid config', () => {
