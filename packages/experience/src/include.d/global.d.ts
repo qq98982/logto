@@ -1,6 +1,6 @@
 import { type SsrData } from '@logto/schemas';
 
-type LogtoNativeSdkInfo = {
+type AsterNativeSdkInfo = {
   platform: 'ios' | 'android';
   callbackLink: string;
   getPostMessage: () => (data: { callbackUri?: string; redirectTo?: string }) => void;
@@ -10,15 +10,15 @@ type LogtoNativeSdkInfo = {
   };
 };
 
-type LogtoSsr = string | Readonly<SsrData> | undefined;
+type AsterSsr = string | Readonly<SsrData> | undefined;
 
 declare global {
-  const logtoNativeSdk: LogtoNativeSdkInfo | undefined;
-  const logtoSsr: LogtoSsr;
+  const asterNativeSdk: AsterNativeSdkInfo | undefined;
+  const asterSsr: AsterSsr;
 
   interface Window {
-    logtoNativeSdk: LogtoNativeSdkInfo | undefined;
-    logtoSsr: LogtoSsr;
+    asterNativeSdk: AsterNativeSdkInfo | undefined;
+    asterSsr: AsterSsr;
 
     // Captcha providers
     grecaptcha?: {

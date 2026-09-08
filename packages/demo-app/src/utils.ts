@@ -5,7 +5,7 @@ type ToZodObject<T> = z.ZodObject<{
   [K in keyof T]-?: z.ZodType<T[K]>;
 }>;
 
-type LocalLogtoConfig = {
+type LocalAsterConfig = {
   signInExtraParams?: string;
   prompt?: string;
   scope?: string;
@@ -13,7 +13,7 @@ type LocalLogtoConfig = {
   appId?: string;
 };
 
-const localLogtoConfigGuard = z
+const localAsterConfigGuard = z
   .object({
     signInExtraParams: z.string(),
     prompt: z.string(),
@@ -21,7 +21,7 @@ const localLogtoConfigGuard = z
     resource: z.string(),
     appId: z.string(),
   })
-  .partial() satisfies ToZodObject<LocalLogtoConfig>;
+  .partial() satisfies ToZodObject<LocalAsterConfig>;
 
 type LocalUiConfig = {
   showDevPanel?: boolean;
@@ -35,17 +35,17 @@ const localUiConfigGuard = z
 
 type Key = 'config' | 'ui';
 
-const keyPrefix = 'logto:demo-app:dev:';
+const keyPrefix = 'aster:demo-app:dev:';
 
 type KeyToType = {
-  config: LocalLogtoConfig;
+  config: LocalAsterConfig;
   ui: LocalUiConfig;
 };
 
 const keyToGuard: Readonly<{
   [K in Key]: z.ZodType<KeyToType[K]>;
 }> = Object.freeze({
-  config: localLogtoConfigGuard,
+  config: localAsterConfigGuard,
   ui: localUiConfigGuard,
 });
 

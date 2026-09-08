@@ -8,7 +8,7 @@ import { useCallback, useSyncExternalStore } from 'react';
  * version selector repeated across a guide) reflects the same choice and
  * remembers it across visits.
  */
-const getStorageKey = (groupId: string) => `logto:admin_console:guide_tab_group:${groupId}`;
+const getStorageKey = (groupId: string) => `aster:admin_console:guide_tab_group:${groupId}`;
 
 /**
  * The native `storage` event only fires in *other* windows, so we keep our own

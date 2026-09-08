@@ -1,7 +1,7 @@
 import { mockSignInExperience } from '@/__mocks__/logto';
 import { getSignInExperience } from '@/apis/settings';
 
-import { getSignInExperienceSettings } from './sign-in-experience';
+import { getSignInExperienceSettings, parseHtmlTitle } from './sign-in-experience';
 
 jest.mock('@/apis/settings', () => ({
   getSignInExperience: jest.fn(),
@@ -20,4 +20,8 @@ describe('getSignInExperienceSettings', () => {
     expect(settings.signUp.identifiers).toContain('username');
     expect(settings.signIn.methods).toHaveLength(3);
   });
+});
+
+test('unknown Experience routes use the Aster fallback title', () => {
+  expect(parseHtmlTitle('/unknown')).toBe('Aster');
 });

@@ -2,7 +2,7 @@
  * We need to hide the query params and path from the redirectUri for security reasons when displaying it to the user.
  *
  * if the redirectUri is a http url, we should return the origin
- * Otherwise return the original uri. e.g. native schema io.logto://callback
+ * Otherwise return the original URI. For example, the native Aster callback scheme.
  */
 export const getRedirectUriOrigin = (redirectUri: string) => {
   const url = new URL(redirectUri);
@@ -12,6 +12,6 @@ export const getRedirectUriOrigin = (redirectUri: string) => {
     return url.origin;
   }
 
-  // Otherwise return the original uri. e.g. native schema io.logto://callback
+  // Otherwise return the original native callback URI.
   return redirectUri;
 };

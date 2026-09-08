@@ -37,7 +37,7 @@ describe('overrides', () => {
     favicon: 'mock://fake-url-for-omni/favicon.ico',
     darkFavicon: 'mock://fake-url-for-omni/dark-favicon.ico',
   } satisfies Branding);
-  const omniCustomCss = '.logto_main-content { background-color: #f00 !important; }';
+  const omniCustomCss = '.aster_main-content { background-color: #f00 !important; }';
 
   const appColor = Object.freeze({
     primaryColor: '#00f',
@@ -49,7 +49,7 @@ describe('overrides', () => {
     favicon: 'mock://fake-url-for-app/favicon.ico',
     darkFavicon: 'mock://fake-url-for-app/dark-favicon.ico',
   } satisfies Branding);
-  const appCustomCss = '.logto_main-content { background-color: #0f0 !important; }';
+  const appCustomCss = '.aster_main-content { background-color: #0f0 !important; }';
 
   const orgColor = Object.freeze({
     primaryColor: '#0f0',
@@ -61,7 +61,7 @@ describe('overrides', () => {
     favicon: 'mock://fake-url-for-org/favicon.ico',
     darkFavicon: 'mock://fake-url-for-org/dark-favicon.ico',
   } satisfies Branding);
-  const organizationCustomCss = '.logto_main-content { background-color: #00f !important; }';
+  const organizationCustomCss = '.aster_main-content { background-color: #00f !important; }';
 
   afterEach(async () => {
     await organizationApi.cleanUp();
@@ -454,7 +454,7 @@ describe('overrides', () => {
     const experience = new ExpectExperience(await browser.newPage());
     await experience.navigateTo(demoAppUrl.href + `?organization_id=${organization.id}`);
 
-    const element = await experience.toMatchElement('main.logto_main-content');
+    const element = await experience.toMatchElement('main.aster_main-content');
     expect(await element.evaluate((node) => window.getComputedStyle(node).backgroundColor)).toBe(
       'rgb(255, 0, 0)'
     );
@@ -477,14 +477,14 @@ describe('overrides', () => {
     const experience = new ExpectExperience(await browser.newPage());
     // Omni baseline
     await experience.navigateTo(demoAppUrl.href);
-    const baseElement = await experience.toMatchElement('main.logto_main-content');
+    const baseElement = await experience.toMatchElement('main.aster_main-content');
     expect(
       await baseElement.evaluate((node) => window.getComputedStyle(node).backgroundColor)
     ).toBe('rgb(255, 0, 0)');
 
     // App override
     await experience.navigateTo(demoAppUrl.href + `?app_id=${application.id}`);
-    const appElement = await experience.toMatchElement('main.logto_main-content');
+    const appElement = await experience.toMatchElement('main.aster_main-content');
     expect(await appElement.evaluate((node) => window.getComputedStyle(node).backgroundColor)).toBe(
       'rgb(0, 255, 0)'
     );
@@ -493,7 +493,7 @@ describe('overrides', () => {
     await experience.navigateTo(
       demoAppUrl.href + `?app_id=${application.id}&organization_id=${organization.id}`
     );
-    const orgElement = await experience.toMatchElement('main.logto_main-content');
+    const orgElement = await experience.toMatchElement('main.aster_main-content');
     expect(await orgElement.evaluate((node) => window.getComputedStyle(node).backgroundColor)).toBe(
       'rgb(0, 0, 255)'
     );

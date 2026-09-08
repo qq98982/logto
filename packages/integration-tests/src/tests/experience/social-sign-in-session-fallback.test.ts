@@ -118,7 +118,7 @@ describe('social sign-in session fallback', () => {
         }
       }
       for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('logto:redirect-context:fallback:')) {
+        if (key.startsWith('aster:redirect-context:fallback:')) {
           localStorage.removeItem(key);
         }
       }

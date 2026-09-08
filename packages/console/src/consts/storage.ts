@@ -12,7 +12,7 @@ export type StorageType =
   | 'oss_sidebar_cloud_upsell_dismissed_until';
 
 export const getStorageKey = <T extends StorageType>(forType: T) =>
-  `logto:admin_console:${forType}` as const;
+  `aster:admin_console:${forType}` as const;
 
 export const storageKeys = Object.freeze({
   appearanceMode: getStorageKey('appearance_mode'),

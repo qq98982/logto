@@ -10,7 +10,7 @@ import {
   verificationIdsMapGuard,
 } from '@/types/guard';
 
-const logtoStorageKeyPrefix = `logto:${window.location.origin}`;
+const asterStorageKeyPrefix = `aster:${window.location.origin}`;
 
 export enum StorageKeys {
   SsoEmail = 'sso-email',
@@ -34,20 +34,20 @@ type StorageValueType<K extends StorageKeys> = s.Infer<(typeof valueGuard)[K]>;
 const useSessionStorage = () => {
   const set = useCallback(<T extends StorageKeys>(key: T, value: StorageValueType<T>) => {
     if (typeof value === 'object') {
-      sessionStorage.setItem(`${logtoStorageKeyPrefix}:${key}`, JSON.stringify(value));
+      sessionStorage.setItem(`${asterStorageKeyPrefix}:${key}`, JSON.stringify(value));
       return;
     }
 
-    sessionStorage.setItem(`${logtoStorageKeyPrefix}:${key}`, value);
+    sessionStorage.setItem(`${asterStorageKeyPrefix}:${key}`, value);
   }, []);
 
   const remove = useCallback((key: StorageKeys) => {
-    sessionStorage.removeItem(`${logtoStorageKeyPrefix}:${key}`);
+    sessionStorage.removeItem(`${asterStorageKeyPrefix}:${key}`);
   }, []);
 
   const get = useCallback(
     <T extends StorageKeys>(key: T): StorageValueType<T> | undefined => {
-      const value = sessionStorage.getItem(`${logtoStorageKeyPrefix}:${key}`);
+      const value = sessionStorage.getItem(`${asterStorageKeyPrefix}:${key}`);
 
       if (value === null) {
         return;

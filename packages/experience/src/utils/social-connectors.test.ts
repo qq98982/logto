@@ -4,7 +4,7 @@ import { ConnectorPlatform } from '@logto/schemas';
 import { getCookie } from 'tiny-cookie';
 
 import { SearchParameters } from '@/types';
-import { getLogtoNativeSdk, isNativeWebview } from '@/utils/native-sdk';
+import { getAsterNativeSdk, isNativeWebview } from '@/utils/native-sdk';
 
 import {
   filterSocialConnectors,
@@ -74,7 +74,7 @@ const wechatConnectorOrders = [
 
 jest.mock('@/utils/native-sdk', () => ({
   isNativeWebview: jest.fn(),
-  getLogtoNativeSdk: jest.fn(),
+  getAsterNativeSdk: jest.fn(),
 }));
 
 // Mock tiny-cookie for new tests
@@ -82,7 +82,7 @@ jest.mock('tiny-cookie', () => ({
   getCookie: jest.fn(),
 }));
 
-const getLogtoNativeSdkMock = getLogtoNativeSdk as jest.Mock;
+const getAsterNativeSdkMock = getAsterNativeSdk as jest.Mock;
 const isNativeWebviewMock = isNativeWebview as jest.Mock;
 const getCookieMock = getCookie as jest.Mock;
 
@@ -107,7 +107,7 @@ describe('filterSocialConnectors', () => {
 
   it('Native Platform should return empty if not getPostMessage method is injected', () => {
     isNativeWebviewMock.mockImplementation(() => true);
-    getLogtoNativeSdkMock.mockImplementation(() => ({
+    getAsterNativeSdkMock.mockImplementation(() => ({
       supportedConnector: {
         universal: true,
         nativeTargets: ['wechat', 'alipay'],
@@ -119,13 +119,13 @@ describe('filterSocialConnectors', () => {
 
   it('filter Native & Universal  Connectors', () => {
     isNativeWebviewMock.mockImplementation(() => true);
-    getLogtoNativeSdkMock.mockImplementation(() => ({
+    getAsterNativeSdkMock.mockImplementation(() => ({
       supportedConnector: {
         universal: true,
         nativeTargets: ['wechat'],
       },
       getPostMessage: jest.fn(),
-      callbackLink: 'logto://callback',
+      callbackLink: 'aster://callback',
     }));
 
     expect(filterSocialConnectors(mockConnectors)).toEqual([
@@ -136,7 +136,7 @@ describe('filterSocialConnectors', () => {
 
   it('filter Native & Universal Connectors with out callbackLink should only return native connectors', () => {
     isNativeWebviewMock.mockImplementation(() => true);
-    getLogtoNativeSdkMock.mockImplementation(() => ({
+    getAsterNativeSdkMock.mockImplementation(() => ({
       supportedConnector: {
         universal: true,
         nativeTargets: ['wechat'],
@@ -151,7 +151,7 @@ describe('filterSocialConnectors', () => {
 
   it('filter Native Connectors', () => {
     isNativeWebviewMock.mockImplementation(() => true);
-    getLogtoNativeSdkMock.mockImplementation(() => ({
+    getAsterNativeSdkMock.mockImplementation(() => ({
       platform: 'ios',
       supportedConnector: {
         universal: false,
@@ -215,14 +215,14 @@ describe.each(wechatConnectorOrders)(
 
     it('selects exactly Native with a valid native SDK bridge', () => {
       isNativeWebviewMock.mockReturnValue(true);
-      getLogtoNativeSdkMock.mockReturnValue({
+      getAsterNativeSdkMock.mockReturnValue({
         platform: 'ios',
         supportedConnector: {
           universal: true,
           nativeTargets: ['wechat'],
         },
         getPostMessage: jest.fn(),
-        callbackLink: 'logto://callback',
+        callbackLink: 'aster://callback',
       });
 
       const result = filterSocialConnectors(connectors);
@@ -251,9 +251,9 @@ describe.each(wechatConnectorOrders)(
 
 describe('buildSocialLandingUri', () => {
   it('buildSocialLandingUri', () => {
-    getLogtoNativeSdkMock.mockImplementation(() => ({
+    getAsterNativeSdkMock.mockImplementation(() => ({
       platform: 'ios',
-      callbackLink: 'logto://callback',
+      callbackLink: 'aster://callback',
     }));
 
     const redirectUri = 'https://www.example.com/callback';
@@ -263,7 +263,7 @@ describe('buildSocialLandingUri', () => {
     expect(callbackUri.pathname).toEqual(socialLandingPath);
     expect(callbackUri.searchParams.get(SearchParameters.RedirectTo)).toEqual(redirectUri);
     expect(callbackUri.searchParams.get(SearchParameters.NativeCallbackLink)).toEqual(
-      'logto://callback'
+      'aster://callback'
     );
   });
 });

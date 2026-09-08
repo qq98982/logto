@@ -1,7 +1,7 @@
 export const layoutClassNames = Object.freeze({
-  pageContainer: 'logto_page-container',
-  mainContent: 'logto_main-content',
-  customContent: 'logto_custom-content',
-  signature: 'logto_signature',
-  brandingHeader: 'logto_branding-header',
+  pageContainer: 'aster_page-container',
+  mainContent: 'aster_main-content',
+  customContent: 'aster_custom-content',
+  signature: 'aster_signature',
+  brandingHeader: 'aster_branding-header',
 });
