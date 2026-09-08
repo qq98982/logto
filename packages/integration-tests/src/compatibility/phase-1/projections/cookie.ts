@@ -11,4 +11,12 @@ export const projectCookieObservation = (
   value: RawHttpObservation,
   context: NormalizationContext
 ): Phase1HttpProjection =>
-  projectHttpObservation({ ...value, body: normalizeCookieContinuity(value.body) }, context);
+  projectHttpObservation(
+    {
+      ...value,
+      body: normalizeCookieContinuity(value.body, {
+        nativeSurfaceImplementation: context.nativeSurfaceImplementation,
+      }),
+    },
+    context
+  );

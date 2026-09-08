@@ -19,6 +19,7 @@ import {
   type Phase1FixtureAllocationRole,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import {
   projectConsentErrorObservation,
   projectConsentObservation,
@@ -582,7 +583,11 @@ export const runInteractionConsentSessionBoundary = async (
       'fixture.consent.primary.client-b.name',
       getPhase1FixtureRuntimeText('consent.primary client B', dataAllocation.allocationId)
     );
-    const projectionContext: NormalizationContext = { target: context.target, symbols };
+    const projectionContext: NormalizationContext = createPhase1NormalizationContext(
+      context.profile,
+      context.target,
+      symbols
+    );
     const primaryConsentUrl = new URL('/api/interaction/consent', context.target.coreUrl);
     const aConsentUrl = new URL('/api/interaction/consent', a.target.coreUrl);
     const bConsentUrl = new URL('/api/interaction/consent', b.target.coreUrl);

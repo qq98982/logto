@@ -203,7 +203,7 @@ const assertConsoleReferences = (profile: Phase1Profile): void => {
   );
   assertEqual(
     request.requiredAccessTokenProjection.aud,
-    `urn:logto:organization:${adminTenant.tenantOrganization.id}`,
+    `${profile.asterNativeSurface.markers.organizationAudiencePrefix.candidate}${adminTenant.tenantOrganization.id}`,
     '/consoleOrganizationTokenRequest/requiredAccessTokenProjection/aud'
   );
   assertEqual(

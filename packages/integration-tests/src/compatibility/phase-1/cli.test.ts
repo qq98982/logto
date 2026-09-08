@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-await-in-loop, unicorn/consistent-function-scoping, @typescript-eslint/consistent-type-assertions -- CLI controls use isolated mutable captures and hostile argument matrices. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-await-in-loop, unicorn/consistent-function-scoping -- CLI controls use isolated mutable captures and hostile argument matrices. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -22,6 +22,7 @@ import {
   type Phase1RunAuthorization,
 } from './cli.js';
 import { snapshotClosedDataGraph } from './model.js';
+import { asterNativeSurfaceContract } from './native-surface.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
 import type { Phase1Profile } from './profile-types.js';
 import type { Phase1ProfileBundle } from './profile.js';
@@ -66,8 +67,9 @@ const prepareArguments = [
 
 const profileFixture = (): Phase1Profile =>
   ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     profileId: 'aster.phase-1.password-pkce',
+    asterNativeSurface: structuredClone(asterNativeSurfaceContract),
     reference: {
       oracleRepository: 'https://github.com/qq98982/logto.git',
       oracleCommit: '6852a7b8c8984c5c12b2061e8c51faa310a36412',
@@ -87,7 +89,7 @@ const profileFixture = (): Phase1Profile =>
       commit: 'a'.repeat(40),
       lockState: 'locked; commit pins the reviewed Phase 1 harness descendant',
     },
-  }) as Phase1Profile;
+  }) as unknown as Phase1Profile;
 
 const designProfileFixture = (): Phase1Profile => {
   const profile = structuredClone(profileFixture()) as Phase1Profile;
@@ -790,4 +792,4 @@ describe('preparePhase1ReviewProfile', () => {
   );
 });
 
-/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-await-in-loop, unicorn/consistent-function-scoping, @typescript-eslint/consistent-type-assertions */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, no-await-in-loop, unicorn/consistent-function-scoping */

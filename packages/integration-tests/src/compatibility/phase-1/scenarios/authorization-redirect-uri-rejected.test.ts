@@ -99,6 +99,7 @@ const createHarness = (state = stateProjection) => {
             ],
           },
           browserClientConfiguration: {
+            localStorageKey: 'logto:demo-app:dev:config',
             localStorageValue: {
               appId: 'phase1-browser',
               prompt: 'login consent',

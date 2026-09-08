@@ -16,6 +16,8 @@ import {
 } from '../evidence.js';
 import type { ProvisionedPhase1Fixture } from '../fixtures.js';
 import type { Phase1DifferentialScenarioId } from '../model.js';
+import { assertCandidateNativeSurfaceArtifact } from '../native-surface-artifact.js';
+import { projectPhase1ProfileForImplementation } from '../native-surface-profile.js';
 import {
   runPhase1ScenarioForTarget,
   type Phase1TargetRuntime,
@@ -55,6 +57,7 @@ export type Phase1DifferentialEvidenceArtifact = Readonly<{
 }>;
 
 export type Phase1DifferentialRuntimeDependencies = Readonly<{
+  projectProfile: typeof projectPhase1ProfileForImplementation;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
   createSessionBinding: typeof createPhase1ProtocolSessionBinding;
   createReferenceProjector: typeof createReferenceScenarioStateProjector;
@@ -104,6 +107,7 @@ export const loadPhase1ReferenceContainerGraph = (
 };
 
 const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze({
+  projectProfile: projectPhase1ProfileForImplementation,
   createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
   createSessionBinding: createPhase1ProtocolSessionBinding,
   createReferenceProjector: createReferenceScenarioStateProjector,
@@ -119,8 +123,9 @@ const createReferenceRuntime = (
   dependencies: Phase1DifferentialRuntimeDependencies
 ): Phase1TargetRuntime => {
   const target = context.targets[implementation].primary;
+  const profile = dependencies.projectProfile(context.authorization.profile, 'oracle');
   const provisioner = dependencies.createReferenceProvisioner({
-    profile: context.authorization.profile,
+    profile,
     target,
     foreignTarget: context.targets[implementation].foreign,
     isolation: context.isolationAttestations[implementation],
@@ -129,14 +134,14 @@ const createReferenceRuntime = (
   const driverPath = `${context.repositoryRoot}/.scripts/compatibility/phase1-reference-state-driver.sh`;
 
   return Object.freeze({
-    profile: context.authorization.profile,
+    profile,
     target,
     provisioner,
     timeoutMs: scenarioTimeoutMs,
     createProtocolSession: (input) => {
       const binding: Phase1ProtocolSessionBinding = dependencies.createSessionBinding(input);
       const projector = dependencies.createReferenceProjector({
-        profile: context.authorization.profile,
+        profile,
         primaryContainerId: containers.primary,
         foreignContainerId: containers.foreign,
         projectName,
@@ -248,6 +253,7 @@ const executePhase1DifferentialRuntime = async (
         scenario.id,
         await dependencies.runScenario(scenario, candidateRuntime)
       );
+      assertCandidateNativeSurfaceArtifact(candidate);
       scenarios.push(
         snapshotPhase1EvidencePreservingVerifiedTokens<Phase1DifferentialEvidenceScenario>({
           id: scenario.id,

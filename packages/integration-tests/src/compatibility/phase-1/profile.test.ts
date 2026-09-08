@@ -61,6 +61,7 @@ const createdRoots = new Set<string>();
 const phase1ProfileRootKeys = [
   'schemaVersion',
   'profileId',
+  'asterNativeSurface',
   'reference',
   'profileSchema',
   'phase1Harness',
@@ -406,10 +407,10 @@ afterEach(async () => {
 });
 
 describe('Phase 1 profile type boundary', () => {
-  it('models exactly 31 named root properties without an open index signature', () => {
+  it('models exactly 32 named root properties without an open index signature', () => {
     expect(profileHasExactlyTheDeclaredRoots).toBe(true);
-    expect(phase1ProfileRootKeys).toHaveLength(31);
-    expect(new Set(phase1ProfileRootKeys).size).toBe(31);
+    expect(phase1ProfileRootKeys).toHaveLength(32);
+    expect(new Set(phase1ProfileRootKeys).size).toBe(32);
   });
 
   it('keeps selected authorization and query variants structurally closed', () => {

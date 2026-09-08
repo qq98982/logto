@@ -15,6 +15,12 @@ import {
 } from '../normalize.js';
 
 import { isBoundedTimestampEnvelope } from './bounded-timestamp.js';
+import {
+  asterNativeSurfaceContract,
+  projectNativeSurfaceObservation,
+  type Phase1Implementation,
+} from './native-surface.js';
+import type { Phase1NativeSurfaceMarkerId } from './profile-types.js';
 
 const credentialKeyPattern =
   /^(?:authorization|proxy-authorization|cookie|set-cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|code|state|session|resume|interaction|nonce|code[_-]?verifier|code[_-]?challenge|verification[_-]?(?:id|credential|token|code))$/iu;
@@ -30,6 +36,75 @@ const entityTagPattern = /^(W\/)?"[\u0021\u0023-\u007E\u0080-\u00FF]*"$/u;
 const redirectCredentialKeyPattern =
   /(?:^|[_-])(?:code|state|token|credential|session|interaction|resume|verification|nonce)(?:$|[_-])/iu;
 const boundedTimestampToleranceSeconds = 30;
+const nativeSurfaceImplementation = (
+  value: Readonly<{ nativeSurfaceImplementation?: Phase1Implementation }>
+): Phase1Implementation => {
+  const { nativeSurfaceImplementation: implementation } = value;
+
+  if (implementation !== 'oracle' && implementation !== 'candidate') {
+    throw new TypeError('Invalid Phase 1 native surface context');
+  }
+
+  return implementation;
+};
+const markerMatchesEitherSide = (
+  marker: Readonly<{ match: 'exact' | 'prefix'; reference: string; candidate: string }>,
+  value: string
+): boolean =>
+  marker.match === 'exact'
+    ? value === marker.reference || value === marker.candidate
+    : value.startsWith(marker.reference) || value.startsWith(marker.candidate);
+const projectRequestIdHeaderName = (name: string, context: NormalizationContext): string => {
+  const marker = asterNativeSurfaceContract.markers.requestIdHeader;
+
+  return markerMatchesEitherSide(marker, name)
+    ? projectNativeSurfaceObservation(nativeSurfaceImplementation(context), 'requestIdHeader', name)
+    : name;
+};
+const cookieMarkerIds = Object.freeze([
+  'sharedExperienceCookieSignature',
+  'sharedExperienceCookie',
+  'generatedCookiePrefix',
+] as const);
+const projectCookieName = (name: string, implementation?: Phase1Implementation): string => {
+  for (const markerId of cookieMarkerIds) {
+    const marker = asterNativeSurfaceContract.markers[markerId];
+
+    if (markerMatchesEitherSide(marker, name)) {
+      if (!implementation) {
+        throw new TypeError('Invalid Phase 1 native surface context');
+      }
+      return projectNativeSurfaceObservation(implementation, markerId, name);
+    }
+  }
+
+  return name;
+};
+const resourceAudienceMarkerIds = Object.freeze([
+  'managementResource',
+  'accountResource',
+  'organizationResource',
+  'organizationAudiencePrefix',
+] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
+const organizationScopeMarkerIds = Object.freeze([
+  'organizationScope',
+  'organizationRoleScope',
+] as const satisfies readonly Phase1NativeSurfaceMarkerId[]);
+const projectKnownNativeSurfaceValue = (
+  value: string,
+  markerIds: readonly Phase1NativeSurfaceMarkerId[],
+  context: NormalizationContext
+): string => {
+  for (const markerId of markerIds) {
+    const marker = asterNativeSurfaceContract.markers[markerId];
+
+    if (markerMatchesEitherSide(marker, value)) {
+      return projectNativeSurfaceObservation(nativeSurfaceImplementation(context), markerId, value);
+    }
+  }
+
+  return value;
+};
 const allowedJwtTimestampFields = new Set(['iat', 'exp', 'auth_time', 'created_at', 'updated_at']);
 const allowedUserInfoTimestampFields = new Set(['created_at', 'updated_at']);
 const entityTimestampFields = new Set([
@@ -351,16 +426,44 @@ const normalizeExactLogicalJson = (
   return value;
 };
 
-const normalizeBoundScopeTokens = (value: string, context: NormalizationContext): string =>
-  value
+const normalizeBoundScopeTokens = (value: string, context: NormalizationContext): string => {
+  if (value.length === 0) {
+    return value;
+  }
+
+  return value
     .split(' ')
     .map((scope) => {
       assertCredentialFreeUrlValue(scope);
-      const logicalName = context.symbols.getLogicalName(scope);
+      const projected = projectKnownNativeSurfaceValue(scope, organizationScopeMarkerIds, context);
+      const logicalName = context.symbols.getLogicalName(projected);
 
-      return logicalName ? `<${logicalName}>` : scope;
+      return logicalName ? `<${logicalName}>` : projected;
     })
     .join(' ');
+};
+
+const normalizeAudience = (value: JsonValue, context: NormalizationContext): JsonValue => {
+  const normalizeItem = (item: string): string => {
+    const projected = projectKnownNativeSurfaceValue(item, resourceAudienceMarkerIds, context);
+
+    if (projected !== item) {
+      return projected;
+    }
+    const normalized = normalizeExactLogicalJson(item, context, ['aud']);
+
+    return typeof normalized === 'string' ? normalized : fixedFailure('Invalid phase 1 claims');
+  };
+
+  if (typeof value === 'string') {
+    return normalizeItem(value);
+  }
+  if (Array.isArray(value) && value.every((item) => typeof item === 'string')) {
+    return value.map((item) => normalizeItem(item));
+  }
+
+  return fixedFailure('Invalid phase 1 claims');
+};
 
 const credentialParameterCounts = <Component extends 'query' | 'fragment'>(
   entries: ReadonlyArray<readonly [string, string]>,
@@ -852,11 +955,13 @@ const normalizeRawSetCookie = (header: string): CookieMetadataWithExtensions => 
 
 const normalizeCookieMetadata = (
   cookie: CookieMetadataWithExtensions,
-  responseDateSeconds?: number
+  responseDateSeconds: number | undefined,
+  implementation?: Phase1Implementation
 ): Phase1CookieMetadata => {
   const { expires, ...metadata } = cookie;
   const completeMetadata = {
     ...metadata,
+    name: projectCookieName(metadata.name, implementation),
     extensions: Object.freeze([...(metadata.extensions ?? [])]),
   };
 
@@ -906,13 +1011,17 @@ const normalizeHeadersValue = (
       if (typeof rawName !== 'string' || typeof rawValue !== 'string') {
         return fixedFailure('Invalid phase 1 headers');
       }
-      const name = rawName.toLowerCase();
+      const name = projectRequestIdHeaderName(rawName.toLowerCase(), context);
       const value: JsonValue =
         name === 'access-control-allow-origin'
           ? normalizeCorsOrigin(rawValue, context)
           : name === 'set-cookie'
             ? parseJson(
-                normalizeCookieMetadata(normalizeRawSetCookie(rawValue), responseDateSeconds),
+                normalizeCookieMetadata(
+                  normalizeRawSetCookie(rawValue),
+                  responseDateSeconds,
+                  context.nativeSurfaceImplementation
+                ),
                 'Invalid phase 1 Set-Cookie header'
               )
             : name === 'location'
@@ -932,7 +1041,7 @@ const normalizeHeadersValue = (
                   ? normalizeContentLength(rawValue, options.bodyByteLength)
                   : name === 'etag'
                     ? normalizeEntityTag(rawValue, options.body)
-                    : name === 'logto-core-request-id'
+                    : name === asterNativeSurfaceContract.markers.requestIdHeader.candidate
                       ? normalizeCoreRequestId(rawValue)
                       : name === 'link'
                         ? normalizeLinkHeader(rawValue, context)
@@ -1025,6 +1134,9 @@ const normalizeClaimObject = (
           ? [[key, normalizeConfiguredTargetUrl(normalizedIssuer, context)]]
           : fixedFailure('Invalid phase 1 claims');
       }
+      if (key === 'aud') {
+        return [[key, normalizeAudience(rawValue, context)]];
+      }
       if (key === 'scope' && typeof rawValue === 'string') {
         return [[key, normalizeBoundScopeTokens(rawValue, context)]];
       }
@@ -1098,7 +1210,11 @@ export const normalizeConcurrentOutcomes = (
 
 export const normalizeCookieContinuity = (
   value: unknown,
-  options: Readonly<{ responseDateSeconds?: number; requireExpiryOffset?: boolean }> = {}
+  options: Readonly<{
+    responseDateSeconds?: number;
+    requireExpiryOffset?: boolean;
+    nativeSurfaceImplementation?: Phase1Implementation;
+  }> = {}
 ): readonly Phase1CookieMetadata[] => {
   try {
     if (!Array.isArray(value)) {
@@ -1108,7 +1224,13 @@ export const normalizeCookieContinuity = (
       ? value.map((header) => normalizeRawSetCookie(header))
       : z.array(cookieMetadataGuard).parse(parseJson(value, 'Invalid phase 1 cookie continuity'));
     const normalized = Object.freeze(
-      cookies.map((cookie) => normalizeCookieMetadata(cookie, options.responseDateSeconds))
+      cookies.map((cookie) =>
+        normalizeCookieMetadata(
+          cookie,
+          options.responseDateSeconds,
+          options.nativeSurfaceImplementation
+        )
+      )
     );
     if (
       options.requireExpiryOffset === true &&
@@ -1137,11 +1259,28 @@ export const normalizeDiscovery = (value: unknown, context: NormalizationContext
   if (!isObject(parsed)) {
     return fixedFailure('Invalid phase 1 discovery');
   }
+  const normalized = (() => {
+    if (!Object.hasOwn(parsed, 'scopes_supported')) {
+      return parsed;
+    }
+    const scopes = parsed.scopes_supported;
 
-  if (!Object.hasOwn(parsed, 'keys')) {
-    return stableJson(parsed) as JsonObject;
+    if (!Array.isArray(scopes) || !scopes.every((scope) => typeof scope === 'string')) {
+      return fixedFailure('Invalid phase 1 discovery');
+    }
+
+    return {
+      ...parsed,
+      scopes_supported: scopes.map((scope) =>
+        projectKnownNativeSurfaceValue(scope, organizationScopeMarkerIds, context)
+      ),
+    };
+  })();
+
+  if (!Object.hasOwn(normalized, 'keys')) {
+    return stableJson(normalized) as JsonObject;
   }
-  if (!Array.isArray(parsed.keys)) {
+  if (!Array.isArray(normalized.keys)) {
     return fixedFailure('Invalid phase 1 discovery');
   }
   const thumbprintMembers = Object.freeze({
@@ -1149,7 +1288,7 @@ export const normalizeDiscovery = (value: unknown, context: NormalizationContext
     OKP: ['crv', 'kty', 'x'],
     RSA: ['e', 'kty', 'n'],
   } as const);
-  const keys = parsed.keys.map((rawKey) => {
+  const keys = normalized.keys.map((rawKey) => {
     if (!isObject(rawKey) || Object.hasOwn(rawKey, 'publicKeyFingerprint')) {
       return fixedFailure('Invalid phase 1 discovery');
     }
@@ -1220,7 +1359,7 @@ export const normalizeDiscovery = (value: unknown, context: NormalizationContext
     };
   });
 
-  return stableJson({ ...parsed, keys }) as JsonObject;
+  return stableJson({ ...normalized, keys }) as JsonObject;
 };
 
 const normalizeError = (value: unknown, message: string): JsonObject => {

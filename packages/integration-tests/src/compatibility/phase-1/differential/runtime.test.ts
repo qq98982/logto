@@ -112,6 +112,7 @@ const dependencies = (
     steps: readonly Phase1ScenarioStepResult[]
   ) => readonly Phase1ScenarioStepResult[]
 ): Phase1DifferentialRuntimeDependencies => ({
+  projectProfile: (profile) => profile,
   createReferenceProvisioner: () => provisioner,
   createSessionBinding: () => {
     throw new Error('the injected scenario runner does not create protocol sessions');
@@ -163,6 +164,29 @@ describe('Phase 1 differential runtime', () => {
       expect(JSON.stringify(result)).not.toMatch(/bearer|private-value/iu);
     }
   );
+
+  it('projects both reference adapters through the oracle namespace view', async () => {
+    const base = dependencies();
+    const projectProfile = import.meta.jest.fn((profile) => profile);
+    const runtimeContext = context('mirror-control');
+
+    await runPhase1DifferentialRuntimeForTesting(runtimeContext, {
+      ...base,
+      projectProfile,
+    });
+
+    expect(projectProfile).toHaveBeenCalledTimes(2);
+    expect(projectProfile).toHaveBeenNthCalledWith(
+      1,
+      runtimeContext.authorization.profile,
+      'oracle'
+    );
+    expect(projectProfile).toHaveBeenNthCalledWith(
+      2,
+      runtimeContext.authorization.profile,
+      'oracle'
+    );
+  });
 
   it('retains an exact keyed-step difference instead of hiding a candidate mismatch', async () => {
     const result = await runPhase1DifferentialRuntimeForTesting(

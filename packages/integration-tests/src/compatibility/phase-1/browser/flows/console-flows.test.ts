@@ -94,6 +94,9 @@ const profile = {
     ],
     effectiveScopes: requestedScope.split(' '),
   },
+  consoleOrganizationTokenRequest: {
+    requiredAccessTokenProjection: { aud: 'urn:logto:organization:t-default' },
+  },
   browserFlows: [
     {
       id: 'console.clean-authentication',

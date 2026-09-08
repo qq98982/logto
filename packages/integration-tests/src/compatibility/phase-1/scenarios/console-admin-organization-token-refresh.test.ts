@@ -136,7 +136,7 @@ describe('console.admin-organization-token-refresh', () => {
           signatureVerified: true,
           claims: {
             sub: '<user.phase1-admin>',
-            aud: 'urn:logto:organization:t-default',
+            aud: 'urn:aster:organization:t-default',
             client_id: '<application.admin-console>',
             scope: '',
           },

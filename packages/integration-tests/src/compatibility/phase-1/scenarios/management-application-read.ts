@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { JsonValue, NormalizationContext } from '../../normalize.js';
 import { getPhase1FixtureRuntimeId, getPhase1FixtureRuntimeText } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import type { Phase1ConsoleReadRequest } from '../profile-types.js';
 import { projectManagementObservation } from '../projections/management.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
@@ -74,7 +75,7 @@ const dataNormalizationContext = (context: Phase1ScenarioRunContext): Normalizat
     );
   }
 
-  return { target: context.target, symbols };
+  return createPhase1NormalizationContext(context.profile, context.target, symbols);
 };
 
 const requestPath = (request: ApplicationReadRequest): string => {

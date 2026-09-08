@@ -14,6 +14,7 @@ import {
   getPhase1FixtureRuntimeUsername,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import { normalizeTokenResponse } from '../normalizers.js';
 import {
   projectAuthorizationObservation,
@@ -445,7 +446,7 @@ export const createPositiveAdminNormalizationContext = (
     getPhase1FixtureRuntimeEmail(operator.primaryEmail, allocation.allocationId)
   );
 
-  return { target: context.target, symbols };
+  return createPhase1NormalizationContext(context.profile, context.target, symbols);
 };
 
 const issuerFor = (context: Phase1ScenarioRunContext): string =>

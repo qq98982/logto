@@ -107,6 +107,7 @@ const profile = {
         ],
       },
       browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
         localStorageValue: {
           appId: logicalApplicationId,
           prompt: 'login consent',

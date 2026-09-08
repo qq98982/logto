@@ -77,6 +77,9 @@ const profile = Object.freeze({
           customClientMetadata: {},
         },
       ],
+      browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
+      },
     },
   },
   consoleReadRequests: [

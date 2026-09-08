@@ -226,6 +226,11 @@ const createHarness = (
             primaryEmail: 'phase1-admin@example.com',
           },
         },
+        dataTenant: {
+          browserClientConfiguration: {
+            localStorageKey: 'logto:demo-app:dev:config',
+          },
+        },
       },
       oidc: { issuerPath: options.issuerPath ?? '/oidc', userinfoPath: '/oidc/me' },
       consoleAuthentication: { issuer: 'https://logical-admin.example/oidc' },

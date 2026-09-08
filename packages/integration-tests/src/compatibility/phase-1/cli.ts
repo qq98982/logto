@@ -150,7 +150,7 @@ const designHarnessLockState =
   'design-unlocked; a reviewed descendant commit must be pinned before Rust behavior implementation';
 const sourceProfileRelativePath = 'compatibility/phase-1-profile.json';
 const sourceSchemaRelativePath = 'compatibility/phase-1-profile.schema.json';
-export const phase1ReviewSourceCommit = '9f2d193283bb32fc8092bc7f76854a8c57ea3832';
+export const phase1ReviewSourceCommit = 'feea82c09a049a12b48a47166332d7424c5dec9f';
 const canonicalAsterOrigins = new Set([
   'https://github.com/qq98982/aster.git',
   'git@github.com:qq98982/aster.git',
@@ -410,7 +410,7 @@ const pathIsInside = (root: string, candidate: string) => {
 
 const assertReviewSource = (profile: Readonly<Phase1Profile>): void => {
   if (
-    profile.schemaVersion !== 1 ||
+    profile.schemaVersion !== 2 ||
     profile.profileId !== 'aster.phase-1.password-pkce' ||
     profile.reference.oracleCommit !== oracleCommit ||
     profile.profileSchema.repository !== 'aster' ||

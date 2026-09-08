@@ -98,6 +98,9 @@ const profile = {
           oidcClientMetadata: { redirectUris: ['https://client.example/callback'] },
         },
       ],
+      browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
+      },
     },
   },
   oidc: { authorizationPath: '/oidc/auth', issuerPath: '/oidc' },

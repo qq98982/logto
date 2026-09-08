@@ -15,6 +15,11 @@ import {
 } from '../evidence-envelope.js';
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
 import { cloneAndDeepFreeze } from '../model.js';
+import {
+  assertCandidateNativeSurfaceArtifact,
+  projectNativeSurfaceArtifact,
+} from '../native-surface-artifact.js';
+import { projectPhase1ProfileForImplementation } from '../native-surface-profile.js';
 import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import type {
@@ -42,6 +47,8 @@ export type Phase1BrowserEvidenceArtifact = Readonly<{
 }>;
 
 export type Phase1BrowserRuntimeDependencies = Readonly<{
+  projectProfile: typeof projectPhase1ProfileForImplementation;
+  projectArtifact: typeof projectNativeSurfaceArtifact;
   createObserver: () => Phase1BrowserGroupObserver;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
   runBrowserFlows: typeof runPhase1BrowserFlows;
@@ -55,6 +62,8 @@ const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
 };
 
 const defaultDependencies: Phase1BrowserRuntimeDependencies = Object.freeze({
+  projectProfile: projectPhase1ProfileForImplementation,
+  projectArtifact: projectNativeSurfaceArtifact,
   createObserver: () => createPlaywrightBrowserGroupObserver(chromium),
   createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
   runBrowserFlows: runPhase1BrowserFlows,
@@ -101,8 +110,13 @@ const executePhase1BrowserRuntime = async (
 
   try {
     const observer = dependencies.createObserver();
+    const oracleProfile = dependencies.projectProfile(context.authorization.profile, 'oracle');
+    const candidateMirrorProfile = dependencies.projectProfile(
+      context.authorization.profile,
+      'oracle'
+    );
     const oracleProvisioner = dependencies.createReferenceProvisioner({
-      profile: context.authorization.profile,
+      profile: oracleProfile,
       target: context.targets.oracle.primary,
       foreignTarget: context.targets.oracle.foreign,
       isolation: context.isolationAttestations.oracle,
@@ -110,7 +124,7 @@ const executePhase1BrowserRuntime = async (
       signInExperienceBrandingMode: 'clear',
     });
     const candidateProvisioner = dependencies.createReferenceProvisioner({
-      profile: context.authorization.profile,
+      profile: candidateMirrorProfile,
       target: context.targets.candidate.primary,
       foreignTarget: context.targets.candidate.foreign,
       isolation: context.isolationAttestations.candidate,
@@ -119,7 +133,7 @@ const executePhase1BrowserRuntime = async (
     });
     const controller = new AbortController();
     const oracle = await dependencies.runBrowserFlows({
-      profile: context.authorization.profile,
+      profile: oracleProfile,
       target: context.targets.oracle.primary,
       provisioner: oracleProvisioner,
       observer,
@@ -127,7 +141,7 @@ const executePhase1BrowserRuntime = async (
       timeoutMs: browserTimeoutMs,
     });
     const candidate = await dependencies.runBrowserFlows({
-      profile: context.authorization.profile,
+      profile: candidateMirrorProfile,
       target: context.targets.candidate.primary,
       provisioner: candidateProvisioner,
       observer,
@@ -141,18 +155,21 @@ const executePhase1BrowserRuntime = async (
         const oracleObservation = oracleObservations.get(id);
         const candidateObservation = candidateObservations.get(id);
 
-        if (
-          !oracleObservation ||
-          !candidateObservation ||
-          compareJson(oracleObservation, candidateObservation).length > 0
-        ) {
+        if (!oracleObservation || !candidateObservation) {
+          throw new TypeError(diagnostic);
+        }
+        const projectedOracle = dependencies.projectArtifact(oracleObservation, 'oracle');
+        const projectedCandidate = dependencies.projectArtifact(candidateObservation, 'oracle');
+        assertCandidateNativeSurfaceArtifact(projectedCandidate);
+
+        if (compareJson(projectedOracle, projectedCandidate).length > 0) {
           throw new TypeError(diagnostic);
         }
 
         return cloneAndDeepFreeze({
           id,
-          oracle: createPhase1ProjectionEnvelope('oracle-browser', oracleObservation),
-          candidate: createPhase1ProjectionEnvelope('candidate-browser', candidateObservation),
+          oracle: createPhase1ProjectionEnvelope('oracle-browser', projectedOracle),
+          candidate: createPhase1ProjectionEnvelope('candidate-browser', projectedCandidate),
           differences: [] as const,
         });
       })

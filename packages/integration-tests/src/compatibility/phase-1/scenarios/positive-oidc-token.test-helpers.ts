@@ -92,6 +92,9 @@ const profile = Object.freeze({
         indicator: 'https://api.example.com',
         scopes: [{ name: 'read:profile' }],
       },
+      browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
+      },
     },
   },
   oidc: {

@@ -13,6 +13,7 @@ import {
   getPhase1FixtureRuntimeUsername,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import { normalizeLogicalFixtureIds, normalizeOAuthError } from '../normalizers.js';
 import {
   projectAuthorizationObservation,
@@ -830,7 +831,7 @@ const normalizationContext = (
     symbols.bind(logicalName, runtimeValue);
   }
 
-  return { target: context.target, symbols };
+  return createPhase1NormalizationContext(context.profile, context.target, symbols);
 };
 
 export const positiveOidcAuthorizationNormalizationContext = (

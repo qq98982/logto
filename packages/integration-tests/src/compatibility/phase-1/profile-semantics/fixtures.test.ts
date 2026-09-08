@@ -1,4 +1,5 @@
 /* eslint-disable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-confusing-void-expression -- The fixture matrix applies one reference mutation per named contract. */
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1Profile } from '../profile-types.js';
 import { Phase1ProfileValidationError } from '../profile.js';
 
@@ -29,6 +30,7 @@ const expectSemanticFailure = (profile: Phase1Profile, pointer: string) => {
 
 const fixtureProfile = () =>
   ({
+    asterNativeSurface: structuredClone(asterNativeSurfaceContract),
     uiSource: {
       consoleTree: 'console-tree',
       experienceTree: 'experience-tree',
@@ -137,7 +139,7 @@ const fixtureProfile = () =>
       requiredAccessTokenProjection: {
         iss: 'https://admin.example/oidc',
         sub: 'operator',
-        aud: 'urn:logto:organization:organization',
+        aud: 'urn:aster:organization:organization',
         client_id: 'console-client',
       },
     },

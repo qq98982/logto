@@ -4,6 +4,7 @@ import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
 import type { RawProtocolResponse } from '../clients/oidc.js';
 import type { Phase1ScenarioRun } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import { projectDiscoveryObservation } from '../projections/discovery.js';
 
 const jsonMediaTypes = new Set(['application/json', 'application/jwk-set+json']);
@@ -191,10 +192,11 @@ export const runDiscoveryConfig: Phase1ScenarioRun = async (context) => {
     throw new Error('Phase 1 discovery mutated fixture state');
   }
 
-  const normalizationContext = {
-    target: context.target,
-    symbols: context.protocol.publicSymbols,
-  };
+  const normalizationContext = createPhase1NormalizationContext(
+    context.profile,
+    context.target,
+    context.protocol.publicSymbols
+  );
 
   return Object.freeze([
     Object.freeze({

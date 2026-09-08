@@ -2,9 +2,12 @@
 import { createHash } from 'node:crypto';
 import { inspect } from 'node:util';
 
+import { normalizeHeaders } from '../normalizers.js';
+
 import { runConsoleAdminAuthResourceRefresh } from './console-admin-auth-resource-refresh.js';
 import {
   assertPositiveAdminRefreshTokenIsFresh,
+  createPositiveAdminNormalizationContext,
   readPositiveAdminSession,
   withPositiveAdminSession,
 } from './positive-admin-flow.js';
@@ -208,6 +211,31 @@ const expectAdminIntermediateRejection = async (
 };
 
 describe('console.admin-auth-resource-refresh', () => {
+  it('derives candidate marker enforcement from the scenario profile', async () => {
+    const signer = await createAdminTestSigner();
+    const harness = createAdminScenarioHarness({ jwk: signer.jwk, tokens: { initial: {} } });
+    const candidateContext = {
+      ...harness.context,
+      profile: {
+        fixtures: {
+          adminTenant: { operator: harness.context.profile.fixtures.adminTenant.operator },
+          dataTenant: {
+            browserClientConfiguration: { localStorageKey: 'aster:demo-app:dev:config' },
+          },
+        },
+      },
+    } as unknown as typeof harness.context;
+    const normalizationContext = createPositiveAdminNormalizationContext(candidateContext);
+
+    expect(normalizationContext.nativeSurfaceImplementation).toBe('candidate');
+    expect(
+      normalizeHeaders([['aster-core-request-id', 'abcdefghijklmnop']], normalizationContext)
+    ).toEqual({ 'aster-core-request-id': ['<per-request-id>'] });
+    expect(() =>
+      normalizeHeaders([['logto-core-request-id', 'abcdefghijklmnop']], normalizationContext)
+    ).toThrow('Invalid phase 1 headers');
+  });
+
   it('sanitizes noncompliant state and resume cookie values before projecting authorization', async () => {
     const signer = await createAdminTestSigner();
     const now = Math.floor(Date.now() / 1000);
@@ -269,7 +297,7 @@ describe('console.admin-auth-resource-refresh', () => {
 
     expect(authorize?.cookies).toEqual([
       {
-        name: '_logto',
+        name: '_aster',
         path: '/',
         httpOnly: false,
         secure: false,
@@ -304,7 +332,7 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(authorize?.headers['set-cookie']).toEqual(authorize?.cookies);
     const serialized = JSON.stringify(output.steps);
 
-    expect(serialized).toContain('"name":"_logto"');
+    expect(serialized).toContain('"name":"_aster"');
     expect(serialized).toContain('"name":"_interaction"');
     expect(serialized).toContain('"name":"_interaction.sig"');
     expect(serialized).toContain('"name":"_interaction_resume"');
@@ -890,7 +918,7 @@ describe('console.admin-auth-resource-refresh', () => {
       signatureVerified: true,
       claims: {
         sub: '<user.phase1-admin>',
-        aud: '<resource.admin.resource.1>',
+        aud: 'urn:aster:resource:management',
         client_id: '<application.admin-console>',
         scope: 'all',
       },

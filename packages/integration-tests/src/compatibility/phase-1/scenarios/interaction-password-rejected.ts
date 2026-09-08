@@ -5,6 +5,7 @@ import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, NormalizationContext } from '../../normalize.js';
 import { getPhase1FixtureRuntimeId, getPhase1FixtureRuntimeUsername } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import {
   projectAuthorizationObservation,
   projectExperienceErrorObservation,
@@ -145,7 +146,11 @@ export const runInteractionPasswordRejected = async (
       throw new Error('Phase 1 rejected password protocol session is invalid');
     }
     symbols.bind('fixture.data.username', username);
-    const projectionContext: NormalizationContext = { target: context.target, symbols };
+    const projectionContext: NormalizationContext = createPhase1NormalizationContext(
+      context.profile,
+      context.target,
+      symbols
+    );
     const verifier = random.codeVerifier();
     const stateSecret = random.state();
     const challenge = createHash('sha256').update(verifier).digest('base64url');

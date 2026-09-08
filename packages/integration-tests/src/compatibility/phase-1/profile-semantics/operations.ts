@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, no-restricted-syntax, unicorn/no-array-for-each, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-confusing-void-expression -- The relational validator preserves exact request and SDK order while tracking subset positions. */
-import { ReservedResource, UserScope, withReservedScopes } from '@logto/js';
+import { withReservedScopes } from '@logto/js';
 
 import type {
   Phase1ConsoleReadRequest,
@@ -821,7 +821,7 @@ const assertOrganizationTokenRequest = (profile: Phase1Profile): void => {
   );
   assertEqual(
     request.requiredAccessTokenProjection.aud,
-    `urn:logto:organization:${profile.fixtures.adminTenant.tenantOrganization.id}`,
+    `${profile.asterNativeSurface.markers.organizationAudiencePrefix.candidate}${profile.fixtures.adminTenant.tenantOrganization.id}`,
     '/consoleOrganizationTokenRequest/requiredAccessTokenProjection/aud',
     'operation-projection'
   );
@@ -904,8 +904,10 @@ const assertSdkDerivations = (profile: Phase1Profile): void => {
   const derivedConsoleResources = [
     ...new Set([
       ...profile.consoleAuthentication.configuredResources,
-      ...(profile.consoleAuthentication.configuredScopes.includes(UserScope.Organizations)
-        ? [ReservedResource.Organization]
+      ...(profile.consoleAuthentication.configuredScopes.includes(
+        profile.asterNativeSurface.markers.organizationScope.candidate
+      )
+        ? [profile.asterNativeSurface.markers.organizationResource.candidate]
         : []),
     ]),
   ];

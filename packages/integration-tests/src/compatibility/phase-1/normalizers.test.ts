@@ -14,13 +14,14 @@ import {
   normalizeTokenResponse,
 } from './normalizers.js';
 
-const context = () => ({
+const context = (nativeSurfaceImplementation: 'oracle' | 'candidate' = 'oracle') => ({
   target: {
     label: 'oracle' as const,
     coreUrl: 'https://oracle.example.com/',
     adminUrl: 'https://oracle-console.example.com/',
   },
   symbols: new SymbolTable(),
+  nativeSurfaceImplementation,
 });
 const rsaModulus = (fill: number, byteLength = 256) =>
   Buffer.alloc(byteLength, fill).toString('base64url');
@@ -82,7 +83,7 @@ describe('phase 1 field-specific normalizers', () => {
         context()
       )
     ).toEqual({
-      'logto-core-request-id': ['<per-request-id>', '<per-request-id>'],
+      'aster-core-request-id': ['<per-request-id>', '<per-request-id>'],
       'x-description': ['stable'],
     });
     for (const invalid of ['', 'too-short', 'requestid00000001', 'invalid.value.00']) {
@@ -90,6 +91,15 @@ describe('phase 1 field-specific normalizers', () => {
         'Invalid phase 1 headers'
       );
     }
+  });
+
+  it('accepts only the Aster request-ID header on candidate observations', () => {
+    expect(
+      normalizeHeaders([['aster-core-request-id', 'request_id_00001']], context('candidate'))
+    ).toEqual({ 'aster-core-request-id': ['<per-request-id>'] });
+    expect(() =>
+      normalizeHeaders([['logto-core-request-id', 'request_id_00001']], context('candidate'))
+    ).toThrow('Invalid phase 1 headers');
   });
 
   it('normalizes target Link origins while preserving header occurrences and parameters', () => {
@@ -868,6 +878,63 @@ describe('phase 1 field-specific normalizers', () => {
     ).toThrow('Invalid phase 1 cookie continuity');
   });
 
+  it('projects only approved resource audience and organization scope values', () => {
+    expect(
+      normalizers.normalizeClaims(
+        {
+          aud: 'urn:logto:organization:t-default',
+          scope: 'openid urn:logto:scope:organizations urn:logto:scope:organization_roles',
+        },
+        context()
+      )
+    ).toEqual({
+      aud: 'urn:aster:organization:t-default',
+      scope: 'openid urn:aster:scope:organizations urn:aster:scope:organization_roles',
+    });
+    expect(
+      normalizers.normalizeClaims(
+        {
+          aud: ['https://default.logto.app/api', 'https://api.example.com'],
+          scope: '',
+        },
+        context()
+      )
+    ).toEqual({
+      aud: ['urn:aster:resource:management', 'https://api.example.com'],
+      scope: '',
+    });
+    expect(
+      normalizeTokenResponse(
+        { scope: 'openid urn:aster:scope:organizations' },
+        context('candidate')
+      )
+    ).toEqual({ scope: 'openid urn:aster:scope:organizations' });
+    expect(() =>
+      normalizers.normalizeClaims({ aud: 'urn:logto:organization:t-default' }, context('candidate'))
+    ).toThrow('Invalid Phase 1 candidate native surface');
+    expect(() =>
+      normalizeTokenResponse({ scope: 'urn:logto:scope:organizations' }, context('candidate'))
+    ).toThrow('Invalid Phase 1 candidate native surface');
+    expect(
+      normalizers.normalizeDiscovery(
+        {
+          issuer: 'https://issuer.example',
+          scopes_supported: ['Hamlet', 'urn:logto:scope:organizations'],
+        },
+        context()
+      )
+    ).toEqual({
+      issuer: 'https://issuer.example',
+      scopes_supported: ['Hamlet', 'urn:aster:scope:organizations'],
+    });
+    expect(() =>
+      normalizers.normalizeDiscovery(
+        { scopes_supported: ['urn:logto:scope:organizations'] },
+        context('candidate')
+      )
+    ).toThrow('Invalid Phase 1 candidate native surface');
+  });
+
   it('preserves Set-Cookie occurrence order and unknown extension attributes', () => {
     expect(
       normalizers.normalizeCookieContinuity([
@@ -890,6 +957,35 @@ describe('phase 1 field-specific normalizers', () => {
         extensions: [{ name: 'partitioned' }],
       },
     ]);
+  });
+
+  it('projects only product-owned Cookie names and rejects candidate legacy names', () => {
+    expect(
+      normalizers.normalizeCookieContinuity(['_logto=value; Path=/'], {
+        nativeSurfaceImplementation: 'oracle',
+      })
+    ).toMatchObject([{ name: '_aster' }]);
+    expect(() => normalizers.normalizeCookieContinuity(['_logto=value; Path=/'])).toThrow(
+      'Invalid phase 1 cookie continuity'
+    );
+    expect(normalizers.normalizeCookieContinuity(['tenant=value; Path=/'])).toMatchObject([
+      { name: 'tenant' },
+    ]);
+    expect(
+      normalizers.normalizeCookieContinuity(['_aster_session=value; Path=/'], {
+        nativeSurfaceImplementation: 'candidate',
+      })
+    ).toMatchObject([{ name: '_aster_session' }]);
+    expect(() =>
+      normalizers.normalizeCookieContinuity(['_logto_session=value; Path=/'], {
+        nativeSurfaceImplementation: 'candidate',
+      })
+    ).toThrow('Invalid phase 1 cookie continuity');
+    expect(
+      normalizers.normalizeCookieContinuity(['tenant-logto=value; Path=/'], {
+        nativeSurfaceImplementation: 'candidate',
+      })
+    ).toMatchObject([{ name: 'tenant-logto' }]);
   });
 
   it('rejects cookie values reproduced by same-header or cross-header metadata', () => {

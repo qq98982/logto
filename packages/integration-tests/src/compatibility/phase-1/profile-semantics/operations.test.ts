@@ -1,4 +1,5 @@
 /* eslint-disable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-confusing-void-expression -- The route and SDK matrix applies one observable mutation per case. */
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1Profile } from '../profile-types.js';
 import { Phase1ProfileValidationError } from '../profile.js';
 
@@ -29,6 +30,7 @@ const expectSemanticFailure = (profile: Phase1Profile, pointer: string, rule: st
 
 const operationProfile = () =>
   ({
+    asterNativeSurface: structuredClone(asterNativeSurfaceContract),
     routing: { userEndpoint: 'https://data.example', adminEndpoint: 'https://admin.example' },
     uiAssetContracts: [
       {
@@ -71,8 +73,8 @@ const operationProfile = () =>
           { indicator: 'https://data.example/api', scopes: ['all'] },
           { indicator: 'https://admin.example/me', scopes: ['all'] },
           {
-            indicator: 'urn:logto:resource:organizations',
-            scopes: ['urn:logto:scope:organizations', 'urn:logto:scope:organization_roles'],
+            indicator: 'urn:aster:resource:organizations',
+            scopes: ['urn:aster:scope:organizations', 'urn:aster:scope:organization_roles'],
           },
         ],
         tenantOrganization: { id: 'organization' },
@@ -128,15 +130,15 @@ const operationProfile = () =>
       effectiveResources: [
         'https://data.example/api',
         'https://admin.example/me',
-        'urn:logto:resource:organizations',
+        'urn:aster:resource:organizations',
       ],
-      configuredScopes: ['profile', 'email', 'urn:logto:scope:organizations', 'all'],
+      configuredScopes: ['profile', 'email', 'urn:aster:scope:organizations', 'all'],
       effectiveScopes: [
         'openid',
         'offline_access',
         'profile',
         'email',
-        'urn:logto:scope:organizations',
+        'urn:aster:scope:organizations',
         'all',
       ],
     },
@@ -159,7 +161,7 @@ const operationProfile = () =>
         format: 'JWT',
         iss: 'https://admin.example/oidc',
         sub: 'operator',
-        aud: 'urn:logto:organization:organization',
+        aud: 'urn:aster:organization:organization',
         client_id: 'console-client',
         scope: '',
       },
@@ -888,7 +890,7 @@ const operationMutations: readonly OperationMutation[] = [
       ['format', 'opaque'],
       ['iss', 'https://wrong.example/oidc'],
       ['sub', 'missing'],
-      ['aud', 'urn:logto:organization:missing'],
+      ['aud', 'urn:aster:organization:missing'],
       ['client_id', 'missing'],
       ['scope', 'all'],
     ] as const

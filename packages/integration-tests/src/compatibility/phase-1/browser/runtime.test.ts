@@ -6,6 +6,7 @@ import {
   type Phase1RunAuthorization,
   type Phase1RunMode,
 } from '../cli.js';
+import { projectNativeSurfaceArtifact } from '../native-surface-artifact.js';
 import type { Phase1Profile } from '../profile-types.js';
 import {
   createPhase1EvidenceRuntimeContext,
@@ -135,7 +136,28 @@ const provisioner = (): Phase1BrowserFixtureProvisioner => ({
 const observation = (id: (typeof phase1BrowserFlowIds)[number]): JsonObject => ({
   flow: id,
   accepted: true,
-  nested: { stable: true },
+  nested: {
+    stable: true,
+    managementExchange: {
+      resource: 'https://default.logto.app/api',
+      responseScope: 'urn:logto:scope:organizations profile',
+    },
+    consent: {
+      resource: {
+        indicator: 'https://api.example.com',
+        permissions: [{ id: 'scope-id', name: 'read:profile' }],
+      },
+    },
+    missingResourceScopes: [
+      {
+        resource: {
+          indicator: 'https://api.example.com',
+          scopes: [{ id: 'scope-id', name: 'read:profile' }],
+        },
+        scopes: [{ id: 'scope-id', name: 'read:profile' }],
+      },
+    ],
+  },
 });
 
 const runEvidence = (mutateApplicationFlow = false): Phase1BrowserRunEvidence => ({
@@ -184,6 +206,8 @@ const dependencies = (mutateCandidate = false) => {
     Phase1BrowserRuntimeDependencies['createReferenceProvisioner']
   >[0];
   const targetOrder: Array<TargetConfig['label']> = [];
+  const profileImplementations: string[] = [];
+  const artifactImplementations: string[] = [];
   const provisionerInputs: ReferenceProvisionerInput[] = [];
   const adapter = provisioner();
   const observer: Phase1BrowserGroupObserver = {
@@ -192,6 +216,14 @@ const dependencies = (mutateCandidate = false) => {
     },
   };
   const value: Phase1BrowserRuntimeDependencies = {
+    projectProfile: (profile, implementation) => {
+      profileImplementations.push(implementation);
+      return profile;
+    },
+    projectArtifact: (artifact, implementation) => {
+      artifactImplementations.push(implementation);
+      return projectNativeSurfaceArtifact(artifact, implementation);
+    },
     createObserver: () => observer,
     createReferenceProvisioner: (input) => {
       provisionerInputs.push(input);
@@ -203,7 +235,13 @@ const dependencies = (mutateCandidate = false) => {
     },
   };
 
-  return { value, targetOrder, provisionerInputs };
+  return {
+    value,
+    targetOrder,
+    profileImplementations,
+    artifactImplementations,
+    provisionerInputs,
+  };
 };
 
 describe('Phase 1 browser production runtime', () => {
@@ -213,6 +251,8 @@ describe('Phase 1 browser production runtime', () => {
     const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
 
     expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.profileImplementations).toEqual(['oracle', 'oracle']);
+    expect(harness.artifactImplementations).toEqual(Array.from({ length: 8 }, () => 'oracle'));
     expect(harness.provisionerInputs).toHaveLength(2);
     expect(harness.provisionerInputs[0]).toMatchObject({
       target: runtimeContext.targets.oracle.primary,
@@ -259,6 +299,10 @@ describe('Phase 1 browser production runtime', () => {
     expect(result.flows[0]?.oracle.projectionSha256).toBe(
       result.flows[0]?.candidate.projectionSha256
     );
+    expect(JSON.stringify(result)).toContain('urn:aster:resource:management');
+    expect(JSON.stringify(result)).toContain('urn:aster:scope:organizations');
+    expect(JSON.stringify(result)).not.toContain('https://default.logto.app/api');
+    expect(JSON.stringify(result)).not.toContain('urn:logto:scope:organizations');
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.flows[0]?.oracle.value)).toBe(true);
   });

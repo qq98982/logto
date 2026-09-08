@@ -20,6 +20,11 @@ import { MemoryProtocolSecretStore } from '../clients/oidc.js';
 import { getPhase1FixtureRuntimeId, getPhase1FixtureRuntimeUsername } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
 import {
+  createPhase1NormalizationContext,
+  phase1ImplementationForProfile,
+} from '../native-surface-profile.js';
+import { nativeSurfaceValue } from '../native-surface.js';
+import {
   projectCookieObservation,
   projectSemanticStateObservation,
   type Phase1HttpProjection,
@@ -28,7 +33,6 @@ import {
 
 const scenarioId = 'cookie.localhost-port-interleaving';
 const jsonContentType = 'application/json';
-const rootCookieNames = Object.freeze(['_interaction', '_interaction.sig', '_logto'] as const);
 const maximumCredentialTransformDepth = 6;
 const maximumCredentialVariantLength = 64 * 1024;
 
@@ -165,6 +169,7 @@ const loadChromium = (): BrowserType<Browser> =>
 type PreparedInteraction = Readonly<{
   role: TenantRole;
   applicationId: string;
+  applicationIdHeader: string;
   interactionId: string;
   startRedirect: string;
   page: Page;
@@ -521,6 +526,7 @@ const browserFetch = async (
     path: string;
     method: string;
     applicationId: string;
+    applicationIdHeader: string;
     body?: JsonValue;
   }>
 ): Promise<BrowserHttpResponse> => {
@@ -550,14 +556,15 @@ const browserFetch = async (
       path: input.path,
       method: input.method,
       applicationId: input.applicationId,
+      applicationIdHeader: input.applicationIdHeader,
       ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
     };
-    await page.evaluate(async ({ path, method, applicationId, body }) => {
+    await page.evaluate(async ({ path, method, applicationId, applicationIdHeader, body }) => {
       const response = await fetch(path, {
         method,
         headers: {
           'content-type': 'application/json',
-          'Logto-App-Id': applicationId,
+          [applicationIdHeader]: applicationId,
         },
         body,
       });
@@ -634,6 +641,7 @@ const restoreCookies = async (
 const cookieKey = ({ name, domain, path }: BrowserCookie): string => `${name}|${domain}|${path}`;
 
 const assertRootCookiesWereOverwritten = (
+  profile: Phase1ScenarioRunContext['profile'],
   stepId: string,
   before: readonly BrowserCookie[],
   after: readonly BrowserCookie[]
@@ -641,7 +649,14 @@ const assertRootCookiesWereOverwritten = (
   const beforeByKey = new Map(before.map((cookie) => [cookieKey(cookie), cookie]));
   const afterByKey = new Map(after.map((cookie) => [cookieKey(cookie), cookie]));
 
-  for (const name of rootCookieNames) {
+  const implementation = phase1ImplementationForProfile(profile);
+  const names = [
+    '_interaction',
+    '_interaction.sig',
+    nativeSurfaceValue(profile, implementation, 'sharedExperienceCookie'),
+  ];
+
+  for (const name of names) {
     const candidates = before.filter((cookie) => cookie.name === name && cookie.path === '/');
     const previous = candidates.length === 1 ? candidates[0] : undefined;
     const current = previous && afterByKey.get(cookieKey(previous));
@@ -739,6 +754,12 @@ const startInteraction = async (
   try {
     const page = await browserContext.newPage();
     const applicationId = applicationFor(context, role);
+    const implementation = phase1ImplementationForProfile(context.profile);
+    const applicationIdHeader = nativeSurfaceValue(
+      context.profile,
+      implementation,
+      'applicationIdHeader'
+    );
     const baseUrl = role === 'admin' ? context.target.adminUrl : context.target.coreUrl;
     const allowedOrigin = new URL(baseUrl).origin;
     await installAllowedOriginGuard(page, stepId, allowedOrigin);
@@ -768,6 +789,7 @@ const startInteraction = async (
       path: '/api/experience',
       method: 'PUT',
       applicationId,
+      applicationIdHeader,
       body: { interactionEvent: 'SignIn' },
     });
 
@@ -788,7 +810,11 @@ const startInteraction = async (
       throw new Error('Phase 1 localhost cookie symbols are unavailable');
     }
     symbols.bindOccurrence(`interaction.${role}.${occurrence}`, interactionId);
-    const projectionContext = { target: context.target, symbols };
+    const projectionContext = createPhase1NormalizationContext(
+      context.profile,
+      context.target,
+      symbols
+    );
     const state = await stateInput(context, stepId);
     const safeHeaders = sanitizeSetCookieHeaders(
       absoluteLocationHeaders(response.headers, location),
@@ -812,6 +838,7 @@ const startInteraction = async (
       prepared: Object.freeze({
         role,
         applicationId,
+        applicationIdHeader,
         interactionId,
         startRedirect: location,
         page,
@@ -848,6 +875,7 @@ const finishInteraction = async (
         path: '/api/experience/verification/password',
         method: 'POST',
         applicationId: prepared.applicationId,
+        applicationIdHeader: prepared.applicationIdHeader,
         body: { identifier: { type: 'username', value: username }, password },
       }
     );
@@ -905,6 +933,7 @@ const finishInteraction = async (
         path: '/api/experience/identification',
         method: 'POST',
         applicationId: prepared.applicationId,
+        applicationIdHeader: prepared.applicationIdHeader,
         body: { verificationId },
       }
     );
@@ -921,6 +950,7 @@ const finishInteraction = async (
         path: '/api/experience/submit',
         method: 'POST',
         applicationId: prepared.applicationId,
+        applicationIdHeader: prepared.applicationIdHeader,
       }
     );
     const redirectTo = requireText(
@@ -1021,7 +1051,12 @@ export const runCookieLocalhostPortInterleaving = async (
         secretAuthority,
         observer.navigate
       );
-      assertRootCookiesWereOverwritten('data-start', firstAdmin.cookies, firstData.cookies);
+      assertRootCookiesWereOverwritten(
+        context.profile,
+        'data-start',
+        firstAdmin.cookies,
+        firstData.cookies
+      );
       const adminFinish = await finishInteraction(
         context,
         firstAdmin.prepared,
@@ -1070,6 +1105,7 @@ export const runCookieLocalhostPortInterleaving = async (
         observer.navigate
       );
       assertRootCookiesWereOverwritten(
+        context.profile,
         'admin-start-reverse',
         reverseData.cookies,
         reverseAdmin.cookies

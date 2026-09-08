@@ -279,7 +279,7 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
     assertCompactExchange(organization, {
       issuer,
       subject: runtimeAdminId,
-      audience: `urn:logto:organization:${tenantOrganization.id}`,
+      audience: context.profile.consoleOrganizationTokenRequest.requiredAccessTokenProjection.aud,
       clientId,
       scope: '',
     });

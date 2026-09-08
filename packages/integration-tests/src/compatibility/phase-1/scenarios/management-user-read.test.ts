@@ -66,6 +66,9 @@ const profile = Object.freeze({
         primaryPhone: '+15555550100',
         applicationId: null,
       },
+      browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
+      },
     },
   },
   consoleReadRequests: [

@@ -15,6 +15,13 @@ const target = {
 };
 
 const profile = {
+  fixtures: {
+    dataTenant: {
+      browserClientConfiguration: {
+        localStorageKey: 'logto:demo-app:dev:config',
+      },
+    },
+  },
   oidc: {
     issuerPath: '/oidc',
     discoveryPath: '/oidc/.well-known/openid-configuration',

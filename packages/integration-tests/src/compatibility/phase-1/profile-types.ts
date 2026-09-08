@@ -27,6 +27,45 @@ export type Phase1ProvenanceMode = 'review-candidate' | 'accepted-harness';
 type EmptyObject = Readonly<Record<string, never>>;
 type StringList = readonly string[];
 
+export type Phase1NativeSurfaceMarkerId =
+  | 'productName'
+  | 'sharedExperienceCookie'
+  | 'sharedExperienceCookieSignature'
+  | 'generatedCookiePrefix'
+  | 'applicationIdHeader'
+  | 'requestIdHeader'
+  | 'nativeScheme'
+  | 'demoConfigStorageKey'
+  | 'redirectContextStoragePrefix'
+  | 'adminConsoleStoragePrefix'
+  | 'experienceLocaleStorageKey'
+  | 'consoleLocaleStorageKey'
+  | 'ssrGlobal'
+  | 'nativeSdkGlobal'
+  | 'domPrefix'
+  | 'managementResource'
+  | 'accountResource'
+  | 'organizationResource'
+  | 'organizationScope'
+  | 'organizationRoleScope'
+  | 'organizationAudiencePrefix';
+
+export type Phase1NativeSurfaceMarker = Readonly<{
+  match: 'exact' | 'prefix';
+  reference: string;
+  candidate: string;
+}>;
+
+export type Phase1NativeSurface = Readonly<{
+  legacyAliases: false;
+  projectionPolicy: Readonly<{
+    direction: 'reference-to-candidate';
+    unlistedDifferences: 'fail';
+    securityOutcomes: 'exact';
+  }>;
+  markers: Readonly<Record<Phase1NativeSurfaceMarkerId, Phase1NativeSurfaceMarker>>;
+}>;
+
 export type Phase1Reference = Readonly<{
   oracleRepository: string;
   oracleCommit: string;
@@ -608,8 +647,9 @@ export type Phase1Conformance = Readonly<{
 }>;
 
 export type Phase1Profile = Readonly<{
-  schemaVersion: 1;
+  schemaVersion: 2;
   profileId: string;
+  asterNativeSurface: Phase1NativeSurface;
   reference: Phase1Reference;
   profileSchema: Phase1CanonicalSchema;
   phase1Harness: Phase1HarnessLock;

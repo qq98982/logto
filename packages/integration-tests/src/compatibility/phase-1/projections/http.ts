@@ -525,6 +525,7 @@ export const projectHttpObservation = (
           })()
         : null,
       cookies: normalizeCookieContinuity(setCookies, {
+        nativeSurfaceImplementation: context.nativeSurfaceImplementation,
         ...(responseDates.length === 1 && responseDates[0] !== undefined
           ? { responseDateSeconds: responseDates[0] }
           : {}),

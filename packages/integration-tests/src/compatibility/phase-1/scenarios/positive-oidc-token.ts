@@ -13,6 +13,7 @@ import {
   getPhase1FixtureRuntimeText,
 } from '../fixture-map.js';
 import type { Phase1DifferentialScenarioId, Phase1ScenarioRunContext } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import { normalizeTokenResponse } from '../normalizers.js';
 import {
   projectHttpObservation,
@@ -160,7 +161,7 @@ export const positiveOidcDataNormalizationContext = (
     throw new Error('Phase 1 data allocation symbols are unavailable');
   }
 
-  return { target: context.target, symbols };
+  return createPhase1NormalizationContext(context.profile, context.target, symbols);
 };
 
 const isJsonObject = (value: unknown): value is JsonObject =>

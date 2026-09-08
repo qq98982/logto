@@ -4,6 +4,7 @@ import { jsonValueGuard } from '../../model.js';
 import type { JsonValue, NormalizationContext } from '../../normalize.js';
 import type { RawProtocolResponse } from '../clients/oidc.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { createPhase1NormalizationContext } from '../native-surface-profile.js';
 import { projectCorsObservation } from '../projections/cors.js';
 
 import {
@@ -33,7 +34,7 @@ const dataNormalizationContext = (context: Phase1ScenarioRunContext): Normalizat
     throw new Error('Phase 1 CORS fixture is invalid');
   }
 
-  return { target: context.target, symbols };
+  return createPhase1NormalizationContext(context.profile, context.target, symbols);
 };
 
 const headerValues = (response: RawProtocolResponse, name: string): readonly string[] =>

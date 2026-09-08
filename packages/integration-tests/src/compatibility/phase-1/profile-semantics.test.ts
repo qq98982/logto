@@ -17,6 +17,11 @@ const coordinatorContext = {
 } as const satisfies Phase1ProfileSemanticContext;
 
 const semanticBranches = [
+  {
+    dependency: 'assertNativeSurface',
+    pointer: '/coordinator/native-surface',
+    rule: 'coordinator-native-surface',
+  },
   { dependency: 'assertKeyedArrays', pointer: '/coordinator/keyed', rule: 'coordinator-keyed' },
   { dependency: 'assertFixtures', pointer: '/coordinator/fixtures', rule: 'coordinator-fixtures' },
   {
@@ -37,6 +42,7 @@ const acceptSyntheticCoordinatorInput = (): void => {
 };
 
 const coordinatorDependencies = (): Phase1ProfileValidationDependencies => ({
+  assertNativeSurface: acceptSyntheticCoordinatorInput,
   assertKeyedArrays: acceptSyntheticCoordinatorInput,
   assertFixtures: acceptSyntheticCoordinatorInput,
   assertOperations: acceptSyntheticCoordinatorInput,

@@ -242,6 +242,9 @@ const createCorsHarness = (options: CorsHarnessOptions = {}) => {
             primaryEmail: 'phase1-user@example.com',
           },
           applications: [{ id: 'phase1-app', name: 'Phase 1 Application', isThirdParty: false }],
+          browserClientConfiguration: {
+            localStorageKey: 'logto:demo-app:dev:config',
+          },
         },
       },
       cors: {
@@ -400,7 +403,7 @@ describe('cors.management-list', () => {
       'access-control-allow-methods': ['GET,HEAD,PUT,POST,DELETE,PATCH'],
       'access-control-allow-origin': ['<target.admin-url>'],
       date: [{ $timestamp: 1000, $toleranceSeconds: 30 }],
-      'logto-core-request-id': ['<per-request-id>'],
+      'aster-core-request-id': ['<per-request-id>'],
       vary: ['Origin'],
     });
     expect(steps[2]?.value.headers).toEqual({
@@ -420,7 +423,7 @@ describe('cors.management-list', () => {
         '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=false>; rel="prev"',
         '<{target.core-origin}/api/applications?page=1&page_size=20&isThirdParty=false>; rel="last"',
       ],
-      'logto-core-request-id': ['<per-request-id>'],
+      'aster-core-request-id': ['<per-request-id>'],
       'total-number': ['1'],
       vary: ['Origin'],
     });

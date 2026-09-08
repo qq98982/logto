@@ -2,6 +2,7 @@ import { assertBrowserSemantics } from './profile-semantics/browser.js';
 import { assertConformanceSemantics } from './profile-semantics/conformance.js';
 import { assertFixtureSemantics } from './profile-semantics/fixtures.js';
 import { assertKeyedArraySemantics } from './profile-semantics/keyed-arrays.js';
+import { assertNativeSurfaceSemantics } from './profile-semantics/native-surface.js';
 import { assertOperationSemantics } from './profile-semantics/operations.js';
 import {
   verifyPhase1ProfileProvenance as verifyDefaultPhase1ProfileProvenance,
@@ -32,6 +33,7 @@ export type {
 
 export type Phase1ProfileValidationDependencies = {
   assertKeyedArrays: (profile: Phase1Profile, context: Phase1ProfileSemanticContext) => void;
+  assertNativeSurface: (profile: Phase1Profile) => void;
   assertFixtures: (profile: Phase1Profile) => void;
   assertOperations: (profile: Phase1Profile) => void;
   assertBrowser: (profile: Phase1Profile) => void;
@@ -55,6 +57,7 @@ export const createPhase1ProfileValidationCoordinator = (
 ): Phase1ProfileValidationCoordinator => {
   const {
     assertKeyedArrays,
+    assertNativeSurface,
     assertFixtures,
     assertOperations,
     assertBrowser,
@@ -63,6 +66,7 @@ export const createPhase1ProfileValidationCoordinator = (
   } = dependencies;
   const assertSemantics = (profile: Phase1Profile, context: Phase1ProfileSemanticContext): void => {
     assertKeyedArrays(profile, context);
+    assertNativeSurface(profile);
     assertFixtures(profile);
     assertOperations(profile);
     assertBrowser(profile);
@@ -76,6 +80,7 @@ export const createPhase1ProfileValidationCoordinator = (
 };
 
 const phase1ProfileValidationCoordinator = createPhase1ProfileValidationCoordinator({
+  assertNativeSurface: assertNativeSurfaceSemantics,
   assertKeyedArrays: assertKeyedArraySemantics,
   assertFixtures: assertFixtureSemantics,
   assertOperations: assertOperationSemantics,

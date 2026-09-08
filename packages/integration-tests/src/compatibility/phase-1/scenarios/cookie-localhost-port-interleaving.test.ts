@@ -7,6 +7,7 @@ import type { Browser, BrowserType } from '@playwright/test';
 import { SymbolTable } from '../../symbol-table.js';
 import { MemoryProtocolSecretStore } from '../clients/oidc.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
 
 import { runCookieLocalhostPortInterleaving } from './cookie-localhost-port-interleaving.js';
 
@@ -468,6 +469,7 @@ describe('cookie.localhost-port-interleaving', () => {
       const provisioned = fixture(adminApplicationId, dataApplicationId);
       const context: Phase1ScenarioRunContext = {
         profile: {
+          asterNativeSurface: structuredClone(asterNativeSurfaceContract),
           localhostCookiePortContract: {
             browserRule: 'same hostname cookies ignore TCP port',
             compatibilityRule: 'preserve cookie metadata',
@@ -495,6 +497,7 @@ describe('cookie.localhost-port-interleaving', () => {
                 },
               ],
               browserClientConfiguration: {
+                localStorageKey: 'logto:demo-app:dev:config',
                 localStorageValue: {
                   appId: 'phase1-browser',
                   prompt: 'login consent',
@@ -628,7 +631,7 @@ describe('cookie.localhost-port-interleaving', () => {
       expect(steps[0]?.value.cookies.map(({ name }) => name)).toEqual([
         '_interaction',
         '_interaction.sig',
-        '_logto',
+        '_aster',
         '_interaction_resume',
         '_interaction_resume.sig',
         ...('admin' in effectiveServerOptions &&
