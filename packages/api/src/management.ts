@@ -9,13 +9,13 @@ import { type paths } from './generated-types/management.js';
  */
 export type CreateManagementApiOptions = {
   /**
-   * The client ID for the machine-to-machine application in Logto. This application must be
+   * The client ID for the machine-to-machine application in Aster. This application must be
    * granted access to the Management API.
    * @see https://a.logto.io/m2m-mapi for more details on configuring machine-to-machine access.
    */
   clientId: string;
   /**
-   * The client secret for the machine-to-machine application in Logto.
+   * The client secret for the machine-to-machine application in Aster.
    * This should be kept secure and not exposed in client-side code.
    */
   clientSecret: string;
@@ -128,7 +128,7 @@ type ManagementApiReturnType = {
  * Creates a Management API client with the specified tenant ID and options.
  *
  * Before using this function, ensure that you have created a machine-to-machine application in
- * Logto and granted it access to the Management API. See the documentation for more details:
+ * Aster and granted it access to the Management API. See the documentation for more details:
  *
  * https://a.logto.io/m2m-mapi
  *
@@ -143,7 +143,7 @@ type ManagementApiReturnType = {
  * ```ts
  * import { createManagementApi } from '@logto/api/management';
  *
- * // Logto Cloud example
+ * // Hosted example
  * const { apiClient, clientCredentials } = createManagementApi('my-tenant-id', {
  *   clientId: 'my-client-id',
  *   clientSecret: 'my-client-secret',
@@ -160,8 +160,8 @@ type ManagementApiReturnType = {
  * const { apiClient, clientCredentials } = createManagementApi('default', {
  *   clientId: 'my-client-id',
  *   clientSecret: 'my-client-secret',
- *   baseUrl: 'https://my-oss-logto-instance.com',
- *   apiIndicator: 'https://default.logto.app/api',
+ *   baseUrl: 'https://my-aster-instance.com',
+ *   apiIndicator: 'urn:aster:resource:management',
  * });
  * ```
  */

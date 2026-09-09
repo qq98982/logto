@@ -30,8 +30,8 @@ const roles = {
     'บทบาทคือกลุ่มของสิทธิ์ซึ่งสามารถมอบหมายให้กับผู้ใช้ได้ กรุณาเพิ่มสิทธิ์ก่อนสร้างบทบาท',
   assign_roles: 'กำหนดบทบาท',
   management_api_access_notification:
-    'สำหรับการเข้าถึง Logto Management API ให้เลือกบทบาทที่มีสิทธิ์ Management API <flag/>',
-  with_management_api_access_tip: 'บทบาทเครื่องกับเครื่องนี้มีสิทธิ์ Logto Management API',
+    'สำหรับการเข้าถึง Aster Management API ให้เลือกบทบาทที่มีสิทธิ์ Management API <flag/>',
+  with_management_api_access_tip: 'บทบาทเครื่องกับเครื่องนี้มีสิทธิ์ Aster Management API',
   role_creation_hint: 'หาไม่เจอบทบาทที่ต้องการใช่ไหม? <a>สร้างบทบาท</a>',
 };
 

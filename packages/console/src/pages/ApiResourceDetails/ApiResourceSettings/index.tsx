@@ -19,7 +19,7 @@ import { trySubmitSafe } from '@/utils/form';
 import { type ApiResourceDetailsOutletContext } from '../types';
 
 function ApiResourceSettings() {
-  const { resource, isDeleting, isLogtoManagementApiResource, onResourceUpdated } =
+  const { resource, isDeleting, isManagementApiResource, onResourceUpdated } =
     useOutletContext<ApiResourceDetailsOutletContext>();
 
   const { t } = useTranslation(undefined, { keyPrefix: 'admin_console' });
@@ -68,13 +68,13 @@ function ApiResourceSettings() {
         <FormCard
           title="api_resource_details.settings"
           description={
-            isLogtoManagementApiResource
+            isManagementApiResource
               ? 'api_resource_details.management_api_settings_description'
               : 'api_resource_details.settings_description'
           }
           learnMoreLink={{
             href: getDocumentationUrl(
-              isLogtoManagementApiResource
+              isManagementApiResource
                 ? '/docs/recipes/interact-with-management-api/'
                 : '/docs/recipes/protect-your-api/'
             ),
@@ -85,7 +85,7 @@ function ApiResourceSettings() {
             <TextInput
               {...register('name', { required: true })}
               error={Boolean(errors.name)}
-              readOnly={isLogtoManagementApiResource}
+              readOnly={isManagementApiResource}
               placeholder={t('api_resources.api_name_placeholder')}
             />
           </FormField>
@@ -100,7 +100,7 @@ function ApiResourceSettings() {
               placeholder={t('api_resource_details.token_expiration_time_in_seconds_placeholder')}
             />
           </FormField>
-          {!isLogtoManagementApiResource && (
+          {!isManagementApiResource && (
             <FormField title="api_resources.default_api">
               <Switch
                 {...register('isDefault')}

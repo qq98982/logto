@@ -52,8 +52,8 @@ function ApiResourceDetails() {
   const { ApiIcon, ManagementApiIcon } = icons[theme];
 
   const isOnPermissionPage = pathname.endsWith(ApiResourceDetailsTabs.Permissions);
-  const isLogtoManagementApiResource = isManagementApi(data?.indicator ?? '');
-  const Icon = isLogtoManagementApiResource ? ManagementApiIcon : ApiIcon;
+  const isManagementApiResource = isManagementApi(data?.indicator ?? '');
+  const Icon = isManagementApiResource ? ManagementApiIcon : ApiIcon;
 
   const [isGuideDrawerOpen, setIsGuideDrawerOpen] = useState(false);
   const [isDeleteFormOpen, setIsDeleteFormOpen] = useState(false);
@@ -108,7 +108,7 @@ function ApiResourceDetails() {
       onRetry={mutate}
     >
       <PageMeta titleKey="api_resource_details.page_title" />
-      {isLogtoManagementApiResource && <ManagementApiNotice />}
+      {isManagementApiResource && <ManagementApiNotice />}
       {data && (
         <>
           <DetailsPageHeader
@@ -123,7 +123,7 @@ function ApiResourceDetails() {
               icon: <File />,
               title: 'application_details.check_guide',
               onClick: () => {
-                if (isLogtoManagementApiResource) {
+                if (isManagementApiResource) {
                   window.open(
                     getDocumentationUrl('/docs/recipes/interact-with-management-api/'),
                     '_blank'
@@ -135,7 +135,7 @@ function ApiResourceDetails() {
             }}
             actionMenuItems={conditionalArray<MenuItem>(
               // Should not show delete button for management api resource.
-              !isLogtoManagementApiResource && {
+              !isManagementApiResource && {
                 icon: <Delete />,
                 title: 'general.delete',
                 type: 'danger',
@@ -149,7 +149,7 @@ function ApiResourceDetails() {
             <GuideDrawer apiResource={data} onClose={onCloseDrawer} />
           </Drawer>
           {/* Can not delete management api resource. */}
-          {!isLogtoManagementApiResource && (
+          {!isManagementApiResource && (
             <DeleteConfirmModal
               isOpen={isDeleteFormOpen}
               isLoading={isDeleting}
@@ -181,7 +181,7 @@ function ApiResourceDetails() {
               {
                 resource: data,
                 isDeleting,
-                isLogtoManagementApiResource,
+                isManagementApiResource,
                 onResourceUpdated: mutate,
               } satisfies ApiResourceDetailsOutletContext
             }

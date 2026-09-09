@@ -160,7 +160,7 @@ export const seedTables = async (
   await seedAdminData(connection, defaultManagementApi);
 
   /**
-   * Create a pre-configured role for the Logto Management API access
+   * Create a preconfigured role for Aster Management API access
    * in the default tenant (the default tenant is the only tenant for the OSS version, and the initial tenant for cloud).
    *
    * Called after the default tenant's Management API resource and the related all scope have been created.

@@ -22,7 +22,7 @@ export const seedPreConfiguredManagementApiAccessRole = async (
 
   await pool.query(insertInto(role, 'roles'));
 
-  // Assign Logto Management API permission `all` to the Logto Management API M2M role
+  // Assign Aster Management API permission `all` to the Aster Management API M2M role
   await pool.query(sql`
     insert into roles_scopes (id, role_id, scope_id, tenant_id)
     values (

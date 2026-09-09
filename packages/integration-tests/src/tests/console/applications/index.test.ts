@@ -259,7 +259,7 @@ describe('applications', () => {
         await expect(page).toClick(
           '.ReactModalPortal div[class$=rolesTransfer] div[class$=item] div',
           {
-            text: 'Logto Management API access',
+            text: 'Aster Management API access',
           }
         );
 

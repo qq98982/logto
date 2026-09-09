@@ -192,7 +192,7 @@ export const getUsageByKey = (
     const { userRolesLimit, machineToMachineRolesLimit } = countBasedUsage;
 
     // If the userRoles usage is greater than 0 or the machineToMachineRoles usage is greater than 1, then RBAC is enabled.
-    // Note: machineToMachineRolesLimit is always 1 for default Logto management API usage.
+    // Note: machineToMachineRolesLimit is always 1 for default Aster Management API usage.
     return userRolesLimit > 0 || machineToMachineRolesLimit > 1;
   }
 
