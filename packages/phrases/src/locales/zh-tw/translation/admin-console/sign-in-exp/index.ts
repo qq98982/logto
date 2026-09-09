@@ -39,10 +39,6 @@ const sign_in_exp = {
     app_logo_and_favicon: '應用圖標和 Favicon',
     company_logo_and_favicon: '公司圖標和 Favicon',
     organization_logo_and_favicon: '組織圖標和 Favicon',
-    hide_logto_branding: '隱藏 Logto 品牌',
-    hide_logto_branding_description:
-      '移除「Powered by Logto」。以乾淨、專業的登入體驗讓你的品牌成為焦點。',
-    hide_logto_branding_oss_note: '此功能原生支援於 <a>Logto Cloud</a>。',
   },
   branding_uploads: {
     app_logo: {

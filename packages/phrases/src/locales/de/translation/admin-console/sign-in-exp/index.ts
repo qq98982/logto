@@ -42,10 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'App-Logo und Favicon',
     company_logo_and_favicon: 'Firmenlogo und Favicon',
     organization_logo_and_favicon: 'Organisationslogo und Favicon',
-    hide_logto_branding: 'Logto-Branding ausblenden',
-    hide_logto_branding_description:
-      'Entferne "Powered by Logto". Präsentiere deine Marke exklusiv mit einer klaren, professionellen Anmeldeerfahrung.',
-    hide_logto_branding_oss_note: 'Diese Funktion ist nativ in <a>Logto Cloud</a> verfügbar.',
   },
   branding_uploads: {
     app_logo: {

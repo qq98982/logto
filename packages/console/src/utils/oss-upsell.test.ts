@@ -14,7 +14,7 @@ describe('oss upsell helpers', () => {
 
     expect(url.origin).toBe('https://cloud.logto.io');
     expect(url.pathname).toBe('/');
-    expect(url.searchParams.get('utm_source')).toBe('logto_oss');
+    expect(url.searchParams.get('utm_source')).toBe('aster_oss');
     expect(url.searchParams.get('utm_medium')).toBe('console');
     expect(url.searchParams.get('utm_campaign')).toBe('cloud_upsell');
     expect(url.searchParams.get('utm_content')).toBe('get_started_oss_cloud_banner');
@@ -25,7 +25,7 @@ describe('oss upsell helpers', () => {
       entry: ossUpsellEntries.ossSidebarCloudCard,
     });
 
-    expect(targetUrl).toContain('utm_source=logto_oss');
+    expect(targetUrl).toContain('utm_source=aster_oss');
     expect(targetUrl).toContain('utm_medium=console');
     expect(targetUrl).toContain('utm_campaign=cloud_upsell');
     expect(targetUrl).toContain('utm_content=oss_sidebar_cloud_card');
@@ -41,8 +41,14 @@ describe('oss upsell helpers', () => {
       entry: ossUpsellEntries.ossSidebarCloudCard,
     });
 
-    expect(targetUrl).toContain('utm_source=logto_oss');
+    expect(targetUrl).toContain('utm_source=aster_oss');
     expect(targetUrl).toContain('utm_content=oss_sidebar_cloud_card');
     expect(mockWindowOpen).not.toHaveBeenCalled();
+  });
+
+  it('does not expose the retired hide-Logto-branding upsell entry', () => {
+    expect(Object.values(ossUpsellEntries)).not.toContain(
+      'sign_in_exp_hide_logto_branding_oss_note'
+    );
   });
 });

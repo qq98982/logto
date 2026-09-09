@@ -42,11 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'Uygulama logosu ve favicon',
     company_logo_and_favicon: 'Şirket logosu ve favicon',
     organization_logo_and_favicon: 'Organizasyon logosu ve favicon',
-    hide_logto_branding: 'Logto markasını gizle',
-    hide_logto_branding_description:
-      '"Powered by Logto" ibaresini kaldırın. Temiz ve profesyonel bir oturum açma deneyimiyle yalnızca kendi markanızı öne çıkarın.',
-    hide_logto_branding_oss_note:
-      'Bu özellik <a>Logto Cloud</a> içinde yerel olarak kullanılabilir.',
   },
   branding_uploads: {
     app_logo: {

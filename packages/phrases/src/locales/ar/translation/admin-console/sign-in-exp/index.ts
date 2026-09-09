@@ -40,10 +40,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'شعار التطبيق ورمز الموقع',
     company_logo_and_favicon: 'شعار الشركة ورمز الموقع',
     organization_logo_and_favicon: 'شعار المنظمة ورمز الموقع',
-    hide_logto_branding: 'إخفاء علامة Logto التجارية',
-    hide_logto_branding_description:
-      'أزل عبارة "مدعوم من Logto". سلّط الضوء على علامتك فقط مع تجربة تسجيل دخول نظيفة واحترافية.',
-    hide_logto_branding_oss_note: 'هذه الميزة متاحة بشكل أصلي في <a>Logto Cloud</a>.',
   },
   branding_uploads: {
     app_logo: {

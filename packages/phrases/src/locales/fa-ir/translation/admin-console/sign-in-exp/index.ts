@@ -42,10 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'لوگو برنامه و فاویکون',
     company_logo_and_favicon: 'لوگو شرکت و فاویکون',
     organization_logo_and_favicon: 'لوگو سازمان و فاویکون',
-    hide_logto_branding: 'پنهان کردن برندینگ Logto',
-    hide_logto_branding_description:
-      'عبارت "Powered by Logto" را حذف کنید. برند خود را با یک تجربه ورود تمیز و حرفه‌ای برجسته کنید.',
-    hide_logto_branding_oss_note: 'این ویژگی به طور بومی در <a>Logto Cloud</a> موجود است.',
   },
   branding_uploads: {
     app_logo: {

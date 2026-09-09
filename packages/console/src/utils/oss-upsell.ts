@@ -9,7 +9,6 @@ export const ossUpsellEntries = Object.freeze({
   samlAppApplicationsLimitNotice: 'saml_app_applications_limit_notice',
   samlAppCreateModalLimitBanner: 'saml_app_create_modal_limit_banner',
   signInExpBringYourUiOssCard: 'sign_in_exp_bring_your_ui_oss_card',
-  signInExpHideLogtoBrandingOssNote: 'sign_in_exp_hide_logto_branding_oss_note',
   getStartedOssCloudBanner: 'get_started_oss_cloud_banner',
   ossSidebarCloudCard: 'oss_sidebar_cloud_card',
   tenantSettingsMembersOssUpsell: 'tenant_settings_members_oss_upsell',
@@ -19,7 +18,7 @@ export const ossUpsellEntries = Object.freeze({
 type OssUpsellEntry = (typeof ossUpsellEntries)[keyof typeof ossUpsellEntries];
 
 const utmParameters = Object.freeze({
-  source: 'logto_oss',
+  source: 'aster_oss',
   medium: 'console',
   campaign: 'cloud_upsell',
 });

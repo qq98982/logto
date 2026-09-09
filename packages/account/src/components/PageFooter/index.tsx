@@ -1,4 +1,3 @@
-import LogtoSignature from '@experience/shared/components/LogtoSignature';
 import { useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,8 +7,7 @@ import styles from './index.module.scss';
 
 const PageFooter = () => {
   const { t } = useTranslation();
-  const { theme, experienceSettings } = useContext(PageContext);
-  const hideLogtoBranding = experienceSettings?.hideLogtoBranding === true;
+  const { experienceSettings } = useContext(PageContext);
   const { termsOfUseUrl, privacyPolicyUrl, supportEmail, supportWebsiteUrl } =
     experienceSettings ?? {};
   // Use `||` to treat empty string as missing so the mailto fallback works
@@ -37,7 +35,6 @@ const PageFooter = () => {
           </a>
         )}
       </div>
-      {!hideLogtoBranding && <LogtoSignature className={styles.signature} theme={theme} />}
     </footer>
   );
 };

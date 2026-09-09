@@ -42,10 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'アプリロゴとファビコン',
     company_logo_and_favicon: '企業ロゴとファビコン',
     organization_logo_and_favicon: '組織のロゴとファビコン',
-    hide_logto_branding: 'Logtoのブランディングを非表示にする',
-    hide_logto_branding_description:
-      '「Powered by Logto」を削除します。クリーンでプロフェッショナルなサインイン体験で自社ブランドだけを際立たせましょう。',
-    hide_logto_branding_oss_note: 'この機能は <a>Logto Cloud</a> でネイティブに利用できます。',
   },
   branding_uploads: {
     app_logo: {
