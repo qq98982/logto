@@ -5,7 +5,7 @@ import { type LogtoAccountProvider } from '../providers/logto-account-provider.j
 
 import { LogtoAccountCenter } from './logto-account-center.js';
 
-suite('logto-account-center', () => {
+suite('aster-account-center', () => {
   test('is defined', () => {
     const element = document.createElement(LogtoAccountCenter.tagName);
     assert.instanceOf(element, LogtoAccountCenter);
@@ -13,7 +13,7 @@ suite('logto-account-center', () => {
 
   test('should render error message when account context is not available', async () => {
     const element = await fixture<LogtoAccountCenter>(
-      html`<logto-account-center></logto-account-center>`
+      html`<aster-account-center></aster-account-center>`
     );
     await element.updateComplete;
 
@@ -41,9 +41,9 @@ suite('logto-account-center', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-account-center></logto-account-center>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-account-center></aster-account-center>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -54,11 +54,11 @@ suite('logto-account-center', () => {
     await waitUntil(() => {
       const shadowRoot = accountCenter?.shadowRoot;
       return (
-        shadowRoot?.querySelector('logto-username') &&
-        shadowRoot.querySelector('logto-user-email') &&
-        shadowRoot.querySelector('logto-user-phone') &&
-        shadowRoot.querySelector('logto-user-password') &&
-        shadowRoot.querySelectorAll('logto-social-identity').length === 2
+        shadowRoot?.querySelector('aster-username') &&
+        shadowRoot.querySelector('aster-user-email') &&
+        shadowRoot.querySelector('aster-user-phone') &&
+        shadowRoot.querySelector('aster-user-password') &&
+        shadowRoot.querySelectorAll('aster-social-identity').length === 2
       );
     }, 'Unable to render all expected components');
   });
@@ -75,9 +75,9 @@ suite('logto-account-center', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-account-center></logto-account-center>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-account-center></aster-account-center>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -86,10 +86,10 @@ suite('logto-account-center', () => {
     await accountCenter?.updateComplete;
 
     const shadowRoot = accountCenter?.shadowRoot;
-    assert.exists(shadowRoot?.querySelector('logto-username'));
-    assert.notExists(shadowRoot.querySelector('logto-user-email'));
-    assert.notExists(shadowRoot.querySelector('logto-user-phone'));
-    assert.notExists(shadowRoot.querySelector('logto-user-password'));
-    assert.notExists(shadowRoot.querySelector('logto-social-identity'));
+    assert.exists(shadowRoot?.querySelector('aster-username'));
+    assert.notExists(shadowRoot.querySelector('aster-user-email'));
+    assert.notExists(shadowRoot.querySelector('aster-user-phone'));
+    assert.notExists(shadowRoot.querySelector('aster-user-password'));
+    assert.notExists(shadowRoot.querySelector('aster-social-identity'));
   });
 });

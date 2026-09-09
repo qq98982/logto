@@ -9,9 +9,9 @@
   <script type="module" src="src/account/index.ts"></script>
 </head>
 <body style="background-color: #ecebf5;">
-  <logto-account-provider>
-    <logto-account-center></logto-account-center>
-  </logto-account-provider>
+  <aster-account-provider>
+    <aster-account-center></aster-account-center>
+  </aster-account-provider>
 </body>
 
 <script type="module">
@@ -21,7 +21,7 @@
   const LOGTO_ENDPOINT = 'TEST_LOGTO_ENDPOINT';
   const ACCESS_TOKEN = 'TEST_ACCESS_TOKEN';
 
-  const provider = document.querySelector('logto-account-provider');
+  const provider = document.querySelector('aster-account-provider');
   const api = new LogtoAccountApi(LOGTO_ENDPOINT, () => ACCESS_TOKEN);
   provider.accountApi = api;
 </script>

@@ -6,7 +6,7 @@ import usernameIcon from '../icons/username.svg';
 
 import { LogtoProfileItemElement } from './LogtoProfileItemElement.js';
 
-const tagName = 'logto-social-identity';
+const tagName = 'aster-social-identity';
 
 @customElement(tagName)
 export class LogtoSocialIdentity extends LogtoProfileItemElement {
@@ -37,12 +37,12 @@ export class LogtoSocialIdentity extends LogtoProfileItemElement {
     return when(
       identity,
       () =>
-        html`<logto-identity-info
+        html`<aster-identity-info
           slot="content"
           .avatar=${String(avatar)}
           .name=${String(name)}
           .email=${String(email)}
-        ></logto-identity-info>`
+        ></aster-identity-info>`
     );
   }
 }

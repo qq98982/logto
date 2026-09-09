@@ -5,14 +5,14 @@ import { type LogtoAccountProvider } from '../providers/logto-account-provider.j
 
 import { LogtoUserEmail } from './logto-user-email.js';
 
-suite('logto-user-email', () => {
+suite('aster-user-email', () => {
   test('is defined', () => {
     const element = document.createElement(LogtoUserEmail.tagName);
     assert.instanceOf(element, LogtoUserEmail);
   });
 
   test('should render error message when account context is not available', async () => {
-    const element = await fixture<LogtoUserEmail>(html`<logto-user-email></logto-user-email>`);
+    const element = await fixture<LogtoUserEmail>(html`<aster-user-email></aster-user-email>`);
     await element.updateComplete;
 
     assert.equal(element.shadowRoot?.textContent, 'Unable to retrieve account context.');
@@ -26,9 +26,9 @@ suite('logto-user-email', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-user-email></logto-user-email>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-user-email></aster-user-email>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -51,9 +51,9 @@ suite('logto-user-email', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-user-email></logto-user-email>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-user-email></aster-user-email>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;

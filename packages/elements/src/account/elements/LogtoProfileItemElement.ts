@@ -23,11 +23,11 @@ export abstract class LogtoProfileItemElement extends LitElement {
     const { icon, label } = this.getItemLabelInfo();
 
     return html`
-      <logto-profile-item>
-        <logto-icon slot="label-icon">${icon}</logto-icon>
+      <aster-profile-item>
+        <aster-icon slot="label-icon">${icon}</aster-icon>
         <div slot="label-text">${label}</div>
         ${this.renderContent()}
-      </logto-profile-item>
+      </aster-profile-item>
     `;
   }
   /**

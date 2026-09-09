@@ -7,7 +7,7 @@ import { formatToInternationalPhoneNumber } from '../utils/format.js';
 
 import { LogtoProfileItemElement } from './LogtoProfileItemElement.js';
 
-const tagName = 'logto-user-phone';
+const tagName = 'aster-user-phone';
 
 @customElement(tagName)
 export class LogtoUserPhone extends LogtoProfileItemElement {
