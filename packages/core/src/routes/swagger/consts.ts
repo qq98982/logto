@@ -15,10 +15,12 @@ Once you have them set up, you can use the \`client_credentials\` grant type to 
 
 To fetch an access token, you need to make a \`POST\` request to the \`/oidc/token\` endpoint of your Aster tenant.
 
-For Logto Cloud users, the base URL is your Logto endpoint, i.e. \`https://[tenant-id].logto.app\`. The tenant ID can be found in the following places:
+For hosted users, the base URL is your tenant endpoint, i.e. \`https://[tenant-id].logto.app\`. The tenant ID can be found in the following places:
 
-- The first path segment of the URL when you are signed in to Logto Cloud. For example, if the URL is \`https://cloud.logto.io/foo/get-started\`, the tenant ID is \`foo\`.
-- In the "Settings" tab of Logto Cloud.
+- The first path segment of the URL when you are signed in to the hosted Console. For example, if the URL is \`https://cloud.logto.io/foo/get-started\`, the tenant ID is \`foo\`.
+- In the "Settings" tab of the Console.
+
+The default tenant uses \`${managementApiResourceIndicator}\`. Non-default tenants use \`${managementApiResourceIndicator}:<encoded-tenant-id>\`, where \`<encoded-tenant-id>\` is the tenant ID encoded with \`encodeURIComponent\`.
 
 The request should follow the OAuth 2.0 [client credentials](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4) grant type. Here is a non-normative example of how to fetch an access token:
 
@@ -29,11 +31,11 @@ curl --location \\
   --data-urlencode 'grant_type=client_credentials' \\
   --data-urlencode 'client_id=[app-id]' \\
   --data-urlencode 'client_secret=[app-secret]' \\
-  --data-urlencode 'resource=${managementApiResourceIndicator}' \\
+  --data-urlencode 'resource=[management-api-resource]' \\
   --data-urlencode 'scope=all'
 \`\`\`
 
-Replace \`[tenant-id]\`, \`[app-id]\`, and \`[app-secret]\` with your Aster tenant ID, application ID, and application secret, respectively.
+Replace \`[tenant-id]\`, \`[management-api-resource]\`, \`[app-id]\`, and \`[app-secret]\` with your Aster tenant ID, its Management API resource indicator, application ID, and application secret, respectively.
 
 The response will be like:
 
@@ -58,7 +60,7 @@ curl --location \\
   --header 'Authorization: Bearer eyJhbG...2g'
 \`\`\`
 
-Replace \`[tenant-id]\` with your Logto tenant ID and \`eyJhbG...2g\` with the access token you fetched earlier.`;
+Replace \`[tenant-id]\` with your Aster tenant ID and \`eyJhbG...2g\` with the access token you fetched earlier.`;
 
 export const userApiAuthDescription = `Logto User API is a set of REST APIs that gives the end user the ability to manage their own profile and perform verifications.
 

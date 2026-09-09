@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'Os recursos da API, também conhecidos como Indicadores de recursos, indicam os serviços ou recursos de destino a serem solicitados, geralmente uma variável de formato de URI que representa a identidade do recurso.',
   management_api_settings_description:
-    'A API de Gerenciamento do Logto é uma coleção abrangente de APIs que capacitam os administradores a gerenciar uma ampla gama de tarefas relacionadas à identidade, aplicar políticas de segurança e cumprir regulamentos e padrões.',
+    'A API de Gerenciamento do Aster é uma coleção abrangente de APIs que capacitam os administradores a gerenciar uma ampla gama de tarefas relacionadas à identidade, aplicar políticas de segurança e cumprir regulamentos e padrões.',
   management_api_notice:
-    'Esta API representa a entidade Logto e não pode ser modificada ou excluída. Crie um aplicativo de máquina para máquina para chamar a API de gerenciamento do Logto. <a>Saiba mais</a>',
+    'Esta API representa a entidade Aster e não pode ser modificada ou excluída. Crie um aplicativo de máquina para máquina para chamar a API de gerenciamento do Aster. <a>Saiba mais</a>',
   token_expiration_time_in_seconds: 'Tempo de expiração do token (em segundos)',
   token_expiration_time_in_seconds_placeholder: 'Digite o tempo de expiração do seu token',
   delete_description:

@@ -30,9 +30,9 @@ const roles = {
     'Os papéis são um agrupamento de permissões que podem ser atribuídas a utilizadores. Certifique-se de adicionar permissões antes de criar papéis.',
   assign_roles: 'Atribuir papéis',
   management_api_access_notification:
-    'Para aceder à API de gestão do Logto, selecione funções com permissões de API de gestão <flag/>.',
+    'Para aceder à API de gestão do Aster, selecione funções com permissões de API de gestão <flag/>.',
   with_management_api_access_tip:
-    'Esta função de máquina para máquina inclui permissões para a API de gestão do Logto',
+    'Esta função de máquina para máquina inclui permissões para a API de gestão do Aster',
   role_creation_hint: 'Não encontra o papel certo? <a>Crie um papel</a>',
 };
 

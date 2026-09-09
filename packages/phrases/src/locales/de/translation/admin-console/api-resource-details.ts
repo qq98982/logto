@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'API-Ressourcen, auch Ressourcenindikatoren genannt, geben die Ziel-Dienste oder Ressourcen an, die angefordert werden sollen. Häufig handelt es sich um eine URI-Formatvariable, die die Identität der Ressource darstellt.',
   management_api_settings_description:
-    'Die Logto Management-API ist eine umfassende Sammlung von APIs, die Administratoren befähigen, eine Vielzahl von Aufgaben im Zusammenhang mit Identitäten zu verwalten, Sicherheitsrichtlinien durchzusetzen und Vorschriften und Standards einzuhalten.',
+    'Die Aster Management-API ist eine umfassende Sammlung von APIs, die Administratoren befähigen, eine Vielzahl von Aufgaben im Zusammenhang mit Identitäten zu verwalten, Sicherheitsrichtlinien durchzusetzen und Vorschriften und Standards einzuhalten.',
   management_api_notice:
-    'Diese API repräsentiert die Logto-Entität und kann nicht geändert oder gelöscht werden. Erstellen Sie eine Maschine-zu-Maschine-App, um die Logto-Management-API aufzurufen. <a>Erfahren Sie mehr</a>',
+    'Diese API repräsentiert die Aster-Entität und kann nicht geändert oder gelöscht werden. Erstellen Sie eine Maschine-zu-Maschine-App, um die Aster-Management-API aufzurufen. <a>Erfahren Sie mehr</a>',
   token_expiration_time_in_seconds: 'Token-Ablaufzeit (in Sekunden)',
   token_expiration_time_in_seconds_placeholder: 'Geben Sie die Ablaufzeit des Tokens ein',
   delete_description:

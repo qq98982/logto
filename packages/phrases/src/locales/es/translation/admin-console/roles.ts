@@ -30,9 +30,9 @@ const roles = {
     'Los roles son un grupo de permisos que se pueden asignar a los usuarios. Asegúrese de agregar permisos antes de crear roles.',
   assign_roles: 'Asignar roles',
   management_api_access_notification:
-    'Para acceder a la API de gestión de Logto, seleccione roles con permisos de API de gestión <flag/>.',
+    'Para acceder a la API de gestión de Aster, seleccione roles con permisos de API de gestión <flag/>.',
   with_management_api_access_tip:
-    'Este rol de máquina a máquina incluye permisos para la API de gestión de Logto',
+    'Este rol de máquina a máquina incluye permisos para la API de gestión de Aster',
   role_creation_hint: '¿No encuentras el rol adecuado? <a>Crear un rol</a>',
 };
 

@@ -30,8 +30,8 @@ const roles = {
     '역할은 사용자에게 할당할 수 있는 권한의 모임이에요. 역할을 만들기 전에 먼저 권한을 추가해야 해요.',
   assign_roles: '역할 할당',
   management_api_access_notification:
-    'Logto 관리 API 액세스를 위해 관리 API 권한이있는 역할을 선택하십시오 <flag/>.',
-  with_management_api_access_tip: '이 기계 간 역할에는 Logto 관리 API 권한이 포함되어 있습니다',
+    'Aster 관리 API 액세스를 위해 관리 API 권한이있는 역할을 선택하십시오 <flag/>.',
+  with_management_api_access_tip: '이 기계 간 역할에는 Aster 관리 API 권한이 포함되어 있습니다',
   role_creation_hint: '적절한 역할을 찾을 수 없습니까? <a>역할 생성</a>',
 };
 

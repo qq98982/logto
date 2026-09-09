@@ -31,9 +31,9 @@ const roles = {
     'Role są grupowaniem uprawnień, które mogą być przypisywane użytkownikom. Upewnij się, że najpierw dodasz uprawnienie, zanim utworzysz role.',
   assign_roles: 'Przypisz role',
   management_api_access_notification:
-    'Aby uzyskać dostęp do interfejsu API zarządzania Logto, wybierz role z uprawnieniami do interfejsu API zarządzania <flag/>.',
+    'Aby uzyskać dostęp do interfejsu API zarządzania Aster, wybierz role z uprawnieniami do interfejsu API zarządzania <flag/>.',
   with_management_api_access_tip:
-    'Ta rola maszyny do maszyny zawiera uprawnienia do interfejsu API zarządzania Logto',
+    'Ta rola maszyny do maszyny zawiera uprawnienia do interfejsu API zarządzania Aster',
   role_creation_hint: 'Nie możesz znaleźć odpowiedniej roli? <a>Utwórz rolę</a>',
 };
 

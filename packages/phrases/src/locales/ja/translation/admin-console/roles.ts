@@ -30,9 +30,9 @@ const roles = {
     'ロールは、ユーザーに割り当てられる権限のグループです。ロールを作成する前に、まず権限を追加してください。',
   assign_roles: 'ロールを割り当てる',
   management_api_access_notification:
-    'Logto 管理 API へのアクセスには、管理 API 権限を持つ役割を選択してください<flag/>。',
+    'Aster 管理 API へのアクセスには、管理 API 権限を持つ役割を選択してください<flag/>。',
   with_management_api_access_tip:
-    'このマシン間役割には、Logto 管理 API のアクセス権が含まれています',
+    'このマシン間役割には、Aster 管理 API のアクセス権が含まれています',
   role_creation_hint: '適切なロールが見つかりませんか？<a>ロール を作成する</a>',
 };
 

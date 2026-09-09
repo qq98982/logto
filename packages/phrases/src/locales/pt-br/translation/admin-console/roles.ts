@@ -30,9 +30,9 @@ const roles = {
     'As funções são um agrupamento de permissões que podem ser atribuídas a usuários. Certifique-se de adicionar as permissões antes de criar funções.',
   assign_roles: 'Atribuir funções',
   management_api_access_notification:
-    'Para acessar a API de gerenciamento do Logto, selecione funções com permissões de API de gerenciamento <flag/>.',
+    'Para acessar a API de gerenciamento do Aster, selecione funções com permissões de API de gerenciamento <flag/>.',
   with_management_api_access_tip:
-    'Esta função de máquina para máquina inclui permissões para a API de gerenciamento do Logto',
+    'Esta função de máquina para máquina inclui permissões para a API de gerenciamento do Aster',
   role_creation_hint: 'Não encontrou a função certa? <a>Crie uma função</a>',
 };
 
