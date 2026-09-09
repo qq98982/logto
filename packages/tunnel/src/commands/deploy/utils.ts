@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { buildManagementApiResourceIndicator } from '@logto/core-kit';
 import { appendPath } from '@silverhand/essentials';
 import AdmZip from 'adm-zip';
 import chalk from 'chalk';
@@ -204,14 +205,13 @@ const throwRequestError = async (response: Response) => {
 
 const getTenantIdFromEndpointUri = (endpoint: URL) => {
   const splitted = endpoint.hostname.split('.');
-  return splitted.length > 2 ? splitted[0] : 'default';
+  return splitted.length > 2 ? (splitted[0] ?? 'default') : 'default';
 };
 
-const getManagementApiResourceFromEndpointUri = (endpoint: URL) => {
+export const getManagementApiResourceFromEndpointUri = (endpoint: URL) => {
   const tenantId = getTenantIdFromEndpointUri(endpoint);
 
-  // This resource domain is fixed to `logto.app` for all environments (prod, staging, and dev)
-  return `https://${tenantId}.logto.app/api`;
+  return buildManagementApiResourceIndicator(tenantId);
 };
 
 const isHiddenEntry = (entryName: string) => {

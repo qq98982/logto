@@ -1,3 +1,4 @@
+import { buildManagementApiResourceIndicator } from '@logto/core-kit';
 import createClient, { type Client } from 'openapi-fetch';
 
 import { ClientCredentials } from './client-credentials.js';
@@ -58,7 +59,8 @@ export const getBaseUrl = (tenantId: string) => `https://${tenantId}.logto.app`;
  * @param tenantId The tenant ID to construct the API indicator.
  * @returns The API indicator for the Management API.
  */
-export const getManagementApiIndicator = (tenantId: string) => `${getBaseUrl(tenantId)}/api`;
+export const getManagementApiIndicator = (tenantId: string) =>
+  buildManagementApiResourceIndicator(tenantId);
 
 /**
  * The scope used for accessing all endpoints of the Management API.

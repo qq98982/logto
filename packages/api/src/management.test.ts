@@ -33,8 +33,11 @@ describe('Management API', () => {
   });
 
   describe('getManagementApiIndicator', () => {
-    it('should return correct management API indicator for given tenant ID', () => {
-      expect(getManagementApiIndicator('test-tenant')).toBe('https://test-tenant.logto.app/api');
+    it.each([
+      ['default', 'urn:aster:resource:management'],
+      ['test-tenant', 'urn:aster:resource:management:test-tenant'],
+    ])('should return the Aster Management API indicator for %s', (tenantId, expected) => {
+      expect(getManagementApiIndicator(tenantId)).toBe(expected);
     });
   });
 
@@ -67,7 +70,7 @@ describe('Management API', () => {
         clientSecret: 'test-client-secret',
         tokenEndpoint: 'https://test-tenant.logto.app/oidc/token',
         tokenParams: {
-          resource: 'https://test-tenant.logto.app/api',
+          resource: 'urn:aster:resource:management:test-tenant',
           scope: allScope,
         },
       });

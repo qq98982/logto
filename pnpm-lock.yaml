@@ -309,6 +309,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@logto/core-kit':
+        specifier: workspace:^
+        version: link:../toolkit/core-kit
       openapi-fetch:
         specifier: ^0.14.0
         version: 0.14.0
