@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import {
   accountApiResourceIndicator,
@@ -96,6 +96,14 @@ describe('Aster resource indicators', () => {
     expect(buildManagementApiResourceIndicator('tenant-a')).toBe(
       'urn:aster:resource:management:tenant-a'
     );
+  });
+
+  it('keeps broad string inputs sound for default and tenant resources', () => {
+    const tenantId = 'default' as string;
+
+    expectTypeOf(buildManagementApiResourceIndicator(tenantId)).toEqualTypeOf<
+      typeof managementApiResourceIndicator | `${typeof managementApiResourceIndicator}:${string}`
+    >();
   });
 
   it('rejects empty tenant IDs and paths', () => {

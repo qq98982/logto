@@ -7,18 +7,31 @@ type TenantManagementApiResourceIndicator = `${typeof managementApiResourceIndic
 type GenericManagementApiResourceIndicator =
   `${typeof managementApiResourceIndicator}:${string}:${string}`;
 
+type ApiManagementResourceIndicator<TenantId extends string> = string extends TenantId
+  ? typeof managementApiResourceIndicator | TenantManagementApiResourceIndicator
+  : TenantId extends 'default'
+    ? typeof managementApiResourceIndicator
+    : TenantManagementApiResourceIndicator;
+
+type MeResourceIndicator<TenantId extends string> = string extends TenantId
+  ? typeof accountApiResourceIndicator | GenericManagementApiResourceIndicator
+  : TenantId extends 'admin'
+    ? typeof accountApiResourceIndicator
+    : GenericManagementApiResourceIndicator;
+
 export type ManagementApiResourceIndicator<
   TenantId extends string,
   Path extends string = 'api',
-> = TenantId extends 'admin'
-  ? Path extends 'me'
-    ? typeof accountApiResourceIndicator
-    : GenericManagementApiResourceIndicator
+> = string extends Path
+  ?
+      | ApiManagementResourceIndicator<TenantId>
+      | MeResourceIndicator<TenantId>
+      | GenericManagementApiResourceIndicator
   : Path extends 'api'
-    ? TenantId extends 'default'
-      ? typeof managementApiResourceIndicator
-      : TenantManagementApiResourceIndicator
-    : GenericManagementApiResourceIndicator;
+    ? ApiManagementResourceIndicator<TenantId>
+    : Path extends 'me'
+      ? MeResourceIndicator<TenantId>
+      : GenericManagementApiResourceIndicator;
 
 export function buildManagementApiResourceIndicator<TenantId extends string>(
   tenantId: TenantId
