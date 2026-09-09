@@ -96,8 +96,7 @@ describe('OIDC getUserClaims()', () => {
     expect(
       getAcceptedUserClaims({
         use: use.idToken,
-        scope:
-          'openid profile roles urn:logto:scope:organizations urn:logto:scope:organization_roles',
+        scope: `openid profile roles ${UserScope.Organizations} ${UserScope.OrganizationRoles}`,
         rejected: [],
         enabledExtendedIdTokenClaims: [
           'roles',

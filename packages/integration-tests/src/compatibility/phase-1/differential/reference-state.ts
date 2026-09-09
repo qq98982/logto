@@ -27,6 +27,7 @@ import {
   snapshotClosedDataGraph,
   type Phase1DifferentialScenarioId,
 } from '../model.js';
+import { projectPhase1NativeScopeForComparison } from '../native-surface-profile.js';
 import type { Phase1Profile } from '../profile-types.js';
 import type {
   Phase1ScenarioStateProjectionInput,
@@ -106,7 +107,7 @@ export type ReferenceStateSnapshotReader = (
 ) => Promise<ReferenceStateDriverSnapshot>;
 
 export type ReferenceScenarioStateProjectorOptions = Readonly<{
-  profile: Pick<Phase1Profile, 'fixtures' | 'consoleAuthentication'>;
+  profile: Phase1Profile;
   primaryContainerId: string;
   foreignContainerId?: string;
   projectName: string;
@@ -916,13 +917,14 @@ const sortedResources = (resources: readonly ReferenceStateResource[]) =>
 
 const userClaimScopeNames = new Set(Object.keys(userClaims));
 
-const expectedAdminGrantOidcScopes = (
-  profile: Pick<Phase1Profile, 'consoleAuthentication'>
-): readonly string[] =>
-  profile.consoleAuthentication.effectiveScopes.filter((scope) => userClaimScopeNames.has(scope));
+const isUserClaimScope = (profile: Readonly<Phase1Profile>, scope: string): boolean =>
+  userClaimScopeNames.has(projectPhase1NativeScopeForComparison(profile, scope));
+
+const expectedAdminGrantOidcScopes = (profile: Readonly<Phase1Profile>): readonly string[] =>
+  profile.consoleAuthentication.effectiveScopes.filter((scope) => isUserClaimScope(profile, scope));
 
 const expectedAdminGrantResources = (
-  profile: Pick<Phase1Profile, 'fixtures' | 'consoleAuthentication'>
+  profile: Readonly<Phase1Profile>
 ): readonly ReferenceStateResource[] => {
   const effectiveScopeNames = new Set(profile.consoleAuthentication.effectiveScopes);
 
@@ -940,7 +942,7 @@ const expectedAdminGrantResources = (
         indicator,
         scopes: Object.freeze(
           configured.scopes.filter(
-            (scope) => effectiveScopeNames.has(scope) && !userClaimScopeNames.has(scope)
+            (scope) => effectiveScopeNames.has(scope) && !isUserClaimScope(profile, scope)
           )
         ),
       });

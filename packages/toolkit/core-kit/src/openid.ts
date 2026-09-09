@@ -1,19 +1,19 @@
 import { z } from 'zod';
 
-/** Scopes that reserved by Logto, which will be added to the auth request automatically. */
+/** Scopes reserved by Aster, which are added to the auth request automatically. */
 export enum ReservedScope {
   OpenId = 'openid',
   OfflineAccess = 'offline_access',
 }
 
-/** Resources that reserved by Logto, which cannot be defined by users. */
+/** Resources reserved by Aster, which cannot be defined by users. */
 export enum ReservedResource {
   /**
    * The resource for organization template per RFC 0001.
    *
    * @see {@link https://github.com/logto-io/rfcs | RFC 0001} for more details.
    */
-  Organization = 'urn:logto:resource:organizations',
+  Organization = 'urn:aster:resource:organizations',
 }
 
 /**
@@ -130,13 +130,13 @@ export enum UserScope {
    *
    * See {@link userClaims} for mapped claims.
    */
-  Organizations = 'urn:logto:scope:organizations',
+  Organizations = 'urn:aster:scope:organizations',
   /**
    * Scope for user's organization roles per [RFC 0001](https://github.com/logto-io/rfcs).
    *
    * See {@link userClaims} for mapped claims.
    */
-  OrganizationRoles = 'urn:logto:scope:organization_roles',
+  OrganizationRoles = 'urn:aster:scope:organization_roles',
   /**
    * Scope for user's sessions.
    *
@@ -240,32 +240,32 @@ export const userClaims: Readonly<Record<UserScope, UserClaim[]>> = Object.freez
 );
 
 /**
- * The prefix of the URN (Uniform Resource Name) for the organization in Logto.
+ * The prefix of the URN (Uniform Resource Name) for an organization in Aster.
  *
  * @example
  * ```
- * urn:logto:organization:123 // organization with ID 123
+ * urn:aster:organization:123 // organization with ID 123
  * ```
  * @see {@link https://en.wikipedia.org/wiki/Uniform_Resource_Name | Uniform Resource Name}
  */
-export const organizationUrnPrefix = 'urn:logto:organization:';
+export const organizationUrnPrefix = 'urn:aster:organization:';
 
 /**
- * Build the URN (Uniform Resource Name) for the organization in Logto.
+ * Build the URN (Uniform Resource Name) for an organization in Aster.
  *
  * @param organizationId The ID of the organization.
  * @returns The URN for the organization.
  * @see {@link organizationUrnPrefix} for the prefix of the URN.
  * @example
  * ```ts
- * buildOrganizationUrn('1') // returns 'urn:logto:organization:1'
+ * buildOrganizationUrn('1') // returns 'urn:aster:organization:1'
  * ```
  */
 export const buildOrganizationUrn = (organizationId: string): string =>
   `${organizationUrnPrefix}${organizationId}`;
 
 /**
- * Get the organization ID from the URN (Uniform Resource Name) for the organization in Logto.
+ * Get the organization ID from an Aster organization URN (Uniform Resource Name).
  *
  * @param urn The URN for the organization. Must start with {@link organizationUrnPrefix}.
  * @returns The ID of the organization.
@@ -273,7 +273,7 @@ export const buildOrganizationUrn = (organizationId: string): string =>
  * @example
  * ```ts
  * getOrganizationIdFromUrn('1') // throws TypeError
- * getOrganizationIdFromUrn('urn:logto:organization:1') // returns '1'
+ * getOrganizationIdFromUrn('urn:aster:organization:1') // returns '1'
  * ```
  */
 export const getOrganizationIdFromUrn = (urn: string): string => {

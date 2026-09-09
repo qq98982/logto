@@ -14,7 +14,10 @@ import {
   getPhase1FixtureRuntimeUsername,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
-import { createPhase1NormalizationContext } from '../native-surface-profile.js';
+import {
+  createPhase1NormalizationContext,
+  projectPhase1NativeScopeForComparison,
+} from '../native-surface-profile.js';
 import { normalizeTokenResponse } from '../normalizers.js';
 import {
   projectAuthorizationObservation,
@@ -586,13 +589,13 @@ const assertInitialIdToken = async (
   }
 };
 
-const initialAdminResponseScope = (effectiveScopes: readonly string[]): string =>
-  effectiveScopes
+const initialAdminResponseScope = (profile: Phase1ScenarioRunContext['profile']): string =>
+  profile.consoleAuthentication.effectiveScopes
     .filter(
       (scope) =>
         scope === ReservedScope.OpenId ||
         scope === ReservedScope.OfflineAccess ||
-        userClaimScopeNames.has(scope)
+        userClaimScopeNames.has(projectPhase1NativeScopeForComparison(profile, scope))
     )
     .join(' ');
 
@@ -617,9 +620,7 @@ const parseInitialTokenResponse = async (
     'Phase 1 admin authorization code exchange failed'
   );
   const clientId = context.profile.consoleAuthentication.applicationId;
-  const expectedResponseScope = initialAdminResponseScope(
-    context.profile.consoleAuthentication.effectiveScopes
-  );
+  const expectedResponseScope = initialAdminResponseScope(context.profile);
 
   if (
     markedJwt(accessToken) ||

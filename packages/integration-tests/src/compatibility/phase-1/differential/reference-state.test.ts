@@ -7,6 +7,7 @@ import {
   type Phase1FixtureSymbolTables,
 } from '../fixture-map.js';
 import { createProvisionedPhase1Fixture } from '../fixtures.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1Profile } from '../profile-types.js';
 
 import {
@@ -16,6 +17,8 @@ import {
 } from './reference-state.js';
 
 const profile = {
+  schemaVersion: 2,
+  asterNativeSurface: structuredClone(asterNativeSurfaceContract),
   consoleAuthentication: {
     applicationId: 'admin-console',
     effectiveScopes: [

@@ -2,7 +2,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
-import { ReservedResource } from '@logto/core-kit';
 import {
   ApplicationType,
   RoleType,
@@ -20,6 +19,7 @@ import {
   type Phase1BrowserFixtureProvisioner,
 } from '../browser/activity-reader.js';
 import { snapshotClosedDataGraph } from '../model.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1Profile } from '../profile-types.js';
 import {
   assertPhase1RuntimeCredentialGraphIsSanitized,
@@ -261,6 +261,9 @@ const responseStringList = (value: unknown): readonly string[] => {
   return snapshot.map(safeText);
 };
 
+const organizationResourceIndicator =
+  asterNativeSurfaceContract.markers.organizationResource.reference;
+
 const reservedAdminResourceProjection = (
   profile: Pick<Phase1Profile, 'fixtures'>,
   indicator: string
@@ -269,7 +272,7 @@ const reservedAdminResourceProjection = (
       resource: Readonly<Record<string, unknown>>;
     }>
   | undefined => {
-  if (indicator !== ReservedResource.Organization) {
+  if (indicator !== organizationResourceIndicator) {
     return undefined;
   }
   const matches = profile.fixtures.adminTenant.resources.filter(
@@ -1469,6 +1472,7 @@ export const createReferencePhase1FixtureProvisioner = (
         fixture.public,
         options.profile
       );
+      const reservedOrganizationIndicator = organizationResourceIndicator;
       const allocations = [];
 
       for (const [allocationIndex, allocation] of fixture.public.allocations.entries()) {
@@ -1489,14 +1493,14 @@ export const createReferencePhase1FixtureProvisioner = (
               )
             : [];
 
-        if (allResources.some(({ indicator }) => indicator === ReservedResource.Organization)) {
+        if (allResources.some(({ indicator }) => indicator === reservedOrganizationIndicator)) {
           throw new TypeError(invalidReferenceResponse);
         }
         const reservedOrganizationScopes =
           allocation.role === 'admin' &&
           allocation.entities.some(
             ({ kind, runtimeId }) =>
-              kind === 'resource' && runtimeId === ReservedResource.Organization
+              kind === 'resource' && runtimeId === reservedOrganizationIndicator
           )
             ? responseList(
                 await call({

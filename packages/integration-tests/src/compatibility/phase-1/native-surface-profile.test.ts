@@ -3,14 +3,15 @@ import { SymbolTable } from '../symbol-table.js';
 import {
   createPhase1NormalizationContext,
   phase1ImplementationForProfile,
+  projectPhase1NativeScopeForComparison,
   projectPhase1ProfileForImplementation,
 } from './native-surface-profile.js';
 import { asterNativeSurfaceContract } from './native-surface.js';
 import type { Phase1Profile } from './profile-types.js';
 
-const profileFixture = (): Phase1Profile => {
-  const { markers } = asterNativeSurfaceContract;
+const { markers } = asterNativeSurfaceContract;
 
+const profileFixture = (): Phase1Profile => {
   return {
     schemaVersion: 2,
     asterNativeSurface: structuredClone(asterNativeSurfaceContract),
@@ -94,6 +95,9 @@ describe('Aster target-specific profile projection', () => {
 
     expect(phase1ImplementationForProfile(profile)).toBe('candidate');
     expect(normalization.nativeSurfaceImplementation).toBe('candidate');
+    expect(
+      projectPhase1NativeScopeForComparison(profile, markers.organizationScope.candidate)
+    ).toBe(markers.organizationScope.candidate);
     expect(projectPhase1ProfileForImplementation(profile, 'candidate')).toBe(profile);
   });
 
@@ -107,6 +111,10 @@ describe('Aster target-specific profile projection', () => {
 
     expect(phase1ImplementationForProfile(oracle)).toBe('oracle');
     expect(normalization.nativeSurfaceImplementation).toBe('oracle');
+    expect(projectPhase1NativeScopeForComparison(oracle, markers.organizationScope.reference)).toBe(
+      markers.organizationScope.candidate
+    );
+    expect(projectPhase1NativeScopeForComparison(oracle, 'profile')).toBe('profile');
     expect(oracle.fixtures.adminTenant.resources).toEqual([
       { indicator: 'https://default.logto.app/api', scopes: ['all'] },
       { indicator: 'https://admin.logto.app/me', scopes: ['all'] },

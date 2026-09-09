@@ -11,6 +11,7 @@ import {
   getPhase1FixtureRuntimeUsername,
   type Phase1FixtureAllocation,
 } from '../../fixture-map.js';
+import { projectPhase1NativeScopeForComparison } from '../../native-surface-profile.js';
 import type { Phase1BrowserExchangeFact, Phase1BrowserFlowModule } from '../contracts.js';
 
 export const consoleCleanAuthenticationSourcePaths = Object.freeze([
@@ -33,13 +34,15 @@ const passwordSelector = 'form input[name="password"]';
 const submitSelector = 'form button[name="submit"]';
 const userClaimScopeNames = new Set(Object.keys(userClaims));
 
-const initialResponseScope = (effectiveScopes: readonly string[]): string =>
-  effectiveScopes
+const initialResponseScope = (
+  profile: Parameters<Phase1BrowserFlowModule['run']>[0]['profile']
+): string =>
+  profile.consoleAuthentication.effectiveScopes
     .filter(
       (scope) =>
         scope === ReservedScope.OpenId ||
         scope === ReservedScope.OfflineAccess ||
-        userClaimScopeNames.has(scope)
+        userClaimScopeNames.has(projectPhase1NativeScopeForComparison(profile, scope))
     )
     .join(' ');
 
@@ -251,8 +254,7 @@ export const consoleCleanAuthentication: Phase1BrowserFlowModule = Object.freeze
       !initial.initialRefreshPresent ||
       initial.resource !== null ||
       initial.organizationId !== null ||
-      initial.responseScope !==
-        initialResponseScope(context.profile.consoleAuthentication.effectiveScopes) ||
+      initial.responseScope !== initialResponseScope(context.profile) ||
       initial.accessKind !== 'opaque' ||
       initial.compactAccess !== undefined ||
       management.resource !== managementResource ||

@@ -2,11 +2,10 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
-import { ReservedResource } from '@logto/core-kit';
-
 import { SymbolTable } from '../symbol-table.js';
 
 import type { Phase1FixtureRecipe } from './model.js';
+import { asterNativeSurfaceContract } from './native-surface.js';
 import type { Phase1Profile } from './profile-types.js';
 
 export const fixtureSetupCapabilityIds = Object.freeze([
@@ -281,6 +280,10 @@ const forbiddenFieldPattern =
 const entityKindSet = new Set<string>(phase1FixtureEntityKinds);
 const allocationRoleSet = new Set<string>(['data', 'admin', 'foreign']);
 const fixtureRecipeSet = new Set<string>(Object.keys(phase1FixtureRecipeDefinitions));
+const organizationResourceMarker = asterNativeSurfaceContract.markers.organizationResource;
+
+const isOrganizationResourceIndicator = (value: string): boolean =>
+  value === organizationResourceMarker.reference || value === organizationResourceMarker.candidate;
 
 const fail = (): never => {
   throw new TypeError(invalidFixtureMapMessage);
@@ -807,12 +810,11 @@ const expectedEntitySnapshot = (
       if (!resource) {
         return fail();
       }
-
       return Object.freeze({
         name: null,
         indicator: assertSafeString(resource.indicator),
         scopeNames: Object.freeze(
-          (resource.indicator === ReservedResource.Organization
+          (isOrganizationResourceIndicator(resource.indicator)
             ? profile.fixtures.adminTenant.tenantOrganization.scopes
             : resource.scopes
           ).map(assertSafeString)

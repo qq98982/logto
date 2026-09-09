@@ -115,7 +115,9 @@ const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze
   runScenario: runPhase1ScenarioForTarget,
 });
 
-const createReferenceRuntime = (
+// Mirror control runs the pinned oracle image under both target labels. Runtime-candidate mode is
+// rejected before this factory, so both adapters intentionally consume the oracle profile view.
+const createMirrorControlRuntime = (
   context: Phase1EvidenceRuntimeContext,
   implementation: 'oracle' | 'candidate',
   containers: Phase1ReferenceContainerGraph['oracle'],
@@ -228,14 +230,14 @@ const executePhase1DifferentialRuntime = async (
     if (new Set(containerIds).size !== containerIds.length) {
       return fail();
     }
-    const oracleRuntime = createReferenceRuntime(
+    const oracleRuntime = createMirrorControlRuntime(
       context,
       'oracle',
       containers.oracle,
       containers.projectName,
       dependencies
     );
-    const candidateRuntime = createReferenceRuntime(
+    const candidateRuntime = createMirrorControlRuntime(
       context,
       'candidate',
       containers.candidate,

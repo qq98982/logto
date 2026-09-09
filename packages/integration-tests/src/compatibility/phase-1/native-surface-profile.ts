@@ -176,6 +176,24 @@ export const createPhase1NormalizationContext = (
     nativeSurfaceImplementation: phase1ImplementationForProfile(profile),
   });
 
+export const projectPhase1NativeScopeForComparison = (
+  profile: Readonly<Phase1Profile>,
+  scope: string
+): string => {
+  const implementation = phase1ImplementationForProfile(profile);
+
+  for (const markerId of scopeMarkerIds) {
+    const marker = profile.asterNativeSurface.markers[markerId];
+    const expected = implementation === 'oracle' ? marker.reference : marker.candidate;
+
+    if (scope === expected) {
+      return marker.candidate;
+    }
+  }
+
+  return scope;
+};
+
 export const projectPhase1ProfileForImplementation = (
   profile: Readonly<Phase1Profile>,
   implementation: Phase1Implementation

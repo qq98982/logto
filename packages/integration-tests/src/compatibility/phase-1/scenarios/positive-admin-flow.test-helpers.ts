@@ -11,6 +11,7 @@ import {
 import { getPhase1FixtureRuntimeEmail, getPhase1FixtureRuntimeUsername } from '../fixture-map.js';
 import type { Phase1FixtureSecretLease } from '../fixtures.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
 export const adminTestTarget = Object.freeze({
@@ -89,6 +90,8 @@ export type AdminRecordedRequest = Readonly<{
 }>;
 
 const profile = Object.freeze({
+  schemaVersion: 2,
+  asterNativeSurface: structuredClone(asterNativeSurfaceContract),
   fixtures: {
     adminTenant: {
       id: 'admin',

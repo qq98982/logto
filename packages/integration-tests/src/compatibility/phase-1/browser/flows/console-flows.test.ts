@@ -11,6 +11,7 @@ import {
   getPhase1FixtureRuntimeText,
   getPhase1FixtureRuntimeUsername,
 } from '../../fixture-map.js';
+import { asterNativeSurfaceContract } from '../../native-surface.js';
 import type { Phase1Profile } from '../../profile-types.js';
 import type {
   Phase1BrowserFlowContext,
@@ -53,6 +54,8 @@ const initialResponseScope =
   'openid offline_access profile email phone identities custom_data urn:logto:scope:organizations urn:logto:scope:organization_roles';
 
 const profile = {
+  schemaVersion: 2,
+  asterNativeSurface: structuredClone(asterNativeSurfaceContract),
   fixtures: {
     adminTenant: {
       operator: {

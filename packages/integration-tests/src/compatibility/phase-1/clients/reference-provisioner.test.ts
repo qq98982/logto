@@ -1,13 +1,14 @@
-/* eslint-disable max-lines, import/order, complexity, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-assign -- The black-box fake records a long exact operation sequence and injects mutable partial-failure/status cases for reverse-cleanup assertions. */
+/* eslint-disable max-lines, complexity, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-assign -- The black-box fake records a long exact operation sequence and injects mutable partial-failure/status cases for reverse-cleanup assertions. */
 import { createServer } from 'node:http';
 import { inspect } from 'node:util';
 
 import { ReservedResource } from '@logto/core-kit';
 
 import type { TargetConfig } from '../../model.js';
-import type { Phase1Profile } from '../profile-types.js';
 import { createExpectedPhase1FixtureStateProjection } from '../fixture-map.js';
 import { revokeProvisionedPhase1Fixture } from '../fixtures.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
+import type { Phase1Profile } from '../profile-types.js';
 
 import { createReferencePhase1FixtureProvisioner } from './reference-provisioner.js';
 
@@ -135,6 +136,8 @@ const primaryTarget: TargetConfig = {
   coreUrl: 'http://localhost:3011/',
   adminUrl: 'http://localhost:3012/',
 };
+const oracleOrganizationResource =
+  asterNativeSurfaceContract.markers.organizationResource.reference;
 const foreignTarget: TargetConfig = {
   label: 'oracle',
   coreUrl: 'http://localhost:3031/',
@@ -266,7 +269,7 @@ const responseFor = (request: Request, history: readonly Request[] = []): unknow
   }
   if (request.method === 'GET' && request.path === 'resources') {
     return profile.fixtures.adminTenant.resources.flatMap(({ indicator }, index) =>
-      indicator === ReservedResource.Organization
+      indicator === oracleOrganizationResource
         ? []
         : [
             {
@@ -494,7 +497,7 @@ const createHarness = (
         {
           id: 'unexpected-reserved-organization-resource',
           name: 'Unexpected reserved organization resource',
-          indicator: ReservedResource.Organization,
+          indicator: oracleOrganizationResource,
         },
       ];
     }
@@ -1437,6 +1440,10 @@ describe('reference Phase 1 fixture provisioner', () => {
   );
 
   it('projects reserved organization template scopes without querying a reserved resource endpoint', async () => {
+    expect(ReservedResource.Organization).toBe('urn:aster:resource:organizations');
+    expect(profile.fixtures.adminTenant.resources.map(({ indicator }) => indicator)).toContain(
+      oracleOrganizationResource
+    );
     const { provisioner, requests } = createHarness();
     const fixture = await provisioner.provision('adminConsole');
     const provisionRequestCount = requests.length;
@@ -1462,7 +1469,7 @@ describe('reference Phase 1 fixture provisioner', () => {
       expect(projectionPaths).toContain('GET:resources/admin-resource-2/scopes');
       expect(projectionPaths).not.toContain('GET:resources/admin-resource-3/scopes');
       expect(projectionPaths).not.toContain(
-        `GET:resources/${encodeURIComponent(ReservedResource.Organization)}/scopes`
+        `GET:resources/${encodeURIComponent(oracleOrganizationResource)}/scopes`
       );
     } finally {
       await provisioner.cleanup(fixture);
@@ -1898,4 +1905,4 @@ describe('reference Phase 1 fixture provisioner', () => {
   });
 });
 
-/* eslint-enable max-lines, import/order, complexity, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-assign */
+/* eslint-enable max-lines, complexity, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-assign */
