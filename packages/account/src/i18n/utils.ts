@@ -7,7 +7,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import { getPhrases as getPhrasesApi } from '@ac/apis/phrases';
 import { getUiLocales } from '@ac/utils/account-center-route';
 
-const storageKey = 'i18nextLogtoUiLng';
+const storageKey = 'i18nextAsterUiLng';
 
 export const detectLanguage = (languageSettings?: LanguageInfo) => {
   if (languageSettings?.autoDetect === false) {

@@ -10,7 +10,7 @@ import { type WithI18nContext } from './koa-i18next.js';
  * Placeholder for account center SSR data injection. The value should be kept in sync with
  * {@link file://./../../../account/index.html}.
  */
-const accountCenterSsrPlaceholder = '"__LOGTO_ACCOUNT_CENTER_SSR__"';
+const accountCenterSsrPlaceholder = '"__ASTER_ACCOUNT_CENTER_SSR__"';
 
 /**
  * Create a middleware to prefetch sign-in experience color/theme data and inject it into the
