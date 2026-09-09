@@ -1,3 +1,4 @@
+import { isAsterReservedResourceIndicator } from '@logto/core-kit';
 import { isManagementApi, ProductEvent, Resources, Scopes } from '@logto/schemas';
 import { generateStandardId } from '@logto/shared';
 import { yes } from '@silverhand/essentials';
@@ -94,6 +95,15 @@ export default function resourceRoutes<T extends ManagementApiRouter>(
     async (ctx, next) => {
       const { body } = ctx.guard;
       const { indicator } = body;
+
+      assertThat(
+        !isAsterReservedResourceIndicator(indicator),
+        new RequestError({
+          code: 'resource.resource_identifier_in_use',
+          indicator,
+          status: 422,
+        })
+      );
 
       assertThat(
         !(await findResourceByIndicator(indicator)),

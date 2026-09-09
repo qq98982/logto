@@ -16,17 +16,19 @@ const { jest } = import.meta;
 const resources = {
   findTotalNumberOfResources: async () => ({ count: 10 }),
   findAllResources: async (): Promise<Resource[]> => [mockResource],
-  findResourceByIndicator: async (indicator: string): Promise<Nullable<Resource>> => {
+  findResourceByIndicator: jest.fn(async (indicator: string): Promise<Nullable<Resource>> => {
     if (indicator === mockResource.indicator) {
       return mockResource;
     }
     return null;
-  },
-  findResourceById: jest.fn(async (): Promise<Resource> => mockResource),
-  insertResource: async (body: CreateResource): Promise<Resource> => ({
-    ...mockResource,
-    ...body,
   }),
+  findResourceById: jest.fn(async (): Promise<Resource> => mockResource),
+  insertResource: jest.fn(
+    async (body: CreateResource): Promise<Resource> => ({
+      ...mockResource,
+      ...body,
+    })
+  ),
   updateResourceById: async (_: unknown, data: Partial<CreateResource>): Promise<Resource> => ({
     ...mockResource,
     ...data,
@@ -54,6 +56,10 @@ const resourceRoutes = await pickDefault(import('./resource.js'));
 
 describe('resource routes', () => {
   const resourceRequest = createRequester({ authedRoutes: resourceRoutes, tenantContext });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it('GET /resources', async () => {
     const response = await resourceRequest.get('/resources');
@@ -119,6 +125,36 @@ describe('resource routes', () => {
     await expect(
       resourceRequest.post('/resources').send({ name, indicator, accessTokenTtl })
     ).resolves.toHaveProperty('status', 422);
+  });
+
+  it.each([
+    'urn:aster:resource:management',
+    'urn:aster:resource:management:tenant-a',
+    'urn:aster:resource:management:tenant%ZZ',
+    'urn:aster:resource:management:tenant:path',
+    'urn:aster:resource:account',
+    'urn:aster:resource:organizations',
+  ])('POST /resources rejects the reserved indicator %s before persistence', async (indicator) => {
+    const response = await resourceRequest
+      .post('/resources')
+      .send({ name: 'reserved resource', indicator, accessTokenTtl: 60 });
+
+    expect(response.status).toBe(422);
+    expect(resources.findResourceByIndicator).not.toHaveBeenCalled();
+    expect(resources.insertResource).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'urn:aster:resource:account:custom',
+    'https://api.example.com/urn:aster:resource:management:tenant',
+  ])('POST /resources allows the non-reserved indicator %s', async (indicator) => {
+    const response = await resourceRequest
+      .post('/resources')
+      .send({ name: 'custom resource', indicator, accessTokenTtl: 60 });
+
+    expect(response.status).toBe(201);
+    expect(resources.findResourceByIndicator).toHaveBeenCalledWith(indicator);
+    expect(resources.insertResource).toHaveBeenCalledTimes(1);
   });
 
   it('GET /resources/:id', async () => {

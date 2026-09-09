@@ -33,7 +33,7 @@
                     "description": "The name of the resource."
                   },
                   "indicator": {
-                    "description": "The unique resource indicator. Should be a valid URI."
+                    "description": "The unique resource indicator. Should be a valid URI and must not use an Aster-reserved resource namespace."
                   },
                   "accessTokenTtl": {
                     "description": "The access token TTL in seconds. It affects the `exp` claim of the access token granted for this resource.",
