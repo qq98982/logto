@@ -9,11 +9,9 @@ import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
 import { TenantsContext } from '@/contexts/TenantsProvider';
 import useCurrentTenantScopes from '@/hooks/use-current-tenant-scopes';
 import NotFound from '@/pages/NotFound';
-import { shouldShowOssTenantMembersTab } from '@/pages/OssTenantSettings/utils';
 
 const TenantSettings = safeLazy(async () => import('@/pages/TenantSettings'));
 const OssTenantSettings = safeLazy(async () => import('@/pages/OssTenantSettings'));
-const OssTenantMembers = safeLazy(async () => import('@/pages/OssTenantSettings/Members'));
 const TenantBasicSettings = safeLazy(
   async () => import('@/pages/TenantSettings/TenantBasicSettings')
 );
@@ -83,10 +81,8 @@ const useCloudTenantSettings = () => {
 };
 
 const useOssTenantSettings = (): RouteObject =>
-  useMemo(() => {
-    const shouldShowMembersTab = shouldShowOssTenantMembersTab({ isCloud: false });
-
-    return {
+  useMemo(
+    () => ({
       path: 'tenant-settings',
       element: <OssTenantSettings />,
       children: [
@@ -98,16 +94,9 @@ const useOssTenantSettings = (): RouteObject =>
           path: TenantSettingsTabs.OidcConfigs,
           element: <OidcConfigs />,
         },
-        ...condArray(
-          shouldShowMembersTab && [
-            {
-              path: TenantSettingsTabs.Members,
-              element: <OssTenantMembers />,
-            },
-          ]
-        ),
       ],
-    };
-  }, []);
+    }),
+    []
+  );
 
 export const useTenantSettings = isCloud ? useCloudTenantSettings : useOssTenantSettings;

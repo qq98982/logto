@@ -12,7 +12,6 @@ import CreateTenantHeaderIconDark from '@/assets/icons/create-tenant-header-dark
 import CreateTenantHeaderIcon from '@/assets/icons/create-tenant-header.svg?react';
 import { createTenantApi, useCloudApi } from '@/cloud/hooks/use-cloud-api';
 import ActionBar from '@/components/ActionBar';
-import { GtagConversionId, reportToGoogle } from '@/components/Conversion/utils';
 import { type CreateTenantData } from '@/components/CreateTenantModal/types';
 import PageMeta from '@/components/PageMeta';
 import Region, { defaultRegionName } from '@/components/Region';
@@ -79,7 +78,6 @@ function CreateTenant() {
 
   const { isAuthenticated, getOrganizationToken } = useLogto();
   const cloudApi = useCloudApi();
-  const { currentTenant } = useContext(TenantsContext);
   const { regions, regionsError } = useAvailableRegions();
   const postHog = usePostHog();
 
@@ -91,7 +89,6 @@ function CreateTenant() {
   const onCreateClick = handleSubmit(
     trySubmitSafe(
       async ({ name, regionName, collaboratorEmails, hearAboutUs }: CreateTenantForm) => {
-        reportToGoogle(GtagConversionId.SignUp, { transactionId: currentTenant?.id });
         const newTenant = await cloudApi.post('/api/tenants', {
           body: { name: name || 'My project', regionName },
         });

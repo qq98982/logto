@@ -28,7 +28,6 @@ import { isCloud, postHogHost, postHogUiHost, postHogKey } from '@/consts/env';
 import { cloudApi, getManagementApi, meApi } from '@/consts/resources';
 import { ConsoleRoutes } from '@/containers/ConsoleRoutes';
 
-import { GlobalScripts } from './components/Conversion';
 import { adminTenantEndpoint, mainTitle } from './consts';
 import ErrorBoundary from './containers/ErrorBoundary';
 import LogtoErrorBoundary from './containers/LogtoErrorBoundary';
@@ -131,7 +130,6 @@ function Providers() {
             <ErrorBoundary>
               <LogtoErrorBoundary>
                 <AppDataProvider>
-                  <GlobalScripts />
                   <Content />
                 </AppDataProvider>
               </LogtoErrorBoundary>

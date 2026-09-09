@@ -5,7 +5,6 @@ import { Navigate, type RouteObject, useRoutes } from 'react-router-dom';
 import AppBoundary from '@/containers/AppBoundary';
 import { AppThemeContext } from '@/contexts/AppThemeProvider';
 import { TenantsContext } from '@/contexts/TenantsProvider';
-import { usePlausiblePageview } from '@/hooks/use-plausible-pageview';
 
 import Topbar from './components/Topbar';
 import styles from './index.module.scss';
@@ -27,8 +26,6 @@ export function OnboardingApp() {
   const { setThemeOverride } = useContext(AppThemeContext);
   const { tenants } = useContext(TenantsContext);
   const routes = useRoutes(routeObjects);
-
-  usePlausiblePageview(routeObjects, 'onboarding');
 
   useEffect(() => {
     setThemeOverride(Theme.Light);

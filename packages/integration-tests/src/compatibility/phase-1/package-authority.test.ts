@@ -227,6 +227,13 @@ describe('Phase 1 integration lockfile authority', () => {
     }).not.toThrow();
   });
 
+  it('excludes the retired Console upstream-service packages', async () => {
+    const lockfile = await readFile(lockfilePath, 'utf8');
+
+    expect(lockfile).not.toContain('@inkeep/cxkit');
+    expect(lockfile).not.toContain('prism-react-renderer');
+  });
+
   it('rejects one-byte mutation and truncation', async () => {
     const bytes = await readFile(lockfilePath);
     const mutated = Uint8Array.from(bytes);

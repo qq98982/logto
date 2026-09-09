@@ -74,7 +74,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: '自定義界面',
-    cloud_tag: 'Cloud',
     css_code_editor_title: '自定義 CSS',
     css_code_editor_field_title: 'CSS 覆寫',
     css_code_editor_description1: '查看自定義 CSS 範例。',
@@ -86,10 +85,6 @@ const sign_in_exp = {
     bring_your_ui_upload_title: '上傳自訂 UI 資源',
     bring_your_ui_description:
       '上傳壓縮包 (.zip) 來用你的代碼替換 Logto 的預構建界面。<a>了解更多</a>',
-    bring_your_ui_oss_description: '用你的程式碼自訂登入介面。',
-    bring_your_ui_oss_card_description:
-      '將你的自訂登入介面直接上傳到 <a>Logto Cloud</a>。無需 fork 和重新部署。',
-    bring_your_ui_oss_try_cloud: '試用 Cloud',
     preview_with_bring_your_ui_description:
       '你的自定義界面資源已成功上傳並正在服務。因此，內置預覽窗口已被禁用。\n若要測試你的個性化登錄界面，請點擊「實時預覽」按鈕在新瀏覽器標籤頁中打開。',
     csp_description: '為你的自訂登入介面允許額外的來源表達式。這些值只會在提供自訂 UI 資源時套用。',

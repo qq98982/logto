@@ -76,7 +76,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'ปรับแต่ง UI',
-    cloud_tag: 'Cloud',
     css_code_editor_title: 'CSS ที่กำหนดเอง',
     css_code_editor_field_title: 'การเขียนทับ CSS',
     css_code_editor_description1: 'ดูตัวอย่าง CSS ที่กำหนดเอง',
@@ -88,10 +87,6 @@ const sign_in_exp = {
     bring_your_ui_upload_title: 'อัปโหลดไฟล์ UI แบบกำหนดเอง',
     bring_your_ui_description:
       'อัปโหลดไฟล์บีบอัด (.zip) เพื่อแทนที่ UI สำเร็จรูปของ Logto ด้วยโค้ดของคุณเอง <a>เรียนรู้เพิ่มเติม</a>',
-    bring_your_ui_oss_description: 'ปรับแต่ง UI สำหรับการลงชื่อเข้าใช้ด้วยโค้ดของคุณเอง',
-    bring_your_ui_oss_card_description:
-      'อัปโหลด UI สำหรับการลงชื่อเข้าใช้แบบกำหนดเองของคุณไปยัง <a>Logto Cloud</a> ได้โดยตรง โดยไม่ต้อง fork หรือปรับใช้ใหม่',
-    bring_your_ui_oss_try_cloud: 'ลองใช้ Cloud',
     preview_with_bring_your_ui_description:
       'ไฟล์ UI ที่คุณกำหนดเองถูกอัปโหลดเรียบร้อยแล้วและกำลังใช้งานอยู่ ดังนั้นหน้าต่างตัวอย่างแบบฝังจึงถูกปิดใช้งาน\nหากต้องการทดสอบหน้าเข้าสู่ระบบแบบกำหนดเอง ให้คลิกปุ่ม "แสดงตัวอย่างสด" เพื่อเปิดในแท็บใหม่',
     csp_description:

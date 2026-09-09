@@ -9,7 +9,6 @@ import { TenantsContext } from '@/contexts/TenantsProvider';
 import OverlayScrollbar from '@/ds-components/OverlayScrollbar';
 import Tag from '@/ds-components/Tag';
 import { useConsoleRoutes } from '@/hooks/use-console-routes';
-import { usePlausiblePageview } from '@/hooks/use-plausible-pageview';
 
 import type { AppContentOutletContext } from '../AppContent/types';
 
@@ -25,7 +24,6 @@ function ConsoleContent() {
   const routeObjects = useConsoleRoutes();
   const routes = useRoutes(routeObjects);
 
-  usePlausiblePageview(routeObjects, ':tenantId');
   // Use this hook here to make sure console listens to user tenant scope changes.
   useTenantScopeListener();
 

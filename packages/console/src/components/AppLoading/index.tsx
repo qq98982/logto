@@ -1,4 +1,4 @@
-import Logo from '@/assets/images/logo.svg?react';
+import AsterBrand from '@/components/AsterBrand';
 import { Daisy as Spinner } from '@/ds-components/Spinner';
 
 import styles from './index.module.scss';
@@ -6,7 +6,7 @@ import styles from './index.module.scss';
 function AppLoading() {
   return (
     <div className={styles.container}>
-      <Logo />
+      <AsterBrand className={styles.brand} />
       <Spinner />
     </div>
   );

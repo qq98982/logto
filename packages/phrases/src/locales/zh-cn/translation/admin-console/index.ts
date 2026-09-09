@@ -7,7 +7,6 @@ import cloud from './cloud.js';
 import components from './components.js';
 import connector_details from './connector-details.js';
 import connectors from './connectors.js';
-import contact from './contact.js';
 import dashboard from './dashboard.js';
 import domain from './domain.js';
 import enterprise_sso_details from './enterprise-sso-details.js';
@@ -17,7 +16,6 @@ import errors from './errors.js';
 import general from './general.js';
 import get_started from './get-started.js';
 import guide from './guide.js';
-import inkeep_ai_bot from './inkeep-ai-bot.js';
 import invitation from './invitation.js';
 import jwt_claims from './jwt-claims.js';
 import log_details from './log-details.js';
@@ -45,7 +43,6 @@ import tab_sections from './tab-sections.js';
 import tabs from './tabs.js';
 import tenant_members from './tenant-members.js';
 import tenants from './tenants.js';
-import topbar from './topbar.js';
 import upsell from './upsell/index.js';
 import user_details from './user-details.js';
 import user_identity_details from './user-identity-details.js';
@@ -75,7 +72,6 @@ const admin_console = {
   get_started,
   users,
   user_details,
-  contact,
   sign_in_exp,
   dashboard,
   logs,
@@ -93,7 +89,6 @@ const admin_console = {
   domain,
   tenants,
   tenant_members,
-  topbar,
   subscription,
   system_limit,
   upsell,
@@ -110,7 +105,6 @@ const admin_console = {
   signing_keys,
   organization_template,
   organization_role_details,
-  inkeep_ai_bot,
   user_identity_details,
   enterprise_subscription,
 };

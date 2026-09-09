@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
-import Logo from '@/assets/images/logo.svg?react';
 import AppLoading from '@/components/AppLoading';
+import AsterBrand from '@/components/AsterBrand';
 import Button from '@/ds-components/Button';
 import useCurrentUser from '@/hooks/use-current-user';
 
@@ -23,7 +23,7 @@ function SwitchAccount({ onClickSwitch }: Props) {
   return (
     <div className={styles.container}>
       <div className={styles.wrapper}>
-        <Logo className={styles.logo} />
+        <AsterBrand className={styles.logo} />
         <div className={styles.title}>
           {/** Since this is a Logto Cloud feature, ideally the primary email should always be available.
            * However, in case it's not (e.g. in dev env), we fallback to username and then finally the ID.

@@ -11,12 +11,6 @@ const tenants = {
     subscription: 'طرح و صورتحساب',
     billing_history: 'تاریخچه صورتحساب',
   },
-  members: {
-    card_title: 'مدیریت امن‌تر مستأجرها با Logto Cloud',
-    card_description:
-      'مدیران یا همکاران را به مستأجر خود اضافه کنید بدون اشتراک‌گذاری یک حساب مدیر.',
-    card_action: 'کشف Logto Cloud',
-  },
   settings: {
     title: 'تنظیمات',
     description: 'نام مستأجر را تنظیم کنید و منطقه میزبانی داده و نوع مستأجر را مشاهده کنید.',

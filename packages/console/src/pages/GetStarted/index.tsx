@@ -29,14 +29,12 @@ import { isDevOnlyRegion } from '@/hooks/use-available-regions';
 import useDocumentationUrl from '@/hooks/use-documentation-url';
 import useTenantPathname from '@/hooks/use-tenant-pathname';
 import useTheme from '@/hooks/use-theme';
-import useUserPreferences from '@/hooks/use-user-preferences';
 import useWindowResize from '@/hooks/use-window-resize';
 
 import CreateApiForm from '../ApiResources/components/CreateForm';
 import ProtectedAppModal from '../Applications/components/ProtectedAppModal';
 
 import ConvertToProductionCard from './ConvertToProductionCard';
-import OssCloudUpsell from './OssCloudUpsell';
 import styles from './index.module.scss';
 
 const icons = {
@@ -60,12 +58,6 @@ function GetStarted() {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useTheme();
   const { PreviewIcon, SocialIcon, RbacIcon } = icons[theme];
-  const {
-    data: userPreferences,
-    isLoaded: isUserPreferencesLoaded,
-    update: updateUserPreferences,
-  } = useUserPreferences();
-
   useWindowResize(() => {
     const containerWidth = containerRef.current?.clientWidth ?? 0;
 
@@ -126,24 +118,6 @@ function GetStarted() {
     return daysSinceCreation >= convertToProductionThresholdDays;
   }, [isDevTenant, currentTenant]);
 
-  const shouldShowOssCloudUpsell = !isCloud;
-  const shouldShowOssCloudBanner =
-    shouldShowOssCloudUpsell &&
-    isUserPreferencesLoaded &&
-    !userPreferences.ossGetStartedCloudUpsellDismissed;
-
-  const persistOssCloudBannerDismissal = useCallback(async () => {
-    try {
-      await updateUserPreferences({ ossGetStartedCloudUpsellDismissed: true });
-    } catch (error: unknown) {
-      void error;
-    }
-  }, [updateUserPreferences]);
-
-  const onDismissOssCloudBanner = useCallback(() => {
-    void persistOssCloudBannerDismissal();
-  }, [persistOssCloudBannerDismissal]);
-
   return (
     <div className={styles.container}>
       <PageMeta titleKey="get_started.page_title" />
@@ -152,12 +126,6 @@ function GetStarted() {
         <div className={styles.subtitle}>{t('get_started.subtitle')}</div>
       </div>
       {shouldShowConvertToProductionCard && <ConvertToProductionCard />}
-      {shouldShowOssCloudUpsell && (
-        <OssCloudUpsell
-          isBannerVisible={shouldShowOssCloudBanner}
-          onDismissBanner={onDismissOssCloudBanner}
-        />
-      )}
       <Card className={styles.card}>
         <div className={styles.title}>
           {t(`get_started.develop.title${isCloud ? '_cloud' : ''}`)}

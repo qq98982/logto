@@ -8,8 +8,7 @@ export type StorageType =
   | 'checkout_session'
   | 'redirect_after_sign_in'
   | 'webhook_test_result'
-  | 'is_dev_features_enabled'
-  | 'oss_sidebar_cloud_upsell_dismissed_until';
+  | 'is_dev_features_enabled';
 
 export const getStorageKey = <T extends StorageType>(forType: T) =>
   `aster:admin_console:${forType}` as const;
@@ -23,6 +22,4 @@ export const storageKeys = Object.freeze({
   webhookTestResult: getStorageKey('webhook_test_result'),
   /** Whether the under-development features are enabled. */
   isDevFeaturesEnabled: getStorageKey('is_dev_features_enabled'),
-  /** The local expiry timestamp for dismissing the OSS sidebar cloud upsell card. */
-  ossSidebarCloudUpsellDismissedUntil: getStorageKey('oss_sidebar_cloud_upsell_dismissed_until'),
 } satisfies Record<CamelCase<StorageType>, string>);

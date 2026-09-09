@@ -77,7 +77,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'رابط کاربری سفارشی',
-    cloud_tag: 'ابری',
     css_code_editor_title: 'CSS سفارشی',
     css_code_editor_field_title: 'بازنویسی CSS',
     css_code_editor_description1: 'نمونه CSS سفارشی را ببینید.',
@@ -89,10 +88,6 @@ const sign_in_exp = {
     bring_your_ui_upload_title: 'آپلود دارایی‌های رابط کاربری سفارشی',
     bring_your_ui_description:
       'یک بسته فشرده (.zip) آپلود کنید تا رابط کاربری از پیش‌ساخته Logto را با کد خود جایگزین کنید. <a>بیشتر بدانید</a>',
-    bring_your_ui_oss_description: 'رابط کاربری ورود را با کد خود سفارشی کنید.',
-    bring_your_ui_oss_card_description:
-      'رابط کاربری ورود سفارشی خود را مستقیماً در <a>Logto Cloud</a> آپلود کنید. نیازی به fork و استقرار مجدد نیست.',
-    bring_your_ui_oss_try_cloud: 'امتحان Cloud',
     preview_with_bring_your_ui_description:
       'دارایی‌های رابط کاربری سفارشی شما با موفقیت آپلود شده و در حال ارائه هستند. در نتیجه، پنجره پیش‌نمایش داخلی غیرفعال شده است.\nبرای آزمایش رابط کاربری ورود شخصی‌سازی‌شده خود، روی دکمه "پیش‌نمایش زنده" کلیک کنید تا در یک تب جدید مرورگر باز شود.',
     csp_description:
