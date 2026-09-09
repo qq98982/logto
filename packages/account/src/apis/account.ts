@@ -3,7 +3,7 @@ import { conditional, type Nullable } from '@silverhand/essentials';
 
 import { createAuthenticatedKy } from './base-ky';
 
-export const verificationRecordIdHeader = 'logto-verification-id';
+export const verificationRecordIdHeader = 'aster-verification-id';
 
 export const updatePrimaryEmail = async (
   accessToken: string,

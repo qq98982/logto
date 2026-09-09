@@ -86,6 +86,10 @@ describe('koaOidcAuth middleware', () => {
     jest.resetModules();
   });
 
+  it('uses the Aster verification header without a legacy alias', () => {
+    expect(verificationRecordIdHeader).toBe('aster-verification-id');
+  });
+
   it('should set user auth with given sub returned from accessToken', async () => {
     ctx.request = {
       ...ctx.request,
@@ -149,6 +153,32 @@ describe('koaOidcAuth middleware', () => {
     )(ctx, next);
 
     expect(ctx.auth.identityVerified).toBe(true);
+  });
+
+  it('ignores the former verification header', async () => {
+    ctx.request = {
+      ...ctx.request,
+      headers: {
+        authorization: 'Bearer access_token',
+        'logto-verification-id': 'verification-record-id',
+      },
+    };
+    Sinon.stub(provider.AccessToken, 'find').resolves(mockAccessToken);
+    const tenant = createTenantWithVerificationRecord({
+      type: VerificationType.Password,
+      identifier: {
+        type: AdditionalIdentifier.UserId,
+        value: mockAccessToken.accountId,
+      },
+      verified: true,
+    });
+
+    await koaOidcAuth(tenant)(ctx, next);
+
+    expect(ctx.auth.identityVerified).toBe(false);
+    expect(
+      tenant.queries.verificationRecords.findActiveVerificationRecordById
+    ).not.toHaveBeenCalled();
   });
 
   it.each([
