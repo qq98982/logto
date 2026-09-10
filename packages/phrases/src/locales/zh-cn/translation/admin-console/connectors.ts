@@ -13,7 +13,7 @@ const connectors = {
   connector_type: '类型',
   placeholder_title: '社交连接器',
   placeholder_description:
-    'Logto 提供了许多广泛使用的社交登录连接器，同时你还可以使用标准协议创建自己的连接器。',
+    'Aster 提供了许多广泛使用的社交登录连接器，同时你还可以使用标准协议创建自己的连接器。',
   save_and_done: '保存并完成',
   type: {
     email: '邮件连接器',
@@ -41,7 +41,7 @@ const connectors = {
     target_tip_standard:
       '在“身份供应商名称”字段中输入唯一的标识符字符串，用于区分社交身份来源。注意，在连接器创建成功后，无法再次修改此设置。',
     target_tooltip:
-      'Logto 社交连接器的「target」指的是社交身份的「来源」。在 Logto 的设计里，我们不允许某一平台的连接器中有相同的「target」以避免身份的冲突。在添加连接器时，你需要格外小心，我们「不允许」用户在创建之后更改「target」的值。<a>了解更多</a>',
+      'Aster 社交连接器的「target」指的是社交身份的「来源」。在 Aster 的设计里，我们不允许某一平台的连接器中有相同的「target」以避免身份的冲突。在添加连接器时，你需要格外小心，我们「不允许」用户在创建之后更改「target」的值。<a>了解更多</a>',
     target_conflict:
       '此「身份供应商名称」值与现有的 <span>name</span> 连接器相同。使用相同的身份供应商名称会导致不符合预期的登录行为，用户可能通过两个不同的连接器访问同一个帐户。',
     target_conflict_line2:
@@ -61,7 +61,7 @@ const connectors = {
     callback_uri_description:
       '重定向 URI 是社交授权后用户被重定向到的地址。请将显示的所有 URI 添加到 IdP 的配置中。',
     callback_uri_custom_domain_description:
-      '如果你在 Logto 中使用多个<a>自定义域名</a>，务必将所有对应的回调 URI 都添加到 IdP 中，以确保社交登录在每个域名上都能正常工作。\n\n默认的 Logto 域名 (*.logto.app) 始终有效，只有在你也希望支持该域名下的登录时才需要包含它。',
+      '如果你在 Aster 中使用多个<a>自定义域名</a>，务必将所有对应的回调 URI 都添加到 IdP 中，以确保社交登录在每个域名上都能正常工作。\n\n默认的 Aster 域名 始终有效，只有在你也希望支持该域名下的登录时才需要包含它。',
     acs_url: '断言消费服务 URL',
   },
   platform: {
@@ -77,10 +77,6 @@ const connectors = {
   create_form: {
     third_party_connectors:
       '集成第三方提供商以实现快速社交登录、社交账户绑定和 API 访问。 <a>了解更多</a>',
-    email_connector_upsell: {
-      title: 'Logto 内置邮件服务',
-      description: '零配置邮件发送，开箱即用即可发送验证码和魔法链接。',
-    },
     standard_connectors: '或者你可以通过标准协议定制你的社交连接器。',
   },
 };

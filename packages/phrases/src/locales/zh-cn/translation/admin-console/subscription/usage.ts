@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'MAU 是指在一个计费周期内与 Logto 交换过至少一个令牌的唯一用户。Pro 计划无限制。<a>了解更多</a>',
+      'MAU 是指在一个计费周期内与 Aster 交换过至少一个令牌的唯一用户。Pro 计划无限制。<a>了解更多</a>',
     tooltip_for_enterprise:
-      'MAU 是指在一个计费周期内与 Logto 交换过至少一个令牌的唯一用户。企业计划无限制。',
+      'MAU 是指在一个计费周期内与 Aster 交换过至少一个令牌的唯一用户。企业计划无限制。',
   },
   organizations: {
     title: '组织',

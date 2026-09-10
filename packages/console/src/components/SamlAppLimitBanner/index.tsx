@@ -3,9 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import InfoIcon from '@/assets/icons/info.svg?react';
 import LearnMore from '@/components/LearnMore';
-import { pricingLink, logtoOssFeatureSupportLink } from '@/consts/external-links';
-import { LinkButton } from '@/ds-components/Button';
-import TextLink from '@/ds-components/TextLink';
+import { selfHostedFeatureSupportLink } from '@/consts/external-links';
 
 import styles from './index.module.scss';
 
@@ -34,22 +32,8 @@ function SamlAppLimitBanner({ variant, limit, className }: Props) {
       )}
       <div className={styles.content}>
         {description}
-        <LearnMore href={logtoOssFeatureSupportLink} />
+        <LearnMore href={selfHostedFeatureSupportLink} />
       </div>
-      {variant === 'inline' ? (
-        <TextLink className={styles.inlineAction} href={pricingLink} targetBlank="noopener">
-          {t('upsell.view_plans')}
-        </TextLink>
-      ) : (
-        <LinkButton
-          className={styles.footerAction}
-          size="large"
-          type="primary"
-          title="upsell.view_plans"
-          href={pricingLink}
-          targetBlank="noopener"
-        />
-      )}
     </div>
   );
 }

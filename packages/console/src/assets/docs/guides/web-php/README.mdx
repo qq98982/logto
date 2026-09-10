@@ -12,7 +12,7 @@ import RedirectUrisWeb, { defaultRedirectUri, defaultPostSignOutUri } from '../.
 
 <Step title="Get started">
 
-This tutorial will show you how to integrate Logto into your PHP web application.
+This tutorial will show you how to integrate Aster into your PHP web application.
 
 <InlineNotification>
   The example uses Laravel, but the concepts are the same for other frameworks.
@@ -45,7 +45,7 @@ $client = new LogtoClient(
 
 <CustomDomainEndpointNotice />
 
-By default, the SDK uses the built-in PHP session to store the Logto data. If you want to use other storage, you can pass a custom storage object as the second parameter:
+By default, the SDK uses the built-in PHP session to store the Aster data. If you want to use other storage, you can pass a custom storage object as the second parameter:
 
 <Code title="index.php" className="language-php">
 {`$client = new LogtoClient(
@@ -66,7 +66,7 @@ By default, the SDK uses the built-in PHP session to store the Logto data. If yo
 
 <Step title="Handle the callback">
 
-After the user signs in, Logto will redirect the user to the callback URL you set in the Logto Console. In this example, we use `/callback` as the callback URL:
+After the user signs in, Aster will redirect the user to the callback URL you set in the Aster Console. In this example, we use `/callback` as the callback URL:
 
 ```php title="index.php"
 Route::get('/callback', function () {
@@ -99,12 +99,12 @@ If you want to show the sign-up page on the first screen, you can set `interacti
 });`}
 </Code>
 
-Now, whenever your users visit `/sign-in`, it will start a new sign-in attempt and redirect the user to the Logto sign-in page.
+Now, whenever your users visit `/sign-in`, it will start a new sign-in attempt and redirect the user to the Aster sign-in page.
 
 > **Note**
 > Creating a sign-in route isn't the only way to start a sign-in attempt. You can always use the `signIn` method to get the sign-in URL and redirect the user to it.
 
-To clean up the Python session and Logto session, we can designate a post sign-out redierct URI. This is where Logto will redirect users after they sign out.
+To clean up the Python session and Aster session, we can designate a post sign-out redierct URI. This is where Aster will redirect users after they sign out.
 
 And a sign-out route can be implemented as follows:
 
@@ -117,13 +117,13 @@ And a sign-out route can be implemented as follows:
 });`}
 </Code>
 
-The post sign-out redierct URI is optional, and if not provided, the user will be redirected to a Logto default page after a successful sign-out (without redirecting back to your application).
+The post sign-out redierct URI is optional, and if not provided, the user will be redirected to an Aster default page after a successful sign-out (without redirecting back to your application).
 
 </Step>
 
 <Step title="Handle authentication status">
 
-In Logto SDK, we can use `$client->isAuthenticated()` to check the authentication status, if the user is signed in, the value will be true, otherwise, the value will be false.
+In the upstream SDK, we can use `$client->isAuthenticated()` to check the authentication status, if the user is signed in, the value will be true, otherwise, the value will be false.
 
 We also need to implement a home page for demonstration:
 
@@ -162,7 +162,7 @@ Route::get('/userinfo', function () {
     // Get local ID token claims
     json_decode($client->getIdTokenClaims())
     . "<br>"
-    // Fetch user info from Logto userinfo endpoint
+    // Fetch user info from Aster userinfo endpoint
     json_decode($client->fetchUserInfo())
     . "<br>"
   );
@@ -175,7 +175,7 @@ Note that a field (claim) with `null` value doesn't mean the field is set. The r
 
 For example, if we didn't request the `email` scope when signing in, and the `email` field will be `null`. However, if we requested the `email` scope, the `email` field will be the user's email address if available.
 
-To learn more about scopes and claims, see [Get user information](https://docs.logto.io/quick-starts/php/#get-user-information).
+To learn more about scopes and claims, see Get user information.
 
 </Step>
 

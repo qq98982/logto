@@ -11,12 +11,12 @@ import RedirectUrisNative, { defaultRedirectUri } from '../../fragments/_redirec
 
 <Step
   title="Install SDK"
-  subtitle="Install Logto SDK and peer dependencies"
+  subtitle="Install the upstream SDK and peer dependencies"
 >
 
 <NpmLikeInstallation packageName="@logto/rn expo-crypto expo-secure-store expo-web-browser @react-native-async-storage/async-storage" />
 
-The `@logto/rn` package is the SDK for Logto. The remaining packages are its peer dependencies. They couldn't be listed as direct dependencies because the Expo CLI requires that all dependencies for native modules be installed directly within the root project's `package.json`.
+The `@logto/rn` package is the SDK for Aster. The remaining packages are its peer dependencies. They couldn't be listed as direct dependencies because the Expo CLI requires that all dependencies for native modules be installed directly within the root project's `package.json`.
 
 <InlineNotification>
 
@@ -26,9 +26,9 @@ If you're installing this in a [bare React Native app](https://docs.expo.dev/bar
 
 </Step>
 
-<Step title="Init Logto provider">
+<Step title="Init Aster provider">
 
-Import and use `LogtoProvider` to provide a Logto context:
+Import and use `LogtoProvider` to provide an Aster context:
 
 <Code className="language-tsx" title="App.tsx">
     {`import { LogtoProvider, type LogtoConfig } from '@logto/rn';
@@ -61,7 +61,7 @@ const App = () => (
   ```json title="app.json"
   {
     "expo": {
-      "scheme": "io.logto"
+      "scheme": "aster"
     }
   }
   ```

@@ -6,10 +6,8 @@ const application_details = {
   check_guide: 'Consulter le guide',
   settings: 'Paramètres',
   settings_description:
-    "Une application est un logiciel ou un service enregistré pouvant accéder aux informations utilisateur ou agir pour un utilisateur. Les applications aident Logto à identifier qui demande quoi et gèrent la connexion ainsi que les autorisations. Remplissez les champs obligatoires pour l'authentification.",
+    "Une application est un logiciel ou un service enregistré pouvant accéder aux informations utilisateur ou agir pour un utilisateur. Les applications aident Aster à identifier qui demande quoi et gèrent la connexion ainsi que les autorisations. Remplissez les champs obligatoires pour l'authentification.",
   integration: 'Intégration',
-  integration_description:
-    'Déployez avec les travailleurs sécurisés de Logto, alimentés par le réseau Edge de Cloudflare pour des performances de premier plan et des démarrages à froid de 0ms dans le monde entier.',
   service_configuration: 'Configuration du service',
   service_configuration_description: 'Complétez les configurations nécessaires dans votre service.',
   session: 'Session',
@@ -32,16 +30,16 @@ const application_details = {
     "Le point de terminaison pour effectuer l'authentification et l'autorisation. Il est utilisé pour <a>l'authentification</a> OpenID Connect.",
   show_endpoint_details: 'Afficher les détails du point de terminaison',
   hide_endpoint_details: 'Masquer les détails du point de terminaison',
-  logto_endpoint: 'Point de terminaison Logto',
+  aster_endpoint: 'Point de terminaison Aster',
   application_id: "ID de l'application",
   application_id_tip:
-    "L'identifiant d'application unique généralement généré par Logto. Il signifie également <a>client_id</a> dans OpenID Connect.",
+    "L'identifiant d'application unique généralement généré par Aster. Il signifie également <a>client_id</a> dans OpenID Connect.",
   application_secret: "Secret de l'application",
   application_secret_other: 'Secrets de l’appli',
   redirect_uri: 'URI de redirection',
   redirect_uris: 'URIs de redirection',
   redirect_uri_placeholder: 'https://votre.site.com/app',
-  redirect_uri_placeholder_native: 'io.logto://callback',
+  redirect_uri_placeholder_native: 'aster://callback',
   redirect_uri_tip:
     "L'URI de redirection après la connexion d'un utilisateur (qu'elle soit réussie ou non). Voir OpenID Connect <a>AuthRequest</a> pour plus d'informations.",
   mixed_redirect_uri_warning:
@@ -64,15 +62,15 @@ const application_details = {
     "Activer ou désactiver l'accès à l'API de gestion. Une fois activé, vous pouvez utiliser des jetons d'accès pour appeler l'API de gestion au nom de cette application.",
   always_issue_refresh_token: 'Toujours émettre le Refresh Token.',
   always_issue_refresh_token_label:
-    "En activant cette configuration, Logto pourra toujours émettre des Refresh Tokens, indépendamment de la présentation ou non de la demande d'authentification `prompt=consent`. Cependant, cette pratique est découragée sauf si nécessaire, car elle n'est pas compatible avec OpenID Connect et peut potentiellement causer des problèmes.",
+    "En activant cette configuration, Aster pourra toujours émettre des Refresh Tokens, indépendamment de la présentation ou non de la demande d'authentification `prompt=consent`. Cependant, cette pratique est découragée sauf si nécessaire, car elle n'est pas compatible avec OpenID Connect et peut potentiellement causer des problèmes.",
   refresh_token_ttl: 'Durée de vie du Refresh Token en jours',
   refresh_token_ttl_tip:
     "La durée pendant laquelle un Refresh Token peut être utilisé pour demander de nouveaux jetons d'accès avant qu'il n'expire et devienne invalide. Les demandes de jeton étendront la durée de vie du Refresh Token à cette valeur.",
   rotate_refresh_token: 'Tourner le Refresh Token',
   rotate_refresh_token_label:
-    "Lorsqu'elle est activée, Logto émettra un nouveau Refresh Token pour les demandes de jeton lorsque 70% de la durée de vie (TTL) d'origine est écoulée ou que certaines conditions sont remplies. <a>En savoir plus</a>",
+    "Lorsqu'elle est activée, Aster émettra un nouveau Refresh Token pour les demandes de jeton lorsque 70% de la durée de vie (TTL) d'origine est écoulée ou que certaines conditions sont remplies. <a>En savoir plus</a>",
   rotate_refresh_token_label_for_public_clients:
-    "Lorsqu'elle est activée, Logto émettra un nouveau token de rafraîchissement pour chaque demande de token. <a>En savoir plus</a>",
+    "Lorsqu'elle est activée, Aster émettra un nouveau token de rafraîchissement pour chaque demande de token. <a>En savoir plus</a>",
   backchannel_logout: 'Déconnexion en backchannel',
   backchannel_logout_description:
     'Configurez le point de terminaison de déconnexion en backchannel OpenID Connect et si une session est requise pour cette application.',
@@ -97,7 +95,7 @@ const application_details = {
   application_deleted: "L'application {{name}} a été supprimée avec succès.",
   redirect_uri_required: 'Vous devez entrer au moins un URI de redirection.',
   app_domain_description_1:
-    "N'hésitez pas à utiliser votre domaine avec {{domain}} alimenté par Logto, qui est valide en permanence.",
+    "N'hésitez pas à utiliser votre domaine avec {{domain}} alimenté par Aster, qui est valide en permanence.",
   app_domain_description_2:
     "N'hésitez pas à utiliser votre domaine <domain>{{domain}}</domain> qui est valide en permanence.",
   custom_rules: "Règles d'authentification personnalisées",
@@ -113,7 +111,7 @@ const application_details = {
   protect_origin_server_description:
     "Assurez-vous de protéger votre serveur d'origine contre un accès direct. Référez-vous au guide pour plus de <a>instructions détaillées</a>.",
   third_party_settings_description:
-    "Intégrez des applications tierces avec Logto comme votre fournisseur d'identité (IdP) en utilisant OIDC / OAuth 2.0, avec un écran de consentement pour l'autorisation de l'utilisateur.",
+    "Intégrez des applications tierces avec Aster comme votre fournisseur d'identité (IdP) en utilisant OIDC / OAuth 2.0, avec un écran de consentement pour l'autorisation de l'utilisateur.",
   session_duration: 'Durée de la session (jours)',
   try_it: 'Essayez',
   no_organization_placeholder: 'Aucune organisation trouvée. <a>Aller aux organisations</a>',
@@ -204,7 +202,7 @@ const application_details = {
     user_data_permission_description_tips:
       'Vous pouvez modifier la description des permissions relatives aux données personnelles des utilisateurs via "Expérience de connexion > Contenu > Gérer la langue"',
     permission_description_tips:
-      "Lorsque Logto est utilisé comme fournisseur d'identités (IdP) pour l'authentification dans des applications tierces, et que les utilisateurs doivent donner leur autorisation, cette description apparaît sur l'écran de consentement.",
+      "Lorsqu'Aster est utilisé comme fournisseur d'identités (IdP) pour l'authentification dans des applications tierces, et que les utilisateurs doivent donner leur autorisation, cette description apparaît sur l'écran de consentement.",
     user_title: 'Utilisateur',
     user_description:
       "Sélectionnez les permissions demandées par l'application tierce pour accéder à des données utilisateur spécifiques.",
@@ -295,11 +293,11 @@ const application_details = {
     title: "Format de l'ID de nom",
     description: "Sélectionnez le format d'ID de nom du SAML IdP.",
     persistent: 'Persistant',
-    persistent_description: "Utilisez l'ID utilisateur Logto comme ID de nom",
+    persistent_description: "Utilisez l'ID utilisateur Aster comme ID de nom",
     transient: 'Transitoire',
     transient_description: 'Utilisez un ID utilisateur unique comme ID de nom',
     unspecified: 'Non spécifié',
-    unspecified_description: "Utilisez l'ID utilisateur Logto comme ID de nom",
+    unspecified_description: "Utilisez l'ID utilisateur Aster comme ID de nom",
     email_address: 'Adresse e-mail',
     email_address_description: "Utilisez l'adresse e-mail comme ID de nom",
   },
@@ -322,8 +320,8 @@ const application_details = {
     name: 'Mappages des attributs',
     title: 'Mappages des attributs de base',
     description:
-      "Ajoutez des mappages d'attributs pour synchroniser le profil utilisateur de Logto vers votre application.",
-    col_logto_claims: 'Valeur de Logto',
+      "Ajoutez des mappages d'attributs pour synchroniser le profil utilisateur d'Aster vers votre application.",
+    col_aster_claims: "Valeur d'Aster",
     col_sp_claims: 'Nom de la valeur de votre application',
     add_button: 'Ajouter un autre',
   },

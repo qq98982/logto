@@ -13,7 +13,7 @@ const connectors = {
   connector_type: '類型',
   placeholder_title: '社交連接器',
   placeholder_description:
-    'Logto 提供了許多廣泛使用的社交登錄連接器，同時你還可以使用標準協議創建自己的連接器。',
+    'Aster 提供了許多廣泛使用的社交登錄連接器，同時你還可以使用標準協議創建自己的連接器。',
   save_and_done: '保存並完成',
   type: {
     email: '郵件連接器',
@@ -41,7 +41,7 @@ const connectors = {
     target_tip_standard:
       '在“身份供應商名稱”字段中輸入唯一的標識符字符串，用於區分社交身份來源。注意，在連接器創建成功後，無法再次修改此設置。',
     target_tooltip:
-      'Logto 社交連接器的「target」指的是社交身份的「來源」。在 Logto 的設計裡，我們不允許某一平臺的連接器中有相同的「target」以避免身份的衝突。在添加連接器時，你需要格外小心，我們「不允許」用戶在創建之後更改「target」的值。<a>了解更多</a>',
+      'Aster 社交連接器的「target」指的是社交身份的「來源」。在 Aster 的設計裡，我們不允許某一平臺的連接器中有相同的「target」以避免身份的衝突。在添加連接器時，你需要格外小心，我們「不允許」用戶在創建之後更改「target」的值。<a>了解更多</a>',
     target_conflict:
       '此「身份供應商名稱」值與現有的 <span>name</span> 連接器相同。使用相同的身份提供商名稱會導致不符合預期的登錄行為，用戶可能通過兩個不同的連接器訪問同一個帳戶。',
     target_conflict_line2:
@@ -61,7 +61,7 @@ const connectors = {
     callback_uri_description:
       '重新導向 URI 是在社交授權後用戶被重新導向的位置。請將顯示的所有 URI 加入 IdP 的設定中。',
     callback_uri_custom_domain_description:
-      '如果你在 Logto 使用多個<a>自訂網域</a>，請務必把所有對應的回調 URI 加入 IdP，確保社交登入在每個網域都能運作。\n\n預設的 Logto 網域 (*.logto.app) 一直有效；只有在你也想支援該網域下的登入時才需要包含它。',
+      '如果你在 Aster 使用多個<a>自訂網域</a>，請務必把所有對應的回調 URI 加入 IdP，確保社交登入在每個網域都能運作。\n\n預設的 Aster 網域 一直有效；只有在你也想支援該網域下的登入時才需要包含它。',
     acs_url: 'Assertion consumer service URL',
   },
   platform: {
@@ -77,10 +77,6 @@ const connectors = {
   create_form: {
     third_party_connectors:
       '集成第三方提供商以快速社交登錄、社交帳戶鏈接和 API 訪問。<a>了解更多</a>',
-    email_connector_upsell: {
-      title: 'Logto 內置電郵服務',
-      description: '零配置電郵傳送，開箱即用即可發送驗證碼和魔法連結。',
-    },
     standard_connectors: '或者，你可以通過標準協議自定義你的社交連接器。',
   },
 };

@@ -41,15 +41,8 @@ const paywall = {
     'Osiągnięto limit {{count, number}} uprawnień na rolę w planie <planName/>. Ulepsz plan, aby dodać dodatkowe role i uprawnienia. W razie potrzeb, skontaktuj się z nami <a>tutaj</a>.',
   scopes_per_role_other:
     'Osiągnięto limit {{count, number}} uprawnień na rolę w planie <planName/>. Ulepsz plan, aby dodać dodatkowe role i uprawnienia. W razie potrzeb, skontaktuj się z nami <a>tutaj</a>.',
-  saml_applications_oss:
-    'Dodatkowa aplikacja SAML jest dostępna w planie Logto Enterprise. Skontaktuj się z nami, jeśli potrzebujesz pomocy.',
   saml_applications_oss_limit_notice:
-    'Twoja instancja open source obsługuje do {{limit}} aplikacji SAML. Możesz skorzystać z Logto Cloud lub skontaktować się z nami, aby uzyskać dodatkowe opcje.',
-  logto_pricing_button_text: 'Cennik Logto Cloud',
-  saml_applications:
-    'Dodatkowa aplikacja SAML jest dostępna w planie Logto Enterprise. Skontaktuj się z nami, jeśli potrzebujesz pomocy.',
-  saml_applications_add_on:
-    'Odblokuj funkcję aplikacji SAML, ulepszając do płatnego planu. Nie wahaj się <a>skontaktować z nami</a>, jeśli potrzebujesz pomocy.',
+    'Twoja instancja open source obsługuje do {{limit}} aplikacji SAML.',
   hooks:
     'Osiągnięto limit {{count, number}} webhooków w planie <planName/>. Ulepsz plan, aby tworzyć więcej webhooków. Jeśli potrzebujesz pomocy, nie wahaj się <a>skontaktować z nami</a>.',
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     'Odblokuj organizacje, ulepszając do płatnego planu. Nie wahaj się <a>skontaktować z nami</a>, jeśli potrzebujesz pomocy.',
   third_party_apps:
-    'Odblokuj Logto jako IdP dla aplikacji stron trzecich, ulepszając do płatnego planu. W razie potrzeby pomocy, proszę <a>skontaktuj się z nami</a>.',
+    'Odblokuj Aster jako IdP dla aplikacji stron trzecich, ulepszając do płatnego planu. W razie potrzeby pomocy, proszę <a>skontaktuj się z nami</a>.',
   sso_connectors:
     'Odblokuj logowanie jednokrotne dla przedsiębiorstw, ulepszając do płatnego planu. W razie potrzeby pomocy, proszę <a>skontaktuj się z nami</a>.',
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       'Ulepsz do płatnego planu, aby uzyskać funkcjonalność niestandardowego JWT i korzyści premium. Jeśli masz jakieś pytania, nie wahaj się <a>skontaktować z nami</a>.',
   },
   branding_customization:
-    'Ulepsz swój plan, aby uzyskać pełną kontrolę nad brandingiem dzięki funkcjom "Ukryj branding Logto" i "Przynieś swój interfejs użytkownika".',
+    'Ulepsz swój plan, aby uzyskać pełną kontrolę nad brandingiem dzięki funkcjom "Ukryj branding Aster" i "Przynieś swój interfejs użytkownika".',
   bring_your_ui:
     'Ulepsz do płatnego planu, aby uzyskać funkcję własnego interfejsu użytkownika i korzyści premium.',
   security_features:

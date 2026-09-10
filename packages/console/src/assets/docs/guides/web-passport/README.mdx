@@ -136,7 +136,7 @@ app.get('/sign-out', (request, response, next) => {
 });
 ```
 
-This redirects to Logto's session end URL, then back to the homepage.
+This redirects to Aster's session end URL, then back to the homepage.
 
 ### Add to the homepage
 
@@ -147,19 +147,19 @@ app.get('/', (request: Request, response) => {
 
   if (user) {
     response.end(
-      `<h1>Hello Logto</h1><p>Signed in as ${JSON.stringify(
+      `<h1>Hello Aster</h1><p>Signed in as ${JSON.stringify(
         user
       )}, <a href="/sign-out">Sign Out</a></p>`
     );
   } else {
-    response.end(`<h1>Hello Logto</h1><p><a href="/sign-in">Sign In</a></p>`);
+    response.end(`<h1>Hello Aster</h1><p><a href="/sign-in">Sign In</a></p>`);
   }
 });
 ```
 
 </Step>
 
-<Step title="Checkpoint: Test Logto and Passport integration">
+<Step title="Checkpoint: Test Aster and Passport integration">
 
 Now, you can test your application to see if the authentication works as expected.
 

@@ -17,7 +17,7 @@ const tenants = {
     tenant_name: '租户名称',
     tenant_instance: '选择您的实例',
     tenant_instance_description:
-      '选择您的租户将在哪里托管。选择 Logto Cloud 作为公共共享基础设施，或选择私人实例以获得专用资源。',
+      '选择您的租户将在哪里托管。选择 Cloud 作为公共共享基础设施，或选择私人实例以获得专用资源。',
     tenant_region: '数据托管地区',
     tenant_region_description: '托管您的租户资源（用户、应用程序等）的物理位置。创建后无法更改。',
     tenant_region_tip: '您的租户资源托管在 {{region}}。 <a>了解更多</a>',
@@ -32,7 +32,7 @@ const tenants = {
     tenant_mfa_description: '要求成员设置多因素认证才能访问此租户。',
     enterprise_sso: '企业 SSO',
     enterprise_sso_description:
-      '仅限付费计划。联系我们启用企业 SSO，让所有成员可以使用您组织的身份提供商登录 Logto Cloud 控制台。',
+      '仅限付费计划。联系我们启用企业 SSO，让所有成员可以使用您组织的身份提供商登录 Cloud 控制台。',
   },
   full_env_tag: {
     development: '开发',
@@ -67,7 +67,7 @@ const tenants = {
     tenant_type_description: '创建后将无法更改。',
     tenant_id_invalid: '租户 ID 只能包含小写字母、数字和连字符，且不能超过 {{max}} 个字符。',
     tenant_id_placeholder: '你的租户 ID',
-    tenant_id_tip: '自定义租户 ID。如果留空，Logto 将生成默认 ID。租户 ID 在创建后无法更改。',
+    tenant_id_tip: '自定义租户 ID。如果留空，Aster 将生成默认 ID。租户 ID 在创建后无法更改。',
   },
   dev_tenant_migration: {
     title: '您现在可以通过创建新的“开发租户”免费尝试我们的专业功能！',
@@ -98,7 +98,7 @@ const tenants = {
   tenant_landing_page: {
     title: '您还没有创建租户',
     description:
-      '要开始使用 Logto 配置项目，请创建一个新的租户。如果您需要注销或删除您的帐户，只需单击右上角的头像按钮。',
+      '要开始使用 Aster 配置项目，请创建一个新的租户。如果您需要注销或删除您的帐户，只需单击右上角的头像按钮。',
     create_tenant_button: '创建租户',
   },
   status: {

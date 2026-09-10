@@ -12,14 +12,14 @@ import CustomDomainEndpointNotice from '@/mdx-components/CustomDomainEndpointNot
 
 ### Prerequisits:
 
-1. Integrating Logto with Webflow requires the "Custom code" feature of Webflow, which requires at least the "Basic" plan.
+1. Integrating Aster with Webflow requires the "Custom code" feature of Webflow, which requires at least the "Basic" plan.
 2. A Webflow site, either use an existing site or create a new one.
 
 </Step>
 
 <Step title="Init LogtoClient">
 
-In this step, we'll add global-level custom code to your Webflow site. Since NPM is not supported in Webflow, we'll use the [jsdelivr.com](https://www.jsdelivr.com/) CDN service to import the Logto SDK.
+In this step, we'll add global-level custom code to your Webflow site. Since NPM is not supported in Webflow, we'll use the [jsdelivr.com](https://www.jsdelivr.com/) CDN service to import the upstream SDK.
 
 Open the "Site settings" page, and navigate to the "Custom code" section. Add the following code to the "Head code" section.
 
@@ -110,7 +110,7 @@ signOutButton.addEventListener('click', onClickSignOut);`}
 
 <Step title="Handle authentication status">
 
-In Logto SDK, generally we can use `logtoClient.isAuthenticated()` method to check the authentication status, if the user is signed in, the value will be `true`; otherwise, it will be `false`.
+In the upstream SDK, generally we can use `logtoClient.isAuthenticated()` method to check the authentication status, if the user is signed in, the value will be `true`; otherwise, it will be `false`.
 
 In your Webflow site, you can also use it to programmatically show and hide the sign-in and sign-out buttons. Apply the following custom code to adjust button CSS accordingly.
 
@@ -128,7 +128,7 @@ signOutButton.style.display = isAuthenticated ? 'block' : 'none';
 Now, test your Webflow site:
 
 1. Deploy and visit your site URL, the sign-in button should be visible.
-2. Click the sign-in button, the SDK will initiate the sign-in process, redirecting you to the Logto sign-in page.
+2. Click the sign-in button, the SDK will initiate the sign-in process, redirecting you to the Aster sign-in page.
 3. After signing in, you will be redirected back to your site, seeing the username and the sign-out button.
 4. Click the sign-out button to sign-out.
 

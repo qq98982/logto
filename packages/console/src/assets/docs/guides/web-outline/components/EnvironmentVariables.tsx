@@ -20,7 +20,7 @@ export default function EnvironmentVariables() {
       <thead>
         <tr>
           <th>Outline Environment Variable</th>
-          <th>Logto Display Name</th>
+          <th>Aster Display Name</th>
           <th>Value</th>
         </tr>
       </thead>

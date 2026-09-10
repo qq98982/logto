@@ -3,14 +3,12 @@ import dayjs from 'dayjs';
 
 import {
   type SubscriptionQuota,
-  type LogtoSkuResponse,
+  type SubscriptionSkuResponse,
   type TenantResponse,
   type SubscriptionCountBasedUsage,
 } from '@/cloud/types/router';
-import { defaultRegionName } from '@/components/Region';
-import { LogtoSkuType } from '@/types/skus';
 
-import { adminEndpoint, isCloud } from './env';
+import { adminEndpoint } from './env';
 
 const { tenantId, indicator } = defaultManagementApi.resource;
 
@@ -46,7 +44,7 @@ export const defaultTenantResponse: TenantResponse = {
   openInvoices: [],
   isSuspended: false,
   planId: defaultSubscriptionPlanId, // Reserved for compatibility with cloud
-  regionName: defaultRegionName, // Reserved for compatibility with cloud
+  regionName: 'EU',
   createdAt: new Date(),
 };
 
@@ -54,12 +52,13 @@ export const defaultTenantResponse: TenantResponse = {
  * - For cloud, the initial tenant's subscription plan will be fetched from the cloud API.
  * - OSS has a fixed subscription plan with `development` id and no cloud API to dynamically fetch the subscription plan.
  */
-export const defaultLogtoSku: LogtoSkuResponse = {
+export const defaultSku: SubscriptionSkuResponse = {
   id: ReservedPlanId.Development,
   name: 'Aster Development plan',
   createdAt: new Date(),
   updatedAt: new Date(),
-  type: LogtoSkuType.Basic,
+  // eslint-disable-next-line no-restricted-syntax -- The hosted route type owns this external enum.
+  type: 'Basic' as SubscriptionSkuResponse['type'],
   unitPrice: 0,
   productId: null,
   defaultPriceId: null,
@@ -162,14 +161,9 @@ const getAdminTenantEndpoint = () => {
     return new URL(adminEndpoint);
   }
 
-  return new URL(
-    isCloud ? window.location.origin.replace('cloud.', 'auth.') : window.location.origin
-  );
+  return new URL(window.location.origin);
 };
 
 export const adminTenantEndpoint = getAdminTenantEndpoint();
 
 export const mainTitle = 'Aster Console';
-
-// The threshold days to show the convert to production card in the get started page
-export const convertToProductionThresholdDays = 7;

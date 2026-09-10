@@ -16,7 +16,7 @@ const enterprise_subscription = {
       "Questo è il tuo abbonamento al piano Enterprise e questa quota è condivisa tra i tenant. L'utilizzo potrebbe essere soggetto a un leggero ritardo negli aggiornamenti.",
     add_on_title: 'Componenti aggiuntivi a consumo',
     add_on_description:
-      'Questi sono componenti aggiuntivi a consumo basati sul tuo contratto o sulle tariffe standard a consumo di Logto. Ti verrà addebitato in base al tuo utilizzo effettivo.',
+      'Questi sono componenti aggiuntivi a consumo basati sul tuo contratto o sulle tariffe standard a consumo di Aster. Ti verrà addebitato in base al tuo utilizzo effettivo.',
     included: 'Incluso',
     over_quota: 'Fuori quota',
     basic_plan_column_title: {

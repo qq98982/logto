@@ -1,12 +1,6 @@
 import { UserScope } from '@logto/core-kit';
-import { LogtoProvider, Prompt, useLogto } from '@logto/react';
-import {
-  adminConsoleApplicationId,
-  defaultTenantId,
-  PredefinedScope,
-  TenantScope,
-} from '@logto/schemas';
-import { conditionalArray } from '@silverhand/essentials';
+import { LogtoProvider, Prompt } from '@logto/react';
+import { adminConsoleApplicationId, defaultTenantId, PredefinedScope } from '@logto/schemas';
 import { PostHogProvider, usePostHog } from 'posthog-js/react';
 import { useContext, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
@@ -22,15 +16,14 @@ import 'react-color-palette/css';
 
 import 'react-day-picker/dist/style.css';
 
-import CloudAppRoutes from '@/cloud/AppRoutes';
 import AppLoading from '@/components/AppLoading';
-import { isCloud, postHogHost, postHogUiHost, postHogKey } from '@/consts/env';
-import { cloudApi, getManagementApi, meApi } from '@/consts/resources';
+import { postHogHost, postHogUiHost, postHogKey } from '@/consts/env';
+import { getManagementApi, meApi } from '@/consts/resources';
 import { ConsoleRoutes } from '@/containers/ConsoleRoutes';
 
 import { adminTenantEndpoint, mainTitle } from './consts';
+import AuthSdkErrorBoundary from './containers/AuthSdkErrorBoundary';
 import ErrorBoundary from './containers/ErrorBoundary';
-import LogtoErrorBoundary from './containers/LogtoErrorBoundary';
 import AppConfirmModalProvider from './contexts/AppConfirmModalProvider';
 import AppDataProvider, { AppDataContext } from './contexts/AppDataProvider';
 import { AppThemeProvider } from './contexts/AppThemeProvider';
@@ -73,13 +66,8 @@ export default App;
  * different components.
  */
 function Providers() {
-  // For Cloud, we use Management API proxy for accessing tenant data.
-  // For OSS, we directly call the tenant API with the default tenant API resource.
   const resources = useMemo(
-    () =>
-      isCloud
-        ? [cloudApi.indicator, meApi.indicator]
-        : [getManagementApi(defaultTenantId).indicator, meApi.indicator],
+    () => [getManagementApi(defaultTenantId).indicator, meApi.indicator],
     []
   );
 
@@ -93,13 +81,6 @@ function Providers() {
       UserScope.Organizations,
       UserScope.OrganizationRoles,
       PredefinedScope.All,
-      ...conditionalArray(
-        isCloud && [
-          ...Object.values(TenantScope),
-          cloudApi.scopes.CreateTenant,
-          cloudApi.scopes.ManageTenantSelf,
-        ]
-      ),
     ],
     []
   );
@@ -128,11 +109,11 @@ function Providers() {
           <Toast />
           <AppConfirmModalProvider>
             <ErrorBoundary>
-              <LogtoErrorBoundary>
+              <AuthSdkErrorBoundary>
                 <AppDataProvider>
                   <Content />
                 </AppDataProvider>
-              </LogtoErrorBoundary>
+              </AuthSdkErrorBoundary>
             </ErrorBoundary>
           </AppConfirmModalProvider>
         </AppThemeProvider>
@@ -144,7 +125,6 @@ function Providers() {
 function Content() {
   const { tenantEndpoint } = useContext(AppDataContext);
   const { isLoaded, user } = useCurrentUser();
-  const { isAuthenticated } = useLogto();
   const { currentTenantId, currentTenant } = useContext(TenantsContext);
   const postHog = usePostHog();
 
@@ -208,19 +188,9 @@ function Content() {
     };
   }, [postHog, currentTenantId, currentTenant]);
 
-  /**
-   * If it's not Cloud (OSS), render the tenant app container directly since only default tenant is available;
-   * if it's Cloud, render the tenant app container only when a tenant ID is available (in a tenant context).
-   */
-  if (!isCloud || currentTenantId) {
-    // Authenticated user should load onboarding data before rendering the app.
-    // This looks weird and it can be refactored by merging the onboarding
-    // routes with the console routes.
-    if (!tenantEndpoint || (isCloud && isAuthenticated && !isLoaded)) {
-      return <AppLoading />;
-    }
-    return <ConsoleRoutes />;
+  if (!tenantEndpoint) {
+    return <AppLoading />;
   }
 
-  return <CloudAppRoutes />;
+  return <ConsoleRoutes />;
 }

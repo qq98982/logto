@@ -19,7 +19,7 @@ const tenants = {
     tenant_name: 'Nazwa Najemcy',
     tenant_instance: 'Wybierz swoją instancję',
     tenant_instance_description:
-      'Wybierz, gdzie będzie hostowany twój najemca. Wybierz Logto Cloud dla publicznej, współdzielonej infrastruktury, lub prywatną instancję dla dedykowanych zasobów.',
+      'Wybierz, gdzie będzie hostowany twój najemca. Wybierz Cloud dla publicznej, współdzielonej infrastruktury, lub prywatną instancję dla dedykowanych zasobów.',
     tenant_region: 'Region hostowania danych',
     tenant_region_description:
       'Fizyczna lokalizacja, w której hostowane są zasoby twojego najemcy (użytkownicy, aplikacje itp.). Tego nie można zmienić po utworzeniu.',
@@ -38,7 +38,7 @@ const tenants = {
       'Wymagaj od członków skonfigurowania uwierzytelniania wieloskładnikowego, aby uzyskać dostęp do tego najemcy.',
     enterprise_sso: 'Enterprise SSO',
     enterprise_sso_description:
-      'Dostępne w płatnych planach. Skontaktuj się z nami, aby włączyć Enterprise SSO, dzięki czemu wszyscy członkowie będą mogli logować się do konsoli Logto Cloud za pomocą dostawcy tożsamości Twojej organizacji.',
+      'Dostępne w płatnych planach. Skontaktuj się z nami, aby włączyć Enterprise SSO, dzięki czemu wszyscy członkowie będą mogli logować się do konsoli Cloud za pomocą dostawcy tożsamości Twojej organizacji.',
   },
   full_env_tag: {
     development: 'Development',
@@ -83,7 +83,7 @@ const tenants = {
       'Identyfikator najemcy może zawierać tylko małe litery, cyfry i myślniki oraz nie może przekraczać {{max}} znaków.',
     tenant_id_placeholder: 'Identyfikator najemcy',
     tenant_id_tip:
-      'Dostosuj identyfikator najemcy. Jeśli pozostawisz puste, Logto wygeneruje domyślny identyfikator. Identyfikator najemcy nie może zostać zmieniony po utworzeniu.',
+      'Dostosuj identyfikator najemcy. Jeśli pozostawisz puste, Aster wygeneruje domyślny identyfikator. Identyfikator najemcy nie może zostać zmieniony po utworzeniu.',
   },
   dev_tenant_migration: {
     title:
@@ -116,7 +116,7 @@ const tenants = {
   tenant_landing_page: {
     title: 'Nie utworzyłeś jeszcze najemcy',
     description:
-      'Aby rozpocząć konfigurowanie projektu z Logto, utwórz nowego najemcę. Jeśli musisz się wylogować lub usunąć swoje konto, wystarczy kliknąć przycisk awatara w prawym górnym rogu.',
+      'Aby rozpocząć konfigurowanie projektu z Aster, utwórz nowego najemcę. Jeśli musisz się wylogować lub usunąć swoje konto, wystarczy kliknąć przycisk awatara w prawym górnym rogu.',
     create_tenant_button: 'Utwórz najemcę',
   },
   status: {

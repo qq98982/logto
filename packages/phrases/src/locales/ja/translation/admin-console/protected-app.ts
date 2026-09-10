@@ -19,7 +19,7 @@ const protected_app = {
       'このURLは元のURLの認証保護プロキシとして機能します。作成後、カスタムドメインを適用できます。',
     domain_field_description_short: 'このURLは元のURLの認証保護プロキシとして機能します。',
     domain_field_tooltip:
-      "Logtoによって保護されたアプリは、デフォルトで 'your-domain.{{domain}}' でホストされます。作成後にカスタムドメインを適用できます。",
+      "Asterによって保護されたアプリは、デフォルトで 'your-domain.{{domain}}' でホストされます。作成後にカスタムドメインを適用できます。",
     create_application: 'アプリケーションを作成',
     create_protected_app: '高速作成',
     errors: {

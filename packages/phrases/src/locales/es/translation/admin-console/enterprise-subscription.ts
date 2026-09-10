@@ -15,7 +15,7 @@ const enterprise_subscription = {
       'Esta es tu suscripción al plan Empresarial y esta cuota se comparte entre inquilinos. El uso puede estar sujeto a un leve retraso en las actualizaciones.',
     add_on_title: 'Complementos de pago por uso',
     add_on_description:
-      'Estos son complementos adicionales de pago por uso basados en su contrato o en las tarifas estándar de pago por uso de Logto. Se le cobrará según su uso real.',
+      'Estos son complementos adicionales de pago por uso basados en su contrato o en las tarifas estándar de pago por uso de Aster. Se le cobrará según su uso real.',
     included: 'Incluido',
     over_quota: 'Supera la cuota',
     basic_plan_column_title: {

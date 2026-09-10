@@ -10,12 +10,12 @@ import { onKeyDownHandler } from '@/utils/a11y';
 
 import CodeRestoreButton from './ActionButton/CodeRestoreButton.js';
 import DashBoard, { type Props as DashboardProps } from './Dashboard';
-import { defaultOptions, logtoDarkTheme, logtoLightTheme } from './config.js';
+import { asterDarkTheme, asterLightTheme, defaultOptions } from './config.js';
 import styles from './index.module.scss';
 import type { IStandaloneCodeEditor, ModelSettings } from './type.js';
 import useEditorHeight from './use-editor-height.js';
 
-const logtoEditorThemeName = 'logto-dark';
+const asterEditorThemeName = 'aster-dark';
 
 export type { Props as DashboardProps } from './Dashboard';
 export type { ModelControl, ModelSettings } from './type.js';
@@ -125,17 +125,17 @@ function MonacoCodeEditor({
       return;
     }
 
-    const editorTheme = theme === Theme.Light ? logtoLightTheme : logtoDarkTheme;
+    const editorTheme = theme === Theme.Light ? asterLightTheme : asterDarkTheme;
 
-    monaco.editor.defineTheme(logtoEditorThemeName, editorTheme);
-    monaco.editor.setTheme(logtoEditorThemeName);
+    monaco.editor.defineTheme(asterEditorThemeName, editorTheme);
+    monaco.editor.setTheme(asterEditorThemeName);
   }, [monaco, theme]);
 
   // Define the theme before the editor mounts so Monaco never falls back to the light default.
   const handleEditorWillMount = useCallback<BeforeMount>(
     (monacoInstance) => {
-      const editorTheme = theme === Theme.Light ? logtoLightTheme : logtoDarkTheme;
-      monacoInstance.editor.defineTheme(logtoEditorThemeName, editorTheme);
+      const editorTheme = theme === Theme.Light ? asterLightTheme : asterDarkTheme;
+      monacoInstance.editor.defineTheme(asterEditorThemeName, editorTheme);
     },
     [theme]
   );
@@ -144,7 +144,7 @@ function MonacoCodeEditor({
     (editor, monacoInstance) => {
       // eslint-disable-next-line @silverhand/fp/no-mutation
       editorRef.current = editor;
-      monacoInstance.editor.setTheme(logtoEditorThemeName);
+      monacoInstance.editor.setTheme(asterEditorThemeName);
       onMountHandler?.(editor);
     },
     [onMountHandler]
@@ -210,7 +210,7 @@ function MonacoCodeEditor({
             height={editorHeight}
             language={activeModel.language}
             path={activeModel.name}
-            theme={logtoEditorThemeName}
+            theme={asterEditorThemeName}
             options={{
               ...defaultOptions,
               ...activeModel.options,

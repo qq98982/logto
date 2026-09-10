@@ -1,4 +1,4 @@
-Install the Logto SDK to your project:
+Install the upstream SDK in your project:
 
 ```bash showLineNumbers={false}
 dotnet add package Logto.AspNetCore.Authentication

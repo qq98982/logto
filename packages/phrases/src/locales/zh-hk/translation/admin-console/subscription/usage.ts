@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'MAU 是指在一個計費周期內至少與 Logto 交換過一次 Token 的獨立用戶。專業計劃不限量。<a>了解更多</a>',
+      'MAU 是指在一個計費周期內至少與 Aster 交換過一次 Token 的獨立用戶。專業計劃不限量。<a>了解更多</a>',
     tooltip_for_enterprise:
-      'MAU 是指在一個計費周期內至少與 Logto 交換過一次 Token 的獨立用戶。企業計劃不限量。',
+      'MAU 是指在一個計費周期內至少與 Aster 交換過一次 Token 的獨立用戶。企業計劃不限量。',
   },
   organizations: {
     title: '組織',

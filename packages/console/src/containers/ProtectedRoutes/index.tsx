@@ -1,12 +1,10 @@
 import { useLogto } from '@logto/react';
 import { conditional, yes } from '@silverhand/essentials';
-import { useContext, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Outlet, useSearchParams } from 'react-router-dom';
 
-import { useCloudApi } from '@/cloud/hooks/use-cloud-api';
 import AppLoading from '@/components/AppLoading';
 import { searchKeys } from '@/consts';
-import { TenantsContext } from '@/contexts/TenantsProvider';
 import useRedirectUri from '@/hooks/use-redirect-uri';
 import { saveRedirect } from '@/utils/storage';
 
@@ -30,10 +28,8 @@ import { saveRedirect } from '@/utils/storage';
  * Note that the `ProtectedRoutes` component should be put in a {@link https://reactrouter.com/en/main/start/concepts#pathless-routes | pathless route}.
  */
 export default function ProtectedRoutes() {
-  const api = useCloudApi();
   const [searchParameters] = useSearchParams();
   const { isAuthenticated, isLoading, signIn } = useLogto();
-  const { isInitComplete, resetTenants } = useContext(TenantsContext);
   const redirectUri = useRedirectUri();
 
   useEffect(() => {
@@ -44,18 +40,7 @@ export default function ProtectedRoutes() {
     }
   }, [redirectUri, isAuthenticated, isLoading, searchParameters, signIn]);
 
-  useEffect(() => {
-    if (isAuthenticated && !isInitComplete) {
-      const loadTenants = async () => {
-        const data = await api.get('/api/tenants');
-        resetTenants(data);
-      };
-
-      void loadTenants();
-    }
-  }, [api, isAuthenticated, isInitComplete, resetTenants]);
-
-  if (!isInitComplete || !isAuthenticated) {
+  if (!isAuthenticated) {
     return <AppLoading />;
   }
 

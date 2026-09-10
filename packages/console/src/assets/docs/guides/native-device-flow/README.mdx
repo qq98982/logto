@@ -15,24 +15,24 @@ The [OAuth 2.0 device authorization grant](https://auth.wiki/device-flow) (devic
 ```mermaid
 sequenceDiagram
     participant Device as Your device / App
-    participant Logto
+    participant Aster
     participant User as User (Browser)
 
-    Device->>Logto: POST /oidc/device/auth
-    Logto-->>Device: device_code, user_code, verification_uri
+    Device->>Aster: POST /oidc/device/auth
+    Aster-->>Device: device_code, user_code, verification_uri
 
     Device->>User: Display user_code + verification_uri (or QR code)
 
     loop Poll for tokens
-        Device->>Logto: POST /oidc/token (device_code)
-        Logto-->>Device: authorization_pending
+        Device->>Aster: POST /oidc/token (device_code)
+        Aster-->>Device: authorization_pending
     end
 
-    User->>Logto: Open verification_uri, enter user_code, sign in
-    Logto-->>User: Authorization complete
+    User->>Aster: Open verification_uri, enter user_code, sign in
+    Aster-->>User: Authorization complete
 
-    Device->>Logto: POST /oidc/token (device_code)
-    Logto-->>Device: access_token, id_token, refresh_token
+    Device->>Aster: POST /oidc/token (device_code)
+    Aster-->>Device: access_token, id_token, refresh_token
 ```
 
 </Step>
@@ -152,7 +152,7 @@ token scoped to that API resource by passing the `resource` parameter during the
   --data-urlencode 'resource=YOUR_API_RESOURCE_INDICATOR'`}
 </Code>
 
-Replace `YOUR_API_RESOURCE_INDICATOR` with the API resource indicator (URI) you created in Logto.
+Replace `YOUR_API_RESOURCE_INDICATOR` with the API resource indicator (URI) you created in Aster.
 
 Without the `resource` parameter, the refresh response returns an opaque access token. With the
 `resource` parameter, it returns a JWT access token with `aud` set to the specified resource URI.

@@ -1,6 +1,6 @@
 const system_limit = {
   limit_exceeded:
-    'ผู้เช่า<planName/>รายนี้ถึงขีดจำกัด{{entity}}ภายใต้<a>นโยบายเอนทิตีของ Logto</a> แล้ว',
+    'ผู้เช่า<planName/>รายนี้ถึงขีดจำกัด{{entity}}ภายใต้<a>นโยบายเอนทิตีของ Aster</a> แล้ว',
   entities: {
     application: 'แอปพลิเคชัน',
     third_party_application: 'แอปพลิเคชันของบุคคลที่สาม',

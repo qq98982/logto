@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+1 555-123-4567',
   test_message_sent: 'پیام آزمایشی ارسال شد',
   test_sender_description:
-    'Logto از قالب "عمومی" برای آزمایش استفاده می‌کند. اگر کانکتور شما به درستی پیکربندی شده باشد، یک پیام دریافت خواهید کرد.',
+    'Aster از قالب "عمومی" برای آزمایش استفاده می‌کند. اگر کانکتور شما به درستی پیکربندی شده باشد، یک پیام دریافت خواهید کرد.',
   options_change_email: 'تغییر کانکتور ایمیل',
   options_change_sms: 'تغییر کانکتور پیامک',
   connector_deleted: 'کانکتور با موفقیت حذف شد',
@@ -34,43 +34,6 @@ const connector_details = {
     'این {{name}} در تجربه ورود شما استفاده می‌شود. با حذف آن، تجربه ورود شما تا زمان رفع تعارض به درستی کار نخواهد کرد. اگر تصمیم به افزودن مجدد آن گرفتید، باید دوباره پیکربندی کنید.',
   deletion_description:
     'در حال حذف این کانکتور هستید. این عمل قابل بازگشت نیست و اگر تصمیم به افزودن مجدد آن گرفتید، باید دوباره پیکربندی کنید.',
-  logto_email: {
-    total_email_sent: 'مجموع ایمیل‌های ارسال‌شده: {{value, number}}',
-    total_email_sent_tip:
-      'Logto از SendGrid برای ایمیل داخلی امن و پایدار استفاده می‌کند. استفاده از آن کاملاً رایگان است. <a>بیشتر بدانید</a>',
-    hosted_email_usage: {
-      daily: 'روزانه <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: 'روزانه <value>{{usage, number}}</value>',
-      monthly: 'ماهانه <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: 'ماهانه <value>{{usage, number}}</value>',
-      tip: 'طرح‌های Free و Development شامل محدودیت‌های روزانه و ماهانه سرویس ایمیل داخلی هستند.',
-      banner: {
-        approaching:
-          'شما به حد ارسال سرویس ایمیل داخلی Logto نزدیک می‌شوید. برای ادامه استفاده از سرویس ایمیل داخلی Logto، <provider>ارائه‌دهنده ایمیل خود را متصل کنید</provider> یا <upgrade>طرح خود را ارتقا دهید</upgrade>.',
-        reached:
-          'به حد ارسال سرویس ایمیل داخلی Logto رسیده‌اید که ممکن است ایمیل‌های ورود را مختل کند. برای ادامه استفاده از سرویس ایمیل داخلی Logto، <provider>ارائه‌دهنده ایمیل خود را متصل کنید</provider> یا <upgrade>طرح خود را ارتقا دهید</upgrade>.',
-      },
-    },
-    email_template_title: 'قالب ایمیل',
-    template_description:
-      'ایمیل داخلی از قالب‌های پیش‌فرض برای تحویل یکپارچه ایمیل‌های تأیید استفاده می‌کند. هیچ پیکربندی لازم نیست و می‌توانید اطلاعات برند پایه را سفارشی کنید.',
-    template_description_link_text: 'مشاهده قالب‌ها',
-    description_action_text: 'مشاهده قالب‌ها',
-    from_email_field: 'ایمیل فرستنده',
-    sender_name_field: 'نام فرستنده',
-    sender_name_tip:
-      'نام فرستنده برای ایمیل‌ها را سفارشی کنید. اگر خالی بماند، "Verification" به عنوان نام پیش‌فرض استفاده می‌شود.',
-    sender_name_placeholder: 'نام فرستنده شما',
-    company_information_field: 'اطلاعات شرکت',
-    company_information_description:
-      'نام، آدرس یا کد پستی شرکت خود را در پایین ایمیل‌ها نمایش دهید تا اعتبار را افزایش دهید.',
-    company_information_placeholder: 'اطلاعات پایه شرکت شما',
-    email_logo_field: 'لوگوی ایمیل',
-    email_logo_tip:
-      'لوگوی برند خود را در بالای ایمیل‌ها نمایش دهید. از یک تصویر برای هر دو حالت روشن و تاریک استفاده کنید.',
-    urls_not_allowed: 'آدرس‌های URL مجاز نیستند',
-    test_notes: 'Logto از قالب "عمومی" برای آزمایش استفاده می‌کند.',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description: 'Google One Tap روشی امن و آسان برای ورود کاربران به وب‌سایت شما است.',

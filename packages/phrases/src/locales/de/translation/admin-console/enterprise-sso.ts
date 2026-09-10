@@ -8,7 +8,7 @@ const enterprise_sso = {
   col_email_domain: 'E-Mail-Domain',
   placeholder_title: 'Unternehmensconnector',
   placeholder_description:
-    'Logto hat viele eingebaute Unternehmensidentitätsanbieter bereitgestellt, Sie können auch Ihren eigenen mit den SAML- und OIDC-Protokollen erstellen.',
+    'Aster hat viele eingebaute Unternehmensidentitätsanbieter bereitgestellt, Sie können auch Ihren eigenen mit den SAML- und OIDC-Protokollen erstellen.',
   create_modal: {
     title: 'Unternehmensconnector hinzufügen',
     text_divider: 'Oder Sie können Ihren Connector mit einem Standardprotokoll anpassen.',
@@ -34,7 +34,7 @@ const enterprise_sso = {
       entity_id_field_placeholder: 'urn:your-domain.com:sp:saml:{serviceProviderId}',
       sign_auth_request: 'Authentifizierungsanfrage signieren',
       sign_auth_request_tooltip:
-        'Logto signiert SAML-Authentifizierungsanfragen mit einem generierten Zertifikat. Aktivieren Sie dies nur, wenn Ihr Identity Provider für die Überprüfung signierter Anfragen konfiguriert ist.',
+        'Aster signiert SAML-Authentifizierungsanfragen mit einem generierten Zertifikat. Aktivieren Sie dies nur, wenn Ihr Identity Provider für die Überprüfung signierter Anfragen konfiguriert ist.',
       signing_certificate_field_name: 'Signaturzertifikat für Anfragen',
       signing_keys_empty: 'Es wurden noch keine Signaturschlüssel generiert.',
       generate_signing_key: 'Neuen Schlüssel generieren',
@@ -50,14 +50,14 @@ const enterprise_sso = {
       redirect_uri_field_description:
         'Die Redirect-URI ist die Adresse, zu der Benutzer nach der SSO-Authentifizierung zurückgeleitet werden. Fügen Sie diese URI zur Konfiguration Ihres IdP hinzu.',
       redirect_uri_field_custom_domain_description:
-        'Wenn Sie in Logto mehrere <a>benutzerdefinierte Domains</a> verwenden, fügen Sie alle entsprechenden Callback-URIs zu Ihrem IdP hinzu, damit SSO in jeder Domain funktioniert.\n\nDie standardmäßige Logto-Domain (*.logto.app) ist immer gültig – fügen Sie sie nur hinzu, wenn Sie auch SSO unter dieser Domain unterstützen möchten.',
+        'Wenn Sie in Aster mehrere <a>benutzerdefinierte Domains</a> verwenden, fügen Sie alle entsprechenden Callback-URIs zu Ihrem IdP hinzu, damit SSO in jeder Domain funktioniert.\n\nDie standardmäßige Aster-Domain ist immer gültig – fügen Sie sie nur hinzu, wenn Sie auch SSO unter dieser Domain unterstützen möchten.',
     },
   },
   attribute_mapping: {
     title: 'Attributzuordnungen',
     description:
       '`id` und `email` sind erforderlich, um das Benutzerprofil vom IdP zu synchronisieren. Geben Sie den folgenden Claim-Namen und Wert in Ihrem IdP ein.',
-    col_sp_claims: 'Wert des Dienstanbieters (Logto)',
+    col_sp_claims: 'Wert des Dienstanbieters (Aster)',
     col_idp_claims: 'Claim-Name des Identitätsanbieters',
     idp_claim_tooltip: 'Der Claim-Name des Identitätsanbieters',
   },

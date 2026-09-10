@@ -20,7 +20,7 @@ const protected_app = {
     domain_field_description_short:
       'Bu URL, orijinal URL için bir kimlik doğrulama koruma proxyi olarak hizmet verir.',
     domain_field_tooltip:
-      "Logto tarafından korunan uygulamalar varsayılan olarak 'alan-adınız.{{domain}}' şeklinde barındırılacaktır. Özel alan oluşturulduktan sonra uygulanabilir.",
+      "Aster tarafından korunan uygulamalar varsayılan olarak 'alan-adınız.{{domain}}' şeklinde barındırılacaktır. Özel alan oluşturulduktan sonra uygulanabilir.",
     create_application: 'Uygulama oluştur',
     create_protected_app: 'Hızlı oluştur',
     errors: {

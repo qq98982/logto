@@ -41,15 +41,8 @@ const paywall = {
     'Has alcanzado el límite de {{count, number}} permisos por rol de <planName/>. Actualiza el plan para agregar roles y permisos adicionales. Si necesitas ayuda, no dudes en <a>contactarnos</a>.',
   scopes_per_role_other:
     'Has alcanzado el límite de {{count, number}} permisos por rol de <planName/>. Actualiza el plan para agregar roles y permisos adicionales. Si necesitas ayuda, no dudes en <a>contactarnos</a>.',
-  saml_applications_oss:
-    'La aplicación SAML adicional está disponible con el plan Logto Enterprise. Contáctanos si necesitas asistencia.',
   saml_applications_oss_limit_notice:
-    'Tu instancia de código abierto admite hasta {{limit}} aplicaciones SAML. Puedes usar Logto Cloud o contactarnos para obtener opciones adicionales.',
-  logto_pricing_button_text: 'Precios de Logto Cloud',
-  saml_applications:
-    'La aplicación SAML adicional está disponible con el plan Logto Enterprise. Contáctanos si necesitas asistencia.',
-  saml_applications_add_on:
-    'Desbloquea la función de la aplicación SAML al actualizar a un plan pago. Para cualquier asistencia, no dudes en <a>contactarnos</a>.',
+    'Tu instancia de código abierto admite hasta {{limit}} aplicaciones SAML.',
   hooks:
     'Has alcanzado el límite de {{count, number}} webhooks de <planName/>. Actualiza el plan para crear más webhooks. Si necesitas ayuda, no dudes en <a>contactarnos</a>.',
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     'Desbloquea las organizaciones al actualizar a un plan pago. No dudes en <a>contactarnos</a> si necesitas ayuda.',
   third_party_apps:
-    'Desbloquea Logto como proveedor de identidades para aplicaciones de terceros al actualizar a un plan de pago. Para cualquier asistencia, no dudes en <a>contactarnos</a>.',
+    'Desbloquea Aster como proveedor de identidades para aplicaciones de terceros al actualizar a un plan de pago. Para cualquier asistencia, no dudes en <a>contactarnos</a>.',
   sso_connectors:
     'Desbloquea el SSO empresarial al actualizar a un plan de pago. Para cualquier asistencia, no dudes en <a>contactarnos</a>.',
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       'Actualiza a un plan de pago para obtener funcionalidades personalizadas de JWT y beneficios premium. No dudes en <a>contactarnos</a> si tienes alguna pregunta.',
   },
   branding_customization:
-    'Desbloquea el control total de la marca con las funciones "Ocultar la marca Logto" y "Trae tu interfaz de usuario" al actualizar tu plan.',
+    'Desbloquea el control total de la marca con las funciones "Ocultar la marca Aster" y "Trae tu interfaz de usuario" al actualizar tu plan.',
   bring_your_ui:
     'Actualiza a un plan de pago para traer tu funcionalidad UI personalizada y beneficios premium.',
   security_features:

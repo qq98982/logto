@@ -14,7 +14,7 @@ import Checkpoint from '../../fragments/_checkpoint.md';
 
 <InlineNotification>
   The following demonstration is built upon the <Anchor href="https://gin-gonic.com">Gin Web Framework</Anchor>.  
-  You may also integrate Logto into other frameworks by taking the same steps.
+  You may also integrate Aster into other frameworks by taking the same steps.
 </InlineNotification>
 
 Execute in the project root directory:
@@ -23,7 +23,7 @@ Execute in the project root directory:
 # Install the core package for accessing predefined values and types
 go get github.com/logto-io/go/v2/core
 
-# Install the client package for interacting with the Logto
+# Install the client package for interacting with the Aster
 go get github.com/logto-io/go/v2/client
 ```
 
@@ -42,7 +42,7 @@ import (
 func main() {
 	router := gin.Default()
 	router.GET("/", func(c *gin.Context) {
-		c.String(200, "Hello Logto!")
+		c.String(200, "Hello Aster!")
 	})
 	router.Run(":3000")
 }
@@ -54,15 +54,15 @@ func main() {
 
 In traditional web applications, the user authentication information will be stored in the user session.
 
-Logto SDK provides a `Storage` interface, you can implement a `Storage` adapter based on your web framework so that the Logto SDK can store user authentication information in the session.
+The upstream SDK provides a `Storage` interface. Implement an adapter for your web framework so the SDK can store authentication data in the session.
 
 <InlineNotification>
   We do NOT recommend using cookie-based sessions, as user authentication information stored by
-  Logto may exceed the cookie size limit. In this example, we use memory-based sessions. You can use
+  Aster may exceed the cookie size limit. In this example, we use memory-based sessions. You can use
   Redis, MongoDB, and other technologies in production to store sessions as needed.
 </InlineNotification>
 
-The `Storage` type in the Logto SDK is as follows:
+The `Storage` type in the upstream SDK is as follows:
 
 ```go title="storage.go"
 package client
@@ -92,19 +92,19 @@ func main() {
 
 	// We use memory-based session in this example
 	store := memstore.NewStore([]byte("your session secret"))
-	router.Use(sessions.Sessions("logto-session", store))
+	router.Use(sessions.Sessions("aster-session", store))
 
 	router.GET("/", func(ctx *gin.Context) {
 		// Get user session
 		session := sessions.Default(ctx)
 		// ...
-		ctx.String(200, "Hello Logto!")
+		ctx.String(200, "Hello Aster!")
 	})
 	router.Run(":3000")
 }
 ```
 
-Create a `session_storage.go` file, define a `SessionStorage` and implement the Logto SDK's `Storage` interfaces:
+Create a `session_storage.go` file, define a `SessionStorage`, and implement the upstream SDK's `Storage` interfaces:
 
 ```go title="session_storage.go"
 package main
@@ -131,7 +131,7 @@ func (storage *SessionStorage) SetItem(key, value string) {
 }
 ```
 
-Now, in the route handler, you can create a session storage for Logto:
+Now, in the route handler, you can create a session storage for Aster:
 
 ```go
 session := sessions.Default(ctx)
@@ -142,7 +142,7 @@ sessionStorage := &SessionStorage{session: session}
 
 <Step title="Init LogtoClient">
 
-First, create a Logto config:
+First, create an Aster config:
 
 <Code title="main.go" className="language-go">
 {`func main() {
@@ -162,7 +162,7 @@ First, create a Logto config:
 
 <CustomDomainEndpointNotice />
 
-Then, you can create a `LogtoClient` for each user request with the Logto config above:
+Then, you can create a `LogtoClient` for each user request with the Aster config above:
 
 ```go title="main.go"
 func main() {
@@ -176,14 +176,14 @@ func main() {
             &SessionStorage{session: session},
         )
 
-        // Use Logto to control the content of the home page
+        // Use Aster to control the content of the home page
         authState := "You are not logged in to this website. :("
 
         if logtoClient.IsAuthenticated() {
             authState = "You are logged in to this website! :)"
         }
 
-        homePage := "<h1>Hello Logto</h1>" +
+        homePage := "<h1>Hello Aster</h1>" +
             "<div>" + authState + "</div>"
 
         ctx.Data(http.StatusOK, "text/html; charset=utf-8", []byte(homePage))
@@ -212,7 +212,7 @@ After the redirect URI is configured, we add a `sign-in` route to handle the sig
     // Add a link to perform a sign-in request on the home page
     router.GET("/", func(ctx *gin.Context) {
         // ...
-        homePage := \`<h1>Hello Logto</h1>\` +
+        homePage := \`<h1>Hello Aster</h1>\` +
             "<div>" + authState + "</div>" +
             // Add link
             \`<div><a href="/sign-in">Sign In</a></div>\`
@@ -228,7 +228,7 @@ After the redirect URI is configured, we add a `sign-in` route to handle the sig
             &SessionStorage{session: session},
         )
 
-        // The sign-in request is handled by Logto.
+        // The sign-in request is handled by Aster.
         // The user will be redirected to the Redirect URI on signed in.
         signInUri, err := logtoClient.SignIn("${props.redirectUris[0] ?? '<your-redirect-uri>'}")
         if err != nil {
@@ -236,7 +236,7 @@ After the redirect URI is configured, we add a `sign-in` route to handle the sig
             return
         }
 
-        // Redirect the user to the Logto sign-in page.
+        // Redirect the user to the Aster sign-in page.
         ctx.Redirect(http.StatusTemporaryRedirect, signInUri)
     })
 
@@ -244,13 +244,13 @@ After the redirect URI is configured, we add a `sign-in` route to handle the sig
 }`}
 </Code>
 
-Now, when your user visit <code>{defaultBaseUrl}sign-in</code>, the user will be redirected to the Logto sign-in page.
+Now, when your user visit <code>{defaultBaseUrl}sign-in</code>, the user will be redirected to the Aster sign-in page.
 
 </Step>
 
 <Step title="Implement the callback route">
 
-When the user signs in successfully on the Logto sign-in page, Logto will redirect the user to the Redirect URI.
+When the user signs in successfully on the Aster sign-in page, Aster will redirect the user to the Redirect URI.
 
 Assuming your Redirect URI is <code>{defaultRedirectUri}</code>, then we will add the `/callback` route to handle the callback after signing in.
 
@@ -266,7 +266,7 @@ func main() {
             &SessionStorage{session: session},
         )
 
-        // The sign-in callback request is handled by Logto
+        // The sign-in callback request is handled by Aster
         err := logtoClient.HandleSignInCallback(ctx.Request)
         if err != nil {
             ctx.String(http.StatusInternalServerError, err.Error())
@@ -286,7 +286,7 @@ func main() {
 
 <Step title="Implement sign-out route">
 
-Similar to the sign-in flow, when the user signs out, Logto will redirect the user to the post sign-out redirect URI.
+Similar to the sign-in flow, when the user signs out, Aster will redirect the user to the post sign-out redirect URI.
 
 Now, let's add the `sign-out` route to handle the sign-out request and also add a sign-out link on the home page:
 
@@ -297,7 +297,7 @@ Now, let's add the `sign-out` route to handle the sign-out request and also add 
     // Add a link to perform a sign-out request on the home page
     router.GET("/", func(ctx *gin.Context) {
         // ...
-        homePage := \`<h1>Hello Logto</h1>\` +
+        homePage := \`<h1>Hello Aster</h1>\` +
             "<div>" + authState + "</div>" +
             \`<div><a href="/sign-in">Sign In</a></div>\` +
             // Add link
@@ -314,7 +314,7 @@ Now, let's add the `sign-out` route to handle the sign-out request and also add 
             &SessionStorage{session: session},
         )
 
-        // The sign-out request is handled by Logto.
+        // The sign-out request is handled by Aster.
         // The user will be redirected to the Post Sign-out Redirect URI on signed out.
         signOutUri, signOutErr := logtoClient.SignOut("${props.postLogoutRedirectUris[0] ?? '<your-post-sign-out-uri>'}")
 
@@ -330,7 +330,7 @@ Now, let's add the `sign-out` route to handle the sign-out request and also add 
 }`}
 </Code>
 
-After the user makes a signing-out request, Logto will clear all user authentication information in the session.
+After the user makes a signing-out request, Aster will clear all user authentication information in the session.
 
 </Step>
 

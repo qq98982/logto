@@ -18,7 +18,7 @@ const tenants = {
     tenant_name: 'Kiracı Adı',
     tenant_instance: 'Örnek seçin',
     tenant_instance_description:
-      "Kiracınızın nerede barındırılacağını seçin. Genel paylaşımlı altyapı için Logto Cloud'u veya özel kaynaklar için özel bir örneği seçin.",
+      "Kiracınızın nerede barındırılacağını seçin. Genel paylaşımlı altyapı için Cloud'u veya özel kaynaklar için özel bir örneği seçin.",
     tenant_region: 'Veriler barındırılan bölge',
     tenant_region_description:
       'Kiracı kaynaklarınızın (kullanıcılar, uygulamalar vb.) barındırıldığı fiziksel konum. Bu, oluşturulduktan sonra değiştirilemez.',
@@ -37,7 +37,7 @@ const tenants = {
       'Üyelerinizin bu kiracıya erişmek için çok faktörlü kimlik doğrulamayı yapılandırmasını zorunlu kılın.',
     enterprise_sso: 'Enterprise SSO',
     enterprise_sso_description:
-      'Ücretli planlarda kullanılabilir. Tüm üyelerin kuruluşunuzun kimlik sağlayıcısını kullanarak Logto Cloud Konsoluna giriş yapabilmesi için Enterprise SSO etkinleştirmek üzere bizimle iletişime geçin.',
+      'Ücretli planlarda kullanılabilir. Tüm üyelerin kuruluşunuzun kimlik sağlayıcısını kullanarak Cloud Konsoluna giriş yapabilmesi için Enterprise SSO etkinleştirmek üzere bizimle iletişime geçin.',
   },
   full_env_tag: {
     development: 'Geliştirme',
@@ -82,7 +82,7 @@ const tenants = {
       'Kiracı kimliği yalnızca küçük harfler, sayılar ve kısa çizgiler içerebilir ve {{max}} karakteri aşmamalıdır.',
     tenant_id_placeholder: 'Kiracı kimliğiniz',
     tenant_id_tip:
-      'Kiracı kimliğini özelleştirin. Boş bırakılırsa, Logto varsayılan bir kimlik oluşturur. Kiracı kimliği oluşturulduktan sonra değiştirilemez.',
+      'Kiracı kimliğini özelleştirin. Boş bırakılırsa, Aster varsayılan bir kimlik oluşturur. Kiracı kimliği oluşturulduktan sonra değiştirilemez.',
   },
   dev_tenant_migration: {
     title:
@@ -114,7 +114,7 @@ const tenants = {
   tenant_landing_page: {
     title: 'Henüz bir kiracı oluşturmadınız',
     description:
-      'Logto ile projenizi yapılandırmaya başlamak için lütfen yeni bir kiracı oluşturun. Hesabınızdan çıkış yapmanız veya hesabınızı silmeniz gerekiyorsa, sağ üst köşedeki avatar düğmesine tıklayın.',
+      'Aster ile projenizi yapılandırmaya başlamak için lütfen yeni bir kiracı oluşturun. Hesabınızdan çıkış yapmanız veya hesabınızı silmeniz gerekiyorsa, sağ üst köşedeki avatar düğmesine tıklayın.',
     create_tenant_button: 'Kiracı oluştur',
   },
   status: {

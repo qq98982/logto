@@ -17,7 +17,7 @@ const profile = {
       check_information:
         'Lamentamos saber que você deseja apagar a sua conta. Verifique a seguinte informação cuidadosamente antes de continuar.',
       remove_all_data:
-        'Apagar a sua conta irá remover permanentemente todos os dados sobre você na Logto Cloud. Por isso, assegure-se de fazer backup de quaisquer dados importantes antes de continuar.',
+        'Apagar a sua conta irá remover permanentemente todos os dados sobre você na Cloud. Por isso, assegure-se de fazer backup de quaisquer dados importantes antes de continuar.',
       confirm_information:
         'Por favor confirme que a informação acima é o que esperava. Após apagar a sua conta, não poderemos recuperá-la.',
       has_admin_role:
@@ -40,7 +40,7 @@ const profile = {
     error_occurred_description: 'Desculpe, algo correu mal ao apagar a sua conta:',
     request_id: 'ID do pedido: {{requestId}}',
     try_again_later:
-      'Por favor, tente novamente mais tarde. Se o problema persistir, contacte a equipa da Logto com o ID do pedido.',
+      'Por favor, tente novamente mais tarde. Se o problema persistir, contacte a equipa da Aster com o ID do pedido.',
     final_confirmation: 'Confirmação final',
     about_to_start_deletion:
       'Você está prestes a iniciar o processo de exclusão e esta ação não pode ser desfeita.',

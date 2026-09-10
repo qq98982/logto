@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Falha na conexão',
   },
   update_endpoint_notice:
-    'Não se esqueça de atualizar o domínio para o URI de retorno do conector social e o ponto de extremidade de logto em seu aplicativo se você quiser usar um domínio personalizado para os recursos.',
+    'Não se esqueça de atualizar o domínio para o URI de retorno do conector social e o ponto de extremidade de Aster em seu aplicativo se você quiser usar um domínio personalizado para os recursos.',
   error_hint:
     'Certifique-se de atualizar seus registros DNS. Nós continuaremos a verificação a cada {{value}} segundos.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Tem certeza de que deseja excluir este domínio personalizado "<span>{{domain}}</span>"?',
       in_used_tip:
-        'Se você configurou este domínio personalizado em seu provedor de conexão social ou ponto de extremidade de aplicativo antes, você precisará modificar a URI para o domínio padrão do Logto "<span>{{domain}}</span>" primeiro. Isso é necessário para que o botão de login social funcione corretamente.',
+        'Se você configurou este domínio personalizado em seu provedor de conexão social ou ponto de extremidade de aplicativo antes, você precisará modificar a URI para o domínio padrão do Aster "<span>{{domain}}</span>" primeiro. Isso é necessário para que o botão de login social funcione corretamente.',
       deleted: 'Domínio personalizado excluído com sucesso!',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Domínio padrão',
     default_domain_description:
-      'Logto oferece um domínio padrão pré-configurado, pronto para uso sem nenhuma configuração adicional. Este domínio padrão serve como uma opção de backup mesmo se você habilitou um domínio personalizado.',
-    default_domain_field: 'Domínio padrão do Logto',
+      'Aster oferece um domínio padrão pré-configurado, pronto para uso sem nenhuma configuração adicional. Este domínio padrão serve como uma opção de backup mesmo se você habilitou um domínio personalizado.',
+    default_domain_field: 'Domínio padrão do Aster',
   },
   custom_endpoint_note:
     'Você pode personalizar o nome de domínio desses endpoints conforme necessário. Escolha "{{custom}}" ou "{{default}}".',

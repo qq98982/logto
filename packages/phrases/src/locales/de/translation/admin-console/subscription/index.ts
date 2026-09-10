@@ -4,9 +4,9 @@ import usage from './usage.js';
 
 const subscription = {
   free_plan: 'Kostenloser plan',
-  free_plan_description: 'Für Nebenprojekte und erste Logto-Tests. Keine Kreditkarte erforderlich.',
+  free_plan_description: 'Für Nebenprojekte und erste Aster-Tests. Keine Kreditkarte erforderlich.',
   pro_plan: 'Pro plan',
-  pro_plan_description: 'Für Unternehmen, die sorgenfrei von Logto profitieren möchten.',
+  pro_plan_description: 'Für Unternehmen, die sorgenfrei von Aster profitieren möchten.',
   enterprise: 'Enterprise-Plan',
   enterprise_description:
     'Für große Teams und Unternehmen mit Anforderungen in Unternehmensqualität.',
@@ -27,7 +27,7 @@ const subscription = {
   upgrade_pro: 'Pro upgraden',
   update_payment: 'Zahlung aktualisieren',
   payment_error:
-    'Es wurde ein Zahlungsproblem festgestellt. Der Betrag von ${{price, number}} für den vorherigen Zyklus kann nicht verarbeitet werden. Aktualisieren Sie die Zahlung, um eine Aussetzung des Logto-Dienstes zu vermeiden.',
+    'Es wurde ein Zahlungsproblem festgestellt. Der Betrag von ${{price, number}} für den vorherigen Zyklus kann nicht verarbeitet werden. Aktualisieren Sie die Zahlung, um eine Aussetzung des Aster-Dienstes zu vermeiden.',
   downgrade: 'Herabstufen',
   current: 'Aktuell',
   upgrade: 'Upgrade',
@@ -60,7 +60,7 @@ const subscription = {
     downgrade_help_tip: 'Hilfe beim Downgrade benötigt? <a>Kontaktieren Sie uns</a>.',
     upgrade_title: 'Freundliche Erinnerung für unsere geschätzten Early Adopters',
     upgrade_description:
-      'Sie nutzen derzeit mehr als das, was <name /> erlaubt. Logto ist nun offiziell und bietet Funktionen, die auf jeden Tarif zugeschnitten sind. Bevor Sie ein Upgrade auf den <name /> in Betracht ziehen, stellen Sie sicher, dass Sie die folgenden Kriterien für das Upgrade erfüllen.',
+      'Sie nutzen derzeit mehr als das, was <name /> erlaubt. Aster ist nun offiziell und bietet Funktionen, die auf jeden Tarif zugeschnitten sind. Bevor Sie ein Upgrade auf den <name /> in Betracht ziehen, stellen Sie sicher, dass Sie die folgenden Kriterien für das Upgrade erfüllen.',
     upgrade_pro_tip: ' Oder erwägen Sie ein Upgrade auf den Pro plan.',
     upgrade_help_tip: 'Hilfe beim Upgrade benötigt? <a>Kontaktieren Sie uns</a>.',
     a_maximum_of: 'Maximal <item/>',
@@ -74,9 +74,9 @@ const subscription = {
     exceeded:
       'Du hast 100 % deines Quotenlimits überschritten. Benutzer können sich nicht mehr richtig einloggen. Bitte upgrade sofort, um Unannehmlichkeiten zu vermeiden.',
     close_to_limit:
-      'Du hast fast dein Token-Nutzungslimit erreicht. Logto wird keine Token mehr ausstellen, falls deine Nutzung 100 % überschreitet. Bitte upgrade den Gratis-Tarif, um Unannehmlichkeiten zu vermeiden.',
+      'Du hast fast dein Token-Nutzungslimit erreicht. Aster wird keine Token mehr ausstellen, falls deine Nutzung 100 % überschreitet. Bitte upgrade den Gratis-Tarif, um Unannehmlichkeiten zu vermeiden.',
     dev_plan_exceeded:
-      'Dieser Mandant hat das Token-Limit gemäß der Entitätsrichtlinie von Logto erreicht.',
+      'Dieser Mandant hat das Token-Limit gemäß der Entitätsrichtlinie von Aster erreicht.',
   },
 };
 

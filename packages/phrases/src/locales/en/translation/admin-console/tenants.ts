@@ -18,7 +18,7 @@ const tenants = {
     tenant_name: 'Tenant name',
     tenant_instance: 'Select your instance',
     tenant_instance_description:
-      'Select where your tenant will be hosted. Choose Logto Cloud for public shared infrastructure, or a private instance for dedicated resources.',
+      'Select where your tenant will be hosted. Choose Cloud for public shared infrastructure, or a private instance for dedicated resources.',
     tenant_region: 'Data region',
     tenant_region_description:
       'The physical location where your tenant resources (users, apps, etc.) are hosted. This cannot be changed after creation.',
@@ -36,7 +36,7 @@ const tenants = {
       'Require your members to set up multi-factor authentication to access this tenant.',
     enterprise_sso: 'Enterprise SSO',
     enterprise_sso_description:
-      "Available on paid plans. Contact us to enable enterprise SSO so all members can sign in to the Logto Cloud Console using your organization's identity provider.",
+      "Available on paid plans. Contact us to enable enterprise SSO so all members can sign in to the Cloud Console using your organization's identity provider.",
   },
   full_env_tag: {
     development: 'Development',
@@ -78,7 +78,7 @@ const tenants = {
       'Tenant ID can only contain lowercase letters, numbers, and hyphens, and must not exceed {{max}} characters.',
     tenant_id_placeholder: 'Your tenant ID',
     tenant_id_tip:
-      'Customize the Tenant ID. If left empty, Logto will generate a default ID. The Tenant ID cannot be changed after creation.',
+      'Customize the Tenant ID. If left empty, Aster will generate a default ID. The Tenant ID cannot be changed after creation.',
   },
   dev_tenant_migration: {
     title: 'You can now try our Pro features for free by creating a new "Development tenant"!',
@@ -110,7 +110,7 @@ const tenants = {
   tenant_landing_page: {
     title: "You haven't created a tenant yet",
     description:
-      'To start configuring your project with Logto, please create a new tenant. If you need to log out or delete your account, just click on the avatar button in the top right corner.',
+      'To start configuring your project with Aster, please create a new tenant. If you need to log out or delete your account, just click on the avatar button in the top right corner.',
     create_tenant_button: 'Create tenant',
   },
   status: {

@@ -16,7 +16,7 @@ const connectors = {
   connector_type: 'Tipo',
   placeholder_title: 'Conector social',
   placeholder_description:
-    'O Logto forneceu muitos conectores de login social amplamente usados, enquanto isso, você pode criar o seu próprio com protocolos padrão.',
+    'O Aster forneceu muitos conectores de login social amplamente usados, enquanto isso, você pode criar o seu próprio com protocolos padrão.',
   save_and_done: 'Guardar',
   type: {
     email: 'Email',
@@ -46,7 +46,7 @@ const connectors = {
     target_tip_standard:
       'O valor do "nome do IdP" pode ser uma string de identificador exclusivo para distinguir suas identidades sociais. Esta configuração não pode ser alterada depois que o conector for criado.',
     target_tooltip:
-      '"Target" nos conectores sociais do Logto refere-se à "origem" de suas identidades sociais. No design do Logto, não aceitamos o mesmo "alvo" de uma plataforma específica para evitar conflitos. Você deve ter muito cuidado antes de adicionar um conector, pois NÃO PODE alterar seu valor depois de criá-lo. <a>Saiba mais</a>',
+      '"Target" nos conectores sociais do Aster refere-se à "origem" de suas identidades sociais. No design do Aster, não aceitamos o mesmo "alvo" de uma plataforma específica para evitar conflitos. Você deve ter muito cuidado antes de adicionar um conector, pois NÃO PODE alterar seu valor depois de criá-lo. <a>Saiba mais</a>',
     target_conflict:
       'O nome do IdP inserido corresponde ao <span>nome</span> existente. Usar o mesmo nome de idp pode causar um comportamento de login inesperado em que os usuários podem acessar a mesma conta por meio de dois conectores diferentes.',
     target_conflict_line2:
@@ -68,7 +68,7 @@ const connectors = {
     callback_uri_description:
       'As URIs de redirecionamento são para onde os utilizadores são enviados após a autorização social. Adicione todas as URIs apresentadas à configuração do seu IdP.',
     callback_uri_custom_domain_description:
-      'Se utilizar vários <a>domínios personalizados</a> no Logto, certifique-se de adicionar todas as URIs de callback correspondentes ao seu IdP para que o início de sessão social funcione em cada domínio.\n\nO domínio predefinido do Logto (*.logto.app) é sempre válido; inclua-o apenas se também quiser suportar inícios de sessão nesse domínio.',
+      'Se utilizar vários <a>domínios personalizados</a> no Aster, certifique-se de adicionar todas as URIs de callback correspondentes ao seu IdP para que o início de sessão social funcione em cada domínio.\n\nO domínio predefinido do Aster é sempre válido; inclua-o apenas se também quiser suportar inícios de sessão nesse domínio.',
     acs_url: 'URL do serviço do consumidor de afirmação',
   },
   platform: {
@@ -84,11 +84,6 @@ const connectors = {
   create_form: {
     third_party_connectors:
       'Integre provedores de terceiros para login social rápido, vinculação de contas sociais e acesso a API. <a>Saiba mais</a>',
-    email_connector_upsell: {
-      title: 'Serviço de email integrado do Logto',
-      description:
-        'Entrega de emails sem configuração. Envie códigos de verificação e magic links imediatamente.',
-    },
     standard_connectors: 'Ou você pode personalizar seu conector social por um protocolo padrão.',
   },
 };

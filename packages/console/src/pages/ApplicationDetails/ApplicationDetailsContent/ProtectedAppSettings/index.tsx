@@ -102,11 +102,7 @@ function ProtectedAppSettings({ data }: Props) {
 
   return (
     <>
-      <FormCard
-        title="application_details.integration"
-        description="application_details.integration_description"
-        learnMoreLink={{ href: protectedApp }}
-      >
+      <FormCard title="application_details.integration" learnMoreLink={{ href: protectedApp }}>
         <div className={styles.launcher}>
           <span>{t('protected_app.success_message')}</span>
           <Button

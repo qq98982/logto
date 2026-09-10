@@ -16,7 +16,7 @@ Go to the Security page, find the CAPTCHA tab, and switch on the toggle button o
 const turnstileReadme = `
 # Cloudflare Turnstile
 
-Turnstile is a CAPTCHA service that helps protect your website from spam and abuse. This guide will walk you through the process of setting up Turnstile with Logto.
+Turnstile is a CAPTCHA service that helps protect your website from spam and abuse. This guide will walk you through the process of setting up Turnstile with Aster.
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ Turnstile is a CAPTCHA service that helps protect your website from spam and abu
 2. Navigate to **Turnstile** > **Add widget**.
 3. Fill out the form with the following details:
    - **Widget name**: Any name you want to give to the widget
-   - **Hostname**: Logto's endpoint domain, e.g. https://[tenant-id].logto.app
+   - **Hostname**: Your Aster endpoint domain, e.g. https://auth.example.com
    - **Widget Mode**: You can leave as default, or choose the one suits you best
 
 ## Get the site key and secret key
@@ -42,7 +42,7 @@ ${enableCaptchaReadme}
 const reCAPTCHAEnterpriseReadme = `
 # reCAPTCHA Enterprise
 
-reCAPTCHA Enterprise is a Google service that protects websites from fraud and abuse using advanced bot detection without disrupting user experience. This guide will walk you through the process of setting up reCAPTCHA Enterprise with Logto.
+reCAPTCHA Enterprise is a Google service that protects websites from fraud and abuse using advanced bot detection without disrupting user experience. This guide will walk you through the process of setting up reCAPTCHA Enterprise with Aster.
 
 ## Prerequisites
 
@@ -55,7 +55,7 @@ reCAPTCHA Enterprise is a Google service that protects websites from fraud and a
 3. Fill out the form with the following details:
    - **Display name**: Any name you want to give to the key
    - **Application type**: Website
-   - **Domain list**: Add Logto's endpoint domain
+   - **Domain list**: Add your Aster endpoint domain
 4. After creating the key, you will be redirected to the key details page, copy the **ID**.
 
 ## Setup an API key

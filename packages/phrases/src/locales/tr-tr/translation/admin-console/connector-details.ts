@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+90 555 123 45 67',
   test_message_sent: 'Test mesajı gönderildi',
   test_sender_description:
-    'Logto testler için "Generic" şablonunu kullanır. Bağlantınız doğru şekilde yapılandırılmışsa bir mesaj alacaksınız.',
+    'Aster testler için "Generic" şablonunu kullanır. Bağlantınız doğru şekilde yapılandırılmışsa bir mesaj alacaksınız.',
   options_change_email: 'Eposta bağdaştırıcınızı değiştirin',
   options_change_sms: 'SMS bağdaştırıcınızı değiştirin',
   connector_deleted: 'Bağdaştırıcı başarıyla silindi',
@@ -34,43 +34,6 @@ const connector_details = {
     'Bu {{name}} giriş deneyiminizde kullanımda. Silerek, giriş deneyiminiz çözülünceye kadar doğru çalışmayacaktır. Geri eklemeye karar verirseniz yeniden yapılandırmanız gerekecektir.',
   deletion_description:
     'Bu bağdaştırıcıyı kaldırıyorsunuz. Geri alınamaz ve geri eklemeye karar verirseniz yeniden yapılandırmanız gerekecektir.',
-  logto_email: {
-    total_email_sent: 'Toplam e-posta gönderildi: {{value, number}}',
-    total_email_sent_tip:
-      'Logto dahili e-posta için güvenli ve stabil SendGrid kullanır. Tamamen ücretsizdir. <a>Daha fazla bilgi edinin</a>',
-    hosted_email_usage: {
-      daily: 'Günlük <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: 'Günlük <value>{{usage, number}}</value>',
-      monthly: 'Aylık <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: 'Aylık <value>{{usage, number}}</value>',
-      tip: 'Free ve Development planları, günlük ve aylık yerleşik e-posta hizmeti limitleri içerir.',
-      banner: {
-        approaching:
-          'Logto yerleşik e-posta hizmeti gönderim sınırınıza yaklaşıyorsunuz. Logto yerleşik e-posta hizmetini kullanmaya devam etmek için <provider>kendi e-posta sağlayıcınızı bağlayın</provider> veya <upgrade>planınızı yükseltin</upgrade>.',
-        reached:
-          'Logto yerleşik e-posta hizmeti gönderim sınırınıza ulaştınız, bu da oturum açma e-postalarını kesintiye uğratabilir. Logto yerleşik e-posta hizmetini kullanmaya devam etmek için <provider>kendi e-posta sağlayıcınızı bağlayın</provider> veya <upgrade>planınızı yükseltin</upgrade>.',
-      },
-    },
-    email_template_title: 'E-posta Şablonu',
-    template_description:
-      'Yerleşik e-posta, doğrulama e-postalarının sorunsuz teslimi için varsayılan şablonları kullanır. Herhangi bir yapılandırma gerektirmez ve temel marka bilgilerini özelleştirebilirsiniz.',
-    template_description_link_text: 'Şablonları görüntüle',
-    description_action_text: 'Şablonları görüntüle',
-    from_email_field: 'Kimden e-posta',
-    sender_name_field: 'Gönderen adı',
-    sender_name_tip:
-      'E-postalar için gönderen adını özelleştirin. Boş bırakılırsa, varsayılan ad olarak "Verification" kullanılacaktır.',
-    sender_name_placeholder: 'Gönderen adınızı girin',
-    company_information_field: 'Şirket bilgileri',
-    company_information_description:
-      'E-postaların alt kısmında şirket adınızı, adresinizi veya posta kodunuzu görüntüleyin.',
-    company_information_placeholder: 'Şirketinizin temel bilgileri',
-    email_logo_field: 'Eposta logosu',
-    email_logo_tip:
-      'Marka logonuzu e-postaların en üstüne yerleştirin. Hem açık mod hem de koyu mod için aynı resmi kullanın.',
-    urls_not_allowed: 'URLler izin verilmez',
-    test_notes: 'Logto testler için "Generic" şablonunu kullanır.',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description:

@@ -44,7 +44,7 @@ const expectedAsterValueCounts = Object.freeze({
   'zh-TW': 45,
 } satisfies Record<(typeof builtInLanguages)[number], number>);
 
-const excludedCopyPaths: ReadonlySet<string> = new Set([
+const commonCopyExcludedPaths: ReadonlySet<string> = new Set([
   'oidc_configs.cloud_private_key_rotation_notice',
 ]);
 
@@ -57,8 +57,12 @@ const getAtPath = (value: unknown, path: string) =>
     return (current as Record<string, unknown>)[segment];
   }, value);
 
-const collectStrings = (value: unknown, path: string): string[] => {
-  if (excludedCopyPaths.has(path)) {
+const collectStrings = (
+  value: unknown,
+  path: string,
+  excludedPaths: ReadonlySet<string> = new Set()
+): string[] => {
+  if (excludedPaths.has(path)) {
     return [];
   }
   if (typeof value === 'string') {
@@ -68,7 +72,19 @@ const collectStrings = (value: unknown, path: string): string[] => {
     return [];
   }
 
-  return Object.entries(value).flatMap(([key, child]) => collectStrings(child, `${path}.${key}`));
+  return Object.entries(value).flatMap(([key, child]) =>
+    collectStrings(child, `${path}.${key}`, excludedPaths)
+  );
+};
+
+const getAdminConsoleValues = (language: (typeof builtInLanguages)[number]) => {
+  const adminConsole = getAtPath(phrases[language], 'translation.admin_console');
+
+  if (adminConsole === undefined) {
+    throw new TypeError(`Missing Admin Console copy: ${language}`);
+  }
+
+  return collectStrings(adminConsole, 'admin_console');
 };
 
 const getCommonCopyValues = (language: (typeof builtInLanguages)[number]) => {
@@ -80,11 +96,19 @@ const getCommonCopyValues = (language: (typeof builtInLanguages)[number]) => {
       throw new TypeError(`Missing common Console copy root: ${language}:${root}`);
     }
 
-    return collectStrings(value, root);
+    return collectStrings(value, root, commonCopyExcludedPaths);
   });
 };
 
 describe('Aster common Console copy', () => {
+  it.each(builtInLanguages)('%s exposes no upstream marker in any bundled phrase', (language) => {
+    for (const value of collectStrings(phrases[language], language)) {
+      expect(value).not.toMatch(
+        /Logto|ログト|로그토|لاگتو|(?:\*\.)?logto\.app|logto:\/\/|io\.logto/iu
+      );
+    }
+  });
+
   it.each(builtInLanguages)('%s exposes no upstream product marker in common copy', (language) => {
     const values = getCommonCopyValues(language);
 
@@ -95,6 +119,17 @@ describe('Aster common Console copy', () => {
       expectedAsterValueCounts[language]
     );
   });
+
+  it.each(builtInLanguages)(
+    '%s exposes no upstream marker in any Admin Console copy',
+    (language) => {
+      for (const value of getAdminConsoleValues(language)) {
+        expect(value).not.toMatch(
+          /Logto|ログト|로그토|لاگتو|(?:\*\.)?logto\.app|logto:\/\/|io\.logto/iu
+        );
+      }
+    }
+  );
 
   it('uses locale-correct product grammar', () => {
     const turkish = getCommonCopyValues('tr-TR').join('\n');
@@ -131,4 +166,40 @@ describe('Aster common Console copy', () => {
     expect(manageLanguage).not.toHaveProperty('logto_provided');
     expect(manageLanguage).not.toHaveProperty('logto_source_values');
   });
+
+  it('uses Aster-only keys for remaining product-specific copy', () => {
+    const adminConsole = phrases.en.translation.admin_console;
+
+    expect(adminConsole.application_details).toHaveProperty('aster_endpoint');
+    expect(adminConsole.application_details).not.toHaveProperty('logto_endpoint');
+    expect(adminConsole.application_details).not.toHaveProperty('integration_description');
+    expect(adminConsole.application_details.saml_app_attribute_mapping).toHaveProperty(
+      'col_aster_claims'
+    );
+    expect(adminConsole.application_details.saml_app_attribute_mapping).not.toHaveProperty(
+      'col_logto_claims'
+    );
+    expect(adminConsole.connector_details).not.toHaveProperty('aster_email');
+    expect(adminConsole.connector_details).not.toHaveProperty('logto_email');
+    expect(adminConsole.connectors.create_form).not.toHaveProperty('email_connector_upsell');
+    expect(adminConsole.upsell.paywall).not.toHaveProperty('aster_pricing_button_text');
+    expect(adminConsole.upsell.paywall).not.toHaveProperty('logto_pricing_button_text');
+  });
+
+  it.each(builtInLanguages)(
+    '%s describes only the self-hosted SAML application cap',
+    (language) => {
+      const notice = getAtPath(
+        phrases[language],
+        'translation.admin_console.upsell.paywall.saml_applications_oss_limit_notice'
+      );
+
+      expect(typeof notice).toBe('string');
+      if (typeof notice !== 'string') {
+        return;
+      }
+      expect(notice).toContain('{{limit}}');
+      expect(notice).not.toMatch(/Cloud|Aster Enterprise|contact us/iu);
+    }
+  );
 });

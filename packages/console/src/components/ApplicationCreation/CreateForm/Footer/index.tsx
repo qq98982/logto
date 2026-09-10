@@ -9,7 +9,6 @@ import SkuName from '@/components/SkuName';
 import { addOnPricingExplanationLink } from '@/consts/external-links';
 import {
   machineToMachineAddOnUnitPrice,
-  samlApplicationsAddOnUnitPrice,
   thirdPartyApplicationsAddOnUnitPrice,
 } from '@/consts/subscriptions';
 import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
@@ -39,14 +38,9 @@ function Footer({ selectedType, isLoading, onClickCreate, isThirdParty }: Props)
     hasAppsReachedLimit,
     hasMachineToMachineAppsReachedLimit,
     hasThirdPartyAppsReachedLimit,
-    hasSamlAppsReachedLimit,
   } = useApplicationsUsage();
   const {
-    data: {
-      m2mUpsellNoticeAcknowledged,
-      samlAppsUpsellNoticeAcknowledged,
-      thirdPartyAppsUpsellNoticeAcknowledged,
-    },
+    data: { m2mUpsellNoticeAcknowledged, thirdPartyAppsUpsellNoticeAcknowledged },
     update,
   } = useUserPreferences();
 
@@ -100,47 +94,6 @@ function Footer({ selectedType, isLoading, onClickCreate, isThirdParty }: Props)
           </Trans>
         </QuotaGuardFooter>
       );
-    }
-
-    if (selectedType === ApplicationType.SAML && hasSamlAppsReachedLimit) {
-      // For paid plan (pro plan), we don't guard the SAML app creation since it's an add-on feature.
-      if (currentSku.id === ReservedPlanId.Free) {
-        return (
-          <QuotaGuardFooter>
-            <Trans
-              components={{
-                a: <ContactUsPhraseLink />,
-              }}
-            >
-              {t('paywall.saml_applications_add_on')}
-            </Trans>
-          </QuotaGuardFooter>
-        );
-      }
-
-      if (isPaidTenant && !samlAppsUpsellNoticeAcknowledged) {
-        return (
-          <AddOnNoticeFooter
-            isLoading={isLoading}
-            buttonTitle="applications.create"
-            onClick={() => {
-              void update({ samlAppsUpsellNoticeAcknowledged: true });
-              onClickCreate();
-            }}
-          >
-            <Trans
-              components={{
-                span: <span className={styles.strong} />,
-                a: <TextLink targetBlank to={addOnPricingExplanationLink} />,
-              }}
-            >
-              {t('add_on.footer.saml_apps', {
-                price: samlApplicationsAddOnUnitPrice,
-              })}
-            </Trans>
-          </AddOnNoticeFooter>
-        );
-      }
     }
 
     if (isThirdParty && hasThirdPartyAppsReachedLimit) {

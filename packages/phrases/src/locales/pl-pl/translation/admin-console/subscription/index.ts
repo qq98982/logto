@@ -5,9 +5,9 @@ import usage from './usage.js';
 const subscription = {
   free_plan: 'Plan Darmowy',
   free_plan_description:
-    'Dla projektów pobocznych i początkowych prób Logto. Brak wymaganej karty kredytowej.',
+    'Dla projektów pobocznych i początkowych prób Aster. Brak wymaganej karty kredytowej.',
   pro_plan: 'Plan Pro',
-  pro_plan_description: 'Dla firm, ciesz się bezstresową obsługą Logto.',
+  pro_plan_description: 'Dla firm, ciesz się bezstresową obsługą Aster.',
   enterprise: 'Plan Przedsiębiorstwo',
   enterprise_description: 'Dla dużych zespołów i firm z wymaganiami klasy enterprise.',
   admin_plan: 'Plan administracyjny',
@@ -27,7 +27,7 @@ const subscription = {
   upgrade_pro: 'Uaktualnij do Pro',
   update_payment: 'Zaktualizuj płatność',
   payment_error:
-    'Wykryto problem z płatnością. Nie można przetworzyć ${{price, number}} za poprzedni cykl. Zaktualizuj płatność, aby uniknąć zawieszenia usługi Logto.',
+    'Wykryto problem z płatnością. Nie można przetworzyć ${{price, number}} za poprzedni cykl. Zaktualizuj płatność, aby uniknąć zawieszenia usługi Aster.',
   downgrade: 'Zdegradować',
   current: 'Obecnie',
   upgrade: 'Aktualizacja',
@@ -60,7 +60,7 @@ const subscription = {
     downgrade_help_tip: 'Potrzebna pomoc przy zmniejszaniu? <a>Skontaktuj się z nami</a>.',
     upgrade_title: 'Przyjazne przypomnienie dla naszych szanowanych wczesnych użytkowników',
     upgrade_description:
-      'Obecnie używasz więcej niż to, co pozwala <name />. Logto jest teraz oficjalne, z funkcjami dostosowanymi do każdego planu. Zanim rozważysz aktualizację do <name />, upewnij się, że spełniasz poniższe kryteria przed dokonaniem aktualizacji.',
+      'Obecnie używasz więcej niż to, co pozwala <name />. Aster jest teraz oficjalne, z funkcjami dostosowanymi do każdego planu. Zanim rozważysz aktualizację do <name />, upewnij się, że spełniasz poniższe kryteria przed dokonaniem aktualizacji.',
     upgrade_pro_tip: ' Lub rozważ aktualizację do Planu Pro.',
     upgrade_help_tip: 'Potrzebna pomoc przy zwiększaniu? <a>Skontaktuj się z nami</a>.',
     a_maximum_of: 'Maksymalnie <item/>',
@@ -74,9 +74,9 @@ const subscription = {
     exceeded:
       'Przekroczyłeś 100% limitu swojej puli. Użytkownicy nie będą mogli się prawidłowo zalogować. Proszę natychmiast dokonać aktualizacji, aby uniknąć niedogodności.',
     close_to_limit:
-      'Prawie osiągnąłeś limit użycia tokenów. Logto przestanie przyznawać tokeny, jeśli twoje użycie przekroczy 100%. Proszę dokonać aktualizacji Planu Darmowego, aby uniknąć niedogodności.',
+      'Prawie osiągnąłeś limit użycia tokenów. Aster przestanie przyznawać tokeny, jeśli twoje użycie przekroczy 100%. Proszę dokonać aktualizacji Planu Darmowego, aby uniknąć niedogodności.',
     dev_plan_exceeded:
-      'Ten najemca osiągnął limit tokenów zgodnie z polityką limitu jednostki Logto.',
+      'Ten najemca osiągnął limit tokenów zgodnie z polityką limitu jednostki Aster.',
   },
 };
 

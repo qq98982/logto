@@ -41,15 +41,8 @@ const paywall = {
     'Sie haben das Limit von {{count, number}} Berechtigungen pro Rolle von <planName/> erreicht. Upgraden Sie Ihren Plan, um zusätzliche Rollen und Berechtigungen hinzuzufügen. Bei Fragen stehen wir Ihnen gerne zur Verfügung. <a>Kontaktieren Sie uns</a>, wenn Sie Hilfe benötigen.',
   scopes_per_role_other:
     'Sie haben das Limit von {{count, number}} Berechtigungen pro Rolle von <planName/> erreicht. Upgraden Sie Ihren Plan, um zusätzliche Rollen und Berechtigungen hinzuzufügen. Bei Fragen stehen wir Ihnen gerne zur Verfügung. <a>Kontaktieren Sie uns</a>, wenn Sie Hilfe benötigen.',
-  saml_applications_oss:
-    'Die zusätzliche SAML-App ist mit dem Logto-Enterprise-Plan verfügbar. Kontaktieren Sie uns, wenn Sie Hilfe benötigen.',
   saml_applications_oss_limit_notice:
-    'Ihre Open-Source-Instanz unterstützt bis zu {{limit}} SAML-Anwendungen. Sie können Logto Cloud verwenden oder uns für weitere Optionen kontaktieren.',
-  logto_pricing_button_text: 'Logto Cloud-Preise',
-  saml_applications:
-    'Die zusätzliche SAML-App ist mit dem Logto-Enterprise-Plan verfügbar. Kontaktieren Sie uns, wenn Sie Hilfe benötigen.',
-  saml_applications_add_on:
-    'Schalten Sie die SAML-App-Funktion frei, indem Sie auf einen kostenpflichtigen Plan upgraden. Gerne können Sie sich <a>an uns wenden</a>, wenn Sie Unterstützung benötigen.',
+    'Ihre Open-Source-Instanz unterstützt bis zu {{limit}} SAML-Anwendungen.',
   hooks:
     'Sie haben das Limit von {{count, number}} <planName/>-Webhooks erreicht. Upgraden Sie Ihren Plan, um mehr Webhooks zu erstellen. Zögern Sie nicht, <a>Kontaktieren Sie uns</a>, wenn Sie Hilfe benötigen.',
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     'Organisationen freischalten, indem Sie auf einen kostenpflichtigen Plan aktualisieren. Zögern Sie nicht, <a>kontaktieren Sie uns</a>, wenn Sie Unterstützung benötigen.',
   third_party_apps:
-    'Entsperren Sie Logto als IdP für Drittanbieter-Apps, indem Sie auf einen kostenpflichtigen Plan aktualisieren. Bei Bedarf können Sie uns gerne <a>kontaktieren</a>.',
+    'Entsperren Sie Aster als IdP für Drittanbieter-Apps, indem Sie auf einen kostenpflichtigen Plan aktualisieren. Bei Bedarf können Sie uns gerne <a>kontaktieren</a>.',
   sso_connectors:
     'Schalten Sie Enterprise-SSO frei, indem Sie auf einen kostenpflichtigen Plan aktualisieren. Bei Bedarf können Sie uns gerne <a>kontaktieren</a>.',
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       'Upgrade auf einen kostenpflichtigen Plan für benutzerdefinierte JWT-Funktionalität und Premium-Vorteile. Wenn Sie Fragen haben, zögern Sie nicht, uns zu <a>kontaktieren</a>.',
   },
   branding_customization:
-    'Schalten Sie die vollständige Branding-Kontrolle mit den Funktionen "Logto-Branding ausblenden" und "Bringen Sie Ihr UI" frei, indem Sie Ihren Plan upgraden.',
+    'Schalten Sie die vollständige Branding-Kontrolle mit den Funktionen "Aster-Branding ausblenden" und "Bringen Sie Ihr UI" frei, indem Sie Ihren Plan upgraden.',
   bring_your_ui:
     'Upgrade auf einen kostenpflichtigen Plan für benutzerdefinierte UI-Funktionalität und Premium-Vorteile.',
   security_features:

@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Bağlantı başarısız oldu',
   },
   update_endpoint_notice:
-    'Özellikleri için özel bir alan adı kullanmak istiyorsanız, uygulamanızda Sosyal bağlayıcı geri çağrı URI ve Logto uç noktası için alan adını güncellemeyi unutmayın.',
+    'Özellikleri için özel bir alan adı kullanmak istiyorsanız, uygulamanızda Sosyal bağlayıcı geri çağrı URI ve Aster uç noktası için alan adını güncellemeyi unutmayın.',
   error_hint:
     'DNS kayıtlarınızı güncellediğinizden emin olunuz. {{value}} saniyede bir kontrol edeceğiz.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Bu "<span>{{domain}}</span>" adlı özel alan adını silmek istediğinizden emin misiniz?',
       in_used_tip:
-        'Bu özel alan adını önce sosyal bağlantı sağlayıcınızda veya uygulama uç noktasında yapılandırdıysanız, URI\'yi önce Logto varsayılan alan adı olan "<span>{{domain}}</span>" olarak değiştirmeniz gerekir. Bu, sosyal giriş düğmesinin düzgün çalışması için gereklidir.',
+        'Bu özel alan adını önce sosyal bağlantı sağlayıcınızda veya uygulama uç noktasında yapılandırdıysanız, URI\'yi önce Aster varsayılan alan adı olan "<span>{{domain}}</span>" olarak değiştirmeniz gerekir. Bu, sosyal giriş düğmesinin düzgün çalışması için gereklidir.',
       deleted: 'Özel alan adı başarıyla silindi!',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Varsayılan Alan Adı',
     default_domain_description:
-      'Logto, ek bir yapılandırma olmadan kullanıma hazır önceden yapılandırılmış bir varsayılan alan adı sunar. Bu varsayılan alan adı, özel bir alan adı etkinleştirdiyseniz bile yedek seçeneği olarak hizmet verir.',
-    default_domain_field: 'Logto varsayılan alan adı',
+      'Aster, ek bir yapılandırma olmadan kullanıma hazır önceden yapılandırılmış bir varsayılan alan adı sunar. Bu varsayılan alan adı, özel bir alan adı etkinleştirdiyseniz bile yedek seçeneği olarak hizmet verir.',
+    default_domain_field: 'Aster varsayılan alan adı',
   },
   custom_endpoint_note:
     'Bu uç noktaların alan adını özelleştirebilirsiniz. "{{custom}}" veya "{{default}}" seçeneklerinden birini seçin.',

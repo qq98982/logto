@@ -116,7 +116,7 @@ function AttributeMapping({ data, mutateApplication }: Props) {
         title="application_details.saml_app_attribute_mapping.title"
         description="application_details.saml_app_attribute_mapping.description"
         learnMoreLink={{
-          href: getDocumentationUrl('/integrate-logto/saml-app/attribute-mapping'),
+          href: getDocumentationUrl('/integration/saml-app/attribute-mapping'),
           targetBlank: 'noopener',
         }}
       >
@@ -124,7 +124,7 @@ function AttributeMapping({ data, mutateApplication }: Props) {
           <thead className={styles.header}>
             <tr className={styles.row}>
               <th>
-                <DynamicT forKey="application_details.saml_app_attribute_mapping.col_logto_claims" />
+                <DynamicT forKey="application_details.saml_app_attribute_mapping.col_aster_claims" />
               </th>
               <th>
                 <DynamicT forKey="application_details.saml_app_attribute_mapping.col_sp_claims" />

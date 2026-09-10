@@ -35,7 +35,7 @@ export function CertificatePreview({
         forKey="enterprise_sso_details.saml_preview.certificate_content"
         interpolation={{
           date: new Date(certificateExpiresAt).toLocaleDateString(
-            // TODO: @darcyYe check whether can use date-fns later, may need a Logto locale to date-fns locale mapping.
+            // TODO: consider a direct mapping from Aster locales to date-fns locales.
             conditional(isLanguageTag(language) && language) ?? 'en',
             {
               weekday: 'long',

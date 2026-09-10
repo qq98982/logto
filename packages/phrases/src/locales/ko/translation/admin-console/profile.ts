@@ -17,7 +17,7 @@ const profile = {
       check_information:
         '계정을 삭제하려고 하신다니 유감이에요. 진행하기 전에 다음 정보를 주의 깊게 확인해주세요.',
       remove_all_data:
-        '계정을 삭제하면 Logto Cloud 에서 당신에 대한 모든 데이터가 영구적으로 삭제돼요. 중요한 데이터를 백업해주세요.',
+        '계정을 삭제하면 Cloud 에서 당신에 대한 모든 데이터가 영구적으로 삭제돼요. 중요한 데이터를 백업해주세요.',
       confirm_information:
         '위의 정보가 예상한 것인지 확인해주세요. 계정을 삭제하면 복구할 수 없어요.',
       has_admin_role: '다음 테넌트에서 관리자로 지정되어 있기 때문에, 계정과 함께 삭제될 거예요:',
@@ -38,7 +38,7 @@ const profile = {
     error_occurred_description: '계정을 삭제하는 동안 문제가 발생했어요:',
     request_id: '요청 ID: {{requestId}}',
     try_again_later:
-      '나중에 다시 시도해주세요. 문제가 지속되면 요청 ID 와 함께 Logto 팀에 문의하세요.',
+      '나중에 다시 시도해주세요. 문제가 지속되면 요청 ID 와 함께 Aster 팀에 문의하세요.',
     final_confirmation: '최종 확인',
     about_to_start_deletion: '삭제 과정을 시작하려하고 있으며 이 작업은 되돌릴 수 없어요.',
     permanently_delete: '영구적으로 삭제',

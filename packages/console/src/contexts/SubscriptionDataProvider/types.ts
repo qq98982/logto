@@ -1,5 +1,5 @@
 import {
-  type LogtoSkuResponse,
+  type SubscriptionSkuResponse,
   type Subscription,
   type SubscriptionQuota,
   type SubscriptionCountBasedUsage,
@@ -12,16 +12,9 @@ type BaseContext = {
   onCurrentSubscriptionUpdated: (subscription?: Subscription) => void;
 };
 
-export type SubscriptionUsageOptions<T extends keyof SubscriptionCountBasedUsage> = {
-  quotaKey: T;
-  subscriptionUsage: SubscriptionCountBasedUsage;
-  subscriptionQuota: SubscriptionQuota;
-  usage?: SubscriptionCountBasedUsage[T];
-};
-
 type SubscriptionSupplementContext = {
-  logtoSkus: LogtoSkuResponse[];
-  currentSku: LogtoSkuResponse;
+  skus: SubscriptionSkuResponse[];
+  currentSku: SubscriptionSkuResponse;
   currentSubscriptionQuota: SubscriptionQuota;
   currentSubscriptionBasicQuota: SubscriptionQuota;
   currentSubscriptionUsage: SubscriptionCountBasedUsage;

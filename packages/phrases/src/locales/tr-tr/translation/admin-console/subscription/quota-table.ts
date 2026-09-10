@@ -93,13 +93,13 @@ const quota_table = {
   tier: 'Seviye{{value, number}}: ',
   million: '{{value, number}} milyon',
   mau_tip:
-    'MAU (aylık aktif kullanıcı) Logto ile en az bir jeton değiştirmiş olan benzersiz kullanıcı sayısını ifade eder.',
+    'MAU (aylık aktif kullanıcı) Aster ile en az bir jeton değiştirmiş olan benzersiz kullanıcı sayısını ifade eder.',
   tokens_tip:
-    'Logto tarafından ihraç edilen erişim tokeni, yenileme tokeni vb. dahil olmak üzere tüm token türleri.',
+    'Aster tarafından ihraç edilen erişim tokeni, yenileme tokeni vb. dahil olmak üzere tüm token türleri.',
   mao_tip:
     "MAO (aylık aktif kuruluş) bir fatura döngüsünde en az bir MAU'ya (aylık aktif kullanıcı) sahip olan benzersiz kuruluşların sayısını ifade eder.",
   third_party_tip:
-    "Logto'yu üçüncü taraf uygulama oturum açma ve izin verme için OIDC kimlik sağlayıcısı olarak kullanın.",
+    "Aster'i üçüncü taraf uygulama oturum açma ve izin verme için OIDC kimlik sağlayıcısı olarak kullanın.",
   included: '{{value, number}} dahil',
   included_mao: '{{value, number}} MAO dahil',
   extra_quota_price: 'Sonra aylık ${{value, number}} / sonrasında her biri',

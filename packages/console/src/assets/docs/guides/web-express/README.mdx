@@ -13,7 +13,7 @@ import RedirectUris from '../../fragments/_redirect-uris-web.mdx';
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK and required dependencies"
+  subtitle="Install the upstream SDK and required dependencies"
 >
 
 <NpmLikeInstallation packageName="@logto/express cookie-parser express-session" />
@@ -24,7 +24,7 @@ import RedirectUris from '../../fragments/_redirect-uris-web.mdx';
   title="Prepare configs and required middlewares"
 >
 
-Prepare configuration for the Logto client:
+Prepare configuration for the Aster client:
 
 <Code title="app.ts" className="language-ts">
     {`import type { LogtoExpressConfig } from '@logto/express';
@@ -58,9 +58,9 @@ app.use(session({ secret: '${generateStandardSecret()}', cookie: { maxAge: 14 * 
 
 The SDK provides a helper function `handleAuthRoutes` to register 3 routes:
 
-1. `/logto/sign-in`: Sign in with Logto.
+1. `/logto/sign-in`: Sign in with Aster.
 2. `/logto/sign-in-callback`: Handle sign-in callback.
-3. `/logto/sign-out`: Sign out with Logto.
+3. `/logto/sign-out`: Sign out with Aster.
 
 Add the following code to your app:
 

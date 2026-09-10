@@ -6,10 +6,8 @@ const application_details = {
   check_guide: '가이드 확인',
   settings: '설정',
   settings_description:
-    '애플리케이션은 사용자 정보를 조회하거나 사용자를 대신해 동작할 수 있도록 등록된 소프트웨어나 서비스입니다. 애플리케이션은 Logto가 누가 무엇을 요청하는지 파악하고, 로그인과 권한 부여를 처리하도록 돕습니다. 인증을 위해 필수 필드를 모두 입력하세요.',
+    '애플리케이션은 사용자 정보를 조회하거나 사용자를 대신해 동작할 수 있도록 등록된 소프트웨어나 서비스입니다. 애플리케이션은 Aster가 누가 무엇을 요청하는지 파악하고, 로그인과 권한 부여를 처리하도록 돕습니다. 인증을 위해 필수 필드를 모두 입력하세요.',
   integration: '통합',
-  integration_description:
-    '로그토에서 클라우드플레어의 엣지 네트워크로 구동되는 안전한 워커를 사용하여 세계적인 최고 수준의 성능 및 전 세계 0ms의 차가운 시작을 구동합니다.',
   service_configuration: '서비스 구성',
   service_configuration_description: '서비스에서 필요한 구성을 완료하세요.',
   session: '세션',
@@ -31,16 +29,16 @@ const application_details = {
     '인증 및 권한 부여를 진행할 엔드포인트입니다. OpenID Connect <a>인증</a>에서 사용되었던 값입니다.',
   show_endpoint_details: '엔드포인트 세부 정보 표시',
   hide_endpoint_details: '엔드포인트 세부 정보 숨기기',
-  logto_endpoint: '로그토 엔드포인트',
+  aster_endpoint: 'Aster 엔드포인트',
   application_id: '앱 ID',
   application_id_tip:
-    '일반적으로 로그토에서 생성되는 고유한 애플리케이션 식별자입니다. OpenID Connect에서 "<a>client_id</a>"의 약어입니다.',
+    '일반적으로 Aster에서 생성되는 고유한 애플리케이션 식별자입니다. OpenID Connect에서 "<a>client_id</a>"의 약어입니다.',
   application_secret: '앱 시크릿',
   application_secret_other: '앱 시크릿',
   redirect_uri: '리디렉트 URI',
   redirect_uris: '리디렉트 URIs',
   redirect_uri_placeholder: 'https://your.website.com/app',
-  redirect_uri_placeholder_native: 'io.logto://callback',
+  redirect_uri_placeholder_native: 'aster://callback',
   redirect_uri_tip:
     '사용자 로그인 후 리디렉트될 URI 경로입니다. 더 자세한 정보는 OpenID Connect <a>인증 요청</a>을 참조하세요.',
   mixed_redirect_uri_warning:
@@ -63,7 +61,7 @@ const application_details = {
     '관리 API에 대한 접근을 활성화 또는 비활성화할 수 있습니다. 활성화하면, 이 애플리케이션에서 Access 토큰을 통해 관리 API를 사용할 수 있습니다.',
   always_issue_refresh_token: '항상 Refresh 토큰 발급',
   always_issue_refresh_token_label:
-    '다음 구성을 활성화하면 Logto가 인증 요청에 `prompt=consent`가 제시되었는지 여부와 상관없이 항상 Refresh 토큰을 발급할 수 있게 됩니다. 그러나 OpenID Connect와 호환되지 않을 수 있으므로 필요하지 않은 경우에는 이 방식을 권장하지 않습니다.',
+    '다음 구성을 활성화하면 Aster가 인증 요청에 `prompt=consent`가 제시되었는지 여부와 상관없이 항상 Refresh 토큰을 발급할 수 있게 됩니다. 그러나 OpenID Connect와 호환되지 않을 수 있으므로 필요하지 않은 경우에는 이 방식을 권장하지 않습니다.',
   refresh_token_ttl: 'Refresh 토큰 수명 (일)',
   refresh_token_ttl_tip:
     '새로운 Access 토큰을 요청할 수 있는 Refresh 토큰의 기간입니다. 토큰 요청 시 Refresh 토큰의 수명이 이 값으로 연장됩니다.',
@@ -71,7 +69,7 @@ const application_details = {
   rotate_refresh_token_label:
     '활성화하면, 원래 TTL 중 70%가 지난 후 또는 특정 조건이 충족되면 Refresh 토큰 요청에 대해 새로운 Refresh 토큰을 발행합니다. <a>자세히 보기</a>',
   rotate_refresh_token_label_for_public_clients:
-    '활성화되면, Logto 는 각 토큰 요청에 대해 새로운 refresh 토큰을 발행합니다. <a>자세히 보기</a>',
+    '활성화되면, Aster 는 각 토큰 요청에 대해 새로운 refresh 토큰을 발행합니다. <a>자세히 보기</a>',
   backchannel_logout: '백채널 로그아웃',
   backchannel_logout_description:
     '애플리케이션에 세션이 필요한 경우 OpenID Connect 백채널 로그아웃 엔드포인트를 구성하세요.',
@@ -96,7 +94,7 @@ const application_details = {
   application_deleted: '{{name}} 애플리케이션이 성공적으로 삭제되었습니다.',
   redirect_uri_required: '최소 하나의 리디렉트 URI를 반드시 입력해야 합니다.',
   app_domain_description_1:
-    'Logto 에 의해 구동되는 {{domain}} 와 함께 도메인을 자유롭게 사용하세요. 이것은 영구적으로 유효합니다.',
+    'Aster 에 의해 구동되는 {{domain}} 와 함께 도메인을 자유롭게 사용하세요. 이것은 영구적으로 유효합니다.',
   app_domain_description_2:
     '도메인 <domain>{{domain}}</domain> 을 자유롭게 활용하세요. 이것은 영구적으로 유효합니다.',
   custom_rules: '사용자 인증규칙',
@@ -112,7 +110,7 @@ const application_details = {
   protect_origin_server_description:
     '원본 서버를 직접 액세스로부터 보호하세요. 더 많은 <a>자세한 지침</a>을 위해 안내서를 참조하세요.',
   third_party_settings_description:
-    'OIDC / OAuth 2.0 을 사용하여 Logto 를 당신의 ID 공급자 (IdP) 로 활용하여 제3자 애플리케이션을 통합하고 사용자의 권한 승인을 위한 동의 화면을 제공합니다.',
+    'OIDC / OAuth 2.0 을 사용하여 Aster 를 당신의 ID 공급자 (IdP) 로 활용하여 제3자 애플리케이션을 통합하고 사용자의 권한 승인을 위한 동의 화면을 제공합니다.',
   session_duration: '세션 기간 (일)',
   try_it: '해보기',
   no_organization_placeholder: '조직을 찾을 수 없습니다. <a>조직으로 이동</a>',
@@ -197,7 +195,7 @@ const application_details = {
     user_data_permission_description_tips:
       '개인 사용자 데이터 권한에 대한 설명을 "사용자 경험 > 콘텐츠 > 언어 관리"를 통해 수정할 수 있습니다.',
     permission_description_tips:
-      'Logto가 제3자 앱의 인증을 위해 Identity Provider (IdP)로 사용되고 사용자가 권한을 요청하면, 이 설명이 동의 화면에 나타납니다.',
+      'Aster가 제3자 앱의 인증을 위해 Identity Provider (IdP)로 사용되고 사용자가 권한을 요청하면, 이 설명이 동의 화면에 나타납니다.',
     user_title: '사용자',
     user_description: '제3자 앱에서 특정 사용자 데이터에 액세스하려는 권한을 선택하세요.',
     grant_user_level_permissions: '사용자 데이터의 권한 부여',
@@ -284,11 +282,11 @@ const application_details = {
     title: '이름 ID 형식',
     description: 'SAML IdP의 이름 ID 형식을 선택하세요.',
     persistent: '영구',
-    persistent_description: 'Logto 사용자 ID 를 이름 ID 로 사용',
+    persistent_description: 'Aster 사용자 ID 를 이름 ID 로 사용',
     transient: '일시적',
     transient_description: '일회용 사용자 ID 를 이름 ID 로 사용',
     unspecified: '지정되지 않음',
-    unspecified_description: 'Logto 사용자 ID 를 이름 ID 로 사용',
+    unspecified_description: 'Aster 사용자 ID 를 이름 ID 로 사용',
     email_address: '이메일 주소',
     email_address_description: '이메일 주소를 이름 ID 로 사용',
   },
@@ -311,8 +309,8 @@ const application_details = {
     name: '속성 매핑',
     title: '기본 속성 매핑',
     description:
-      'Logto에서 애플리케이션으로 사용자 프로필을 동기화하기 위해 속성 매핑을 추가하세요.',
-    col_logto_claims: 'Logto 값',
+      'Aster에서 애플리케이션으로 사용자 프로필을 동기화하기 위해 속성 매핑을 추가하세요.',
+    col_aster_claims: 'Aster 값',
     col_sp_claims: '애플리케이션의 값 이름',
     add_button: '다른 추가',
   },

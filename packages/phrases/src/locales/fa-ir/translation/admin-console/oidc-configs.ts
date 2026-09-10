@@ -6,7 +6,7 @@ const oidc_configs = {
   session_max_ttl_in_days_tip:
     'محدودیت مطلق عمر از زمان ایجاد نشست. صرف‌نظر از فعالیت، نشست پس از گذشت این مدت ثابت پایان می‌یابد.',
   cloud_private_key_rotation_notice:
-    'در Logto Cloud، چرخش کلید خصوصی پس از دوره مهلت ۴ ساعته اعمال می‌شود.',
+    'در Cloud، چرخش کلید خصوصی پس از دوره مهلت ۴ ساعته اعمال می‌شود.',
 };
 
 export default Object.freeze(oidc_configs);

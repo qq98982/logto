@@ -15,7 +15,7 @@ const enterprise_subscription = {
       'Bu, Enterprise planı aboneliğinizdir ve bu kota kiracılar arasında paylaşılır. Kullanım güncellemelerinde küçük bir gecikme olabilir.',
     add_on_title: 'Kullandıkça öde eklentiler',
     add_on_description:
-      "Bunlar, sözleşmenize veya Logto'nun standart kullandıkça öde tarifesine dayanan ek eklentilerdir. Gerçek kullanımınıza göre ücretlendirilirsiniz.",
+      "Bunlar, sözleşmenize veya Aster'in standart kullandıkça öde tarifesine dayanan ek eklentilerdir. Gerçek kullanımınıza göre ücretlendirilirsiniz.",
     included: 'Dahil',
     over_quota: 'Kota Aşıldı',
     basic_plan_column_title: {

@@ -21,7 +21,7 @@ const protected_app = {
     domain_field_description_short:
       'Ten adres URL służy jako proxy ochrony uwierzytelnienia dla oryginalnego URL.',
     domain_field_tooltip:
-      "Aplikacje chronione przez Logto będą hostowane domyślnie pod adresem 'twoja-domena.{{domain}}'. Domena niestandardowa może zostać zastosowana po utworzeniu.",
+      "Aplikacje chronione przez Aster będą hostowane domyślnie pod adresem 'twoja-domena.{{domain}}'. Domena niestandardowa może zostać zastosowana po utworzeniu.",
     create_application: 'Stwórz aplikację',
     create_protected_app: 'Szybkie tworzenie',
     errors: {

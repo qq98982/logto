@@ -15,6 +15,7 @@
     "dev": "vite",
     "check": "tsc --noEmit",
     "build": "vite build",
+    "test": "node --test src/aster-surface.test.mjs",
     "lint": "eslint --ext .ts --ext .tsx src",
     "lint:report": "pnpm lint --format json --output-file report.json",
     "stylelint": "stylelint \"src/**/*.scss\""

@@ -6,10 +6,8 @@ const application_details = {
   check_guide: '查看指南',
   settings: '設定',
   settings_description:
-    '「應用程式」是已註冊的軟件或服務，可存取用戶資料或代替用戶操作。應用程式有助 Logto 辨識誰在申請甚麼，並處理登入和權限。請填寫必須欄位以完成驗證。',
+    '「應用程式」是已註冊的軟件或服務，可存取用戶資料或代替用戶操作。應用程式有助 Aster 辨識誰在申請甚麼，並處理登入和權限。請填寫必須欄位以完成驗證。',
   integration: '整合',
-  integration_description:
-    '使用 Logto 安全工作者，由 Cloudflare 的邊緣網路提供支持，實現頂級性能和全球 0 毫秒冷啟動。',
   service_configuration: '服務配置',
   service_configuration_description: '在您的服務中完成必要的配置。',
   session: '會話',
@@ -29,16 +27,16 @@ const application_details = {
   authorization_endpoint_tip: '進行驗證和授權的端點。用於 OpenID Connect 中的 <a>驗證</a> 流程。',
   show_endpoint_details: '顯示端點詳情',
   hide_endpoint_details: '隱藏端點詳情',
-  logto_endpoint: 'Logto 端點',
+  aster_endpoint: 'Aster 端點',
   application_id: '應用程式 ID',
   application_id_tip:
-    '應用程式的唯一標識，通常由 Logto 生成。等同於 OpenID Connect 中的 <a>client_id</a>。',
+    '應用程式的唯一標識，通常由 Aster 生成。等同於 OpenID Connect 中的 <a>client_id</a>。',
   application_secret: '應用程式密鑰',
   application_secret_other: '應用程式密鑰',
   redirect_uri: '重定向 URI',
   redirect_uris: '重定向 URI',
   redirect_uri_placeholder: 'https://your.website.com/app',
-  redirect_uri_placeholder_native: 'io.logto://callback',
+  redirect_uri_placeholder_native: 'aster://callback',
   redirect_uri_tip:
     '在使用者登入完成（不論成功與否）後重定向的目標 URI。參見 OpenID Connect <a>AuthRequest</a> 以瞭解更多。',
   mixed_redirect_uri_warning:
@@ -61,7 +59,7 @@ const application_details = {
     '啟用或禁用對管理 API 的訪問。啟用後，你可以使用訪問權杖代表該應用程式調用管理 API。',
   always_issue_refresh_token: '始終發行刷新令牌',
   always_issue_refresh_token_label:
-    '啟用此配置將允許 Logto 發行刷新令牌，無論是否在驗證請求中提供 `prompt=consent`。但是，除非必要，否則不建議這樣做，因為它不兼容 OpenID Connect，可能會引起問題。',
+    '啟用此配置將允許 Aster 發行刷新令牌，無論是否在驗證請求中提供 `prompt=consent`。但是，除非必要，否則不建議這樣做，因為它不兼容 OpenID Connect，可能會引起問題。',
   refresh_token_ttl: '刷新令牌的有效期（天）',
   refresh_token_ttl_tip:
     '刷新令牌可用於在其過期之前請求新的訪問權杖的持續時間。訪問令牌將將默認的 TTL 延長到此值。',
@@ -69,7 +67,7 @@ const application_details = {
   rotate_refresh_token_label:
     '啟用後，當原始 TTL 達到 70% 或滿足某些條件時就可以在令牌請求中為刷新令牌發行新的刷新令牌。 <a>了解更多。</a>',
   rotate_refresh_token_label_for_public_clients:
-    '啟用後，Logto 將為每個令牌請求發行新的刷新令牌。 <a>了解更多</a>',
+    '啟用後，Aster 將為每個令牌請求發行新的刷新令牌。 <a>了解更多</a>',
   backchannel_logout: '後台登出',
   backchannel_logout_description: '配置 OpenID Connect 後台登出端點及是否需要會話用於此應用程式。',
   backchannel_logout_uri: '後台登出 URI',
@@ -91,7 +89,7 @@ const application_details = {
   enter_your_application_name: '輸入你的應用程式名稱',
   application_deleted: '應用 {{name}} 成功刪除。',
   redirect_uri_required: '至少需要輸入一個重定向 URL。',
-  app_domain_description_1: '隨時使用由 Logto 提供支持的 {{domain}} 網域，它是永久有效的。',
+  app_domain_description_1: '隨時使用由 Aster 提供支持的 {{domain}} 網域，它是永久有效的。',
   app_domain_description_2: '隨時使用您的網域 <domain>{{domain}}</domain>，它是永久有效的。',
   custom_rules: '自定義驗證規則',
   custom_rules_placeholder: '^/(admin|privacy)/.+$',
@@ -106,7 +104,7 @@ const application_details = {
   protect_origin_server_description:
     '確保保護您的源伺服器免受直接訪問。有關更多 <a>詳細指示</a>，請參見指南。',
   third_party_settings_description:
-    '將第三方應用程式與 Logto 作為身份提供者（IdP）集成，使用 OIDC / OAuth 2.0，包含用戶授權的同意屏幕。',
+    '將第三方應用程式與 Aster 作為身份提供者（IdP）集成，使用 OIDC / OAuth 2.0，包含用戶授權的同意屏幕。',
   session_duration: '會話持續時間（天）',
   try_it: '試試看',
   no_organization_placeholder: '沒有找到組織。<a>前往組織</a>',
@@ -187,7 +185,7 @@ const application_details = {
     user_data_permission_description_tips:
       '你可以通過 "登入體驗 > 內容 > 管理語言" 修改個人用戶數據權限的描述',
     permission_description_tips:
-      '當 Logto 用作第三方應用程式的身份提供者（IdP）用於授權時，以及用戶被要求授權時，此描述將在同意屏幕上顯示。',
+      '當 Aster 用作第三方應用程式的身份提供者（IdP）用於授權時，以及用戶被要求授權時，此描述將在同意屏幕上顯示。',
     user_title: '用戶',
     user_description: '選擇第三方應用程式為存取特定用戶數據所需的權限。',
     grant_user_level_permissions: '授予用戶數據的權限',
@@ -271,11 +269,11 @@ const application_details = {
     title: '名稱 ID 格式',
     description: '選擇 SAML IdP 的名稱 ID 格式。',
     persistent: '持久型',
-    persistent_description: '使用 Logto 使用者 ID 作為名稱 ID',
+    persistent_description: '使用 Aster 使用者 ID 作為名稱 ID',
     transient: '臨時型',
     transient_description: '使用一次性使用者 ID 作為名稱 ID',
     unspecified: '未指定',
-    unspecified_description: '使用 Logto 使用者 ID 作為名稱 ID',
+    unspecified_description: '使用 Aster 使用者 ID 作為名稱 ID',
     email_address: '電子郵件地址',
     email_address_description: '使用電子郵件地址作為名稱 ID',
   },
@@ -295,8 +293,8 @@ const application_details = {
   saml_app_attribute_mapping: {
     name: '屬性映射',
     title: '基本屬性映射',
-    description: '添加屬性映射以將使用者配置檔從 Logto 同步到您的應用程式。',
-    col_logto_claims: 'Logto 的值',
+    description: '添加屬性映射以將使用者配置檔從 Aster 同步到您的應用程式。',
+    col_aster_claims: 'Aster 的值',
     col_sp_claims: '您的應用程式的值名稱',
     add_button: '添加另一個',
   },

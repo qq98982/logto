@@ -11,7 +11,7 @@ import useSWR, { useSWRConfig } from 'swr';
 
 import LearnMore from '@/components/LearnMore';
 import SamlAppLimitBanner from '@/components/SamlAppLimitBanner';
-import { defaultPageSize, integrateLogto, thirdPartyApp } from '@/consts';
+import { defaultPageSize, integrationGuide, thirdPartyApp } from '@/consts';
 import { ossSamlApplicationsLimit } from '@/consts/application-limits';
 import { isCloud } from '@/consts/env';
 import { latestProPlanId } from '@/consts/subscriptions';
@@ -185,7 +185,7 @@ function CreateForm({
       return (
         <>
           <DynamicT forKey="applications.subtitle" />
-          <LearnMore isRelativeDocUrl href={integrateLogto} />
+          <LearnMore isRelativeDocUrl href={integrationGuide} />
         </>
       );
     }

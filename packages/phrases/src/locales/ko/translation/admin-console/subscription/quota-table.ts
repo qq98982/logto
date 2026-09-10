@@ -93,11 +93,11 @@ const quota_table = {
   tier: '레벨{{value, number}}: ',
   million: '{{value, number}} 백만',
   mau_tip:
-    'MAU (월간 활성 사용자) 는 청구 주기 동안 Logto 와 적어도 하나의 토큰을 교환한 고유 사용자 수를 의미합니다.',
-  tokens_tip: 'Logto 에서 발행한 모든 종류의 토큰, 액세스 토큰, 리프레시 토큰 등을 포함합니다.',
+    'MAU (월간 활성 사용자) 는 청구 주기 동안 Aster 와 적어도 하나의 토큰을 교환한 고유 사용자 수를 의미합니다.',
+  tokens_tip: 'Aster 에서 발행한 모든 종류의 토큰, 액세스 토큰, 리프레시 토큰 등을 포함합니다.',
   mao_tip:
     'MAO (월간 활성 조직) 는 빌링 주기 내에서 적어도 하나의 MAU (월간 활성 사용자) 를 가진 고유한 조직의 수를 의미합니다.',
-  third_party_tip: '타사 앱의 로그인 및 권한 부여에 대해 OIDC ID 공급자로서 Logto 를 사용합니다.',
+  third_party_tip: '타사 앱의 로그인 및 권한 부여에 대해 OIDC ID 공급자로서 Aster 를 사용합니다.',
   included: '{{value, number}} 포함',
   included_mao: '{{value, number}} MAO 포함',
   extra_quota_price: '이후 월당 ${{value, number}} / 각각',

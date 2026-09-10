@@ -48,7 +48,7 @@ jest.mock('@/consts/env', () => ({
   get isDevFeaturesEnabled() {
     return mockIsDevFeaturesEnabled;
   },
-  get ossSurveyEndpoint() {
+  get asterSurveyEndpoint() {
     return mockOssSurveyEndpoint;
   },
 }));

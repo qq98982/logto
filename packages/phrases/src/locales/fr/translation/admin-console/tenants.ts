@@ -19,7 +19,7 @@ const tenants = {
     tenant_name: 'Nom du locataire',
     tenant_instance: 'Sélectionnez votre instance',
     tenant_instance_description:
-      'Sélectionnez où votre locataire sera hébergé. Choisissez Logto Cloud pour une infrastructure partagée publique, ou une instance privée pour des ressources dédiées.',
+      'Sélectionnez où votre locataire sera hébergé. Choisissez Cloud pour une infrastructure partagée publique, ou une instance privée pour des ressources dédiées.',
     tenant_region: "Région d'hébergement des données",
     tenant_region_description:
       'Le lieu physique où vos ressources de locataire (utilisateurs, applications, etc.) sont hébergées. Cela ne peut pas être changé après la création.',
@@ -38,7 +38,7 @@ const tenants = {
       "Exiger que vos membres configurent l'authentification multi-facteurs pour accéder à ce locataire.",
     enterprise_sso: 'Enterprise SSO',
     enterprise_sso_description:
-      "Disponible sur les plans payants. Contactez-nous pour activer Enterprise SSO afin que tous les membres puissent se connecter à la console Logto Cloud en utilisant le fournisseur d'identité de votre organisation.",
+      "Disponible sur les plans payants. Contactez-nous pour activer Enterprise SSO afin que tous les membres puissent se connecter à la console Cloud en utilisant le fournisseur d'identité de votre organisation.",
   },
   full_env_tag: {
     development: 'Développement',
@@ -83,7 +83,7 @@ const tenants = {
       "L'identifiant du locataire ne peut contenir que des lettres minuscules, des chiffres et des tirets, et ne doit pas dépasser {{max}} caractères.",
     tenant_id_placeholder: 'Votre identifiant de locataire',
     tenant_id_tip:
-      "Personnalisez l'identifiant du locataire. Si laissé vide, Logto générera un identifiant par défaut. L'identifiant du locataire ne peut pas être modifié après la création.",
+      "Personnalisez l'identifiant du locataire. Si laissé vide, Aster générera un identifiant par défaut. L'identifiant du locataire ne peut pas être modifié après la création.",
   },
   dev_tenant_migration: {
     title:
@@ -116,7 +116,7 @@ const tenants = {
   tenant_landing_page: {
     title: "Vous n'avez pas encore créé de locataire",
     description:
-      "Pour commencer à configurer votre projet avec Logto, veuillez créer un nouveau locataire. Si vous devez vous déconnecter ou supprimer votre compte, cliquez simplement sur le bouton d'avatar dans le coin supérieur droit.",
+      "Pour commencer à configurer votre projet avec Aster, veuillez créer un nouveau locataire. Si vous devez vous déconnecter ou supprimer votre compte, cliquez simplement sur le bouton d'avatar dans le coin supérieur droit.",
     create_tenant_button: 'Créer un locataire',
   },
   status: {

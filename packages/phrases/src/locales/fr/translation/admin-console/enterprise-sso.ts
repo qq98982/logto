@@ -9,7 +9,7 @@ const enterprise_sso = {
   col_email_domain: 'Domaine de messagerie',
   placeholder_title: "Connecteur d'entreprise",
   placeholder_description:
-    "Logto a fourni de nombreux fournisseurs d'identités d'entreprise intégrés pour une connexion, pendant ce temps, vous pouvez créer le vôtre avec les protocoles SAML et OIDC.",
+    "Aster a fourni de nombreux fournisseurs d'identités d'entreprise intégrés pour une connexion, pendant ce temps, vous pouvez créer le vôtre avec les protocoles SAML et OIDC.",
   create_modal: {
     title: "Ajouter un connecteur d'entreprise",
     text_divider: 'Ou vous pouvez personnaliser votre connecteur avec un protocole standard.',
@@ -35,7 +35,7 @@ const enterprise_sso = {
       entity_id_field_placeholder: 'urn:your-domain.com:sp:saml:{serviceProviderId}',
       sign_auth_request: "Signer la demande d'authentification",
       sign_auth_request_tooltip:
-        "Logto signe les demandes d'authentification SAML avec un certificat généré. Activez cette option uniquement si votre fournisseur d'identité est configuré pour vérifier les demandes signées.",
+        "Aster signe les demandes d'authentification SAML avec un certificat généré. Activez cette option uniquement si votre fournisseur d'identité est configuré pour vérifier les demandes signées.",
       signing_certificate_field_name: 'Certificat de signature des demandes',
       signing_keys_empty: "Aucune clé de signature n'a encore été générée.",
       generate_signing_key: 'Générer une nouvelle clé',
@@ -51,14 +51,14 @@ const enterprise_sso = {
       redirect_uri_field_description:
         "L'URI de redirection est l'endroit où les utilisateurs sont redirigés après l'authentification SSO. Ajoutez cette URI à la configuration de votre IdP.",
       redirect_uri_field_custom_domain_description:
-        'Si vous utilisez plusieurs <a>domaines personnalisés</a> dans Logto, veillez à ajouter toutes les URI de rappel correspondantes à votre IdP afin que le SSO fonctionne sur chaque domaine.\n\nLe domaine Logto par défaut (*.logto.app) est toujours valide ; incluez-le uniquement si vous souhaitez aussi prendre en charge le SSO sous ce domaine.',
+        'Si vous utilisez plusieurs <a>domaines personnalisés</a> dans Aster, veillez à ajouter toutes les URI de rappel correspondantes à votre IdP afin que le SSO fonctionne sur chaque domaine.\n\nLe domaine Aster par défaut est toujours valide ; incluez-le uniquement si vous souhaitez aussi prendre en charge le SSO sous ce domaine.',
     },
   },
   attribute_mapping: {
     title: 'Mappage des attributs',
     description:
       "`id` et `email` sont nécessaires pour synchroniser le profil de l'utilisateur à partir de l'IdP. Entrez le nom et la valeur du champ suivant dans votre IdP.",
-    col_sp_claims: 'Valeur du fournisseur de services (Logto)',
+    col_sp_claims: 'Valeur du fournisseur de services (Aster)',
     col_idp_claims: "Nom de réclamation du fournisseur d'identité",
     idp_claim_tooltip: "Le nom de réclamation du fournisseur d'identité",
   },

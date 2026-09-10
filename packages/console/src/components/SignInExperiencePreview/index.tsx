@@ -30,7 +30,7 @@ type Props = {
   readonly language?: LanguageTag;
   readonly signInExperience?: SignInExperiencePageManagedData;
   /**
-   * The Logto endpoint to use for the preview. If not provided, the current tenant endpoint from
+   * The Aster endpoint to use for the preview. If not provided, the current tenant endpoint from
    * the `AppDataContext` will be used.
    */
   readonly endpoint?: URL;

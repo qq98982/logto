@@ -15,7 +15,7 @@ const enterprise_subscription = {
       'Esta é sua assinatura do Plano Empresarial e esta cota é compartilhada entre inquilinos. O uso pode estar sujeito a um pequeno atraso nas atualizações. ',
     add_on_title: 'Complementos pay as you go',
     add_on_description:
-      'Estes são complementos pay-as-you-go adicionais baseados no seu contrato ou nas tarifas padrão pay-as-you-go do Logto. Você será cobrado de acordo com o seu uso real.',
+      'Estes são complementos pay-as-you-go adicionais baseados no seu contrato ou nas tarifas padrão pay-as-you-go do Aster. Você será cobrado de acordo com o seu uso real.',
     included: 'Incluído',
     over_quota: 'Acima da cota',
     basic_plan_column_title: {

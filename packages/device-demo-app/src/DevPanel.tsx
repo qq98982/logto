@@ -4,7 +4,7 @@ import { useCallback, useState, type FormEventHandler } from 'react';
 import styles from './App.module.scss';
 import { parseJsonResponse } from './types';
 
-const localStorageKeyPrefix = 'logto:device-demo-app:dev:';
+const localStorageKeyPrefix = 'aster:device-demo-app:dev:';
 
 type DevConfig = {
   scope?: string;

@@ -84,7 +84,7 @@ type Props = {
   readonly additionalActionButton?: AdditionalActionButton;
   /**
    * Shows additional custom element in the header, next to the "...(More)" button
-   * Example usage (special use case): "Total email sent (count)" in Logto email connector
+   * Example usage: an additional status summary beside the page title.
    */
   readonly additionalCustomElement?: ReactElement<ResponsiveCustomElement>;
   /**

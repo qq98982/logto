@@ -8,7 +8,7 @@ const enterprise_sso = {
   col_email_domain: '電子郵件域名',
   placeholder_title: '企業連接器',
   placeholder_description:
-    'Logto 提供了許多內置的企業身份提供者來連接，同時您可以使用 SAML 和 OIDC 協定創建自己的。',
+    'Aster 提供了許多內置的企業身份提供者來連接，同時您可以使用 SAML 和 OIDC 協定創建自己的。',
   create_modal: {
     title: '新增企業連接器',
     text_divider: '或者您可以通過標準協議自定義您的連接器。',
@@ -33,7 +33,7 @@ const enterprise_sso = {
       entity_id_field_placeholder: 'urn:your-domain.com:sp:saml:{serviceProviderId}',
       sign_auth_request: '簽署驗證請求',
       sign_auth_request_tooltip:
-        'Logto 會使用產生的憑證簽署 SAML 驗證請求。僅當您的身份提供者已設定為驗證已簽署的請求時才啟用。',
+        'Aster 會使用產生的憑證簽署 SAML 驗證請求。僅當您的身份提供者已設定為驗證已簽署的請求時才啟用。',
       signing_certificate_field_name: '請求簽署憑證',
       signing_keys_empty: '尚未產生簽署金鑰。',
       generate_signing_key: '產生新金鑰',
@@ -49,13 +49,13 @@ const enterprise_sso = {
       redirect_uri_field_description:
         'Redirect URI 是在 SSO 認證後用戶被重新導向的位置。請將此 URI 加入 IdP 的設定中。',
       redirect_uri_field_custom_domain_description:
-        '如果你在 Logto 使用多個<a>自訂網域</a>，請務必把所有對應的回調 URI 加入 IdP，確保 SSO 在每個網域都能運作。\n\n預設的 Logto 網域 (*.logto.app) 一直有效；只有在你也想支援該網域下的 SSO 時才需要包含它。',
+        '如果你在 Aster 使用多個<a>自訂網域</a>，請務必把所有對應的回調 URI 加入 IdP，確保 SSO 在每個網域都能運作。\n\n預設的 Aster 網域 一直有效；只有在你也想支援該網域下的 SSO 時才需要包含它。',
     },
   },
   attribute_mapping: {
     title: '屬性映射',
     description: '同步用戶概要從 IdP 需要 `id` 和 `email`。在你的 IdP 中輸入以下聲明名稱和值。',
-    col_sp_claims: '服務提供者（Logto）的值',
+    col_sp_claims: '服務提供者（Aster）的值',
     col_idp_claims: '身份提供者的聲明名稱',
     idp_claim_tooltip: '身份提供者的聲明名稱',
   },

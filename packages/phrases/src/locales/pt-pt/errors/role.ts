@@ -8,7 +8,7 @@ const role = {
   default_role_missing:
     'Alguns dos nomes de função padrão não existem no banco de dados, por favor, certifique-se de criar as funções primeiro',
   internal_role_violation:
-    'Você pode estar tentando atualizar ou excluir uma função interna que é proibida pelo Logto. Se você estiver criando uma nova função, tente outro nome que não comece com "#internal:". ',
+    'Você pode estar tentando atualizar ou excluir uma função interna que é proibida pelo Aster. Se você estiver criando uma nova função, tente outro nome que não comece com "#internal:". ',
 };
 
 export default Object.freeze(role);

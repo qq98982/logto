@@ -41,15 +41,8 @@ const paywall = {
     '{{count, number}} permission per role of <planName/> limit reached. Upgrade plan to add additional roles and permissions. For any assistance, feel free to <a>contact us</a>.',
   scopes_per_role_other:
     '{{count, number}} permissions per role of <planName/> limit reached. Upgrade plan to add additional roles and permissions. For any assistance, feel free to <a>contact us</a>.',
-  saml_applications_oss:
-    'The additional SAML app is available with the Logto Enterprise plan. Contact us if you need assistance.',
   saml_applications_oss_limit_notice:
-    'Your open-source instance supports up to {{limit}} SAML applications. You can use Logto Cloud or contact us for additional options.',
-  logto_pricing_button_text: 'Logto Cloud Pricing',
-  saml_applications:
-    'The additional SAML app is available with the Logto Enterprise plan. Contact us if you need assistance.',
-  saml_applications_add_on:
-    'Unlock SAML app feature by upgrading to a paid plan. For any assistance, feel free to <a>contact us</a>.',
+    'Your open-source instance supports up to {{limit}} SAML applications.',
   hooks:
     '{{count, number}} webhook of <planName/> limit reached. Upgrade plan to create more webhooks. Feel free to <a>contact us</a> if you need any assistance.',
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     'Unlock organizations by upgrading to a paid plan. Don’t hesitate to <a>contact us</a> if you need any assistance.',
   third_party_apps:
-    'Unlock Logto as IdP for third-party apps by upgrading to a paid plan. For any assistance, feel free to <a>contact us</a>.',
+    'Unlock Aster as IdP for third-party apps by upgrading to a paid plan. For any assistance, feel free to <a>contact us</a>.',
   sso_connectors:
     'Unlock enterprise sso by upgrading to a paid plan. For any assistance, feel free to <a>contact us</a>.',
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       "Upgrade to a paid plan for custom JWT functionality and premium benefits. Don't hesitate to <a>contact us</a> if you have any questions.",
   },
   branding_customization:
-    'Unlock complete branding control with "Hide Logto branding" and "Bring your UI" features by upgrading your plan.',
+    'Unlock complete branding control with "Hide Aster branding" and "Bring your UI" features by upgrading your plan.',
   bring_your_ui:
     'Upgrade to a paid plan for bring your custom UI functionality and premium benefits.',
   security_features:

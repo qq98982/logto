@@ -59,22 +59,3 @@ export const getModalTitle = (connectorType?: ConnectorType): AdminConsoleKey =>
 
   return 'connectors.setup_title.social';
 };
-
-export const getEmailConnectorUpsellCopyKeys = () => ({
-  title: 'connectors.create_form.email_connector_upsell.title' as const,
-  description: 'connectors.create_form.email_connector_upsell.description' as const,
-  action: 'upsell.try_with_product_name' as const,
-});
-
-type ConnectorSelectionStateOptions = {
-  readonly type?: ConnectorType;
-  readonly isCloud: boolean;
-};
-
-export const shouldShowEmailConnectorUpsellBanner = (
-  options: ConnectorSelectionStateOptions
-): boolean => {
-  const { type, isCloud } = options;
-
-  return type === ConnectorType.Email && !isCloud;
-};

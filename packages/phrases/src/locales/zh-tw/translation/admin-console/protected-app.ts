@@ -16,7 +16,7 @@ const protected_app = {
     domain_field_description: '此 URL 用作原始 URL 的身份驗證保護代理。創建後可以應用自定義域。',
     domain_field_description_short: '此 URL 用作原始 URL 的身份驗證保護代理。',
     domain_field_tooltip:
-      "由 Logto 保護的應用程式將默認托管在 'your-domain.{{domain}}'。創建後可以應用自定義域。",
+      "由 Aster 保護的應用程式將默認托管在 'your-domain.{{domain}}'。創建後可以應用自定義域。",
     create_application: '創建應用程式',
     create_protected_app: '快速創建',
     errors: {

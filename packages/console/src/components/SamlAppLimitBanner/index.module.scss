@@ -31,10 +31,6 @@
   padding: _.unit(3) _.unit(4);
 }
 
-.inlineAction {
-  flex-shrink: 0;
-}
-
 .footer {
   padding: _.unit(6);
   margin: 0 _.unit(-6) _.unit(-6);
@@ -42,8 +38,4 @@
   flex: 1;
   border-top-left-radius: 0;
   border-top-right-radius: 0;
-}
-
-.footerAction {
-  flex-shrink: 0;
 }

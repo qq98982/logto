@@ -14,20 +14,20 @@ export const cookieEncryptionKey = generateStandardSecret();
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK"
+  subtitle="Install the upstream SDK"
 >
 
 <InlineNotification severity="alert">
-  Logto Nuxt SDK only works with Nuxt 3.
+  the upstream Nuxt SDK only works with Nuxt 3.
 </InlineNotification>
 
 <NpmLikeInstallation packageName="@logto/nuxt" />
 
 </Step>
 
-<Step title="Register Logto module">
+<Step title="Register Aster module">
 
-In your Nuxt config file, add the Logto module and configure it:
+In your Nuxt config file, add the Aster module and configure it:
 
 <Code title="nuxt.config.ts" className="language-tsx">
 {`export default defineNuxtConfig({
@@ -92,7 +92,7 @@ export default defineNuxtConfig({
 Check out the [type definition file](https://github.com/logto-io/js/blob/HEAD/packages/nuxt/src/runtime/utils/types.ts) in the `@logto/nuxt` package for more information.
 
 <InlineNotification>
-If you configure the callback route to a different path, you need to update the redirect URI in Logto accordingly.
+If you configure the callback route to a different path, you need to update the redirect URI in Aster accordingly.
 </InlineNotification>
 
 </Step>

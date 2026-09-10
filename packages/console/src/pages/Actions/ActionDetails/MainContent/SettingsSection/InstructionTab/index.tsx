@@ -64,7 +64,7 @@ function InstructionTab({ isActive, section }: Props) {
               className={styles.sampleCode}
               value={getEventTypeDefinition(actionType)}
               height="320px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={typeDefinitionCodeEditorOptions}
             />
           </GuideCard>
@@ -80,7 +80,7 @@ function InstructionTab({ isActive, section }: Props) {
               className={styles.sampleCode}
               value={getResultTypeDefinition(actionType)}
               height="280px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={typeDefinitionCodeEditorOptions}
             />
           </GuideCard>
@@ -99,7 +99,7 @@ function InstructionTab({ isActive, section }: Props) {
               className={styles.sampleCode}
               value={fetchExternalDataCodeExample}
               height="280px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={sampleCodeEditorOptions}
             />
           </GuideCard>
@@ -120,7 +120,7 @@ function InstructionTab({ isActive, section }: Props) {
               value={environmentVariablesCodeExample}
               path="file:///action-env-variables-sample.js"
               height="360px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={sampleCodeEditorOptions}
             />
           </GuideCard>

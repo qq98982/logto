@@ -19,7 +19,7 @@ const tenants = {
     tenant_name: 'Nombre del inquilino',
     tenant_instance: 'Selecciona tu instancia',
     tenant_instance_description:
-      'Selecciona dónde se alojará tu inquilino. Elige Logto Cloud para infraestructura compartida pública o una instancia privada para recursos dedicados.',
+      'Selecciona dónde se alojará tu inquilino. Elige Cloud para infraestructura compartida pública o una instancia privada para recursos dedicados.',
     tenant_region: 'Región de alojamiento de datos',
     tenant_region_description:
       'La ubicación física donde se alojan sus recursos de inquilino (usuarios, aplicaciones, etc.). Esto no se puede cambiar después de la creación.',
@@ -38,7 +38,7 @@ const tenants = {
       'Requiere que tus miembros configuren la autenticación multifactor para acceder a este inquilino.',
     enterprise_sso: 'Enterprise SSO',
     enterprise_sso_description:
-      'Disponible en planes de pago. Contáctenos para habilitar Enterprise SSO para que todos los miembros puedan iniciar sesión en Logto Cloud Console usando el proveedor de identidad de su organización.',
+      'Disponible en planes de pago. Contáctenos para habilitar Enterprise SSO para que todos los miembros puedan iniciar sesión en Cloud Console usando el proveedor de identidad de su organización.',
   },
   full_env_tag: {
     development: 'Desarrollo',
@@ -82,7 +82,7 @@ const tenants = {
       'El ID del inquilino solo puede contener letras minúsculas, números y guiones, y no debe exceder {{max}} caracteres.',
     tenant_id_placeholder: 'Su ID de inquilino',
     tenant_id_tip:
-      'Personalice el ID del inquilino. Si se deja vacío, Logto generará un ID predeterminado. El ID del inquilino no se puede cambiar después de la creación.',
+      'Personalice el ID del inquilino. Si se deja vacío, Aster generará un ID predeterminado. El ID del inquilino no se puede cambiar después de la creación.',
   },
   dev_tenant_migration: {
     title:
@@ -115,7 +115,7 @@ const tenants = {
   tenant_landing_page: {
     title: 'Todavía no has creado un inquilino',
     description:
-      'Para empezar a configurar tu proyecto con Logto, por favor crea un nuevo inquilino. Si necesitas cerrar la sesión o eliminar tu cuenta, simplemente haz clic en el botón de avatar en la esquina superior derecha.',
+      'Para empezar a configurar tu proyecto con Aster, por favor crea un nuevo inquilino. Si necesitas cerrar la sesión o eliminar tu cuenta, simplemente haz clic en el botón de avatar en la esquina superior derecha.',
     create_tenant_button: 'Crear inquilino',
   },
   status: {

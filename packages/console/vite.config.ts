@@ -44,19 +44,18 @@ const buildConfig = (mode: string): UserConfig => ({
     viteCompression({ disable: mode === 'development', algorithm: 'brotliCompress' }),
   ],
   define: {
-    'import.meta.env.IS_CLOUD': JSON.stringify(process.env.IS_CLOUD),
     'import.meta.env.PROTECTED_APP_LOCAL_DEV': JSON.stringify(process.env.PROTECTED_APP_LOCAL_DEV),
     'import.meta.env.ADMIN_ENDPOINT': JSON.stringify(process.env.ADMIN_ENDPOINT),
     'import.meta.env.DEV_FEATURES_ENABLED': JSON.stringify(process.env.DEV_FEATURES_ENABLED),
     'import.meta.env.INTEGRATION_TEST': JSON.stringify(process.env.INTEGRATION_TEST),
-    'import.meta.env.CONSOLE_EMBEDDED_PRICING_URL': JSON.stringify(
-      process.env.CONSOLE_EMBEDDED_PRICING_URL
-    ),
     'import.meta.env.POSTHOG_PUBLIC_KEY': JSON.stringify(process.env.POSTHOG_PUBLIC_KEY),
     'import.meta.env.POSTHOG_PUBLIC_HOST': JSON.stringify(process.env.POSTHOG_PUBLIC_HOST),
     'import.meta.env.POSTHOG_PUBLIC_UI_HOST': JSON.stringify(process.env.POSTHOG_PUBLIC_UI_HOST),
-    'import.meta.env.LOGTO_OSS_SURVEY_ENDPOINT': JSON.stringify(
-      process.env.LOGTO_OSS_SURVEY_ENDPOINT
+    'import.meta.env.ASTER_DOCUMENTATION_URL': JSON.stringify(process.env.ASTER_DOCUMENTATION_URL),
+    'import.meta.env.ASTER_WEBSITE_URL': JSON.stringify(process.env.ASTER_WEBSITE_URL),
+    'import.meta.env.ASTER_SUPPORT_EMAIL': JSON.stringify(process.env.ASTER_SUPPORT_EMAIL),
+    'import.meta.env.ASTER_OSS_SURVEY_ENDPOINT': JSON.stringify(
+      process.env.ASTER_OSS_SURVEY_ENDPOINT
     ),
     // `@withtyped/client` needs this to be defined. We can optimize this later.
     'process.env': {},

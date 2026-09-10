@@ -6,10 +6,8 @@ const application_details = {
   check_guide: 'ตรวจสอบคู่มือ',
   settings: 'การตั้งค่า',
   settings_description:
-    '“แอปพลิเคชัน” คือซอฟต์แวร์หรือบริการที่ลงทะเบียนไว้ซึ่งสามารถเข้าถึงข้อมูลผู้ใช้หรือดำเนินการแทนผู้ใช้ได้ แอปพลิเคชันช่วยให้สามารถระบุได้ว่าใครกำลังขอข้อมูลอะไรจาก Logto และจัดการการลงชื่อเข้าใช้และการให้สิทธิ์ กรุณากรอกฟิลด์ที่จำเป็นสำหรับการตรวจสอบตัวตน',
+    '“แอปพลิเคชัน” คือซอฟต์แวร์หรือบริการที่ลงทะเบียนไว้ซึ่งสามารถเข้าถึงข้อมูลผู้ใช้หรือดำเนินการแทนผู้ใช้ได้ แอปพลิเคชันช่วยให้สามารถระบุได้ว่าใครกำลังขอข้อมูลอะไรจาก Aster และจัดการการลงชื่อเข้าใช้และการให้สิทธิ์ กรุณากรอกฟิลด์ที่จำเป็นสำหรับการตรวจสอบตัวตน',
   integration: 'การผสานรวม',
-  integration_description:
-    "ปรับใช้ด้วย Logto secure workers ที่ขับเคลื่อนโดย Cloudflare's edge network เพื่อประสิทธิภาพระดับสูงและเริ่มต้นแบบไม่หน่วงทั่วโลก",
   service_configuration: 'การกำหนดค่าบริการ',
   service_configuration_description: 'กรอกการกำหนดค่าที่จำเป็นในบริการของคุณให้ครบถ้วน',
   session: 'เซสชัน',
@@ -31,16 +29,16 @@ const application_details = {
     'Endpoint สำหรับดำเนินการตรวจสอบตัวตนและการให้สิทธิ์ ใช้กับ OpenID Connect <a>Authentication</a>',
   show_endpoint_details: 'แสดงรายละเอียด endpoint',
   hide_endpoint_details: 'ซ่อนรายละเอียด endpoint',
-  logto_endpoint: 'Logto endpoint',
+  aster_endpoint: 'Aster endpoint',
   application_id: 'App ID',
   application_id_tip:
-    'รหัสประจำตัวแอปพลิเคชันที่ไม่ซ้ำกันซึ่งโดยทั่วไปจะถูกสร้างขึ้นโดย Logto โดยจะเป็นค่า “<a>client_id</a>” ใน OpenID Connect',
+    'รหัสประจำตัวแอปพลิเคชันที่ไม่ซ้ำกันซึ่งโดยทั่วไปจะถูกสร้างขึ้นโดย Aster โดยจะเป็นค่า “<a>client_id</a>” ใน OpenID Connect',
   application_secret: 'App secret',
   application_secret_other: 'App secrets',
   redirect_uri: 'Redirect URI',
   redirect_uris: 'Redirect URIs',
   redirect_uri_placeholder: 'https://your.website.com/app',
-  redirect_uri_placeholder_native: 'io.logto://callback',
+  redirect_uri_placeholder_native: 'aster://callback',
   redirect_uri_tip:
     'URI สำหรับ redirect หลังจากผู้ใช้ลงชื่อเข้าใช้ (ไม่ว่าจะสำเร็จหรือไม่) ดูข้อมูลเพิ่มเติมใน OpenID Connect <a>AuthRequest</a>',
   mixed_redirect_uri_warning:
@@ -63,15 +61,15 @@ const application_details = {
     'เปิดหรือปิดการเข้าถึง Management API เมื่อเปิดใช้งานแล้ว คุณสามารถใช้ access token เพื่อเรียก Management API ในนามของแอปนี้ได้',
   always_issue_refresh_token: 'ออก refresh token เสมอ',
   always_issue_refresh_token_label:
-    'เมื่อเปิดใช้งาน Logto จะออก refresh token เสมอ ไม่ว่าจะใช้ `prompt=consent` ในคำขอการตรวจสอบตัวตนหรือไม่ อย่างไรก็ตาม ไม่แนะนำเว้นแต่จำเป็น เนื่องจากไม่เข้ากันกับ OpenID Connect และอาจก่อให้เกิดปัญหา',
+    'เมื่อเปิดใช้งาน Aster จะออก refresh token เสมอ ไม่ว่าจะใช้ `prompt=consent` ในคำขอการตรวจสอบตัวตนหรือไม่ อย่างไรก็ตาม ไม่แนะนำเว้นแต่จำเป็น เนื่องจากไม่เข้ากันกับ OpenID Connect และอาจก่อให้เกิดปัญหา',
   refresh_token_ttl: 'Refresh token อายุ (TTL) เป็นวัน',
   refresh_token_ttl_tip:
     'ระยะเวลาที่ refresh token สามารถใช้เพื่อขอ access token ใหม่ก่อนจะหมดอายุและกลายเป็นโมฆะ การขอ token จะขยาย TTL ของ refresh token ไปยังค่านี้',
   rotate_refresh_token: 'หมุน refresh token',
   rotate_refresh_token_label:
-    'เมื่อเปิดใช้งาน Logto จะออก refresh token ใหม่เมื่อขอ token เมื่อผ่านไป 70% ของ TTL ดั้งเดิมหรือเมื่อเข้าเงื่อนไขที่กำหนด <a>เรียนรู้เพิ่มเติม</a>',
+    'เมื่อเปิดใช้งาน Aster จะออก refresh token ใหม่เมื่อขอ token เมื่อผ่านไป 70% ของ TTL ดั้งเดิมหรือเมื่อเข้าเงื่อนไขที่กำหนด <a>เรียนรู้เพิ่มเติม</a>',
   rotate_refresh_token_label_for_public_clients:
-    'เมื่อเปิดใช้งาน Logto จะออก refresh token ใหม่สำหรับการขอ token แต่ละครั้ง <a>เรียนรู้เพิ่มเติม</a>',
+    'เมื่อเปิดใช้งาน Aster จะออก refresh token ใหม่สำหรับการขอ token แต่ละครั้ง <a>เรียนรู้เพิ่มเติม</a>',
   backchannel_logout: 'Backchannel Logout',
   backchannel_logout_description:
     'กำหนดค่า OpenID Connect backchannel logout endpoint และกำหนดว่าเซสชันจำเป็นสำหรับแอปนี้หรือไม่',
@@ -96,7 +94,7 @@ const application_details = {
   application_deleted: 'ลบแอปพลิเคชัน {{name}} เรียบร้อยแล้ว',
   redirect_uri_required: 'คุณต้องกรอกอย่างน้อย 1 Redirect URI',
   app_domain_description_1:
-    'คุณสามารถใช้โดเมนของคุณกับ {{domain}} ที่ขับเคลื่อนโดย Logto ได้โดยไม่มีวันหมดอายุ',
+    'คุณสามารถใช้โดเมนของคุณกับ {{domain}} ที่ขับเคลื่อนโดย Aster ได้โดยไม่มีวันหมดอายุ',
   app_domain_description_2:
     'คุณสามารถใช้โดเมนของคุณ <domain>{{domain}}</domain> ได้โดยไม่มีวันหมดอายุ',
   custom_rules: 'กฎการตรวจสอบตัวตนแบบกำหนดเอง',
@@ -112,7 +110,7 @@ const application_details = {
   protect_origin_server_description:
     'โปรดปกป้องเซิร์ฟเวอร์ต้นทางของคุณจากการถูกเข้าถึงโดยตรง ดูคู่มือเพื่อรับ <a>คำแนะนำเพิ่มเติม</a>',
   third_party_settings_description:
-    'ผสานแอปพลิเคชันบุคคลที่สามกับ Logto ในฐานะผู้ให้บริการตัวตน (IdP) โดยใช้ OIDC / OAuth 2.0 พร้อมหน้าจอยินยอมสำหรับการอนุญาตผู้ใช้',
+    'ผสานแอปพลิเคชันบุคคลที่สามกับ Aster ในฐานะผู้ให้บริการตัวตน (IdP) โดยใช้ OIDC / OAuth 2.0 พร้อมหน้าจอยินยอมสำหรับการอนุญาตผู้ใช้',
   session_duration: 'ระยะเวลาเซสชัน (วัน)',
   try_it: 'ลองใช้งาน',
   no_organization_placeholder: 'ไม่พบองค์กร <a>ไปยังหน้าองค์กร</a>',
@@ -197,7 +195,7 @@ const application_details = {
     user_data_permission_description_tips:
       'คุณสามารถแก้ไขคำอธิบายสิทธิ์ข้อมูลผู้ใช้ได้ที่ "ประสบการณ์เซ็นอิน > เนื้อหา > จัดการภาษา"',
     permission_description_tips:
-      'เมื่อใช้ Logto เป็นผู้ให้บริการตัวตน (IdP) กับแอปบุคคลที่สามและขออนุญาตผู้ใช้ คำอธิบายนี้จะแสดงบนหน้าจอยินยอม',
+      'เมื่อใช้ Aster เป็นผู้ให้บริการตัวตน (IdP) กับแอปบุคคลที่สามและขออนุญาตผู้ใช้ คำอธิบายนี้จะแสดงบนหน้าจอยินยอม',
     user_title: 'ผู้ใช้',
     user_description: 'เลือกสิทธิ์ที่แอปบุคคลที่สามร้องขอสำหรับใช้เข้าถึงข้อมูลผู้ใช้',
     grant_user_level_permissions: 'ให้สิทธิ์ข้อมูลผู้ใช้',
@@ -286,11 +284,11 @@ const application_details = {
     title: 'รูปแบบ Name ID',
     description: 'เลือกรูปแบบ Name ID ของ SAML IdP',
     persistent: 'คงที่ (Persistent)',
-    persistent_description: 'ใช้รหัสผู้ใช้ Logto เป็น Name ID',
+    persistent_description: 'ใช้รหัสผู้ใช้ Aster เป็น Name ID',
     transient: 'ชั่วคราว (Transient)',
     transient_description: 'ใช้รหัสผู้ใช้ครั้งเดียวเป็น Name ID',
     unspecified: 'ไม่ระบุ',
-    unspecified_description: 'ใช้รหัสผู้ใช้ Logto เป็น Name ID',
+    unspecified_description: 'ใช้รหัสผู้ใช้ Aster เป็น Name ID',
     email_address: 'อีเมล',
     email_address_description: 'ใช้อีเมลเป็น Name ID',
   },
@@ -312,8 +310,8 @@ const application_details = {
   saml_app_attribute_mapping: {
     name: 'Mapping ค่าคุณสมบัติ',
     title: 'Mapping ค่าคุณสมบัติพื้นฐาน',
-    description: 'เพิ่ม mapping เพื่อ sync โปรไฟล์ผู้ใช้จาก Logto สู่แอปพลิเคชันของคุณ',
-    col_logto_claims: 'ค่าของ Logto',
+    description: 'เพิ่ม mapping เพื่อ sync โปรไฟล์ผู้ใช้จาก Aster สู่แอปพลิเคชันของคุณ',
+    col_aster_claims: 'ค่าของ Aster',
     col_sp_claims: 'ชื่อค่าของแอปของคุณ',
     add_button: 'เพิ่มอีกหนึ่งรายการ',
   },

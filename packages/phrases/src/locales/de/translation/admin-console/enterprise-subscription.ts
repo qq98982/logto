@@ -15,7 +15,7 @@ const enterprise_subscription = {
       'Dies ist Ihr Unternehmensplan-Abonnement und dieses Kontingent wird zwischen den Mandanten geteilt. Die Nutzung kann unter Umständen leicht verzögert aktualisiert werden. ',
     add_on_title: 'Add-ons nach Bedarf',
     add_on_description:
-      'Dies sind zusätzliche Add-ons nach Bedarf basierend auf Ihrem Vertrag oder den standardmäßigen Pay-as-you-go-Sätzen von Logto. Ihnen werden Gebühren entsprechend Ihrer tatsächlichen Nutzung berechnet.',
+      'Dies sind zusätzliche Add-ons nach Bedarf basierend auf Ihrem Vertrag oder den standardmäßigen Pay-as-you-go-Sätzen von Aster. Ihnen werden Gebühren entsprechend Ihrer tatsächlichen Nutzung berechnet.',
     included: 'Inklusive',
     over_quota: 'Über dem Kontingent',
     basic_plan_column_title: {

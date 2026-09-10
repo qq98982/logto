@@ -1,24 +1,33 @@
-export const githubOrgLink = 'https://github.com/logto-io';
-export const githubLink = 'https://github.com/logto-io/logto';
-export const githubIssuesLink = 'https://github.com/logto-io/logto/issues';
-export const contactEmail = 'contact@logto.io';
-export const contactEmailLink = `mailto:${contactEmail}`;
-export const officialWebsiteLink = 'https://logto.io';
-export const trustAndSecurityLink = `${officialWebsiteLink}/trust-and-security`;
-export const pricingLink = `${officialWebsiteLink}/pricing`;
-export const officialWebsiteContactPageLink = `${officialWebsiteLink}/contact`;
-export const entityPolicyLink = 'https://docs.logto.io/logto-cloud/system-limit';
-export const logtoOssFeatureSupportLink =
-  'https://docs.logto.io/logto-oss#feature-supported-by-logto-oss';
+import { asterDocumentationUrl, asterSupportEmail, asterWebsiteUrl } from './env';
+
+const resolveConfiguredLink = (root: string | undefined, pagePath: string) => {
+  if (!root) {
+    return;
+  }
+
+  try {
+    return new URL(pagePath, root.endsWith('/') ? root : `${root}/`).href;
+  } catch {}
+};
+
+export const resolveAsterDocumentationLink = (pagePath: string) =>
+  resolveConfiguredLink(asterDocumentationUrl, pagePath);
+
+export const contactEmailLink = asterSupportEmail ? `mailto:${asterSupportEmail}` : undefined;
+export const trustAndSecurityLink = resolveConfiguredLink(asterWebsiteUrl, 'trust-and-security');
+export const officialWebsiteContactPageLink = resolveConfiguredLink(asterWebsiteUrl, 'contact');
+export const entityPolicyLink = resolveAsterDocumentationLink('system-limit');
+export const selfHostedFeatureSupportLink = resolveAsterDocumentationLink(
+  'self-hosted/feature-support'
+);
 
 /** Docs link */
 export const organizationsFeatureLink = '/organizations';
 export const organizationConfigGuideLink =
   '/authorization/organization-template/configure-organization-template';
-export const logtoThirdPartyGuideLink = '/docs/recipes/logto-as-idp/';
-export const logtoThirdPartyAppPermissionsLink =
-  '/docs/recipes/logto-as-idp/permissions-management/';
-export const logtoThirdPartyAppBrandingLink = '/docs/recipes/logto-as-idp/branding-customization/';
+export const thirdPartyGuideLink = '/identity-provider/';
+export const thirdPartyAppPermissionsLink = '/identity-provider/permissions-management/';
+export const thirdPartyAppBrandingLink = '/identity-provider/branding-customization/';
 export const appSpecificBrandingLink =
   '/docs/recipes/customize-sie/match-your-brand/#app-specific-branding';
 export const organizationBrandingLink =
@@ -37,14 +46,14 @@ export const organizationJit = Object.freeze({
     '/docs/recipes/organizations/just-in-time-provisioning/#enterprise-sso-provisioning',
   emailDomain: '/docs/recipes/organizations/just-in-time-provisioning/#email-domain-provisioning',
 });
-export const integrateLogto = '/integrate-logto';
-export const applicationDataStructure = '/integrate-logto/application-data-structure';
+export const integrationGuide = '/integration';
+export const applicationDataStructure = '/integration/application-data-structure';
 export const thirdPartyApp =
-  '/integrate-logto/third-party-applications/oidc-oauth-third-party-applications';
-export const protectedApp = '/integrate-logto/protected-app';
-export const protectedAppLocalDev = '/integrate-logto/protected-app#local-development';
-export const protectOriginServer = '/integrate-logto/protected-app#protect-your-origin-server';
-export const appLevelAccessControl = '/integrate-logto/app-level-access-control';
+  '/integration/third-party-applications/oidc-oauth-third-party-applications';
+export const protectedApp = '/integration/protected-app';
+export const protectedAppLocalDev = '/integration/protected-app#local-development';
+export const protectOriginServer = '/integration/protected-app#protect-your-origin-server';
+export const appLevelAccessControl = '/integration/app-level-access-control';
 export const deviceFlow = '/quick-starts/device-flow';
 export const backchannelLogout = '/end-user-flows/sign-out#federated-sign-out-back-channel-logout';
 export const authFlows = '/end-user-flows#authentication-flows';
@@ -77,13 +86,15 @@ export const userImpersonation = '/developers/user-impersonation';
 export const webhooks = '/developers/webhooks';
 export const secureWebhooks = '/developers/webhooks/secure-webhooks';
 export const auditLogs = '/developers/audit-logs';
-export const logtoCloud = '/logto-cloud';
-export const logtoCloudTenantSettings = '/logto-cloud/tenant-settings';
-export const logtoCloudDevTenantDataRetention = '/logto-cloud/dev-tenant-data-retention';
-export const customDomain = '/logto-cloud/custom-domain#use-custom-domain';
-export const customDomainFeatureLink = '/logto-cloud/custom-domain';
+export const hostedService = '/hosted-service';
+export const hostedServiceTenantSettings = '/hosted-service/tenant-settings';
+export const hostedServiceDevTenantDataRetention = '/hosted-service/dev-tenant-data-retention';
+export const customDomain = '/hosted-service/custom-domain#use-custom-domain';
+export const customDomainFeatureLink = '/hosted-service/custom-domain';
 export const retrieveTokenStorage = '/secret-vault/federated-token-set#token-retrieval';
 
-export const addOnPricingExplanationLink = 'https://docs.logto.io/logto-cloud/billing-and-pricing';
+export const addOnPricingExplanationLink = resolveAsterDocumentationLink(
+  'hosted-service/billing-and-pricing'
+);
 
 export const dateFnsDocumentationLink = 'https://date-fns.org/v2.30.0/docs/format';

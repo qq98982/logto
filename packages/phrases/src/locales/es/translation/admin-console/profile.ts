@@ -17,7 +17,7 @@ const profile = {
       check_information:
         'Lamentamos escuchar que deseas eliminar tu cuenta. Por favor, revisa la siguiente información cuidadosamente antes de proceder.',
       remove_all_data:
-        'Eliminar tu cuenta eliminará permanentemente todos tus datos en Logto Cloud. Así que asegura respaldar cualquier dato importante antes de proceder.',
+        'Eliminar tu cuenta eliminará permanentemente todos tus datos en Cloud. Así que asegura respaldar cualquier dato importante antes de proceder.',
       confirm_information:
         'Por favor, confirma que la información anterior es lo que esperabas. Una vez que elimines tu cuenta, no podremos recuperarla.',
       has_admin_role:
@@ -42,7 +42,7 @@ const profile = {
     error_occurred_description: 'Lo siento, algo salió mal al eliminar tu cuenta:',
     request_id: 'ID de solicitud: {{requestId}}',
     try_again_later:
-      'Por favor, inténtalo nuevamente más tarde. Si el problema persiste, contacta al equipo de Logto con el ID de solicitud.',
+      'Por favor, inténtalo nuevamente más tarde. Si el problema persiste, contacta al equipo de Aster con el ID de solicitud.',
     final_confirmation: 'Confirmación final',
     about_to_start_deletion:
       'Estás a punto de iniciar el proceso de eliminación y esta acción no se puede deshacer.',

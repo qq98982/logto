@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: '連線失敗',
   },
   update_endpoint_notice:
-    '不要忘記在應用程序中更新社交連接器回調 URI 和 Logto 端點的域，如果您想使用自定義域來使用這些功能。',
+    '不要忘記在應用程序中更新社交連接器回調 URI 和 Aster 端點的域，如果您想使用自定義域來使用這些功能。',
   error_hint: '請確保您更新了您的 DNS 記錄。 我們將繼續每{{value}}秒檢查一次。',
   custom: {
     custom_domain: '自訂網域',
@@ -34,7 +34,7 @@ const domain = {
       description: '您確定要刪除此自定義網域嗎？',
       in_used_description: '您確定要刪除此自定義網域 "<span>{{domain}}</span>" 嗎？',
       in_used_tip:
-        '如果您以前在社交聯繫運營商或應用端點中設置了此自定義網域，則需要先將 URI 更改為 Logto 默認網域"<span>{{domain}}</span>"。 這是社交登錄按鈕正常工作所必需的。',
+        '如果您以前在社交聯繫運營商或應用端點中設置了此自定義網域，則需要先將 URI 更改為 Aster 默認網域"<span>{{domain}}</span>"。 這是社交登錄按鈕正常工作所必需的。',
       deleted: '成功刪除自定義網域！',
     },
     config_custom_domain_description:
@@ -61,8 +61,8 @@ const domain = {
   default: {
     default_domain: '預設網域',
     default_domain_description:
-      'Logto 提供預先配置的預設網域，無需進行任何其他設置即可使用。即使啟用了自訂網域，此預設網域也可作為備用選項。',
-    default_domain_field: 'Logto 默認網域',
+      'Aster 提供預先配置的預設網域，無需進行任何其他設置即可使用。即使啟用了自訂網域，此預設網域也可作為備用選項。',
+    default_domain_field: 'Aster 默認網域',
   },
   custom_endpoint_note: '您可以根據需要自定義這些端點的域名。選擇“{{custom}}”或“{{default}}”。',
   custom_social_callback_url_note:

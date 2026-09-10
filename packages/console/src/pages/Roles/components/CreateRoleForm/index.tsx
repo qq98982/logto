@@ -7,6 +7,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import RoleScopesTransfer from '@/components/RoleScopesTransfer';
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
 import DynamicT from '@/ds-components/DynamicT';
 import FormField from '@/ds-components/FormField';
@@ -85,7 +86,7 @@ function CreateRoleForm({ onClose }: Props) {
       subtitle="roles.create_role_description"
       hasAddOnTag={isPaidTenant && !hasRolesIncluded}
       learnMoreLink={{
-        href: 'https://docs.logto.io/docs/recipes/rbac/manage-permissions-and-roles#manage-roles',
+        href: resolveAsterDocumentationLink('authorization/role-based-access-control#manage-roles'),
         targetBlank: 'noopener',
       }}
       size="large"

@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 import ReactModal from 'react-modal';
 
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import Button from '@/ds-components/Button';
 import DangerousRaw from '@/ds-components/DangerousRaw';
 import FormField from '@/ds-components/FormField';
@@ -81,7 +82,9 @@ function ApplicationScopesManagementModal({ scope, onClose, onSubmit }: Props) {
           learnMoreLink={
             scope.type === ApplicationUserConsentScopeType.ResourceScopes
               ? {
-                  href: 'https://docs.logto.io/docs/recipes/rbac/manage-permissions-and-roles#manage-role-permissions',
+                  href: resolveAsterDocumentationLink(
+                    'authorization/role-based-access-control#manage-role-permissions'
+                  ),
                   targetBlank: 'noopener',
                 }
               : undefined

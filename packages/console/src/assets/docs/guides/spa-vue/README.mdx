@@ -13,7 +13,7 @@ import { defaultRedirectUri, defaultPostSignOutUri } from '../../fragments/_redi
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK for your project"
+  subtitle="Install the upstream SDK for your project"
 >
 
 <NpmLikeInstallation packageName="@logto/vue" />
@@ -25,10 +25,10 @@ import { defaultRedirectUri, defaultPostSignOutUri } from '../../fragments/_redi
 >
 
 <InlineNotification>
-  Logto Vue SDK is built with Vue 3 composition API. Therefore, only Vue 3 is supported at the moment. Contact us if you want to add support for Vue 2.
+  the upstream Vue SDK is built with Vue 3 composition API. Therefore, only Vue 3 is supported at the moment. Contact us if you want to add support for Vue 2.
 </InlineNotification>
 
-Import and use `createLogto` to install Logto plugin:
+Import and use `createLogto` to install the upstream plugin:
 
 <Code className="language-ts" title="main.ts">
     {`import { createLogto, type LogtoConfig } from '@logto/vue';
@@ -60,7 +60,7 @@ app.mount("#app");`}
 
 <Step title="Handle redirect">
 
-There are still things to do after the user is redirected back to your application from Logto. Let's handle it properly.
+There are still things to do after the user is redirected back to your application from Aster. Let's handle it properly.
 
 First let's create a callback page:
 
@@ -111,7 +111,7 @@ const onClickSignOut = () => signOut('${props.postLogoutRedirectUris[0] || defau
 `}
 </Code>
 
-Calling `.signOut()` will clear all the Logto data in memory and localStorage if they exist.
+Calling `.signOut()` will clear all the Aster data in memory and localStorage if they exist.
 
 </Step>
 

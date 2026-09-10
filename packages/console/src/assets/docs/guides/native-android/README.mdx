@@ -12,19 +12,19 @@ import Checkpoint from '../../fragments/_checkpoint.md';
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK for your project"
+  subtitle="Install the upstream SDK for your project"
 >
 
 <InlineNotification>The minimum supported Android API is level 24.</InlineNotification>
 
-Logto Android SDK comes in two major versions:
+The upstream Android SDK comes in two major versions:
 
-- **v3 (beta)**: Opens the sign-in experience in [Chrome Custom Tabs](https://developer.android.com/develop/ui/views/layout/webapps/overview-of-android-custom-tabs) (the system browser), which unlocks passkey sign-in and shares the browser session. Note that v3 removes support for the [WeChat (Native)](https://docs.logto.io/integrations/wechat-native) and [Alipay (Native)](https://docs.logto.io/integrations/alipay-native) connectors; you can use [WeChat (Web)](https://docs.logto.io/integrations/wechat-web) and [Alipay (Web)](https://docs.logto.io/integrations/alipay-web) instead, which work through the browser. If you depend on the native connectors, stay on v2.
-- **v2**: Opens the sign-in experience in an embedded WebView, which is required by the native social connectors, but does not support [passkey sign-in](https://docs.logto.io/end-user-flows/sign-up-and-sign-in/passkey-sign-in) (WebView does not support WebAuthn, the underlying standard of passkeys).
+- **v3 (beta)**: Opens the sign-in experience in [Chrome Custom Tabs](https://developer.android.com/develop/ui/views/layout/webapps/overview-of-android-custom-tabs) (the system browser), which unlocks passkey sign-in and shares the browser session. Note that v3 removes support for the WeChat (Native) and Alipay (Native) connectors; you can use WeChat (Web) and Alipay (Web) instead, which work through the browser. If you depend on the native connectors, stay on v2.
+- **v2**: Opens the sign-in experience in an embedded WebView, which is required by the native social connectors, but does not support passkey sign-in (WebView does not support WebAuthn, the underlying standard of passkeys).
 
 This guide covers both versions.
 
-Before you install Logto Android SDK, ensure `mavenCentral()` is added to your repository configuration in the Gradle project build file:
+Before you install the upstream Android SDK, ensure `mavenCentral()` is added to your repository configuration in the Gradle project build file:
 
 <Code title="settings.gradle.kts" className="language-kotlin">
 {`dependencyResolutionManagement {
@@ -34,7 +34,7 @@ Before you install Logto Android SDK, ensure `mavenCentral()` is added to your r
 }`}
 </Code>
 
-Add Logto Android SDK to your dependencies:
+Add the upstream Android SDK to your dependencies:
 
 <Tabs groupId="android-sdk-version">
 
@@ -134,14 +134,14 @@ class MainActivity : AppCompatActivity() {
 
 <Step title="Configure redirect URI">
 
-<RedirectUrisNative defaultUri="io.logto.android://io.logto.sample/callback"/>
+<RedirectUrisNative defaultUri="aster://com.example.app/callback"/>
 
 In Android, the redirect URI follows the pattern: `$(LOGTO_REDIRECT_SCHEME)://$(YOUR_APP_PACKAGE)/callback`:
 
-- The `LOGTO_REDIRECT_SCHEME` should be a custom scheme in the reverse domain format.
+- The `LOGTO_REDIRECT_SCHEME` is the custom scheme handled by your app.
 - The `YOUR_APP_PACKAGE` is your app package name.
 
-Assuming you treat `io.logto.android` as the custom `LOGTO_REDIRECT_SCHEME`, and `io.logto.sample` is your app package name, the Redirect URI should be `io.logto.android://io.logto.sample/callback`.
+For an app with package name `com.example.app`, set `LOGTO_REDIRECT_SCHEME` to `aster`; the resulting redirect URI is `aster://com.example.app/callback`.
 
 <Tabs groupId="android-sdk-version">
 
@@ -152,7 +152,7 @@ In v3, the sign-in experience opens in a [Custom Tab](https://developer.android.
 ```kotlin title="build.gradle.kts"
 android {
     defaultConfig {
-        manifestPlaceholders["logtoRedirectScheme"] = "io.logto.android"
+        manifestPlaceholders["logtoRedirectScheme"] = "aster"
     }
 }
 ```
@@ -223,7 +223,7 @@ After the redirect URI is configured, we can use `logtoClient.signIn` to sign in
 
 <TabItem value="v3" label="v3 (beta)">
 
-In v3, `logtoClient.signOut` performs a complete sign-out: it clears the local credentials, revokes the refresh token, and ends the Logto session by opening the end session endpoint in the browser. The browser then navigates back to your app through the post sign-out redirect URI. The post sign-out redirect URI follows the same pattern as the redirect URI, and its scheme must also match the `logtoRedirectScheme` manifest placeholder. Let's configure it first:
+In v3, `logtoClient.signOut` performs a complete sign-out: it clears the local credentials, revokes the refresh token, and ends the Aster session by opening the end session endpoint in the browser. The browser then navigates back to your app through the post sign-out redirect URI. The post sign-out redirect URI follows the same pattern as the redirect URI, and its scheme must also match the `logtoRedirectScheme` manifest placeholder. Let's configure it first:
 
 <UriInputField name="postLogoutRedirectUris" />
 
@@ -298,7 +298,7 @@ class MainActivity : AppCompatActivity() {
 
 <InlineNotification>
 
-You can also call `logtoClient.signOut(context)` without a post sign-out redirect URI. No configuration is needed in this case: the browser shows the Logto sign-out page, and the user returns to the app by dismissing it manually. If no UI context is available, you can call `logtoClient.clearCredentials` to clear the local credentials and revoke the refresh token. Note that this keeps the Logto session in the browser, so the next `signIn` may silently sign the user back in through that session.
+You can also call `logtoClient.signOut(context)` without a post sign-out redirect URI. No configuration is needed in this case: the browser shows the Aster sign-out page, and the user returns to the app by dismissing it manually. If no UI context is available, you can call `logtoClient.clearCredentials` to clear the local credentials and revoke the refresh token. Note that this keeps the Aster session in the browser, so the next `signIn` may silently sign the user back in through that session.
 
 </InlineNotification>
 

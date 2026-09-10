@@ -13,7 +13,7 @@ import RedirectUrisWeb, { defaultRedirectUri, defaultPostSignOutUri } from '../.
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK for your project"
+  subtitle="Install the upstream SDK for your project"
 >
 <Tabs>
 <TabItem value="npm" label="npm">
@@ -75,7 +75,7 @@ const logtoClient = new LogtoClient({
 
 <Step title="Handle redirect">
 
-There are still things to do after the user is redirected back to your application from Logto. Let's handle it properly.
+There are still things to do after the user is redirected back to your application from Aster. Let's handle it properly.
 
 ```ts title="pages/Callback.js"
 const callbackHandler = async (logtoClient) => {
@@ -115,7 +115,7 @@ button.addEventListener('click', isAuthenticated ? onClickSignOut : onClickSignI
 document.body.appendChild(button);`}
 </Code>
 
-Calling `.signOut()` will clear all the Logto data in memory and `localStorage` if they exist.
+Calling `.signOut()` will clear all the Aster data in memory and `localStorage` if they exist.
 
 </Step>
 

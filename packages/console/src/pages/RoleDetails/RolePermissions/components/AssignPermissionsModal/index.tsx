@@ -8,6 +8,7 @@ import ContactUsPhraseLink from '@/components/ContactUsPhraseLink';
 import QuotaGuardFooter from '@/components/QuotaGuardFooter';
 import RoleScopesTransfer from '@/components/RoleScopesTransfer';
 import SkuName from '@/components/SkuName';
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
 import Button from '@/ds-components/Button';
 import FormField from '@/ds-components/FormField';
@@ -71,7 +72,9 @@ function AssignPermissionsModal({ roleId, roleType, onClose }: Props) {
         title="role_details.permission.assign_title"
         subtitle="role_details.permission.assign_subtitle"
         learnMoreLink={{
-          href: 'https://docs.logto.io/docs/recipes/rbac/manage-permissions-and-roles#manage-role-permissions',
+          href: resolveAsterDocumentationLink(
+            'authorization/role-based-access-control#manage-role-permissions'
+          ),
           targetBlank: 'noopener',
         }}
         size="large"

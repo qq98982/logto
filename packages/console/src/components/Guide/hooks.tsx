@@ -144,7 +144,7 @@ export const useAppGuideMetadata = (): {
         </Trans>
       ),
     }),
-    [t]
+    [getDocumentationUrl, t]
   );
 
   const getCategoryDescription = useCallback(

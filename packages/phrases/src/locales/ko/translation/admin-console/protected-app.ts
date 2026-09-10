@@ -19,7 +19,7 @@ const protected_app = {
       '이 URL은 원본 URL에 대한 인증 보호 프록시로 작동합니다. 생성 후에 사용자 정의 도메인을 적용할 수 있습니다.',
     domain_field_description_short: '이 URL은 원본 URL에 대한 인증 보호 프록시로 작동합니다.',
     domain_field_tooltip:
-      "Logto로 보호된 앱은 기본적으로 'your-domain.{{domain}}'에서 호스팅됩니다. 생성 후에 사용자 정의 도메인을 적용할 수 있습니다.",
+      "Aster로 보호된 앱은 기본적으로 'your-domain.{{domain}}'에서 호스팅됩니다. 생성 후에 사용자 정의 도메인을 적용할 수 있습니다.",
     create_application: '애플리케이션 생성',
     create_protected_app: '빠르게 생성',
     errors: {

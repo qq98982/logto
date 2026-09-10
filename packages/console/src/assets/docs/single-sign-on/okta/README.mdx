@@ -1,10 +1,6 @@
 import OidcCallbackUri from '@/mdx-components/OidcCallbackUri';
 import Step from '@/mdx-components/Step';
 
-import createApplication from './assets/create_application.webp';
-import applicationSettings from './assets/application_settings.webp';
-import clientCredentials from './assets/client_credentials.webp';
-import assignUsers from './assets/assign_users.webp';
 
 <Step index={0} title="Create an OIDC application on Okta admin portal">
 
@@ -14,9 +10,6 @@ import assignUsers from './assets/assign_users.webp';
 - Select the `OIDC - OpenID Connect` option as the `Sign-in method`.
 - Select the `Web Application` option as the `Application type`.
 
-<center>
-  <img src={createApplication} alt="create application" />
-</center>
 
 Click the `Next` button to continue.
 
@@ -26,37 +19,28 @@ Click the `Next` button to continue.
 
 1. Provide a `App integration name`. It will be used as the identifier of your OIDC application.
 
-2. Add a new `Sign-in redirect URIs` using the Logto SSO connector's callback URL.
+2. Add a new `Sign-in redirect URIs` using the Aster SSO connector's callback URL.
 
 <OidcCallbackUri />
 
-This is the URI that the Okta will redirect the user's browser after successful authentication. After a user successfully authenticates with the IdP, the IdP redirects the user's browser back to this designated URI along with an authorization code. Logto will complete the authentication process based on authorization code received from this URI.
+This is the URI that the Okta will redirect the user's browser after successful authentication. After a user successfully authenticates with the IdP, the IdP redirects the user's browser back to this designated URI along with an authorization code. Aster will complete the authentication process based on authorization code received from this URI.
 
-<center>
-  <img src={applicationSettings} alt="application settings" />
-</center>
 
 3. Assign users to the application.
 
 Based on the `Assignments` settings, you can choose to assign the application to all users or specific users/groups.
 
-<center>
-  <img src={assignUsers} alt="assign users" />
-</center>
 
 Click the `Save` button to save the application settings.
 
 </Step>
 
-<Step index={2} title="Set up Logto connector with the client credentials">
+<Step index={2} title="Set up Aster connector with the client credentials">
 
 After successfully creating the OIDC application, you will be redirected to the application details page.
 
-<center>
-  <img src={clientCredentials} alt="client credentials" />
-</center>
 
-Copy the `client ID` and `client secret` and fill in the corresponding fields on the Logto SSO connector `connection` tab.
+Copy the `client ID` and `client secret` and fill in the corresponding fields on the Aster SSO connector `connection` tab.
 
 Use your Okta domain as the `issuer`. Example: `https://dev-12345678.okta.com`. Once you have filled in all the fields, click the `Save` button to save the connector settings.
 
@@ -80,23 +64,23 @@ Scopes define the permissions your app requests from users and control which dat
 
 For a complete list of available scopes and their descriptions, please refer to the [Okta OIDC documentation](https://developer.okta.com/docs/api/openapi/okta-oauth/guides/overview/#scopes).
 
-**In Logto Okta connector:**
+**In Aster Okta connector:**
 
-1. Logto automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information.
+1. Aster automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information.
 2. Add `offline_access` to the `Scopes` field if you plan to store tokens for persistent API access. This scope enables refresh tokens for long-lived API access.
 3. Add additional scopes (separated by spaces) in the `Scopes` field to request more data from Okta. For example: `okta.users.read okta.groups.read`
 
-**Tip:** If your app requests these scopes to access Okta APIs and perform actions, make sure to enable **Store tokens for persistent API access** in Logto Okta connector. See the next section for details.
+**Tip:** If your app requests these scopes to access Okta APIs and perform actions, make sure to enable **Store tokens for persistent API access** in Aster Okta connector. See the next section for details.
 
 </Step>
 
 <Step index={5} title="Store tokens to access Okta APIs (Optional)">
 
-If you want to access [Okta scopes](https://developer.okta.com/docs/guides/request-user-consent/main/#enable-consent-for-scopes) and perform actions with user authorization, Logto needs to get specific scopes and store tokens.
+If you want to access [Okta scopes](https://developer.okta.com/docs/guides/request-user-consent/main/#enable-consent-for-scopes) and perform actions with user authorization, Aster needs to get specific scopes and store tokens.
 
-1. Add the required scopes in your Okta developer console API permissions configuration and Logto Okta connector.
-2. Enable **Store tokens for persistent API access** in Logto Okta connector. Logto will securely store Okta access and refresh tokens in the Secret Vault.
-3. To ensure refresh tokens are returned, add the `offline_access` scope to your Okta application permissions and include it in your Logto Okta connector scopes. This scope allows your application to maintain access to resources for extended periods.
+1. Add the required scopes in your Okta developer console API permissions configuration and Aster Okta connector.
+2. Enable **Store tokens for persistent API access** in Aster Okta connector. Aster will securely store Okta access and refresh tokens in the Secret Vault.
+3. To ensure refresh tokens are returned, add the `offline_access` scope to your Okta application permissions and include it in your Aster Okta connector scopes. This scope allows your application to maintain access to resources for extended periods.
 
 </Step>
 

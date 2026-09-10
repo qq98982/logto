@@ -12,7 +12,7 @@ import ActionsButton from '@/components/ActionsButton';
 import Breakable from '@/components/Breakable';
 import FormCard, { type Props as FormCardProps } from '@/components/FormCard';
 import TemplateTable from '@/components/TemplateTable';
-import { logtoThirdPartyAppPermissionsLink } from '@/consts';
+import { thirdPartyAppPermissionsLink } from '@/consts';
 import Tag from '@/ds-components/Tag';
 import { type RequestError } from '@/hooks/use-api';
 import useDocumentationUrl from '@/hooks/use-documentation-url';
@@ -62,7 +62,7 @@ function PermissionsCard({ applicationId, scopeLevel }: Props) {
         description: `application_details.permissions.${scopeLevelPhrase}_description`,
         learnMoreLink: conditional(
           scopeLevel === ScopeLevel.User && {
-            href: getDocumentationUrl(logtoThirdPartyAppPermissionsLink),
+            href: getDocumentationUrl(thirdPartyAppPermissionsLink),
             targetBlank: 'noopener',
           }
         ),

@@ -41,15 +41,8 @@ const paywall = {
     '{{count, number}} <planName/> rol başına izin sınırına ulaşıldı. İlave roller ve izinler eklemek için planı yükseltin. Yardım için ihtiyacınız olursa, <a>iletişime geçin</a>.',
   scopes_per_role_other:
     '{{count, number}} <planName/> rol başına izin sınırına ulaşıldı. İlave roller ve izinler eklemek için planı yükseltin. Yardım için ihtiyacınız olursa, <a>iletişime geçin</a>.',
-  saml_applications_oss:
-    'Ek SAML uygulaması, Logto Enterprise planı ile mevcuttur. Yardıma ihtiyacınız olursa, bizimle iletişime geçin.',
   saml_applications_oss_limit_notice:
-    'Açık kaynak örneğiniz en fazla {{limit}} SAML uygulamasını destekler. Ek seçenekler için Logto Cloud’u kullanabilir veya bizimle iletişime geçebilirsiniz.',
-  logto_pricing_button_text: 'Logto Bulut Fiyatlandırması',
-  saml_applications:
-    'Ek SAML uygulaması, Logto Enterprise planı ile mevcuttur. Yardım için bize ulaşın.',
-  saml_applications_add_on:
-    'SAML uygulama özelliğini ücretli bir plana yükselterek etkinleştirin. Herhangi bir konuda yardıma ihtiyacınız olursa, <a>bizimle iletişime geçmekten</a> çekinmeyin.',
+    'Açık kaynak örneğiniz en fazla {{limit}} SAML uygulamasını destekler.',
   hooks:
     '{{count, number}} <planName/> webhook sınırına ulaşıldı. Daha fazla webhook oluşturmak için planı yükseltin. Yardım için ihtiyacınız olursa, <a>iletişime geçin</a>.',
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     'Unlock organizations özelliğini açmak için ücretli bir plana yükseltin. Yardım için <a>iletişime geçin</a> ihtiyacınız olursa.',
   third_party_apps:
-    "Üçüncü taraf uygulamalar için Logto'yu IdP olarak kilidini açmak için ücretli bir plana yükseltin. Yardım için <a>iletişime geçin</a> ihtiyacınız olursa.",
+    "Üçüncü taraf uygulamalar için Aster'i IdP olarak kilidini açmak için ücretli bir plana yükseltin. Yardım için <a>iletişime geçin</a> ihtiyacınız olursa.",
   sso_connectors:
     "İşletme SSO'yu kilidini açmak için ücretli bir plana yükseltin. Yardım için <a>iletişime geçin</a> ihtiyacınız olursa.",
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       'Özel JWT işlevselliği ve prim avantajları için ücretli bir plana yükseltin. Sorularınız varsa, çekinmeden <a>iletişime geçin</a>.',
   },
   branding_customization:
-    'Planınızı yükselterek "Logto markasını gizle" ve "UI\'nizi Getirin" özellikleriyle markalama üzerinde tam kontrol sağlayın.',
+    'Planınızı yükselterek "Aster markasını gizle" ve "UI\'nizi Getirin" özellikleriyle markalama üzerinde tam kontrol sağlayın.',
   bring_your_ui:
     'Özel kullanıcı arayüzü işlevselliği ve prim avantajları için ücretli bir plana geçin.',
   security_features:

@@ -10,7 +10,7 @@ const upsell = {
   create_tenant: {
     title: 'Wybierz swój plan najemcy',
     description:
-      'Logto oferuje konkurencyjne opcje planów z innowacyjnym i przystępnym cenowo modelem dla rozwijających się firm. <a>Dowiedz się więcej</a>',
+      'Aster oferuje konkurencyjne opcje planów z innowacyjnym i przystępnym cenowo modelem dla rozwijających się firm. <a>Dowiedz się więcej</a>',
     base_price: 'Cena podstawowa',
     monthly_price: '{{value, number}}/mies.',
     view_all_features: 'Zobacz wszystkie funkcje',
@@ -23,18 +23,18 @@ const upsell = {
   mau_exceeded_modal: {
     title: 'MAU przekroczyło limit. Ulepsz swój plan.',
     notification:
-      'Obecna liczba MAU przekroczyła limit planu <planName/>. Proszę natychmiast zaktualizować swój plan na wersję premium, aby uniknąć zawieszenia usługi Logto.',
+      'Obecna liczba MAU przekroczyła limit planu <planName/>. Proszę natychmiast zaktualizować swój plan na wersję premium, aby uniknąć zawieszenia usługi Aster.',
     update_plan: 'Zaktualizuj plan',
   },
   token_exceeded_modal: {
     title: 'Użycie tokena przekroczyło limit. Ulepsz swój plan.',
     notification:
-      'Przekroczyłeś limit użycia tokena <planName/>. Użytkownicy nie będą mogli prawidłowo korzystać z usługi Logto. Proszę niezwłocznie uaktualnić swój plan do wersji premium, aby uniknąć niedogodności.',
+      'Przekroczyłeś limit użycia tokena <planName/>. Użytkownicy nie będą mogli prawidłowo korzystać z usługi Aster. Proszę niezwłocznie uaktualnić swój plan do wersji premium, aby uniknąć niedogodności.',
   },
   payment_overdue_modal: {
     title: 'Opłata za fakturę zaległa',
     notification:
-      'Ups! Płatność za fakturę najemcy <span>{{name}}</span> nie powiodła się. Proszę zapłacić fakturę w odpowiednim terminie, aby uniknąć zawieszenia usługi Logto.',
+      'Ups! Płatność za fakturę najemcy <span>{{name}}</span> nie powiodła się. Proszę zapłacić fakturę w odpowiednim terminie, aby uniknąć zawieszenia usługi Aster.',
     unpaid_bills: 'Nieuregulowane faktury',
     update_payment: 'Zaktualizuj płatność',
   },
@@ -45,7 +45,7 @@ const upsell = {
     tenant_member: 'członek najemcy',
   },
   charge_notification_for_quota_limit:
-    'Przekroczyłeś limit kwoty {{item}}. Logto doliczy opłaty za korzystanie poza limitem. Fakturowanie rozpocznie się w dniu wprowadzenia nowego projektu cenowego dodatku. <a>Dowiedz się więcej</a>',
+    'Przekroczyłeś limit kwoty {{item}}. Aster doliczy opłaty za korzystanie poza limitem. Fakturowanie rozpocznie się w dniu wprowadzenia nowego projektu cenowego dodatku. <a>Dowiedz się więcej</a>',
   paywall,
   featured_plan_content,
   add_on,

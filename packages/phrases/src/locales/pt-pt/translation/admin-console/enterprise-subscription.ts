@@ -15,7 +15,7 @@ const enterprise_subscription = {
       'Esta é a tua subscrição do Plano Empresarial e esta quota é partilhada entre inquilinos. O uso pode estar sujeito a um ligeiro atraso nas atualizações.',
     add_on_title: 'Add-ons pagas conforme o uso',
     add_on_description:
-      'Estes são add-ons pagas conforme o uso, com base no teu contrato ou nas taxas padrão paga conforme o uso da Logto. Serás cobrado de acordo com o teu uso real.',
+      'Estes são add-ons pagas conforme o uso, com base no teu contrato ou nas taxas padrão paga conforme o uso da Aster. Serás cobrado de acordo com o teu uso real.',
     included: 'Incluído',
     over_quota: 'Acima da quota',
     basic_plan_column_title: {

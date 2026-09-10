@@ -1,12 +1,6 @@
 import OidcCallbackUri from '@/mdx-components/OidcCallbackUri';
 import Step from '@/mdx-components/Step';
 
-import createApplication from './assets/create_application.webp';
-import configApplication from './assets/config_application.webp';
-import applicationDetails from './assets/application_details.webp';
-import createSecret from './assets/create_secret.webp';
-import endpoints from './assets/endpoints.webp';
-import permissions from './assets/add_api_permissions.webp';
 
 <Step index={0} title="Create an Microsoft EntraID OIDC application">
 
@@ -14,9 +8,6 @@ import permissions from './assets/add_api_permissions.webp';
 
 2. Browse to Identity > Applications > App registrations.
 
-<center>
-  <img src={createApplication} alt="Create Application" />
-</center>
 
 3. Select `New registration`.
 
@@ -26,45 +17,33 @@ import permissions from './assets/add_api_permissions.webp';
 
 <OidcCallbackUri />
 
-<center>
-  <img src={configApplication} alt="Configure Application" />
-</center>
 
 6. Click `Register` to create the application.
 
 </Step>
 
-<Step index={1} title="Configure SSO connector on Logto">
+<Step index={1} title="Configure SSO connector on Aster">
 
-After successfully creating an Microsoft Entra OIDC application, you will need to provide the IdP configurations back to Logto. Navigate to the `Connection` tab at Logto console, and fill in the following configurations:
+After successfully creating an Microsoft Entra OIDC application, you will need to provide the IdP configurations back to Aster. Navigate to the `Connection` tab at Aster console, and fill in the following configurations:
 
-1. **Client ID**: A unique identifier assigned to your OIDC application by the Microsoft Entra. This identifier is used by Logto to identify and authenticate the application during the OIDC flow. You can find it in the application overview page as `Application (client) ID`.
+1. **Client ID**: A unique identifier assigned to your OIDC application by the Microsoft Entra. This identifier is used by Aster to identify and authenticate the application during the OIDC flow. You can find it in the application overview page as `Application (client) ID`.
 
-<center>
-  <img src={applicationDetails} alt="Application Details" />
-</center>
 
-2. **Client Secret**: Create a new client secret and copy the value to Logto. This secret is used to authenticate the OIDC application and secure the communication between Logto and the IdP.
+2. **Client Secret**: Create a new client secret and copy the value to Aster. This secret is used to authenticate the OIDC application and secure the communication between Aster and the IdP.
 
-<center>
-  <img src={createSecret} alt="Create Secret" />
-</center>
 
-3. **Issuer**: The issuer URL, a unique identifier for the IdP, specifying the location where the OIDC identity provider can be found. It is a crucial part of the OIDC configuration as it helps Logto discover the necessary endpoints.
+3. **Issuer**: The issuer URL, a unique identifier for the IdP, specifying the location where the OIDC identity provider can be found. It is a crucial part of the OIDC configuration as it helps Aster discover the necessary endpoints.
 
-   Instead of manually provide all these OIDC endpoints, Logto fetch all the required configurations and IdP endpoints automatically. This is done by utilizing the issuer url you provided and making a call to the IdP's discover endpoint.
+   Instead of manually provide all these OIDC endpoints, Aster fetch all the required configurations and IdP endpoints automatically. This is done by utilizing the issuer url you provided and making a call to the IdP's discover endpoint.
 
    To get the issuer URL, you can find it in the `Endpoints` section of the application overview page.
 
-   Locate the `OpenID Connect metadata document` endpoint and copy the URL **WITHOUT** the trailing path `.well-known/openid-configuration`. This is because Logto will automatically append the `.well-known/openid-configuration` to the issuer URL when fetching the OIDC configurations.
+   Locate the `OpenID Connect metadata document` endpoint and copy the URL **WITHOUT** the trailing path `.well-known/openid-configuration`. This is because Aster will automatically append the `.well-known/openid-configuration` to the issuer URL when fetching the OIDC configurations.
 
-<center>
-  <img src={endpoints} alt="Endpoints" />
-</center>
 
-4. **Scope**: A space-separated list of strings defining the desired permissions or access levels requested by Logto during the OIDC authentication process. The scope parameter allows you to specify what information and access Logto is requesting from the IdP.
+4. **Scope**: A space-separated list of strings defining the desired permissions or access levels requested by Aster during the OIDC authentication process. The scope parameter allows you to specify what information and access Aster is requesting from the IdP.
 
-The scope parameter is optional. Regardless of the custom scope settings, Logto will always send the `openid`, `profile` and `email` scopes to the IdP.
+The scope parameter is optional. Regardless of the custom scope settings, Aster will always send the `openid`, `profile` and `email` scopes to the IdP.
 
 Click `Save` to finish the configuration process
 
@@ -83,33 +62,30 @@ Scopes define the permissions your app requests from users and control which dat
      - `openid` (Required) - Sign users in
      - `profile` (Required) - View users' basic profile
      - `email` (Required) - View users' email address
-     - `offline_access` (Optional) - Required only if you enable **Store tokens for persistent API access** in the Logto connector and need to obtain refresh tokens for long-lived access to Microsoft Graph APIs.
+     - `offline_access` (Optional) - Required only if you enable **Store tokens for persistent API access** in the Aster connector and need to obtain refresh tokens for long-lived access to Microsoft Graph APIs.
    - API access (Optional): Add any additional permissions needed for your app. Common Microsoft Graph permissions include `Mail.Read`, `Calendars.Read`, `Files.Read`, etc. Browse the [Microsoft Graph permissions reference](https://docs.microsoft.com/en-us/graph/permissions-reference) to find available permissions.
 4. Click **Add permissions** to confirm the selection.
 5. If your app requires admin consent for certain permissions, click **Grant admin consent for [Your Organization]**.
 
-<center>
-  <img src={permissions} alt="Add Microsoft API permissions" />
-</center>
 
-**In Logto Microsoft Entra ID connector:**
+**In Aster Microsoft Entra ID connector:**
 
-1. Logto automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information.
+1. Aster automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information.
 2. Add `offline_access` to the `Scopes` field if you plan to store tokens for persistent API access. This scope enables refresh tokens for long-lived API access.
 3. Add additional scopes (separated by spaces) in the `Scopes` field to request more data from Microsoft Graph. Use standard scope names, for example: `User.Read Mail.Read Calendars.Read`
 
-**Tip**: If your app requests these scopes to access the Microsoft Graph API and perform actions, make sure to enable **Store tokens for persistent API access** in Logto Microsoft Entra ID connector. See the next section for details.
+**Tip**: If your app requests these scopes to access the Microsoft Graph API and perform actions, make sure to enable **Store tokens for persistent API access** in Aster Microsoft Entra ID connector. See the next section for details.
 
 </Step>
 
 
 <Step index={3} title="Store tokens to access Microsoft APIs (Optional)">
 
-If you want to access [Microsoft Graph APIs](https://docs.microsoft.com/en-us/graph/api/overview) and perform actions with user authorization, Logto needs to get specific API scopes and store tokens.
+If you want to access [Microsoft Graph APIs](https://docs.microsoft.com/en-us/graph/api/overview) and perform actions with user authorization, Aster needs to get specific API scopes and store tokens.
 
-1. Add the required scopes in your Microsoft Entra admin center API permissions configuration and Logto Microsoft Entra ID connector.
-2. Enable **Store tokens for persistent API access** in Logto Microsoft Entra ID connector. Logto will securely store Microsoft access and refresh tokens in the Secret Vault.
-3. To ensure refresh tokens are returned, add the `offline_access` scope to your Microsoft Entra ID application permissions and include it in your Logto Microsoft Entra ID connector scopes. This scope allows your application to maintain access to resources for extended periods.
+1. Add the required scopes in your Microsoft Entra admin center API permissions configuration and Aster Microsoft Entra ID connector.
+2. Enable **Store tokens for persistent API access** in Aster Microsoft Entra ID connector. Aster will securely store Microsoft access and refresh tokens in the Secret Vault.
+3. To ensure refresh tokens are returned, add the `offline_access` scope to your Microsoft Entra ID application permissions and include it in your Aster Microsoft Entra ID connector scopes. This scope allows your application to maintain access to resources for extended periods.
 
 </Step>
 

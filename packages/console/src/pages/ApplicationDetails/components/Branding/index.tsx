@@ -15,7 +15,7 @@ import FormCard, { FormCardSkeleton } from '@/components/FormCard';
 import ImageInputs, { themeToLogoName } from '@/components/ImageInputs';
 import RequestDataError from '@/components/RequestDataError';
 import UnsavedChangesAlertModal from '@/components/UnsavedChangesAlertModal';
-import { appSpecificBrandingLink, logtoThirdPartyAppBrandingLink } from '@/consts';
+import { appSpecificBrandingLink, thirdPartyAppBrandingLink } from '@/consts';
 import FormField from '@/ds-components/FormField';
 import Switch from '@/ds-components/Switch';
 import TextInput from '@/ds-components/TextInput';
@@ -142,7 +142,7 @@ function Branding({ application, isActive }: Props) {
             }`}
             learnMoreLink={{
               href: getDocumentationUrl(
-                application.isThirdParty ? logtoThirdPartyAppBrandingLink : appSpecificBrandingLink
+                application.isThirdParty ? thirdPartyAppBrandingLink : appSpecificBrandingLink
               ),
               targetBlank: 'noopener',
             }}

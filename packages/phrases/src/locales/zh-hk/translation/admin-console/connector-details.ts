@@ -20,7 +20,7 @@ const connector_details = {
   test_sms_placeholder: '+86 131 1234 5678',
   test_message_sent: '測試信息已發送',
   test_sender_description:
-    'Logto 使用 "Generic" 模板進行測試。如果你的連接器正確配置，你將收到一條消息。',
+    'Aster 使用 "Generic" 模板進行測試。如果你的連接器正確配置，你將收到一條消息。',
   options_change_email: '更換郵件連接器',
   options_change_sms: '更換短信連接器',
   connector_deleted: '成功刪除連接器',
@@ -32,40 +32,6 @@ const connector_details = {
   in_used_passwordless_deletion_description:
     '你的登錄體驗正在使用 {{name}} 連接器。刪除後，你的登錄體驗將無法正常工作，直到你解決衝突，再次添加需重新配置。',
   deletion_description: '你將刪除此連接器。此操作不可撤銷，再次添加需重新配置。',
-  logto_email: {
-    total_email_sent: '總發送郵件數：{{value, number}}',
-    total_email_sent_tip:
-      'Logto 使用 SendGrid 進行安全穩定的內建電子郵件。完全免費使用。<a>了解更多</a>',
-    hosted_email_usage: {
-      daily: '每日 <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: '每日 <value>{{usage, number}}</value>',
-      monthly: '每月 <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: '每月 <value>{{usage, number}}</value>',
-      tip: 'Free 和 Development 方案包含每日和每月的內置電郵服務限額。',
-      banner: {
-        approaching:
-          '您即將達到 Logto 內置電郵服務的發送上限。<provider>連接您自己的電子郵件服務商</provider>，或<upgrade>升級您的方案</upgrade>以繼續使用 Logto 內置電郵服務。',
-        reached:
-          '您已達到 Logto 內置電郵服務的發送上限，這可能會中斷登入郵件。<provider>連接您自己的電子郵件服務商</provider>，或<upgrade>升級您的方案</upgrade>以繼續使用 Logto 內置電郵服務。',
-      },
-    },
-    email_template_title: '郵件模板',
-    template_description:
-      '內建郵件使用默認模板實現無縫交付驗證郵件。無需配置，您可以自定義基本品牌信息。',
-    template_description_link_text: '查看模板',
-    description_action_text: '查看模板',
-    from_email_field: '發件人郵箱',
-    sender_name_field: '發件人姓名',
-    sender_name_tip: '自定義郵件發件人姓名。如果未填寫，將使用「Verification」作為默認姓名。',
-    sender_name_placeholder: '您的發送人姓名',
-    company_information_field: '公司信息',
-    company_information_description: '在郵件底部顯示您的公司名稱、地址或郵政編碼，以增強真實性。',
-    company_information_placeholder: '您公司的基本信息',
-    email_logo_field: '郵件標誌',
-    email_logo_tip: '在電子郵件頂部顯示您的品牌標誌。使用相同的圖像適配亮模式和暗模式。',
-    urls_not_allowed: '不允許使用 URL',
-    test_notes: 'Logto 使用 "通用" 模板進行測試。',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description: 'Google One Tap 是一種安全且方便用戶登錄網站的方式。',

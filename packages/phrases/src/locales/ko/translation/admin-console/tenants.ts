@@ -17,7 +17,7 @@ const tenants = {
     tenant_name: '테넌트 이름',
     tenant_instance: '인스턴스를 선택하세요',
     tenant_instance_description:
-      '테넌트가 호스팅될 위치를 선택하세요. 공용 공유 인프라를 위해 Logto Cloud 를 선택하거나, 전용 리소스를 위한 개별 인스턴스를 선택하세요.',
+      '테넌트가 호스팅될 위치를 선택하세요. 공용 공유 인프라를 위해 Cloud 를 선택하거나, 전용 리소스를 위한 개별 인스턴스를 선택하세요.',
     tenant_region: '데이터 호스팅 영역',
     tenant_region_description:
       '테넌트 리소스 (사용자, 앱 등) 가 호스팅되는 물리적 위치입니다. 생성 후에는 변경할 수 없습니다.',
@@ -34,7 +34,7 @@ const tenants = {
     tenant_mfa_description: '이 테넌트에 접근하려면 구성원이 다단계 인증을 설정해야 합니다.',
     enterprise_sso: '엔터프라이즈 SSO',
     enterprise_sso_description:
-      '유료 플랜에서 사용 가능합니다. 엔터프라이즈 SSO를 활성화하여 모든 구성원이 조직의 ID 공급자를 사용하여 Logto Cloud 콘솔에 로그인할 수 있도록 하려면 문의해 주세요.',
+      '유료 플랜에서 사용 가능합니다. 엔터프라이즈 SSO를 활성화하여 모든 구성원이 조직의 ID 공급자를 사용하여 Cloud 콘솔에 로그인할 수 있도록 하려면 문의해 주세요.',
   },
   full_env_tag: {
     development: '개발',
@@ -75,7 +75,7 @@ const tenants = {
       '테넌트 ID는 소문자, 숫자, 하이픈만 포함할 수 있으며 {{max}}자를 초과할 수 없습니다.',
     tenant_id_placeholder: '테넌트 ID',
     tenant_id_tip:
-      '테넌트 ID를 사용자 정의합니다. 비워두면 Logto가 기본 ID를 생성합니다. 테넌트 ID는 생성 후 변경할 수 없습니다.',
+      '테넌트 ID를 사용자 정의합니다. 비워두면 Aster가 기본 ID를 생성합니다. 테넌트 ID는 생성 후 변경할 수 없습니다.',
   },
   dev_tenant_migration: {
     title: '사용자 정의 테넌트로 전환하여 Pro 기능을 무료로 이용할 수 있습니다!',
@@ -106,7 +106,7 @@ const tenants = {
   tenant_landing_page: {
     title: '아직 테넌트를 만들지 않았습니다.',
     description:
-      'Logto 를 사용하여 프로젝트를 구성하려면 새 테넌트를 만드세요. 로그아웃하거나 계정을 삭제하려면 오른쪽 상단 모서리에있는 아바타 버튼을 클릭하세요.',
+      'Aster 를 사용하여 프로젝트를 구성하려면 새 테넌트를 만드세요. 로그아웃하거나 계정을 삭제하려면 오른쪽 상단 모서리에있는 아바타 버튼을 클릭하세요.',
     create_tenant_button: '테넌트 만들기',
   },
   status: {

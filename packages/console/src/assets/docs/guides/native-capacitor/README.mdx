@@ -5,8 +5,6 @@ import CustomDomainEndpointNotice from '@/mdx-components/CustomDomainEndpointNot
 import NpmLikeInstallation from '@/mdx-components/NpmLikeInstallation';
 
 import capaticorIos from './assets/capacitor-ios.webp';
-import logtoSignInPage from './assets/logto-sign-in-page.webp';
-import logtoSignOutPage from './assets/logto-sign-out-page.webp';
 import RedirectUrisNative from '../../fragments/_redirect-uris-native.mdx';
 
 export const defaultRedirectUri = 'com.example.app://callback';
@@ -20,13 +18,13 @@ To get started, you need to create a Capacitor project. You can follow the [offi
 
 This tutorial is framework-agnostic, so you can use any UI framework you prefer and update the code accordingly.
 
-First, install Logto Capacitor SDK and its peer dependencies:
+First, install the upstream Capacitor SDK and its peer dependencies:
 
 <NpmLikeInstallation packageName="@logto/capacitor @capacitor/browser @capacitor/app @capacitor/preferences" />
 
 </Step>
 
-<Step title="Init Logto client">
+<Step title="Init Aster client">
 
 Add the following code to your Capacitor project:
 
@@ -65,16 +63,7 @@ Remember to click on **Save changes** after updating the redirect URI.
 };`}
 </Code>
 
-Run the Capacitor app and click the sign-in button. A browser window will open, redirecting to the Logto sign-in page.
-
-<center>
-  <img
-    style={{ border: '1px solid #eaeaea', borderRadius: '16px' }}
-    src={logtoSignInPage}
-    alt="Logto sign-in page"
-    width="320"
-  />
-</center>
+Run the Capacitor app and click the sign-in button. A browser window will open, redirecting to the Aster sign-in page.
 
 > If the user closes the browser window without completing the authentication flow, the Capacitor
 > app will receive a `LogtoClientError`.
@@ -92,16 +81,7 @@ const onClick = async () => {
 };
 ```
 
-The `signOut` method has an optional parameter for the post sign-out redirect URI. If it's not provided, the user will be redirected to the Logto sign-out page:
-
-<center>
-  <img
-    style={{ border: '1px solid #eaeaea', borderRadius: '16px' }}
-    src={logtoSignOutPage}
-    alt="Logto sign-out page"
-    width="320"
-  />
-</center>
+The `signOut` method has an optional parameter for the post sign-out redirect URI. If it's not provided, the user will be redirected to the Aster sign-out page:
 
 The user needs to click "Done" to close the web view and return to the Capacitor app. If you want to automatically redirect the user back to the Capacitor app, you can provide the post sign-out redirect URI:
 
@@ -125,7 +105,7 @@ Run the Capacitor app click the sign-in button. If everything goes well, when th
   <img src={capaticorIos} alt="Capacitor iOS app" width="800" />
 </center>
 
-Then click the sign-out button, and the Capacitor app will be redirected to the Logto sign-out page. It will automatically redirect back to the Capacitor app if the post sign-out redirect URI is configured.
+Then click the sign-out button, and the Capacitor app will be redirected to the Aster sign-out page. It will automatically redirect back to the Capacitor app if the post sign-out redirect URI is configured.
 
 </Step>
 

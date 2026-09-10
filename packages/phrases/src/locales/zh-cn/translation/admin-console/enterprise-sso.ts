@@ -8,7 +8,7 @@ const enterprise_sso = {
   col_email_domain: '电子邮件域',
   placeholder_title: '企业连接器',
   placeholder_description:
-    'Logto 提供了许多内置的企业身份提供者，与之连接，与此同时你可以使用 SAML 和 OIDC 协议创建自己的企业身份提供者。',
+    'Aster 提供了许多内置的企业身份提供者，与之连接，与此同时你可以使用 SAML 和 OIDC 协议创建自己的企业身份提供者。',
   create_modal: {
     title: '添加企业连接器',
     text_divider: '或者你可以通过标准协议自定义你的连接器。',
@@ -34,7 +34,7 @@ const enterprise_sso = {
       entity_id_field_placeholder: 'urn:your-domain.com:sp:saml:{serviceProviderId}',
       sign_auth_request: '签名认证请求',
       sign_auth_request_tooltip:
-        'Logto 使用生成的证书对 SAML 认证请求进行签名。仅当你的身份提供者已配置为验证签名请求时才启用。',
+        'Aster 使用生成的证书对 SAML 认证请求进行签名。仅当你的身份提供者已配置为验证签名请求时才启用。',
       signing_certificate_field_name: '请求签名证书',
       signing_keys_empty: '尚未生成签名密钥。',
       generate_signing_key: '生成新密钥',
@@ -50,13 +50,13 @@ const enterprise_sso = {
       redirect_uri_field_description:
         'Redirect URI 是在 SSO 认证后用户被重定向到的地址。请将此 URI 添加到 IdP 的配置中。',
       redirect_uri_field_custom_domain_description:
-        '如果你在 Logto 中使用多个<a>自定义域名</a>，务必将所有对应的回调 URI 都添加到 IdP 中，以确保 SSO 在每个域名上都能正常工作。\n\n默认的 Logto 域名 (*.logto.app) 始终有效，只有在你也希望支持该域名下的 SSO 时才需要包含它。',
+        '如果你在 Aster 中使用多个<a>自定义域名</a>，务必将所有对应的回调 URI 都添加到 IdP 中，以确保 SSO 在每个域名上都能正常工作。\n\n默认的 Aster 域名 始终有效，只有在你也希望支持该域名下的 SSO 时才需要包含它。',
     },
   },
   attribute_mapping: {
     title: '属性映射',
     description: '需要 `id` 和 `email` 来同步用户配置文件。在 IdP 中输入以下声明名称和值。',
-    col_sp_claims: '服务提供商（Logto）的值',
+    col_sp_claims: '服务提供商（Aster）的值',
     col_idp_claims: '身份提供者的声明名称',
     idp_claim_tooltip: '身份提供者的声明名称',
   },

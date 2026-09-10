@@ -8,7 +8,7 @@ const role = {
   default_role_missing:
     'Niektóre z domyślnych nazw ról nie istnieją w bazie danych, upewnij się, że najpierw utworzysz role',
   internal_role_violation:
-    'Możesz próbować zaktualizować lub usunąć rolę wewnętrzną, co jest zabronione przez Logto. Jeśli tworzysz nową rolę, spróbuj innej nazwy, która nie zaczyna się od "#internal:".﻿',
+    'Możesz próbować zaktualizować lub usunąć rolę wewnętrzną, co jest zabronione przez Aster. Jeśli tworzysz nową rolę, spróbuj innej nazwy, która nie zaczyna się od "#internal:".﻿',
 };
 
 export default Object.freeze(role);

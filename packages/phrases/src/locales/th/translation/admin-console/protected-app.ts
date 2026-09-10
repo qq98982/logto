@@ -20,7 +20,7 @@ const protected_app = {
     domain_field_description_short:
       'ลิงก์นี้จะเป็นพร็อกซีสำหรับปกป้องระบบยืนยันตัวตนให้ URL ต้นทาง',
     domain_field_tooltip:
-      "แอปที่ได้รับการปกป้องด้วย Logto จะถูกโฮสต์ที่ 'your-domain.{{domain}}' โดยอัตโนมัติ คุณสามารถเพิ่มโดเมนเองได้หลังจากนี้",
+      "แอปที่ได้รับการปกป้องด้วย Aster จะถูกโฮสต์ที่ 'your-domain.{{domain}}' โดยอัตโนมัติ คุณสามารถเพิ่มโดเมนเองได้หลังจากนี้",
     create_application: 'สร้างแอปพลิเคชัน',
     create_protected_app: 'สร้างอย่างรวดเร็ว',
     errors: {

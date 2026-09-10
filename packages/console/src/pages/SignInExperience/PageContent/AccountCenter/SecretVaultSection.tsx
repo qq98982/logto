@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 import FormCard from '@/components/FormCard';
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import DynamicT from '@/ds-components/DynamicT';
 import FormField from '@/ds-components/FormField';
 import Tag from '@/ds-components/Tag';
@@ -18,7 +19,10 @@ function SecretVaultSection({ isAccountApiEnabled }: Props) {
     <FormCard
       title="sign_in_exp.account_center.sections.secret_vault.title"
       description="sign_in_exp.account_center.sections.secret_vault.description"
-      learnMoreLink={{ href: 'https://docs.logto.io/secret-vault', targetBlank: true }}
+      learnMoreLink={{
+        href: resolveAsterDocumentationLink('secret-vault'),
+        targetBlank: true,
+      }}
     >
       <div className={styles.cardContent}>
         <FormField

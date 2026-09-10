@@ -10,7 +10,7 @@ const upsell = {
   create_tenant: {
     title: 'Seleziona il piano del tenant',
     description:
-      'Logto offre opzioni competitive di piani con una struttura dei prezzi innovativa e conveniente progettata per le aziende in crescita. <a>Scopri di più</a>',
+      'Aster offre opzioni competitive di piani con una struttura dei prezzi innovativa e conveniente progettata per le aziende in crescita. <a>Scopri di più</a>',
     base_price: 'Prezzo base',
     monthly_price: '{{value, number}}/mese',
     view_all_features: 'Visualizza tutte le funzionalità',
@@ -23,18 +23,18 @@ const upsell = {
   mau_exceeded_modal: {
     title: 'MAU ha superato il limite. Aggiorna il tuo piano.',
     notification:
-      'Il tuo MAU attuale ha superato il limite di <planName/>. Aggiorna al piano premium tempestivamente per evitare la sospensione del servizio Logto.',
+      'Il tuo MAU attuale ha superato il limite di <planName/>. Aggiorna al piano premium tempestivamente per evitare la sospensione del servizio Aster.',
     update_plan: 'Aggiorna piano',
   },
   token_exceeded_modal: {
     title: 'Utilizzo dei token ha superato il limite. Aggiorna il tuo piano.',
     notification:
-      'Hai superato il limite di utilizzo dei token <planName/>. Gli utenti non saranno in grado di accedere correttamente al servizio Logto. Si prega di aggiornare tempestivamente il proprio piano a premium per evitare qualsiasi inconveniente.',
+      'Hai superato il limite di utilizzo dei token <planName/>. Gli utenti non saranno in grado di accedere correttamente al servizio Aster. Si prega di aggiornare tempestivamente il proprio piano a premium per evitare qualsiasi inconveniente.',
   },
   payment_overdue_modal: {
     title: 'Pagamento della fattura in ritardo',
     notification:
-      "Oops! Il pagamento della fattura dell'affittuario <span>{{name}}</span> è fallito. Si prega di pagare tempestivamente la fattura per evitare la sospensione del servizio Logto.",
+      "Oops! Il pagamento della fattura dell'affittuario <span>{{name}}</span> è fallito. Si prega di pagare tempestivamente la fattura per evitare la sospensione del servizio Aster.",
     unpaid_bills: 'Fatture non pagate',
     update_payment: 'Aggiorna pagamento',
   },
@@ -45,7 +45,7 @@ const upsell = {
     tenant_member: 'membro del tenant',
   },
   charge_notification_for_quota_limit:
-    "Hai superato il limite di quota {{item}}. Logto aggiungerà addebiti per l'uso oltre il limite di quota. La fatturazione inizierà il giorno in cui verrà rilasciato il nuovo design dei prezzi dell'addon. <a>Ulteriori informazioni</a>",
+    "Hai superato il limite di quota {{item}}. Aster aggiungerà addebiti per l'uso oltre il limite di quota. La fatturazione inizierà il giorno in cui verrà rilasciato il nuovo design dei prezzi dell'addon. <a>Ulteriori informazioni</a>",
   paywall,
   featured_plan_content,
   add_on,
