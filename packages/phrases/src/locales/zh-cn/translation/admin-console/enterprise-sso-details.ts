@@ -53,10 +53,10 @@ const enterprise_sso_details = {
   upload_oidc_idp_info_text: '填写来自身份提供者的信息进行连接。',
   service_provider_property_title: '在IdP中配置',
   service_provider_property_description:
-    '在你的身份提供者中使用{{protocol}}设置应用程序集成。输入 Logto 提供的详细信息。',
+    '在你的身份提供者中使用{{protocol}}设置应用程序集成。输入 Aster 提供的详细信息。',
   attribute_mapping_title: '属性映射',
   attribute_mapping_description:
-    '通过在身份提供者或 Logto 端配置用户属性映射，从身份提供者同步用户配置文件。',
+    '通过在身份提供者或 Aster 端配置用户属性映射，从身份提供者同步用户配置文件。',
   saml_preview: {
     sign_on_url: '登录URL',
     entity_id: '发行者',
@@ -95,7 +95,7 @@ const enterprise_sso_details = {
       '客户端回调 URI 用于启动 SP 发起的 SSO 认证流程。一个 ssoConnectorId 将作为查询参数附加到 URI。（例如，https://your.domain/sso/callback?connectorId={{ssoConnectorId}}）',
     redirect_uri: '登录后重定向 URI',
     redirect_uri_tooltip:
-      '用户成功登录后将被重定向的 URI。Logto 将在授权请求中使用此 URI 作为 OIDC 重定向 URI。为 IdP 发起的 SSO 认证流程使用专用 URI 以获得更好的安全性。',
+      '用户成功登录后将被重定向的 URI。Aster 将在授权请求中使用此 URI 作为 OIDC 重定向 URI。为 IdP 发起的 SSO 认证流程使用专用 URI 以获得更好的安全性。',
     empty_redirect_uris_error: '应用程序没有注册重定向 URI。请先添加一个。',
     redirect_uri_placeholder: '选择一个登录后重定向 URI',
     auth_params: '附加认证参数',
@@ -105,9 +105,9 @@ const enterprise_sso_details = {
   trust_unverified_email: '信任未验证的电子邮件',
   trust_unverified_email_label: '始终信任身份提供者返回的未验证电子邮件地址',
   trust_unverified_email_tip:
-    'Entra ID（OIDC）连接器不返回 `email_verified` 声明，这意味着来自 Azure 的电子邮件地址不一定经过验证。默认情况下，Logto 将不会将未验证的电子邮件地址同步到用户配置文件。只有在你信任来自 Entra ID 目录的所有电子邮件地址时才启用此选项。',
+    'Entra ID（OIDC）连接器不返回 `email_verified` 声明，这意味着来自 Azure 的电子邮件地址不一定经过验证。默认情况下，Aster 将不会将未验证的电子邮件地址同步到用户配置文件。只有在你信任来自 Entra ID 目录的所有电子邮件地址时才启用此选项。',
   trust_unverified_email_tip_oidc:
-    'OIDC 连接器可能不会返回 `email_verified` 声明，这意味着来自身份提供者的电子邮件地址不一定经过验证。默认情况下，Logto 不会将未验证的电子邮件地址同步到用户配置文件。只有在你信任来自身份提供者的所有电子邮件地址时才启用此选项。',
+    'OIDC 连接器可能不会返回 `email_verified` 声明，这意味着来自身份提供者的电子邮件地址不一定经过验证。默认情况下，Aster 不会将未验证的电子邮件地址同步到用户配置文件。只有在你信任来自身份提供者的所有电子邮件地址时才启用此选项。',
   offline_access: {
     label: '刷新访问令牌',
     description:

@@ -34,14 +34,14 @@ const organizations = {
     title: '가이드로 시작',
     subtitle: '조직 설정을 빠르게 시작해 보세요.',
     introduction: {
-      title: '로그토에서 조직이 작동하는 방식 이해하기',
+      title: 'Aster에서 조직이 작동하는 방식 이해하기',
       section_1: {
         title: '조직은 사용자(아이덴티티) 그룹입니다',
       },
       section_2: {
         title: '조직 템플릿은 멀티 테넌트 앱 액세스 제어에 사용됩니다',
         description:
-          '멀티 테넌트 SaaS 애플리케이션에서 여러 조직이 종종 동일한 액세스 제어 템플릿을 공유합니다. 이를 로그토에서는 "조직 템플릿"이라고 합니다.',
+          '멀티 테넌트 SaaS 애플리케이션에서 여러 조직이 종종 동일한 액세스 제어 템플릿을 공유합니다. 이를 Aster에서는 "조직 템플릿"이라고 합니다.',
         permission_description: '조직 권한은 리소스에 대한 권한을 나타냅니다.',
         role_description_deprecated:
           '조직 역할은 구성원에게 할당할 수 있는 조직 권한의 그룹화입니다.',
@@ -51,7 +51,7 @@ const organizations = {
       section_3: {
         title: '조직 역할에 API 권한을 할당할 수 있나요?',
         description:
-          '네, 조직 역할에 API 권한을 할당할 수 있습니다. Logto는 조직 역할에 효과적으로 API 권한을 관리할 수 있는 유연성을 제공합니다.',
+          '네, 조직 역할에 API 권한을 할당할 수 있습니다. Aster는 조직 역할에 효과적으로 API 권한을 관리할 수 있는 유연성을 제공합니다.',
       },
       section_4: {
         title: '일러스트로 상호 연결 방식 확인하기',

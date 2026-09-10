@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       'Excluir os tokens armazenados. Os usuários devem reautorizar o acesso para restaurar a funcionalidade.',
     confirmation_message:
-      'Tem certeza de que deseja excluir os tokens? O Cofre Secreto Logto removerá os tokens de acesso e atualização armazenados de {{connectorName}}. Este usuário deve reautorizar para restaurar o acesso às APIs de {{connectorName}}.',
+      'Tem certeza de que deseja excluir os tokens? O Cofre Secreto Aster removerá os tokens de acesso e atualização armazenados de {{connectorName}}. Este usuário deve reautorizar para restaurar o acesso às APIs de {{connectorName}}.',
   },
   token_storage_disabled: {
     title: 'Armazenamento de tokens desativado para este conector',

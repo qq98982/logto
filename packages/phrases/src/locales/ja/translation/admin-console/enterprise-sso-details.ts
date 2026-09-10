@@ -61,10 +61,10 @@ const enterprise_sso_details = {
   upload_oidc_idp_info_text: 'アイデンティティプロバイダーからコピーした情報を入力して接続します。',
   service_provider_property_title: 'アイデンティティプロバイダーに設定',
   service_provider_property_description:
-    'アイデンティティプロバイダーを使用して {{protocol}} でアプリケーション統合を設定します。Logtoが提供する詳細情報を入力してください。',
+    'アイデンティティプロバイダーを使用して {{protocol}} でアプリケーション統合を設定します。Asterが提供する詳細情報を入力してください。',
   attribute_mapping_title: '属性マッピング',
   attribute_mapping_description:
-    'アイデンティティプロバイダーまたはLogto側でユーザー属性マッピングを設定して、ユーザープロファイルを同期します。',
+    'アイデンティティプロバイダーまたはAster側でユーザー属性マッピングを設定して、ユーザープロファイルを同期します。',
   saml_preview: {
     sign_on_url: 'サインオンURL',
     entity_id: '発行者',
@@ -117,9 +117,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     'アイデンティティプロバイダーから返された未確認のメールアドレスを常に信頼する',
   trust_unverified_email_tip:
-    'Entra ID (OIDC) コネクタは `email_verified` クレームを返さないため、Azure からのメールアドレスは確認済みであることは保証されません。デフォルトでは、Logto は未検証のメールアドレスをユーザープロファイルに同期しません。Entra ID ディレクトリからのすべてのメールアドレスを信頼する場合にのみ、このオプションを有効にしてください。',
+    'Entra ID (OIDC) コネクタは `email_verified` クレームを返さないため、Azure からのメールアドレスは確認済みであることは保証されません。デフォルトでは、Aster は未検証のメールアドレスをユーザープロファイルに同期しません。Entra ID ディレクトリからのすべてのメールアドレスを信頼する場合にのみ、このオプションを有効にしてください。',
   trust_unverified_email_tip_oidc:
-    'OIDC コネクタは `email_verified` クレームを返さない場合があり、IdP からのメールアドレスが検証済みである保証はありません。既定では、Logto は未検証のメールアドレスをユーザープロファイルに同期しません。IdP のすべてのメールアドレスを信頼できる場合にのみ有効化してください。',
+    'OIDC コネクタは `email_verified` クレームを返さない場合があり、IdP からのメールアドレスが検証済みである保証はありません。既定では、Aster は未検証のメールアドレスをユーザープロファイルに同期しません。IdP のすべてのメールアドレスを信頼できる場合にのみ有効化してください。',
   offline_access: {
     label: 'アクセス トークンを更新',
     description:

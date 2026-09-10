@@ -45,7 +45,7 @@ const user_identity_details = {
     title: 'ลบโทเค็น',
     description: 'ลบโทเค็นที่จัดเก็บไว้ ผู้ใช้ต้องอนุญาตใหม่เพื่อกู้คืนฟังก์ชันการทำงาน',
     confirmation_message:
-      'คุณแน่ใจหรือไม่ว่าต้องการลบโทเค็น? Logto Secret Vault จะลบโทเค็น access และ refresh ของ {{connectorName}} ที่จัดเก็บไว้ ผู้ใช้นี้ต้องอนุญาตใหม่เพื่อเข้าถึง API ของ {{connectorName}} อีกครั้ง',
+      'คุณแน่ใจหรือไม่ว่าต้องการลบโทเค็น? Aster Secret Vault จะลบโทเค็น access และ refresh ของ {{connectorName}} ที่จัดเก็บไว้ ผู้ใช้นี้ต้องอนุญาตใหม่เพื่อเข้าถึง API ของ {{connectorName}} อีกครั้ง',
   },
   token_storage_disabled: {
     title: 'ปิดใช้งานการเก็บโทเค็นสำหรับคอนเนคเตอร์นี้',

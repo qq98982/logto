@@ -145,11 +145,11 @@ const user_details = {
   sessions: {
     title: '세션',
     description:
-      'Logto 인증 서버에 의해 유지되는 세션을 관리합니다. 여기서 Logto 세션을 해지하면 자동 동의가 미래의 인증 요청에서 방지됩니다.',
+      'Aster 인증 서버에 의해 유지되는 세션을 관리합니다. 여기서 Aster 세션을 해지하면 자동 동의가 미래의 인증 요청에서 방지됩니다.',
     field_name: '세션',
     multiple_signed_in: '이 사용자는 여러 기기나 브라우저에 로그인했습니다.',
     not_found:
-      '활성 Logto 세션을 찾을 수 없습니다. 사용자가 현재 어떤 장치에서도 로그인되어 있지 않습니다.',
+      '활성 Aster 세션을 찾을 수 없습니다. 사용자가 현재 어떤 장치에서도 로그인되어 있지 않습니다.',
     name_column: '이름',
     session_id_column: '세션 ID',
     location_column: '위치',
@@ -167,7 +167,7 @@ const user_details = {
   third_party_apps: {
     title: '서드파티 앱',
     description:
-      'Logto를 ID 공급자로 사용해 서드파티 앱을 승인할 수 있습니다. 이 사용자가 접근 권한을 부여한 앱을 확인하고 관리하세요.',
+      'Aster를 ID 공급자로 사용해 서드파티 앱을 승인할 수 있습니다. 이 사용자가 접근 권한을 부여한 앱을 확인하고 관리하세요.',
     field_name: '승인된 서드파티 앱',
     multiple_authorized: '이 사용자는 여러 서드파티 앱 및 서비스를 승인했습니다.',
     not_authorized: '이 사용자는 아직 어떤 서드파티 앱이나 서비스도 승인하지 않았습니다.',

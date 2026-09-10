@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Começar',
   title: 'Algo para explorar para ajudá-lo a ter sucesso',
-  subtitle: 'Algumas coisas que você pode fazer para obter rapidamente valor do Logto',
+  subtitle: 'Algumas coisas que você pode fazer para obter rapidamente valor do Aster',
   develop: {
     title: 'Desenvolva: Dedique 5 minutos para integrar o seu aplicativo',
     title_cloud: 'Desenvolver: Integre com segurança seu aplicativo em minutos',
@@ -14,7 +14,7 @@ const get_started = {
     preview: {
       title:
         'Verifique a visualização ao vivo da experiência de login que você acabou de personalizar',
-      subtitle: 'Experimente agora a experiência de login do Logto para ver como ela funciona',
+      subtitle: 'Experimente agora a experiência de login do Aster para ver como ela funciona',
     },
     connector: {
       title: 'Adicione mais conectores para oferecer mais métodos de login social',

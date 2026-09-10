@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Uruchamiaj niestandardowy kod w określonych punktach procesu uwierzytelniania, aby rozszerzyć działanie Logto.',
+    'Uruchamiaj niestandardowy kod w określonych punktach procesu uwierzytelniania, aby rozszerzyć działanie Aster.',
   status: {
     not_configured: 'Nieskonfigurowany',
     configured: 'Skonfigurowany',
@@ -29,7 +29,7 @@ const actions = {
   },
   result_data: {
     title: 'Wynik akcji',
-    subtitle: 'Zwróć obiekt wyniku, który Logto rozumie dla tego typu akcji.',
+    subtitle: 'Zwróć obiekt wyniku, który Aster rozumie dla tego typu akcji.',
   },
   environment_variables: {
     title: 'Ustaw zmienne środowiskowe',
@@ -53,11 +53,11 @@ const actions = {
     on_execution_error: {
       title: 'Gdy skrypt zwróci błąd',
       description:
-        'Wybierz, jak Logto ma się zachować, gdy skrypt zakończy się niepowodzeniem w czasie działania.',
+        'Wybierz, jak Aster ma się zachować, gdy skrypt zakończy się niepowodzeniem w czasie działania.',
       block: 'Zablokuj proces uwierzytelniania',
       allow: 'Pozwól procesowi uwierzytelniania kontynuować',
       post_first_factor_description:
-        'Gdy ten skrypt zakończy się niepowodzeniem, Logto zawsze odrzuca nieprawidłowe dane uwierzytelniające, aby nie dało się pominąć weryfikacji hasła.',
+        'Gdy ten skrypt zakończy się niepowodzeniem, Aster zawsze odrzuca nieprawidłowe dane uwierzytelniające, aby nie dało się pominąć weryfikacji hasła.',
     },
   },
   test_context: {

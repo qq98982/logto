@@ -34,7 +34,7 @@ const organizations = {
     title: 'Inizia con le guide',
     subtitle: "Inizia con le impostazioni dell'organizzazione con le nostre guide",
     introduction: {
-      title: "Capire come funziona l'organizzazione in Logto",
+      title: "Capire come funziona l'organizzazione in Aster",
       section_1: {
         title: "Un'organizzazione è un gruppo di utenti (identità)",
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           'Il modello organizzativo è progettato per il controllo degli accessi alle app multi-tenant',
         description:
-          'Nelle applicazioni SaaS multi-inquilino, spesso più organizzazioni condividono lo stesso modello di controllo degli accessi, che include permessi e ruoli. In Logto, lo chiamiamo "modello organizzativo".',
+          'Nelle applicazioni SaaS multi-inquilino, spesso più organizzazioni condividono lo stesso modello di controllo degli accessi, che include permessi e ruoli. In Aster, lo chiamiamo "modello organizzativo".',
         permission_description:
           "Il permesso organizzativo si riferisce all'autorizzazione per accedere a una risorsa nel contesto dell'organizzazione.",
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: "Posso assegnare permessi API ai ruoli dell'organizzazione?",
         description:
-          "Sì, puoi assegnare permessi API ai ruoli dell'organizzazione. Logto offre la flessibilità di gestire efficacemente i ruoli della tua organizzazione, permettendoti di includere sia permessi organizzativi che permessi API in tali ruoli.",
+          "Sì, puoi assegnare permessi API ai ruoli dell'organizzazione. Aster offre la flessibilità di gestire efficacemente i ruoli della tua organizzazione, permettendoti di includere sia permessi organizzativi che permessi API in tali ruoli.",
       },
       section_4: {
         title: "Interagisci con l'illustrazione per vedere come tutto si collega",

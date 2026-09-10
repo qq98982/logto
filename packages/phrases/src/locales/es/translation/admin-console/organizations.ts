@@ -34,7 +34,7 @@ const organizations = {
     title: 'Comience con guías',
     subtitle: 'Inicie la configuración de su organización con nuestras guías',
     introduction: {
-      title: 'Comprenda cómo funciona la organización en Logto',
+      title: 'Comprenda cómo funciona la organización en Aster',
       section_1: {
         title: 'Una organización es un grupo de usuarios (identidades)',
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           'La plantilla de organización está diseñada para el control de acceso de aplicaciones multiinquilino',
         description:
-          'En aplicaciones SaaS multiinquilino, varias organizaciones a menudo comparten la misma plantilla de control de acceso, que incluye permisos y roles. En Logto, lo llamamos "plantilla de organización".',
+          'En aplicaciones SaaS multiinquilino, varias organizaciones a menudo comparten la misma plantilla de control de acceso, que incluye permisos y roles. En Aster, lo llamamos "plantilla de organización".',
         permission_description:
           'El permiso de la organización se refiere a la autorización para acceder a un recurso en el contexto de la organización.',
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: '¿Puedo asignar permisos de API a roles de organización?',
         description:
-          'Sí, puedes asignar permisos de API a roles de organización. Logto ofrece la flexibilidad para gestionar los roles de tu organización de manera efectiva, permitiéndote incluir tanto permisos de organización como permisos de API dentro de esos roles.',
+          'Sí, puedes asignar permisos de API a roles de organización. Aster ofrece la flexibilidad para gestionar los roles de tu organización de manera efectiva, permitiéndote incluir tanto permisos de organización como permisos de API dentro de esos roles.',
       },
       section_4: {
         title: 'Interactúe con la ilustración para ver cómo se conecta todo',

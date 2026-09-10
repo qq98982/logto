@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Colore del marchio (scuro)',
     dark_mode: 'Abilita modalità scura',
     dark_mode_description:
-      "La tua app avrà un tema modalità scura generato automaticamente in base al tuo colore del marchio e all'algoritmo Logto. Sei libero di personalizzare.",
+      "La tua app avrà un tema modalità scura generato automaticamente in base al tuo colore del marchio e all'algoritmo Aster. Sei libero di personalizzare.",
     dark_mode_reset_tip: 'Ricalcola il colore della modalità scura in base al colore del marchio.',
     reset: 'Ricalcola',
   },
@@ -87,7 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Porta la tua UI',
     bring_your_ui_upload_title: 'Carica asset UI personalizzati',
     bring_your_ui_description:
-      'Carica un pacchetto compresso (.zip) per sostituire la UI precaricata di Logto con il tuo codice. <a>Scopri di più</a>',
+      'Carica un pacchetto compresso (.zip) per sostituire la UI precaricata di Aster con il tuo codice. <a>Scopri di più</a>',
     preview_with_bring_your_ui_description:
       'I tuoi asset della UI personalizzata sono stati caricati con successo e ora vengono serviti. Di conseguenza, la finestra di anteprima integrata è stata disabilitata.\nPer testare la tua UI di accesso personalizzata, fai clic sul pulsante "Live Preview" per aprirla in una nuova scheda del browser.',
     csp_description:
@@ -104,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'CENTRO ACCOUNT',
-    description: 'Personalizza i flussi del centro account con le API Logto.',
+    description: 'Personalizza i flussi del centro account con le API Aster.',
     enable_account_api: 'Abilita il centro account e l’Account API',
     enable_account_api_description:
-      'Abilita insieme l’Account API per gli utenti finali e il centro account predefinito di Logto. Se disattivato, entrambe le funzionalità non sono disponibili.',
+      'Abilita insieme l’Account API per gli utenti finali e il centro account predefinito di Aster. Se disattivato, entrambe le funzionalità non sono disponibili.',
     field_options: {
       off: 'Disattivato',
       edit: 'Modifica',

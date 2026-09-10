@@ -2,16 +2,16 @@ const oss_onboarding = {
   page_title: 'Onboarding',
   title: 'Bize biraz kendinizden bahsedin',
   description:
-    'Bize kendinizden ve projenizden biraz bahsedin. Bu, herkes icin daha iyi bir Logto oluşturmamiza yardimci olur.',
+    'Bize kendinizden ve projenizden biraz bahsedin. Bu, herkes icin daha iyi bir Aster oluşturmamiza yardimci olur.',
   email: {
     label: 'E-posta adresi',
     description: 'Hesabinizla ilgili sizinle iletisime gecmemiz gerekirse bu adresi kullanacagiz.',
     placeholder: 'email@example.com',
   },
   newsletter:
-    'Logto’dan urun guncellemeleri, guvenlik bildirimleri ve ozenle secilmis icerikler alin.',
+    "Aster'den urun guncellemeleri, guvenlik bildirimleri ve ozenle secilmis icerikler alin.",
   project: {
-    label: 'Logto’yu su amacla kullaniyorum',
+    label: "Aster'i su amacla kullaniyorum",
     personal: 'Kisisel proje',
     company: 'Sirket projesi',
   },

@@ -38,9 +38,9 @@ const content = {
     subtitle:
       'Diller ve çeviriler ekleyerek ürün deneyimini yerelleştirin. Katkınız varsayılan dil olarak ayarlanabilir.',
     add_language: 'Dil ekle',
-    logto_provided: 'Logto tarafından sağlandı',
+    aster_provided: 'Aster tarafından sağlandı',
     key: 'Anahtar',
-    logto_source_values: 'Logto kaynak değerleri',
+    aster_source_values: 'Aster kaynak değerleri',
     custom_values: 'Özel değerler',
     clear_all_tip: 'Tüm değerleri temizle',
     unsaved_description: 'Kaydetmeden bu sayfadan ayrılırsanız değişiklikler kaydedilmez.',

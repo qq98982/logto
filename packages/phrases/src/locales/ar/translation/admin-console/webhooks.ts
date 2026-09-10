@@ -29,7 +29,7 @@ const webhooks = {
     title: 'إنشاء ويب هوك',
     subtitle: 'أضف الويب هوك لإرسال طلب POST إلى عنوان URL الخاص بك مع تفاصيل أحداث المستخدمين.',
     events: 'الأحداث',
-    events_description: 'حدد أحداث التشغيل التي سترسلها Logto كطلب POST.',
+    events_description: 'حدد أحداث التشغيل التي سترسلها Aster كطلب POST.',
     name: 'الاسم',
     name_placeholder: 'أدخل اسم الويب هوك',
     endpoint_url: 'عنوان URL النهاية',

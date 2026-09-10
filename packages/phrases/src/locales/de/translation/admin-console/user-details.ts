@@ -154,11 +154,11 @@ const user_details = {
   sessions: {
     title: 'Sitzungen',
     description:
-      'Verwalte Sitzungen, die vom Logto Authorization Server aufrechterhalten werden. Das Widerrufen einer Logto-Sitzung hier verhindert die automatische Zustimmung bei zukünftigen Autorisierungsanfragen.',
+      'Verwalte Sitzungen, die vom Aster Authorization Server aufrechterhalten werden. Das Widerrufen einer Aster-Sitzung hier verhindert die automatische Zustimmung bei zukünftigen Autorisierungsanfragen.',
     field_name: 'Sitzungen',
     multiple_signed_in: 'Dieser Benutzer hat sich an mehreren Geräten oder Browsern angemeldet.',
     not_found:
-      'Keine aktiven Logto-Sitzungen gefunden. Der Benutzer ist derzeit auf keinem Gerät angemeldet.',
+      'Keine aktiven Aster-Sitzungen gefunden. Der Benutzer ist derzeit auf keinem Gerät angemeldet.',
     name_column: 'Name',
     session_id_column: 'Sitzungs-ID',
     location_column: 'Standort',
@@ -177,7 +177,7 @@ const user_details = {
   third_party_apps: {
     title: 'Drittanbieter-Apps',
     description:
-      'Verwende Logto als Identitätsanbieter, um Drittanbieter-Apps zu autorisieren. Zeige die Apps an und verwalte sie, denen dieser Benutzer Zugriff gewährt hat.',
+      'Verwende Aster als Identitätsanbieter, um Drittanbieter-Apps zu autorisieren. Zeige die Apps an und verwalte sie, denen dieser Benutzer Zugriff gewährt hat.',
     field_name: 'Autorisierte Drittanbieter-Apps',
     multiple_authorized: 'Dieser Benutzer hat mehrere Drittanbieter-Apps und -Dienste autorisiert.',
     not_authorized: 'Dieser Benutzer hat noch keine Drittanbieter-Apps oder -Dienste autorisiert.',

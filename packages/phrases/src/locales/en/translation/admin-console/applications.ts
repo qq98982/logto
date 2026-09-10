@@ -2,7 +2,7 @@ const applications = {
   page_title: 'Applications',
   title: 'Applications',
   subtitle: 'Create and manage applications for OIDC authentication.',
-  subtitle_with_app_type: 'Set up Logto authentication for your {{name}} application',
+  subtitle_with_app_type: 'Set up Aster authentication for your {{name}} application',
   create_device_flow_description:
     'Create a native application that uses the OAuth 2.0 Device Authorization Grant for input-limited devices or headless apps.',
   create: 'Create application',
@@ -43,7 +43,7 @@ const applications = {
     },
     protected: {
       title: 'Protected App',
-      subtitle: 'An app that is protected by Logto', // Not in use
+      subtitle: 'An app that is protected by Aster', // Not in use
       description: 'N/A', // Not in use
     },
     saml: {
@@ -74,14 +74,14 @@ const applications = {
   },
   placeholder_title: 'Select an application type to continue',
   placeholder_description:
-    'Logto uses an application entity for OIDC to help with tasks such as identifying your apps, managing sign-in, and creating audit logs.',
+    'Aster uses an application entity for OIDC to help with tasks such as identifying your apps, managing sign-in, and creating audit logs.',
   third_party_application_placeholder_description:
-    'Use Logto as an Identity Provider to provide OAuth authorization to third-party services. Includes a prebuilt user consent screen for resource access. <a>Learn more</a>',
+    'Use Aster as an Identity Provider to provide OAuth authorization to third-party services. Includes a prebuilt user consent screen for resource access. <a>Learn more</a>',
   guide: {
     third_party: {
       title: 'Integrate a third-party application',
       description:
-        'Use Logto as your Identity Provider to provide OAuth authorization to third-party services. Includes a prebuilt user consent screen for secure resource access. <a>Learn more</a>',
+        'Use Aster as your Identity Provider to provide OAuth authorization to third-party services. Includes a prebuilt user consent screen for secure resource access. <a>Learn more</a>',
     },
   },
 };

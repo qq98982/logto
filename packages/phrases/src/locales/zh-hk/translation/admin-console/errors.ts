@@ -20,7 +20,7 @@ const errors = {
   unexpected_error: '發生未知錯誤',
   not_found: '404 找不到資源',
   create_internal_role_violation:
-    '你正在創建一個被 Logto 禁止內部角色。嘗試使用不以 "#internal:" 開頭的其他名稱。',
+    '你正在創建一個被 Aster 禁止內部角色。嘗試使用不以 "#internal:" 開頭的其他名稱。',
   should_be_an_integer: '必須為整數。',
   number_should_be_between_inclusive: '數值必須在{{min}}和{{max}}之間（包括{{min}}和{{max}}）',
 };

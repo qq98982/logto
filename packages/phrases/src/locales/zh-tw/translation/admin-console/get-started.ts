@@ -1,7 +1,7 @@
 const get_started = {
   page_title: '開始上手',
   title: '成功開發身份方案，我們先來探索一番',
-  subtitle: '一些快速獲取 Logto 價值的事情',
+  subtitle: '一些快速獲取 Aster 價值的事情',
   develop: {
     title: '開發：花 5 分鐘集成您的應用程式',
     title_cloud: '開發：在幾分鐘內安全集成您的應用程式',
@@ -12,7 +12,7 @@ const get_started = {
     title: '自訂：提供出色的登錄體驗',
     preview: {
       title: '查看您剛自訂的登錄體驗的實時預覽',
-      subtitle: '立即嘗試 Logto 登錄體驗，了解其工作原理',
+      subtitle: '立即嘗試 Aster 登錄體驗，了解其工作原理',
     },
     connector: {
       title: '添加更多連接器以支持更多社交登錄方式',

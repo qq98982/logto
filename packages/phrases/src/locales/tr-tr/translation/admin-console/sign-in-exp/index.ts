@@ -87,7 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: "UI'nizi Getirin",
     bring_your_ui_upload_title: 'Özel UI varlıklarını yükle',
     bring_your_ui_description:
-      "Logto'nun önceden oluşturulmuş UI'sini kendi kodunuzla değiştirmek için sıkıştırılmış bir paket (.zip) yükleyin. <a>Daha fazla bilgi edinin</a>",
+      "Aster'in önceden oluşturulmuş UI'sini kendi kodunuzla değiştirmek için sıkıştırılmış bir paket (.zip) yükleyin. <a>Daha fazla bilgi edinin</a>",
     preview_with_bring_your_ui_description:
       'Özelleştirilmiş UI varlıklarınız başarıyla yüklendi ve şimdi sunuluyor. Sonuç olarak, yerleşik önizleme penceresi devre dışı bırakıldı.\nKişiselleştirilmiş oturum açma UI\'nizi test etmek için "Canlı Önizleme" düğmesine tıklayarak yeni bir tarayıcı sekmesinde açın.',
     csp_description:
@@ -104,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'HESAP MERKEZİ',
-    description: "Hesap merkezi akışlarını Logto API'leriyle özelleştirin.",
+    description: "Hesap merkezi akışlarını Aster API'leriyle özelleştirin.",
     enable_account_api: "Hesap merkezi ve Account API'yi etkinleştir",
     enable_account_api_description:
-      "Son kullanıcıya yönelik Account API'yi ve Logto'nun hazır hesap merkezini birlikte etkinleştirir. Kapatıldığında bu iki özellik de kullanılamaz.",
+      "Son kullanıcıya yönelik Account API'yi ve Aster'in hazır hesap merkezini birlikte etkinleştirir. Kapatıldığında bu iki özellik de kullanılamaz.",
     field_options: {
       off: 'Kapalı',
       edit: 'Düzenle',

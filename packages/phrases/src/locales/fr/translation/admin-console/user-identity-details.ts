@@ -49,7 +49,7 @@ const user_identity_details = {
     description:
       "Supprimer les jetons stockés. Les utilisateurs doivent réautoriser l'accès pour restaurer la fonctionnalité.",
     confirmation_message:
-      "Êtes-vous sûr de vouloir supprimer les jetons ? Le Coffre Secret de Logto supprimera les jetons d'accès et de rafraîchissement {{connectorName}} stockés. Cet utilisateur doit réautoriser pour restaurer l'accès aux API de {{connectorName}}.",
+      "Êtes-vous sûr de vouloir supprimer les jetons ? Le Coffre Secret d'Aster supprimera les jetons d'accès et de rafraîchissement {{connectorName}} stockés. Cet utilisateur doit réautoriser pour restaurer l'accès aux API de {{connectorName}}.",
   },
   token_storage_disabled: {
     title: 'Le stockage des jetons est désactivé pour ce connecteur',

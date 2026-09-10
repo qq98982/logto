@@ -59,7 +59,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Social-Sign-in-Erlebnis',
     automatic_account_linking: 'Konten mit dem gleichen Identifier automatisch verknüpfen',
     automatic_account_linking_tip:
-      'Wenn diese Option aktiviert ist, wird Logto bei einer neuen sozialen Anmeldung die soziale Identität automatisch mit dem Konto verknüpfen, wenn es genau ein bestehendes Konto mit dem gleichen Identifier gibt (z.B. eine E-Mail-Adresse). Der Benutzer wird nicht gefragt, ob er Konten verknüpfen möchte.',
+      'Wenn diese Option aktiviert ist, wird Aster bei einer neuen sozialen Anmeldung die soziale Identität automatisch mit dem Konto verknüpfen, wenn es genau ein bestehendes Konto mit dem gleichen Identifier gibt (z.B. eine E-Mail-Adresse). Der Benutzer wird nicht gefragt, ob er Konten verknüpfen möchte.',
     required_sign_up_identifiers: 'Benutzer müssen fehlende Anmeldeidentifier angeben',
     required_sign_up_identifiers_tip:
       'Wenn aktiviert, müssen sich Benutzer über soziale Anbieter einloggen und alle fehlenden Anmeldeidentifier (wie E-Mail) ausfüllen, bevor sie sich anmelden können.\n\nWenn deaktiviert, können Benutzer fortfahren, ohne fehlende Identifier anzugeben, auch wenn das soziale Konto sie nicht synchronisiert hat.',
@@ -108,7 +108,7 @@ const sign_up_and_sign_in = {
       'Aktivieren oder deaktivieren Sie die Benutzerregistrierung. Sobald deaktiviert, können Benutzer immer noch über die Admin-Konsole hinzugefügt werden, aber Benutzer können keine Konten mehr über die Anmelde-Benutzeroberfläche einrichten.',
     unknown_session_redirect_url: 'Unbekannte Sitzungsumleitungs-URL',
     unknown_session_redirect_url_tip:
-      'Manchmal kann Logto eine Benutzersitzung auf der Anmeldeseite nicht erkennen, z. B. wenn eine Sitzung abläuft oder der Benutzer den Anmeldelink zu den Lesezeichen hinzufügt oder teilt. Standardmäßig erscheint ein 404-Fehler "Unbekannte Sitzung". Um die Benutzererfahrung zu verbessern, legen Sie eine Fallback-URL fest, um Benutzer zurück zu Ihrer App zu leiten und die Authentifizierung neu zu starten.',
+      'Manchmal kann Aster eine Benutzersitzung auf der Anmeldeseite nicht erkennen, z. B. wenn eine Sitzung abläuft oder der Benutzer den Anmeldelink zu den Lesezeichen hinzufügt oder teilt. Standardmäßig erscheint ein 404-Fehler "Unbekannte Sitzung". Um die Benutzererfahrung zu verbessern, legen Sie eine Fallback-URL fest, um Benutzer zurück zu Ihrer App zu leiten und die Authentifizierung neu zu starten.',
   },
   username_policy: {
     title: 'Benutzernamenrichtlinie',

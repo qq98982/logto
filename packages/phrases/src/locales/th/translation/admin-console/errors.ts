@@ -21,7 +21,7 @@ const errors = {
   unexpected_error: 'เกิดข้อผิดพลาดที่ไม่คาดคิด',
   not_found: 'ไม่พบ 404',
   create_internal_role_violation:
-    'คุณกำลังสร้างบทบาทภายในใหม่ซึ่ง Logto ไม่อนุญาต ลองใช้ชื่อที่ไม่ได้ขึ้นต้นด้วย "#internal:"',
+    'คุณกำลังสร้างบทบาทภายในใหม่ซึ่ง Aster ไม่อนุญาต ลองใช้ชื่อที่ไม่ได้ขึ้นต้นด้วย "#internal:"',
   should_be_an_integer: 'ควรเป็นจำนวนเต็ม',
   number_should_be_between_inclusive: 'ค่าควรอยู่ระหว่าง {{min}} และ {{max}} (รวมทั้งสองค่าด้วย)',
 };

@@ -34,14 +34,14 @@ const organizations = {
     title: 'Beginnen Sie mit Anleitungen',
     subtitle: 'Starten Sie Ihre Organisationseinstellungen mit unseren Anleitungen',
     introduction: {
-      title: 'Verstehen Sie, wie eine Organisation in Logto funktioniert',
+      title: 'Verstehen Sie, wie eine Organisation in Aster funktioniert',
       section_1: {
         title: 'Eine Organisation ist eine Gruppe von Benutzern (Identitäten)',
       },
       section_2: {
         title: 'Die Organisationsvorlage ist für den Zugriff auf Multi-Tenant-Apps konzipiert',
         description:
-          'In Multi-Tenant-SaaS-Anwendungen teilen häufig mehrere Organisationen dieselbe Zugriffskontrollvorlage, zu der Berechtigungen und Rollen gehören. In Logto nennen wir es "Organisationsvorlage".',
+          'In Multi-Tenant-SaaS-Anwendungen teilen häufig mehrere Organisationen dieselbe Zugriffskontrollvorlage, zu der Berechtigungen und Rollen gehören. In Aster nennen wir es "Organisationsvorlage".',
         permission_description:
           'Die Organisationsberechtigung bezieht sich auf die Autorisierung zum Zugriff auf eine Ressource im Kontext der Organisation.',
         role_description_deprecated:
@@ -52,7 +52,7 @@ const organizations = {
       section_3: {
         title: 'Kann ich API-Berechtigungen zu Organisationsrollen zuweisen?',
         description:
-          'Ja, Sie können API-Berechtigungen zu Organisationsrollen zuweisen. Logto bietet die Flexibilität, die Rollen Ihrer Organisation effektiv zu verwalten, und ermöglicht es Ihnen, sowohl Organisationsberechtigungen als auch API-Berechtigungen in diese Rollen einzuschließen.',
+          'Ja, Sie können API-Berechtigungen zu Organisationsrollen zuweisen. Aster bietet die Flexibilität, die Rollen Ihrer Organisation effektiv zu verwalten, und ermöglicht es Ihnen, sowohl Organisationsberechtigungen als auch API-Berechtigungen in diese Rollen einzuschließen.',
       },
       section_4: {
         title: 'Interagieren Sie mit der Abbildung, um zu sehen, wie alles zusammenhängt',

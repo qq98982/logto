@@ -34,14 +34,14 @@ const organizations = {
     title: '從指南開始',
     subtitle: '使用我們的指南快速開始組織設定',
     introduction: {
-      title: '讓我們了解組織在 Logto 中的運作方式',
+      title: '讓我們了解組織在 Aster 中的運作方式',
       section_1: {
         title: '組織是一組用戶(身分)組成的集團',
       },
       section_2: {
         title: '組織模板旨在用於多租戶應用程式存取控制',
         description:
-          '在多租戶SaaS應用程式中，多個組織通常共用相同的存取控制模板，其中包括權限和角色。 在Logto中，我們稱之為「組織模板」。',
+          '在多租戶SaaS應用程式中，多個組織通常共用相同的存取控制模板，其中包括權限和角色。 在Aster中，我們稱之為「組織模板」。',
         permission_description: '組織權限是指在組織上下文中訪問資源的授權。',
         role_description_deprecated: '組織角色是一組組織權限，可以分配給成員。',
         role_description: '組織角色是可以分配給成員的組織權限或 API 權限的分組。',
@@ -49,7 +49,7 @@ const organizations = {
       section_3: {
         title: '我可以將 API 權限指派給組織角色嗎？',
         description:
-          '是的，你可以將 API 權限指派給組織角色。 Logto 提供彈性，有效管理你組織的角色，允許你在這些角色中包含組織權限和 API 權限。',
+          '是的，你可以將 API 權限指派給組織角色。 Aster 提供彈性，有效管理你組織的角色，允許你在這些角色中包含組織權限和 API 權限。',
       },
       section_4: {
         title: '與插圖互動，查看所有連結如何互相連接',

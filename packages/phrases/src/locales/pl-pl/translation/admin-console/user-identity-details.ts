@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       'Usuń przechowywane tokeny. Użytkownicy muszą ponownie autoryzować dostęp, aby przywrócić funkcjonalność.',
     confirmation_message:
-      'Czy na pewno chcesz usunąć tokeny? Logto Secret Vault usunie przechowywane tokeny dostępu i odświeżające {{connectorName}}. Ten użytkownik musi ponownie autoryzować, aby przywrócić dostęp do API {{connectorName}}.',
+      'Czy na pewno chcesz usunąć tokeny? Aster Secret Vault usunie przechowywane tokeny dostępu i odświeżające {{connectorName}}. Ten użytkownik musi ponownie autoryzować, aby przywrócić dostęp do API {{connectorName}}.',
   },
   token_storage_disabled: {
     title: 'Przechowywanie tokenów jest wyłączone dla tego łącznika',

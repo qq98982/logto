@@ -38,9 +38,9 @@ const content = {
     subtitle:
       'Localize the product experience by adding languages and translations. Your contribution can be set as the default language.',
     add_language: 'Add Language',
-    logto_provided: 'Logto provided',
+    aster_provided: 'Aster provided',
     key: 'Key',
-    logto_source_values: 'Logto source values',
+    aster_source_values: 'Aster source values',
     custom_values: 'Custom values',
     clear_all_tip: 'Clear all values',
     unsaved_description: 'Changes won’t be saved if you leave this page without saving.',

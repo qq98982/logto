@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Ejecuta código personalizado en puntos específicos del flujo de autenticación para ampliar el comportamiento de Logto.',
+    'Ejecuta código personalizado en puntos específicos del flujo de autenticación para ampliar el comportamiento de Aster.',
   status: {
     not_configured: 'Sin configurar',
     configured: 'Configurado',
@@ -30,7 +30,7 @@ const actions = {
   },
   result_data: {
     title: 'Resultado de la acción',
-    subtitle: 'Devuelve un objeto de resultado que Logto entienda para este tipo de acción.',
+    subtitle: 'Devuelve un objeto de resultado que Aster entienda para este tipo de acción.',
   },
   environment_variables: {
     title: 'Definir variables de entorno',
@@ -55,11 +55,11 @@ const actions = {
     on_execution_error: {
       title: 'Si el script falla',
       description:
-        'Elige cómo debe comportarse Logto cuando el script falle en tiempo de ejecución.',
+        'Elige cómo debe comportarse Aster cuando el script falle en tiempo de ejecución.',
       block: 'Bloquear el flujo de autenticación',
       allow: 'Permitir que el flujo de autenticación continúe',
       post_first_factor_description:
-        'Cuando este script falla, Logto siempre rechaza las credenciales no válidas para que no se pueda omitir la verificación de la contraseña.',
+        'Cuando este script falla, Aster siempre rechaza las credenciales no válidas para que no se pueda omitir la verificación de la contraseña.',
     },
   },
   test_context: {

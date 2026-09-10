@@ -34,14 +34,14 @@ const organizations = {
     title: 'Kılavuzlarla başlayın',
     subtitle: 'Kılavuzlarımızla kuruluş ayarlarınızı hızlandırın',
     introduction: {
-      title: "Logto'da kuruluşun nasıl çalıştığını anlayalım",
+      title: "Aster'de kuruluşun nasıl çalıştığını anlayalım",
       section_1: {
         title: 'Kuruluş, bir kullanıcı (kimlik) grubudur',
       },
       section_2: {
         title: 'Kuruluş şablonu, çok kiracılı uygulamaların erişim denetimleri için tasarlanmıştır',
         description:
-          'Çok kiracılı SaaS uygulamalarında, birden çok kuruluş genellikle aynı erişim kontrol şablonunu paylaşır; bu şablon izinleri ve rolleri içerir. Logto\'da buna "kuruluş şablonu" diyoruz.',
+          'Çok kiracılı SaaS uygulamalarında, birden çok kuruluş genellikle aynı erişim kontrol şablonunu paylaşır; bu şablon izinleri ve rolleri içerir. Aster\'de buna "kuruluş şablonu" diyoruz.',
         permission_description:
           'Kuruluş izni, kuruluş bağlamında bir kaynağa erişim izni anlamına gelir.',
         role_description_deprecated:
@@ -52,7 +52,7 @@ const organizations = {
       section_3: {
         title: 'API izinlerini organizasyon rollerine atayabilir miyim?',
         description:
-          'Evet, API izinlerini organizasyon rollerine atayabilirsiniz. Logto, organizasyonunuzun rollerini etkili bir şekilde yönetme esnekliği sunar, bu roller içinde hem organizasyon izinlerini hem de API izinlerini içerecek şekilde izin verir.',
+          'Evet, API izinlerini organizasyon rollerine atayabilirsiniz. Aster, organizasyonunuzun rollerini etkili bir şekilde yönetme esnekliği sunar, bu roller içinde hem organizasyon izinlerini hem de API izinlerini içerecek şekilde izin verir.',
       },
       section_4: {
         title: 'Her şeyin nasıl bağlandığını görmek için illüstrasyonla etkileşim',

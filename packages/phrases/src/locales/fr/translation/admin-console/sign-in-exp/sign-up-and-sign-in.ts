@@ -62,7 +62,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Expérience de connexion sociale',
     automatic_account_linking: 'Lier automatiquement les comptes avec le même identifiant',
     automatic_account_linking_tip:
-      "Lors de l'activation, si un utilisateur se connecte avec une nouvelle identité sociale et qu'il y a exactement un compte existant avec le même identifiant (par exemple, une adresse e-mail), Logto liera automatiquement l'identité sociale à ce compte. L'utilisateur ne sera pas invité à choisir s'il souhaite lier les comptes.",
+      "Lors de l'activation, si un utilisateur se connecte avec une nouvelle identité sociale et qu'il y a exactement un compte existant avec le même identifiant (par exemple, une adresse e-mail), Aster liera automatiquement l'identité sociale à ce compte. L'utilisateur ne sera pas invité à choisir s'il souhaite lier les comptes.",
     required_sign_up_identifiers:
       "Exiger des utilisateurs qu'ils fournissent l'identifiant d'inscription manquant",
     required_sign_up_identifiers_tip:
@@ -114,7 +114,7 @@ const sign_up_and_sign_in = {
       "Activer ou interdire l'inscription des utilisateurs. Une fois désactivée, les utilisateurs peuvent toujours être ajoutés à la console d'administration mais ne peuvent plus créer de compte via l'interface de connexion.",
     unknown_session_redirect_url: 'URL de redirection de session inconnue',
     unknown_session_redirect_url_tip:
-      "Parfois, Logto peut ne pas reconnaître la session d’un utilisateur sur la page de connexion, comme lorsque la session expire ou que l’utilisateur met en signet ou partage le lien de connexion. Par défaut, une erreur 404 de “session inconnue” apparaît. Pour améliorer l'expérience utilisateur, définissez une URL de secours pour rediriger les utilisateurs vers votre application et redémarrer l'authentification.",
+      "Parfois, Aster peut ne pas reconnaître la session d’un utilisateur sur la page de connexion, comme lorsque la session expire ou que l’utilisateur met en signet ou partage le lien de connexion. Par défaut, une erreur 404 de “session inconnue” apparaît. Pour améliorer l'expérience utilisateur, définissez une URL de secours pour rediriger les utilisateurs vers votre application et redémarrer l'authentification.",
   },
   username_policy: {
     title: 'Politique de nom d’utilisateur',

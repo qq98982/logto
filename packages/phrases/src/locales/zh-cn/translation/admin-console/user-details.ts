@@ -139,10 +139,10 @@ const user_details = {
   sessions: {
     title: '会话',
     description:
-      '管理由 Logto 授权服务器维护的会话。在这里撤销 Logto 会话将阻止未来授权请求的自动同意。',
+      '管理由 Aster 授权服务器维护的会话。在这里撤销 Aster 会话将阻止未来授权请求的自动同意。',
     field_name: '会话',
     multiple_signed_in: '该用户已在多个设备或浏览器上登录。',
-    not_found: '未找到活动的 Logto 会话。该用户当前未在任何设备上登录。',
+    not_found: '未找到活动的 Aster 会话。该用户当前未在任何设备上登录。',
     name_column: '名称',
     session_id_column: '会话 ID',
     location_column: '位置',
@@ -159,7 +159,7 @@ const user_details = {
   },
   third_party_apps: {
     title: '第三方应用',
-    description: '使用 Logto 作为身份提供商来授权第三方应用。查看并管理该用户已授权访问的应用。',
+    description: '使用 Aster 作为身份提供商来授权第三方应用。查看并管理该用户已授权访问的应用。',
     field_name: '已授权第三方应用',
     multiple_authorized: '该用户已授权多个第三方应用和服务。',
     not_authorized: '该用户尚未授权任何第三方应用或服务。',

@@ -2,8 +2,8 @@ const applications = {
   page_title: 'Aplikacje',
   title: 'Aplikacje',
   subtitle:
-    'Skonfiguruj uwierzytelnianie Logto dla Twojej aplikacji natywnej, jednostronicowej, komunikującej się bezpośrednio z zasobami lub tradycyjnej',
-  subtitle_with_app_type: 'Skonfiguruj uwierzytelnianie Logto dla twojej aplikacji {{name}}',
+    'Skonfiguruj uwierzytelnianie Aster dla Twojej aplikacji natywnej, jednostronicowej, komunikującej się bezpośrednio z zasobami lub tradycyjnej',
+  subtitle_with_app_type: 'Skonfiguruj uwierzytelnianie Aster dla twojej aplikacji {{name}}',
   create_device_flow_description:
     'Utwórz natywną aplikację wykorzystującą OAuth 2.0 Device Authorization Grant dla urządzeń o ograniczonym wprowadzaniu danych lub aplikacji headless.',
   create: 'Utwórz aplikację',
@@ -46,7 +46,7 @@ const applications = {
     },
     protected: {
       title: 'Chroniona aplikacja',
-      subtitle: 'Aplikacja chroniona przez Logto',
+      subtitle: 'Aplikacja chroniona przez Aster',
       description: 'N/A',
     },
     saml: {
@@ -77,14 +77,14 @@ const applications = {
   },
   placeholder_title: 'Wybierz typ aplikacji, aby kontynuować',
   placeholder_description:
-    'Logto używa jednostki aplikacji dla OIDC, aby pomóc w takich zadaniach jak identyfikowanie Twoich aplikacji, zarządzanie logowaniem i tworzenie dzienników audytu.',
+    'Aster używa jednostki aplikacji dla OIDC, aby pomóc w takich zadaniach jak identyfikowanie Twoich aplikacji, zarządzanie logowaniem i tworzenie dzienników audytu.',
   third_party_application_placeholder_description:
-    'Użyj Logto jako dostawcy tożsamości, aby zapewnić autoryzację OAuth dla usług stron trzecich. \n Zawiera wbudowany ekran zgody użytkownika na dostęp do zasobów. <a>Dowiedz się więcej</a>',
+    'Użyj Aster jako dostawcy tożsamości, aby zapewnić autoryzację OAuth dla usług stron trzecich. \n Zawiera wbudowany ekran zgody użytkownika na dostęp do zasobów. <a>Dowiedz się więcej</a>',
   guide: {
     third_party: {
       title: 'Zintegruj aplikację stron trzecich',
       description:
-        'Użyj Logto jako dostawcy tożsamości, aby zapewnić autoryzację OAuth dla usług stron trzecich. Zawiera wbudowany ekran zgody użytkownika na bezpieczny dostęp do zasobów. <a>Dowiedz się więcej</a>',
+        'Użyj Aster jako dostawcy tożsamości, aby zapewnić autoryzację OAuth dla usług stron trzecich. Zawiera wbudowany ekran zgody użytkownika na bezpieczny dostęp do zasobów. <a>Dowiedz się więcej</a>',
     },
   },
 };

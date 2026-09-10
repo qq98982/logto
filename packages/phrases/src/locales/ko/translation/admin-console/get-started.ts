@@ -1,7 +1,7 @@
 const get_started = {
   page_title: '시작하기',
   title: '성공하는 데 도움이 될 탐색 항목',
-  subtitle: 'Logto의 가치를 빠르게 얻을 수 있는 몇 가지 방법',
+  subtitle: 'Aster의 가치를 빠르게 얻을 수 있는 몇 가지 방법',
   develop: {
     title: '개발: 앱을 통합하는 데 5분이면 충분합니다',
     title_cloud: '개발: 몇 분 안에 앱을 안전하게 통합하기',
@@ -12,7 +12,7 @@ const get_started = {
     title: '사용자 정의: 훌륭한 로그인 경험 전달하기',
     preview: {
       title: '방금 사용자 정의한 로그인 경험의 실시간 미리보기 확인하기',
-      subtitle: '작동 방식을 확인하려면 지금 Logto 로그인 경험을 시도해보세요',
+      subtitle: '작동 방식을 확인하려면 지금 Aster 로그인 경험을 시도해보세요',
     },
     connector: {
       title: '더 많은 커넥터 추가하여 더 많은 소셜 로그인 방식 지원하기',

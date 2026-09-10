@@ -53,7 +53,7 @@ const sign_up_and_sign_in = {
     settings_title: '社交登錄體驗',
     automatic_account_linking: '自動鏈接具有相同標識的帳戶',
     automatic_account_linking_tip:
-      '啟用後，如果用戶使用新的社交身份登錄，並且恰好有一個具有相同標識（例如，郵件地址）的現有帳戶，Logto 將自動將該社交身份鏈接到該帳戶。用戶將不會被要求選擇是否鏈接帳戶。',
+      '啟用後，如果用戶使用新的社交身份登錄，並且恰好有一個具有相同標識（例如，郵件地址）的現有帳戶，Aster 將自動將該社交身份鏈接到該帳戶。用戶將不會被要求選擇是否鏈接帳戶。',
     required_sign_up_identifiers: '要求用戶提供遺漏的註冊標識',
     required_sign_up_identifiers_tip:
       '啟用後，通過社交提供商登錄的用戶在完成登錄之前必須填寫任何遺漏的註冊標識（例如，郵件）。\n\n若禁用，則用戶即使社交帳戶未同步，也可以在不提供遺漏標識的情況下繼續。',
@@ -97,7 +97,7 @@ const sign_up_and_sign_in = {
       '啟用或禁止用戶註冊。禁用後，管理控制臺仍然可以添加用戶，但用戶無法通過登錄界面建立帳戶。',
     unknown_session_redirect_url: '未知 Session 重新導向 URL',
     unknown_session_redirect_url_tip:
-      '有時，Logto 可能無法識別用戶在登錄頁面的 Session，比如 Session 過期或用戶書籤或分享錄入連結時。預設顯示"未知 Session" 404 錯誤。為增強用戶體驗，設定一個回退 URL，將用戶重定向回應用程式並重啟身份認證。',
+      '有時，Aster 可能無法識別用戶在登錄頁面的 Session，比如 Session 過期或用戶書籤或分享錄入連結時。預設顯示"未知 Session" 404 錯誤。為增強用戶體驗，設定一個回退 URL，將用戶重定向回應用程式並重啟身份認證。',
   },
   username_policy: {
     title: '使用者名稱政策',

@@ -1,7 +1,7 @@
 const actions = {
   page_title: 'Actions',
   title: 'Actions',
-  subtitle: '인증 흐름의 특정 지점에서 사용자 지정 코드를 실행하여 Logto 동작을 확장합니다.',
+  subtitle: '인증 흐름의 특정 지점에서 사용자 지정 코드를 실행하여 Aster 동작을 확장합니다.',
   status: {
     not_configured: '구성되지 않음',
     configured: '구성됨',
@@ -27,7 +27,7 @@ const actions = {
   },
   result_data: {
     title: '작업 결과',
-    subtitle: '이 작업 유형에 대해 Logto가 이해할 수 있는 결과 객체를 반환합니다.',
+    subtitle: '이 작업 유형에 대해 Aster가 이해할 수 있는 결과 객체를 반환합니다.',
   },
   environment_variables: {
     title: '환경 변수 설정',
@@ -49,11 +49,11 @@ const actions = {
     },
     on_execution_error: {
       title: '스크립트 오류 시',
-      description: '스크립트 실행 실패 시 Logto의 동작을 선택합니다.',
+      description: '스크립트 실행 실패 시 Aster의 동작을 선택합니다.',
       block: '인증 흐름 차단',
       allow: '인증 흐름 계속 허용',
       post_first_factor_description:
-        '이 스크립트가 실패하면 Logto는 항상 잘못된 자격 증명을 거부하여 비밀번호 검증을 우회할 수 없도록 합니다.',
+        '이 스크립트가 실패하면 Aster는 항상 잘못된 자격 증명을 거부하여 비밀번호 검증을 우회할 수 없도록 합니다.',
     },
   },
   test_context: {

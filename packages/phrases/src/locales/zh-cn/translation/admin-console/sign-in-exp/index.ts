@@ -27,7 +27,7 @@ const sign_in_exp = {
     dark_primary_color: '品牌颜色 (深色)',
     dark_mode: '开启深色模式',
     dark_mode_description:
-      '基于品牌颜色和 Logto 的算法，应用将会有一个自动生成的深色模式。当然，你可以自定义和修改。',
+      '基于品牌颜色和 Aster 的算法，应用将会有一个自动生成的深色模式。当然，你可以自定义和修改。',
     dark_mode_reset_tip: '基于品牌颜色，重新生成深色模式颜色。',
     reset: '重新生成',
   },
@@ -84,7 +84,7 @@ const sign_in_exp = {
     bring_your_ui_title: '带上你的 UI',
     bring_your_ui_upload_title: '上传自定义 UI 资源',
     bring_your_ui_description:
-      '上传一个压缩包 (.zip) 以使用你自己的代码替换 Logto 预构建的 UI。<a>了解更多</a>',
+      '上传一个压缩包 (.zip) 以使用你自己的代码替换 Aster 预构建的 UI。<a>了解更多</a>',
     preview_with_bring_your_ui_description:
       '你自定义的 UI 资源已经成功上传，现在正在提供服务。因此，内置预览窗口已被禁用。\n要测试你个性化的登录 UI，请单击“实时预览”按钮在新的浏览器标签中打开它。',
     csp_description: '为你的自定义登录 UI 允许额外的源表达式。这些值仅在提供自定义 UI 资源时生效。',
@@ -103,7 +103,7 @@ const sign_in_exp = {
     description: '为终端用户实现账户中心，以管理账户安全和个人资料信息。',
     enable_account_api: '启用账户中心和 Account API',
     enable_account_api_description:
-      '同时启用面向用户的 Account API 和 Logto 的开箱即用账户中心。关闭后，这两个功能都将不可用。',
+      '同时启用面向用户的 Account API 和 Aster 的开箱即用账户中心。关闭后，这两个功能都将不可用。',
     field_options: {
       off: '关闭',
       edit: '可编辑',

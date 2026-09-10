@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Couleur de la marque (Sombre)',
     dark_mode: 'Activer le mode sombre',
     dark_mode_description:
-      "Votre application aura un thème en mode sombre généré automatiquement en fonction de la couleur de votre marque et de l'algorithme de Logto. Vous êtes libre de le personnaliser.",
+      "Votre application aura un thème en mode sombre généré automatiquement en fonction de la couleur de votre marque et de l'algorithme d'Aster. Vous êtes libre de le personnaliser.",
     dark_mode_reset_tip:
       'Recalculer la couleur du mode sombre en fonction de la couleur de la marque.',
     reset: 'Recalculer',
@@ -88,7 +88,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Apportez votre UI',
     bring_your_ui_upload_title: 'Téléverser des ressources UI personnalisées',
     bring_your_ui_description:
-      "Téléchargez un package compressé (.zip) pour remplacer l'UI préconstruite de Logto par votre propre code. <a>En savoir plus</a>",
+      "Téléchargez un package compressé (.zip) pour remplacer l'UI préconstruite d'Aster par votre propre code. <a>En savoir plus</a>",
     preview_with_bring_your_ui_description:
       'Vos ressources UI personnalisées ont été téléchargées avec succès et sont maintenant servies. En conséquence, la fenêtre de prévisualisation intégrée a été désactivée.\nPour tester votre UI de connexion personnalisée, cliquez sur le bouton "Aperçu en direct" pour l\'ouvrir dans un nouvel onglet du navigateur.',
     csp_description:
@@ -105,10 +105,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'CENTRE DE COMPTE',
-    description: 'Personnalisez les parcours de votre centre de compte à l’aide des API Logto.',
+    description: 'Personnalisez les parcours de votre centre de compte à l’aide des API Aster.',
     enable_account_api: 'Activer le centre de compte et l’API Account',
     enable_account_api_description:
-      'Active à la fois l’API Account destinée aux utilisateurs finaux et le centre de compte prêt à l’emploi de Logto. Lorsqu’elle est désactivée, ces deux fonctionnalités ne sont pas disponibles.',
+      "Active à la fois l’API Account destinée aux utilisateurs finaux et le centre de compte prêt à l’emploi d'Aster. Lorsqu’elle est désactivée, ces deux fonctionnalités ne sont pas disponibles.",
     field_options: {
       off: 'Désactivé',
       edit: 'Modifier',

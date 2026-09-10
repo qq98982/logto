@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Führe benutzerdefinierten Code an bestimmten Punkten im Authentifizierungsablauf aus, um das Verhalten von Logto zu erweitern.',
+    'Führe benutzerdefinierten Code an bestimmten Punkten im Authentifizierungsablauf aus, um das Verhalten von Aster zu erweitern.',
   status: {
     not_configured: 'Nicht konfiguriert',
     configured: 'Konfiguriert',
@@ -30,7 +30,7 @@ const actions = {
   },
   result_data: {
     title: 'Aktionsergebnis',
-    subtitle: 'Gib ein Ergebnisobjekt zurück, das Logto für diesen Aktionstyp versteht.',
+    subtitle: 'Gib ein Ergebnisobjekt zurück, das Aster für diesen Aktionstyp versteht.',
   },
   environment_variables: {
     title: 'Umgebungsvariablen festlegen',
@@ -54,11 +54,11 @@ const actions = {
     on_execution_error: {
       title: 'Bei Skriptfehler',
       description:
-        'Wähle, wie sich Logto verhalten soll, wenn das Skript zur Laufzeit fehlschlägt.',
+        'Wähle, wie sich Aster verhalten soll, wenn das Skript zur Laufzeit fehlschlägt.',
       block: 'Authentifizierungsablauf blockieren',
       allow: 'Authentifizierungsablauf fortsetzen lassen',
       post_first_factor_description:
-        'Wenn dieses Skript fehlschlägt, lehnt Logto ungültige Anmeldedaten immer ab, damit die Passwortprüfung nicht umgangen werden kann.',
+        'Wenn dieses Skript fehlschlägt, lehnt Aster ungültige Anmeldedaten immer ab, damit die Passwortprüfung nicht umgangen werden kann.',
     },
   },
   test_context: {

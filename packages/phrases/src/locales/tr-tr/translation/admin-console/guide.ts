@@ -30,7 +30,7 @@ const guide = {
     select_a_framework: 'Bir çerçeve seçin',
     continue_without_framework: 'Çerçevesiz uygulama oluştur',
     describe_guide_looking_for_placeholder:
-      "Örneğin, Logto'u Angular uygulamama entegre etmek istiyorum.",
+      "Örneğin, Aster'i Angular uygulamama entegre etmek istiyorum.",
   },
   api: {
     modal_title: 'Öğreticilerle başlayın',

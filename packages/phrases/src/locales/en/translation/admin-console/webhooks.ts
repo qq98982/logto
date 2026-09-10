@@ -30,7 +30,7 @@ const webhooks = {
     subtitle:
       'Add the Webhook to send a POST request to the endpoint URL with details of any users events.',
     events: 'Events',
-    events_description: 'Select the trigger events which Logto will send the POST request.',
+    events_description: 'Select the trigger events which Aster will send the POST request.',
     name: 'Name',
     name_placeholder: 'Enter webhook name',
     endpoint_url: 'Endpoint URL',

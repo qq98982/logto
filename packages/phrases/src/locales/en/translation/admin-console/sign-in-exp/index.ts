@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Brand color (dark)',
     dark_mode: 'Enable dark mode',
     dark_mode_description:
-      'Your app will have an auto-generated dark mode theme based on your brand color and Logto algorithm. You are free to customize.',
+      'Your app will have an auto-generated dark mode theme based on your brand color and Aster algorithm. You are free to customize.',
     dark_mode_reset_tip: 'Recalculate dark mode color based on brand color.',
     reset: 'Recalculate',
   },
@@ -87,7 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Bring your UI',
     bring_your_ui_upload_title: 'Upload custom UI assets',
     bring_your_ui_description:
-      'Upload a compressed package (.zip) to replace the Logto prebuilt UI with your own code. <a>Learn more</a>',
+      'Upload a compressed package (.zip) to replace the Aster prebuilt UI with your own code. <a>Learn more</a>',
     preview_with_bring_your_ui_description:
       'Your custom UI assets have been successfully uploaded and are now being served. Consequently, the built-in preview window has been disabled.\nTo test your personalized sign-in UI, click the "Live Preview" button to open it in a new browser tab.',
     csp_description:
@@ -108,7 +108,7 @@ const sign_in_exp = {
       'Implement your account center for end users to manage account security and profile information.',
     enable_account_api: 'Enable account center and Account API',
     enable_account_api_description:
-      "Turn on both the user-facing Account API and Logto's out-of-the-box account center. When off, both features are unavailable.",
+      "Turn on both the user-facing Account API and Aster's out-of-the-box account center. When off, both features are unavailable.",
     field_options: {
       off: 'Off',
       edit: 'Edit',

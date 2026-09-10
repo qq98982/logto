@@ -59,7 +59,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Sosyal oturum açma deneyimi',
     automatic_account_linking: 'Aynı tanımlayıcıya sahip hesapları otomatik olarak bağla',
     automatic_account_linking_tip:
-      'Etkinleştirildiğinde, bir kullanıcı yeni bir sosyal kimlikle oturum açarsa ve aynı tanımlayıcıya sahip (örneğin, e-posta adresi) tam olarak bir mevcut hesap varsa, Logto sosyal kimliği otomatik olarak o hesaba bağlayacaktır. Kullanıcıya hesapları bağlamak isteyip istemediği sorulmaz.',
+      'Etkinleştirildiğinde, bir kullanıcı yeni bir sosyal kimlikle oturum açarsa ve aynı tanımlayıcıya sahip (örneğin, e-posta adresi) tam olarak bir mevcut hesap varsa, Aster sosyal kimliği otomatik olarak o hesaba bağlayacaktır. Kullanıcıya hesapları bağlamak isteyip istemediği sorulmaz.',
     required_sign_up_identifiers: 'Kullanıcılardan eksik kayıt tanımlayıcıyı sağlamalarını isteyin',
     required_sign_up_identifiers_tip:
       'Etkinleştirildiğinde, sosyal sağlayıcılar aracılığıyla oturum açan kullanıcıların, oturum açmayı tamamlamadan önce eksik olan zorunlu kayıt tanımlayıcılarını (örneğin e-posta) doldurmaları gerekmektedir.\n\nDevre dışı bırakıldığında, kullanıcılar eksik tanımlayıcıları sağlamadan devam edebilirler, hatta sosyal hesap bu tanımlayıcıları senkronize etmemiş olsa bile.',
@@ -107,7 +107,7 @@ const sign_up_and_sign_in = {
       'Kullanıcı kaydını etkinleştir veya devre dışı bırak. Devre dışı bırakıldığında, kullanıcılar yönetici konsolunda hala eklenilebilir, ancak kullanıcılar artık oturum açma arayüzü üzerinden hesap oluşturamaz.',
     unknown_session_redirect_url: "Bilinmeyen oturum yönlendirme URL'si",
     unknown_session_redirect_url_tip:
-      "Bazen oturumun süresi dolduğunda veya kullanıcı oturum açma bağlantısını yer imlerine eklediğinde ya da paylaştığında Logto, kullanıcının oturumunu oturum açma sayfasında tanımayabilir. Varsayılan olarak, “bilinmeyen oturum” 404 hatası görünür. Kullanıcı deneyimini geliştirmek için, kullanıcıları uygulamanıza geri yönlendirmek ve kimlik doğrulamasını yeniden başlatmak için bir geri dönüş URL'si ayarlayın.",
+      "Bazen oturumun süresi dolduğunda veya kullanıcı oturum açma bağlantısını yer imlerine eklediğinde ya da paylaştığında Aster, kullanıcının oturumunu oturum açma sayfasında tanımayabilir. Varsayılan olarak, “bilinmeyen oturum” 404 hatası görünür. Kullanıcı deneyimini geliştirmek için, kullanıcıları uygulamanıza geri yönlendirmek ve kimlik doğrulamasını yeniden başlatmak için bir geri dönüş URL'si ayarlayın.",
   },
   username_policy: {
     title: 'Kullanıcı adı politikası',

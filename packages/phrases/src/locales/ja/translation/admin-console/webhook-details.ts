@@ -21,12 +21,12 @@ const webhook_details = {
     settings_description:
       'Webhookは、特定のイベントが発生すると、POSTリクエストをエンドポイントURLに送信することで、リアルタイムのアップデートを受信できるようにするものです。これにより、新しい情報を受信した後、直ちにアクションを起こすことができます。',
     events: 'イベント',
-    events_description: 'LogtoがPOSTリクエストを送信するトリガーイベントを選択します。',
+    events_description: 'AsterがPOSTリクエストを送信するトリガーイベントを選択します。',
     name: '名前',
     endpoint_url: 'エンドポイントURL',
     signing_key: '署名キー',
     signing_key_tip:
-      'ログトから提供されたシークレットキーをエンドポイントにリクエストヘッダーとして追加して、Webhookのペイロードの正当性を保証します。',
+      'Asterから提供されたシークレットキーをエンドポイントにリクエストヘッダーとして追加して、Webhookのペイロードの正当性を保証します。',
     regenerate: '再生成する',
     regenerate_key_title: '署名キーの再生成',
     regenerate_key_reminder:

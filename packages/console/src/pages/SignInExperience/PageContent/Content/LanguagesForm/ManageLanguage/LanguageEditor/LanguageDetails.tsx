@@ -189,7 +189,7 @@ function LanguageDetails() {
         <div className={styles.languageInfo}>
           {uiLanguageNameMapping[selectedLanguage]}
           <span>{selectedLanguage}</span>
-          {isBuiltIn && <Tag>{t('sign_in_exp.content.manage_language.logto_provided')}</Tag>}
+          {isBuiltIn && <Tag>{t('sign_in_exp.content.manage_language.aster_provided')}</Tag>}
         </div>
         {!isBuiltIn && (
           <Tooltip content={t('sign_in_exp.content.manage_language.deletion_tip')}>
@@ -219,7 +219,7 @@ function LanguageDetails() {
               className: styles.sectionDataKey,
             },
             {
-              title: t('sign_in_exp.content.manage_language.logto_source_values'),
+              title: t('sign_in_exp.content.manage_language.aster_source_values'),
               dataIndex: 'sourceValue',
               render: ({ sourceValue }) => (
                 <div className={styles.sectionBuiltInText}>{sourceValue}</div>

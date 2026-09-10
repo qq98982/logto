@@ -45,7 +45,7 @@ const user_identity_details = {
     title: '토큰 삭제',
     description: '저장된 토큰을 삭제합니다. 사용자는 기능 복원을 위해 접근을 다시 승인해야 합니다.',
     confirmation_message:
-      '토큰을 삭제하시겠습니까? Logto 비밀 금고는 저장된 {{connectorName}} 액세스 및 갱신 토큰을 제거할 것입니다. 이 사용자는 {{connectorName}} API 접근을 복원하기 위해 다시 승인해야 합니다.',
+      '토큰을 삭제하시겠습니까? Aster 비밀 금고는 저장된 {{connectorName}} 액세스 및 갱신 토큰을 제거할 것입니다. 이 사용자는 {{connectorName}} API 접근을 복원하기 위해 다시 승인해야 합니다.',
   },
   token_storage_disabled: {
     title: '이 커넥터에 대한 토큰 저장이 비활성화되었습니다',

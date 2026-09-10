@@ -32,7 +32,7 @@ const webhooks = {
       "Ajoutez le webhook pour envoyer une demande POST à l'URL de point de terminaison avec les détails de tous les événements des utilisateurs.",
     events: 'Événements',
     events_description:
-      'Sélectionnez les événements de déclenchement que Logto enverra la demande POST.',
+      "Sélectionnez les événements de déclenchement qu'Aster enverra la demande POST.",
     name: 'Nom',
     name_placeholder: 'Entrez le nom du webhook',
     endpoint_url: "URL du point d'extrémité",

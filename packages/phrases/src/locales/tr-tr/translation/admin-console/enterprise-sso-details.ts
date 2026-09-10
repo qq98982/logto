@@ -61,10 +61,10 @@ const enterprise_sso_details = {
   upload_oidc_idp_info_text: 'Kimlik sağlayıcıdan gelen bilgileri doldurarak bağlanın.',
   service_provider_property_title: "IdP'de yapılandırın",
   service_provider_property_description:
-    'Kimlik sağlayıcınızda {{protocol}} kullanarak bir uygulama entegrasyonu kurun. Logto tarafından sağlanan ayrıntıları girin.',
+    'Kimlik sağlayıcınızda {{protocol}} kullanarak bir uygulama entegrasyonu kurun. Aster tarafından sağlanan ayrıntıları girin.',
   attribute_mapping_title: 'Özellik eşlemeleri',
   attribute_mapping_description:
-    'Kimlik sağlayıcıdan kullanıcı profillerini kullanıcı özelliği eşlemesini yapılandırarak Logto tarafına senkronize edin.',
+    'Kimlik sağlayıcıdan kullanıcı profillerini kullanıcı özelliği eşlemesini yapılandırarak Aster tarafına senkronize edin.',
   saml_preview: {
     sign_on_url: "Oturum açma URL'si",
     entity_id: 'Deyici',
@@ -106,7 +106,7 @@ const enterprise_sso_details = {
       "SP başlatmalı SSO kimlik doğrulama akışını başlatmak için istemci geri çağırma URI'si. Bir ssoConnectorId sorgu parametresi olarak URI'ye eklenecektir. (Örneğin, https://your.domain/sso/callback?connectorId={{ssoConnectorId}})",
     redirect_uri: "Oturum sonrası yönlendirme URI'si",
     redirect_uri_tooltip:
-      "Başarılı oturum açmadan sonra kullanıcıları yönlendirmek için kullanılacak yönlendirme URI'si. Logto, bu URI'yi yetkilendirme isteğinde OIDC yönlendirme URI'si olarak kullanacaktır. Daha iyi güvenlik için IdP başlatmalı SSO kimlik doğrulama akışı için özel bir URI kullanın.",
+      "Başarılı oturum açmadan sonra kullanıcıları yönlendirmek için kullanılacak yönlendirme URI'si. Aster, bu URI'yi yetkilendirme isteğinde OIDC yönlendirme URI'si olarak kullanacaktır. Daha iyi güvenlik için IdP başlatmalı SSO kimlik doğrulama akışı için özel bir URI kullanın.",
     empty_redirect_uris_error:
       "Uygulama için kayıtlı hiçbir yönlendirme URI'si bulunamadı. Lütfen önce bir tane ekleyin.",
     redirect_uri_placeholder: "Oturum sonrası yönlendirme URI'sini seçin",
@@ -118,9 +118,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     'Kimlik sağlayıcıdan dönen doğrulanmamış e-posta adreslerine her zaman güven',
   trust_unverified_email_tip:
-    "Entra ID (OIDC) bağlayıcısı `email_verified` bilgisini döndürmez, bu da Azure'dan alınan e-posta adreslerinin doğrulandığının garanti edilmediği anlamına gelir. Varsayılan olarak, Logto doğrulanmamış e-posta adreslerini kullanıcı profiline senkronize etmeyecektir. Bu seçeneği yalnızca Entra ID dizininden gelen tüm e-posta adreslerine güveniyorsanız etkinleştirin.",
+    "Entra ID (OIDC) bağlayıcısı `email_verified` bilgisini döndürmez, bu da Azure'dan alınan e-posta adreslerinin doğrulandığının garanti edilmediği anlamına gelir. Varsayılan olarak, Aster doğrulanmamış e-posta adreslerini kullanıcı profiline senkronize etmeyecektir. Bu seçeneği yalnızca Entra ID dizininden gelen tüm e-posta adreslerine güveniyorsanız etkinleştirin.",
   trust_unverified_email_tip_oidc:
-    "OIDC bağlayıcısı `email_verified` iddiasını döndürmeyebilir; bu, IdP'den gelen e-posta adreslerinin doğrulandığının garanti edilmediği anlamına gelir. Varsayılan olarak, Logto doğrulanmamış e-posta adreslerini kullanıcı profiline senkronize etmez. Bu seçeneği yalnızca IdP'den gelen tüm e-posta adreslerine güveniyorsanız etkinleştirin.",
+    "OIDC bağlayıcısı `email_verified` iddiasını döndürmeyebilir; bu, IdP'den gelen e-posta adreslerinin doğrulandığının garanti edilmediği anlamına gelir. Varsayılan olarak, Aster doğrulanmamış e-posta adreslerini kullanıcı profiline senkronize etmez. Bu seçeneği yalnızca IdP'den gelen tüm e-posta adreslerine güveniyorsanız etkinleştirin.",
   offline_access: {
     label: 'Erişim belirtecini yenile',
     description:

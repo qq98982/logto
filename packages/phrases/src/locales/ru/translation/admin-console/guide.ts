@@ -29,7 +29,7 @@ const guide = {
     select_a_framework: 'Выберите фреймворк',
     continue_without_framework: 'Создайте приложение без фреймворка',
     describe_guide_looking_for_placeholder:
-      'Например, я хочу интегрировать Logto в мое Angular приложение.',
+      'Например, я хочу интегрировать Aster в мое Angular приложение.',
   },
   api: {
     modal_title: 'Начните с руководств',

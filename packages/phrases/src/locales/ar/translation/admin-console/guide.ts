@@ -27,7 +27,7 @@ const guide = {
     modal_subtitle: 'ابدأ عملية تطوير التطبيق الخاص بك باستخدام SDK والدروس المُعدة مسبقًا.',
     select_a_framework: 'اختر إطارًا',
     continue_without_framework: 'إنشاء تطبيق بدون إطار',
-    describe_guide_looking_for_placeholder: 'مثال: أرغب في دمج Logto في تطبيق Angular الخاص بي.',
+    describe_guide_looking_for_placeholder: 'مثال: أرغب في دمج Aster في تطبيق Angular الخاص بي.',
   },
   api: {
     modal_title: 'ابدأ مع الدروس',

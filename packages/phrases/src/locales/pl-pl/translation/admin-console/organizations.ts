@@ -34,7 +34,7 @@ const organizations = {
     title: 'Zacznij od przewodników',
     subtitle: 'Włóż kłódę pod stopy swoich ustawień organizacji za pomocą naszych przewodników',
     introduction: {
-      title: 'Zrozum, jak działa organizacja w Logto',
+      title: 'Zrozum, jak działa organizacja w Aster',
       section_1: {
         title: 'Organizacja to grupa użytkowników (tożsamości)',
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           'Szablon organizacji jest przeznaczony do kontroli dostępu do aplikacji wielomandantowych',
         description:
-          'W wielomandantowych aplikacjach typu SaaS, wiele organizacji często dzieli ten sam szablon kontroli dostępu, który obejmuje uprawnienia i role. W Logto nazywamy to "szablonem organizacji".',
+          'W wielomandantowych aplikacjach typu SaaS, wiele organizacji często dzieli ten sam szablon kontroli dostępu, który obejmuje uprawnienia i role. W Aster nazywamy to "szablonem organizacji".',
         permission_description:
           'Uprawnienie organizacji odnosi się do autoryzacji dostępu do zasobów w kontekście organizacji.',
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: 'Czy mogę przypisać uprawnienia API do ról organizacyjnych?',
         description:
-          'Tak, możesz przypisać uprawnienia API do ról organizacyjnych. Logto oferuje elastyczność w skutecznym zarządzaniu rolami w organizacji, pozwalając na włączenie zarówno uprawnień organizacyjnych, jak i uprawnień API do tych ról.',
+          'Tak, możesz przypisać uprawnienia API do ról organizacyjnych. Aster oferuje elastyczność w skutecznym zarządzaniu rolami w organizacji, pozwalając na włączenie zarówno uprawnień organizacyjnych, jak i uprawnień API do tych ról.',
       },
       section_4: {
         title: 'Zaangażuj się w ilustrację, aby zobaczyć jak to wszystko się łączy',

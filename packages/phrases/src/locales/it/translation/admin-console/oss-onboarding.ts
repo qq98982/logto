@@ -2,7 +2,7 @@ const oss_onboarding = {
   page_title: 'Onboarding',
   title: 'Raccontaci qualcosa di te',
   description:
-    'Raccontaci qualcosa di te e del tuo progetto. Questo ci aiuta a rendere Logto migliore per tutti.',
+    'Raccontaci qualcosa di te e del tuo progetto. Questo ci aiuta a rendere Aster migliore per tutti.',
   email: {
     label: 'Indirizzo email',
     description:
@@ -10,9 +10,9 @@ const oss_onboarding = {
     placeholder: 'email@example.com',
   },
   newsletter:
-    'Ricevi aggiornamenti sul prodotto, avvisi di sicurezza e contenuti selezionati da Logto.',
+    'Ricevi aggiornamenti sul prodotto, avvisi di sicurezza e contenuti selezionati da Aster.',
   project: {
-    label: 'Uso Logto per',
+    label: 'Uso Aster per',
     personal: 'Progetto personale',
     company: 'Progetto aziendale',
   },

@@ -65,10 +65,10 @@ const enterprise_sso_details = {
     "Remplissez les informations du fournisseur d'identité pour vous connecter.",
   service_provider_property_title: "Configurer dans l'IdP",
   service_provider_property_description:
-    "Configurez une intégration d'application utilisant {{protocol}} dans votre fournisseur d'identité. Entrez les détails fournis par Logto.",
+    "Configurez une intégration d'application utilisant {{protocol}} dans votre fournisseur d'identité. Entrez les détails fournis par Aster.",
   attribute_mapping_title: "Correspondances d'attributs",
   attribute_mapping_description:
-    "Synchronisez les profils des utilisateurs à partir du fournisseur d'identité en configurant la correspondance des attributs d'utilisateur soit sur le fournisseur d'identité soit du côté de Logto.",
+    "Synchronisez les profils des utilisateurs à partir du fournisseur d'identité en configurant la correspondance des attributs d'utilisateur soit sur le fournisseur d'identité soit du côté d'Aster.",
   saml_preview: {
     sign_on_url: 'URL de connexion',
     entity_id: 'Émetteur',
@@ -110,7 +110,7 @@ const enterprise_sso_details = {
       "L'URI de rappel du client pour initier un flux d'authentification SSO initié par SP. Un ssoConnectorId sera ajouté à l'URI en tant que paramètre de requête. (ex. : https://your.domain/sso/callback?connectorId={{ssoConnectorId}})",
     redirect_uri: 'URI de redirection post-connexion',
     redirect_uri_tooltip:
-      "L'URI de redirection pour rediriger les utilisateurs après une connexion réussie. Logto utilisera cette URI comme URI de redirection OIDC dans la demande d'autorisation. Utilisez une URI dédiée pour le flux d'authentification SSO initié par IdP pour une meilleure sécurité.",
+      "L'URI de redirection pour rediriger les utilisateurs après une connexion réussie. Aster utilisera cette URI comme URI de redirection OIDC dans la demande d'autorisation. Utilisez une URI dédiée pour le flux d'authentification SSO initié par IdP pour une meilleure sécurité.",
     empty_redirect_uris_error:
       "Aucune URI de redirection n'a été enregistrée pour l'application. Veuillez en ajouter une d'abord.",
     redirect_uri_placeholder: 'Sélectionner une URI de redirection post-connexion',
@@ -122,9 +122,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     "Faire toujours confiance aux adresses courriel non vérifiées renvoyées par le fournisseur d'identité",
   trust_unverified_email_tip:
-    "Le connecteur Entra ID (OIDC) ne retourne pas la revendication `email_verified`, ce qui signifie que les adresses électroniques d'Azure ne sont pas garanties comme étant vérifiées. Par défaut, Logto ne synchronisera pas les adresses email non vérifiées vers le profil utilisateur. Activez cette option uniquement si vous faites confiance à toutes les adresses email du répertoire Entra ID.",
+    "Le connecteur Entra ID (OIDC) ne retourne pas la revendication `email_verified`, ce qui signifie que les adresses électroniques d'Azure ne sont pas garanties comme étant vérifiées. Par défaut, Aster ne synchronisera pas les adresses email non vérifiées vers le profil utilisateur. Activez cette option uniquement si vous faites confiance à toutes les adresses email du répertoire Entra ID.",
   trust_unverified_email_tip_oidc:
-    "Le connecteur OIDC peut ne pas renvoyer la revendication `email_verified`, ce qui signifie que les adresses e-mail de l'IdP ne sont pas garanties comme vérifiées. Par défaut, Logto ne synchronisera pas les adresses e-mail non vérifiées vers le profil utilisateur. Activez cette option uniquement si vous faites confiance à toutes les adresses e-mail de l'IdP.",
+    "Le connecteur OIDC peut ne pas renvoyer la revendication `email_verified`, ce qui signifie que les adresses e-mail de l'IdP ne sont pas garanties comme vérifiées. Par défaut, Aster ne synchronisera pas les adresses e-mail non vérifiées vers le profil utilisateur. Activez cette option uniquement si vous faites confiance à toutes les adresses e-mail de l'IdP.",
   offline_access: {
     label: "Actualiser le jeton d'accès",
     description:

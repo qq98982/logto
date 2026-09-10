@@ -39,9 +39,9 @@ const content = {
     subtitle:
       'Dostosuj produkt, dodając języki i tłumaczenia. Twój wkład może zostać ustawiony jako język domyślny.',
     add_language: 'Dodaj język',
-    logto_provided: 'Dostarczone przez Logto',
+    aster_provided: 'Dostarczone przez Aster',
     key: 'Klucz',
-    logto_source_values: 'Wartości źródłowe Logto',
+    aster_source_values: 'Wartości źródłowe Aster',
     custom_values: 'Wartości niestandardowe',
     clear_all_tip: 'Wyczyść wszystkie wartości',
     unsaved_description: 'Zmiany nie zostaną zapisane, jeśli opuścisz tę stronę bez zapisania.',

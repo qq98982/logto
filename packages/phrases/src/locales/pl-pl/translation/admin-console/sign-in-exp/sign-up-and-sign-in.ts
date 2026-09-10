@@ -59,7 +59,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Doświadczenie korzystania z logowania społecznościowego',
     automatic_account_linking: 'Automatycznie łącz konta z tym samym identyfikatorem',
     automatic_account_linking_tip:
-      'Po włączeniu, jeśli użytkownik zaloguje się z nową tożsamością społecznościową i istnieje dokładnie jedno istniejące konto z tym samym identyfikatorem (np. adres e-mail), Logto automatycznie połączy tożsamość społecznościową z tym kontem. Użytkownik nie zostanie zapytany o to, czy połączyć konta.',
+      'Po włączeniu, jeśli użytkownik zaloguje się z nową tożsamością społecznościową i istnieje dokładnie jedno istniejące konto z tym samym identyfikatorem (np. adres e-mail), Aster automatycznie połączy tożsamość społecznościową z tym kontem. Użytkownik nie zostanie zapytany o to, czy połączyć konta.',
     required_sign_up_identifiers:
       'Wymagaj od użytkowników podania brakującego identyfikatora rejestracji',
     required_sign_up_identifiers_tip:
@@ -109,7 +109,7 @@ const sign_up_and_sign_in = {
       'Włącz lub wyłącz rejestrację użytkowników. Po wyłączeniu użytkownicy nadal mogą być dodawani w konsoli administratora, ale nie mogą już zakładać kont za pomocą interfejsu logowania.',
     unknown_session_redirect_url: 'Nieznany URL przekierowania sesji',
     unknown_session_redirect_url_tip:
-      'Czasami Logto może nie rozpoznać sesji użytkownika na stronie logowania, na przykład gdy sesja wygasa lub użytkownik dodaje stronę logowania do zakładek lub udostępnia link do logowania. Domyślnie pojawia się błąd 404 „nieznana sesja”. Aby poprawić doświadczenia użytkowników, ustaw domyślny URL na przekierowanie użytkowników z powrotem do Twojej aplikacji i ponowne rozpoczęcie uwierzytelniania.',
+      'Czasami Aster może nie rozpoznać sesji użytkownika na stronie logowania, na przykład gdy sesja wygasa lub użytkownik dodaje stronę logowania do zakładek lub udostępnia link do logowania. Domyślnie pojawia się błąd 404 „nieznana sesja”. Aby poprawić doświadczenia użytkowników, ustaw domyślny URL na przekierowanie użytkowników z powrotem do Twojej aplikacji i ponowne rozpoczęcie uwierzytelniania.',
   },
   username_policy: {
     title: 'Zasady nazwy użytkownika',

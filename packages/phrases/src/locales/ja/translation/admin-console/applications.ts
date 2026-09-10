@@ -2,8 +2,8 @@ const applications = {
   page_title: 'アプリケーション ',
   title: 'アプリケーション ',
   subtitle:
-    'ネイティブ、シングルページ、マシン・トゥ・マシン、または従来のアプリケーションに Logto 認証を設定する',
-  subtitle_with_app_type: 'あなたの {{name}} アプリケーションに Logto 認証を設定する',
+    'ネイティブ、シングルページ、マシン・トゥ・マシン、または従来のアプリケーションに Aster 認証を設定する',
+  subtitle_with_app_type: 'あなたの {{name}} アプリケーションに Aster 認証を設定する',
   create_device_flow_description:
     'OAuth 2.0 デバイス認可グラントを使用するネイティブアプリケーションを作成します。入力制限のあるデバイスやヘッドレスアプリ向けです。',
   create: 'アプリケーションを作成する',
@@ -44,7 +44,7 @@ const applications = {
     },
     protected: {
       title: 'Protected App',
-      subtitle: 'Logto によって保護されたアプリ',
+      subtitle: 'Aster によって保護されたアプリ',
       description: 'N/A',
     },
     saml: {
@@ -74,14 +74,14 @@ const applications = {
   },
   placeholder_title: '続行するにはアプリケーションタイプを選択してください',
   placeholder_description:
-    'Logto は OIDC のためにアプリケーションエンティティを使用して、アプリケーションの識別、サインインの管理、監査ログの作成などのタスクをサポートします。',
+    'Aster は OIDC のためにアプリケーションエンティティを使用して、アプリケーションの識別、サインインの管理、監査ログの作成などのタスクをサポートします。',
   third_party_application_placeholder_description:
-    'Logto を ID プロバイダーとして使用して、サードパーティのサービスに OAuth 承認を提供します。 \n リソースアクセスのための事前構築されたユーザー同意画面が含まれています。<a>詳細を確認</a>',
+    'Aster を ID プロバイダーとして使用して、サードパーティのサービスに OAuth 承認を提供します。 \n リソースアクセスのための事前構築されたユーザー同意画面が含まれています。<a>詳細を確認</a>',
   guide: {
     third_party: {
       title: 'サードパーティアプリケーションを統合する',
       description:
-        'Logto を ID プロバイダーとして使用して、サードパーティのサービスに OAuth 承認を提供します。安全なリソースアクセスのための事前構築されたユーザー同意画面が含まれています。<a>詳細はこちら</a>',
+        'Aster を ID プロバイダーとして使用して、サードパーティのサービスに OAuth 承認を提供します。安全なリソースアクセスのための事前構築されたユーザー同意画面が含まれています。<a>詳細はこちら</a>',
     },
   },
 };

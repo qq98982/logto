@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Loslegen',
   title: 'Etwas zum Erkunden, um dir zu helfen, erfolgreich zu sein',
-  subtitle: 'Einige Dinge, die Sie tun können, um schnell den Wert von Logto zu erhalten',
+  subtitle: 'Einige Dinge, die Sie tun können, um schnell den Wert von Aster zu erhalten',
   develop: {
     title: 'Entwicklung: Nehmen Sie sich 5 Minuten Zeit, um Ihre App zu integrieren',
     title_cloud: 'Entwicklung: Integrieren Sie Ihre App in Minuten sicher',
@@ -13,7 +13,7 @@ const get_started = {
     title: 'Anpassen: Liefern Sie ein großartiges Anmeldeerlebnis',
     preview: {
       title: 'Überprüfen Sie die Live-Vorschau des gerade angepassten Anmeldeerlebnisses',
-      subtitle: 'Testen Sie jetzt das Logto-Anmeldeerlebnis, um zu sehen, wie es funktioniert',
+      subtitle: 'Testen Sie jetzt das Aster-Anmeldeerlebnis, um zu sehen, wie es funktioniert',
     },
     connector: {
       title:

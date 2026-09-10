@@ -151,11 +151,11 @@ const user_details = {
   sessions: {
     title: 'Oturumlar',
     description:
-      'Logto Yetkilendirme Sunucusu tarafından sürdürülen oturumları yönetin. Burada bir Logto oturumunu iptal etmek, gelecekteki yetkilendirme isteklerinde otomatik onayı engeller.',
+      'Aster Yetkilendirme Sunucusu tarafından sürdürülen oturumları yönetin. Burada bir Aster oturumunu iptal etmek, gelecekteki yetkilendirme isteklerinde otomatik onayı engeller.',
     field_name: 'Oturumlar',
     multiple_signed_in: 'Bu kullanıcı birden fazla cihaz veya tarayıcıdan oturum açtı.',
     not_found:
-      'Aktif bir Logto oturumu bulunamadı. Kullanıcı şu anda herhangi bir cihazda oturum açmamıştır.',
+      'Aktif bir Aster oturumu bulunamadı. Kullanıcı şu anda herhangi bir cihazda oturum açmamıştır.',
     name_column: 'İsim',
     session_id_column: 'Oturum Kimliği',
     location_column: 'Konum',
@@ -174,7 +174,7 @@ const user_details = {
   third_party_apps: {
     title: 'Üçüncü taraf uygulamalar',
     description:
-      "Üçüncü taraf uygulamaları yetkilendirmek için Logto'yu kimlik sağlayıcınız olarak kullanın. Bu kullanıcının erişim verdiği uygulamaları görüntüleyin ve yönetin.",
+      "Üçüncü taraf uygulamaları yetkilendirmek için Aster'i kimlik sağlayıcınız olarak kullanın. Bu kullanıcının erişim verdiği uygulamaları görüntüleyin ve yönetin.",
     field_name: 'Yetkili üçüncü taraf uygulamalar',
     multiple_authorized:
       'Bu kullanıcı birden fazla üçüncü taraf uygulama ve hizmeti yetkilendirdi.',

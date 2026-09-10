@@ -58,7 +58,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Experiência de início de sessão social',
     automatic_account_linking: 'Ligar automaticamente contas com o mesmo identificador',
     automatic_account_linking_tip:
-      'Quando ativado, se um usuário fizer login com uma nova identidade social e houver exatamente uma conta existente com o mesmo identificador (por exemplo, um endereço de email), Logto ligará automaticamente a identidade social a essa conta. O usuário não será solicitado a escolher se deseja conectar contas.',
+      'Quando ativado, se um usuário fizer login com uma nova identidade social e houver exatamente uma conta existente com o mesmo identificador (por exemplo, um endereço de email), Aster ligará automaticamente a identidade social a essa conta. O usuário não será solicitado a escolher se deseja conectar contas.',
     required_sign_up_identifiers:
       'Exigir que os usuários forneçam um identificador de registo em falta',
     required_sign_up_identifiers_tip:
@@ -108,7 +108,7 @@ const sign_up_and_sign_in = {
       'Ativar ou desativar o registo de utilizadores. Uma vez desativado, os utilizadores ainda podem ser adicionados na consola de administração, mas os utilizadores não podem mais estabelecer contas através da interface de início de sessão.',
     unknown_session_redirect_url: 'URL de redirecionamento de sessão desconhecida',
     unknown_session_redirect_url_tip:
-      'Às vezes, o Logto pode não reconhecer a sessão de um utilizador na página de início de sessão, como quando uma sessão expira ou o utilizador adiciona aos favoritos ou partilha o link de início de sessão. Por padrão, aparece um erro "sessão desconhecida" 404. Para melhorar a experiência do utilizador, defina um URL de fallback para redirecionar os utilizadores de volta para a sua aplicação e reiniciar a autenticação.',
+      'Às vezes, o Aster pode não reconhecer a sessão de um utilizador na página de início de sessão, como quando uma sessão expira ou o utilizador adiciona aos favoritos ou partilha o link de início de sessão. Por padrão, aparece um erro "sessão desconhecida" 404. Para melhorar a experiência do utilizador, defina um URL de fallback para redirecionar os utilizadores de volta para a sua aplicação e reiniciar a autenticação.',
   },
   username_policy: {
     title: 'Política de nome de utilizador',

@@ -58,7 +58,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Experiência de login social',
     automatic_account_linking: 'Vincular automaticamente contas com o mesmo identificador',
     automatic_account_linking_tip:
-      'Quando habilitado, se um usuário fizer login com uma nova identidade social e houver exatamente uma conta existente com o mesmo identificador (por exemplo, um endereço de e-mail), o Logto vinculará automaticamente a identidade social a essa conta. O usuário não será solicitado a escolher se deseja vincular contas.',
+      'Quando habilitado, se um usuário fizer login com uma nova identidade social e houver exatamente uma conta existente com o mesmo identificador (por exemplo, um endereço de e-mail), o Aster vinculará automaticamente a identidade social a essa conta. O usuário não será solicitado a escolher se deseja vincular contas.',
     required_sign_up_identifiers:
       'Exigir que os usuários forneçam o identificador de inscrição ausente',
     required_sign_up_identifiers_tip:
@@ -108,7 +108,7 @@ const sign_up_and_sign_in = {
       'Habilitar ou desabilitar o registro de usuários. Depois de desabilitado, os usuários ainda podem ser adicionados no console de administração, mas os usuários não poderão mais criar contas através da interface de login.',
     unknown_session_redirect_url: 'URL de redirecionamento de sessão desconhecida',
     unknown_session_redirect_url_tip:
-      'Às vezes, o Logto pode não reconhecer a sessão de um usuário na página de login, como quando uma sessão expira ou o usuário salva ou compartilha o link de login. Por padrão, um erro 404 de “sessão desconhecida” aparece. Para melhorar a experiência do usuário, defina uma URL de fallback para redirecionar os usuários de volta ao seu aplicativo e reiniciar a autenticação.',
+      'Às vezes, o Aster pode não reconhecer a sessão de um usuário na página de login, como quando uma sessão expira ou o usuário salva ou compartilha o link de login. Por padrão, um erro 404 de “sessão desconhecida” aparece. Para melhorar a experiência do usuário, defina uma URL de fallback para redirecionar os usuários de volta ao seu aplicativo e reiniciar a autenticação.',
   },
   username_policy: {
     title: 'Política de nome de usuário',

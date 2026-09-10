@@ -22,12 +22,12 @@ const webhook_details = {
       'Webhooks ermöglichen es Ihnen, Echtzeit-Updates zu bestimmten Ereignissen zu erhalten, indem sie eine POST-Anforderung an Ihre Endpunkt-URL senden. Dies ermöglicht es Ihnen, sofortige Maßnahmen aufgrund der neuen Informationen zu ergreifen, die Sie erhalten.',
     events: 'Ereignisse',
     events_description:
-      'Wählen Sie die Auslöserereignisse aus, die Logto die POST-Anforderung senden wird.',
+      'Wählen Sie die Auslöserereignisse aus, die Aster die POST-Anforderung senden wird.',
     name: 'Name',
     endpoint_url: 'Endpunkt-URL',
     signing_key: 'Signing Key',
     signing_key_tip:
-      'Fügen Sie den von Logto bereitgestellten geheimen Schlüssel als Anforderungsheader zu Ihrem Endpunkt hinzu, um die Echtheit der Nutzlast des Webhooks sicherzustellen.',
+      'Fügen Sie den von Aster bereitgestellten geheimen Schlüssel als Anforderungsheader zu Ihrem Endpunkt hinzu, um die Echtheit der Nutzlast des Webhooks sicherzustellen.',
     regenerate: 'Neu generieren',
     regenerate_key_title: 'Signing Key neu generieren',
     regenerate_key_reminder:

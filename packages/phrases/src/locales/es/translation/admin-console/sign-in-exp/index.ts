@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Color de la marca (oscuro)',
     dark_mode: 'Habilitar modo oscuro',
     dark_mode_description:
-      'Su aplicación tendrá un tema de modo oscuro generado automáticamente en función del color de su marca y el algoritmo de Logto. Puede personalizarlo libremente.',
+      'Su aplicación tendrá un tema de modo oscuro generado automáticamente en función del color de su marca y el algoritmo de Aster. Puede personalizarlo libremente.',
     dark_mode_reset_tip:
       'Vuelva a calcular el color del modo oscuro en función del color de la marca.',
     reset: 'Volver a calcular',
@@ -88,7 +88,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Trae tu interfaz de usuario',
     bring_your_ui_upload_title: 'Subir activos de UI personalizados',
     bring_your_ui_description:
-      'Sube un paquete comprimido (.zip) para reemplazar la interfaz de usuario preconstruida de Logto con tu propio código. <a>Aprende más</a>',
+      'Sube un paquete comprimido (.zip) para reemplazar la interfaz de usuario preconstruida de Aster con tu propio código. <a>Aprende más</a>',
     preview_with_bring_your_ui_description:
       'Tus activos de la interfaz de usuario personalizada se han subido con éxito y ahora se están sirviendo. En consecuencia, la ventana de vista previa incorporada se ha deshabilitado.\nPara probar tu interfaz de inicio de sesión personalizada, haz clic en el botón "Vista previa en vivo" para abrirla en una nueva pestaña del navegador.',
     csp_description:
@@ -105,10 +105,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'CENTRO DE CUENTAS',
-    description: 'Personaliza los flujos de tu centro de cuentas usando las API de Logto.',
+    description: 'Personaliza los flujos de tu centro de cuentas usando las API de Aster.',
     enable_account_api: 'Habilitar el centro de cuentas y la Account API',
     enable_account_api_description:
-      'Activa tanto la Account API para usuarios finales como el centro de cuenta listo para usar de Logto. Si se desactiva, ambas funciones no estarán disponibles.',
+      'Activa tanto la Account API para usuarios finales como el centro de cuenta listo para usar de Aster. Si se desactiva, ambas funciones no estarán disponibles.',
     field_options: {
       off: 'Desactivado',
       edit: 'Editar',

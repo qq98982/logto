@@ -34,7 +34,7 @@ const organizations = {
     title: 'Comece com guias',
     subtitle: 'Inicie as configurações da sua organização com nossos guias',
     introduction: {
-      title: 'Vamos entender como a organização funciona no Logto',
+      title: 'Vamos entender como a organização funciona no Aster',
       section_1: {
         title: 'Uma organização é um grupo de usuários (identidades)',
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           'O modelo de organização é projetado para controle de acesso de aplicativos multi-inquilino',
         description:
-          'Em aplicativos SaaS multi-inquilino, várias organizações frequentemente compartilham o mesmo modelo de controle de acesso, que inclui permissões e papéis. No Logto, chamamos isso de "modelo de organização".',
+          'Em aplicativos SaaS multi-inquilino, várias organizações frequentemente compartilham o mesmo modelo de controle de acesso, que inclui permissões e papéis. No Aster, chamamos isso de "modelo de organização".',
         permission_description:
           'A permissão da organização refere-se à autorização para acessar um recurso no contexto da organização.',
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: 'Posso atribuir permissões de API a funções de organização?',
         description:
-          'Sim, você pode atribuir permissões de API a funções de organização. A Logto oferece flexibilidade para gerenciar as funções da sua organização de forma eficaz, permitindo que você inclua tanto as permissões da organização quanto as permissões de API nessas funções.',
+          'Sim, você pode atribuir permissões de API a funções de organização. A Aster oferece flexibilidade para gerenciar as funções da sua organização de forma eficaz, permitindo que você inclua tanto as permissões da organização quanto as permissões de API nessas funções.',
       },
       section_4: {
         title: 'Interaja com a ilustração para ver como tudo se conecta',

@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'ブランドカラー（ダーク）',
     dark_mode: 'ダークモードを有効にする',
     dark_mode_description:
-      'あなたのアプリは、ブランドカラーと Logto アルゴリズムに基づいて自動生成されたダークモードのテーマを持っています。自由にカスタマイズしてください。',
+      'あなたのアプリは、ブランドカラーと Aster アルゴリズムに基づいて自動生成されたダークモードのテーマを持っています。自由にカスタマイズしてください。',
     dark_mode_reset_tip: 'ブランドカラーに基づいてダークモードの色を再計算します。',
     reset: 'リセット',
   },
@@ -87,7 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'あなたの UI を持参',
     bring_your_ui_upload_title: 'カスタム UI アセットをアップロード',
     bring_your_ui_description:
-      '圧縮パッケージ (.zip) をアップロードして、Logto のビルトイン UI を独自のコードで置き換えます。<a>詳しくはこちら</a>',
+      '圧縮パッケージ (.zip) をアップロードして、Aster のビルトイン UI を独自のコードで置き換えます。<a>詳しくはこちら</a>',
     preview_with_bring_your_ui_description:
       'カスタム UI のアセットは正常にアップロードされ、現在提供されています。したがって、組み込みのプレビューウィンドウは無効になりました。\nパーソナライズされたサインイン UI をテストするには、「ライブプレビュー」ボタンをクリックして新しいブラウザタブで開きます。',
     csp_description:
@@ -104,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'アカウントセンター',
-    description: 'Logto API を使用してアカウントセンターのフローをカスタマイズします。',
+    description: 'Aster API を使用してアカウントセンターのフローをカスタマイズします。',
     enable_account_api: 'アカウントセンターと Account API を有効化',
     enable_account_api_description:
-      'エンドユーザー向けの Account API と Logto のすぐに使えるアカウントセンターを同時に有効にします。オフにすると、両方の機能が利用できなくなります。',
+      'エンドユーザー向けの Account API と Aster のすぐに使えるアカウントセンターを同時に有効にします。オフにすると、両方の機能が利用できなくなります。',
     field_options: {
       off: 'オフ',
       edit: '編集',

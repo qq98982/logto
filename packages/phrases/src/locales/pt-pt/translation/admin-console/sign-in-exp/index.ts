@@ -29,7 +29,7 @@ const sign_in_exp = {
     dark_primary_color: 'Cor da marca (tema escuro)',
     dark_mode: 'Ativar tema escuro',
     dark_mode_description:
-      'O app terá um tema escuro gerado automaticamente com base na cor da marca e no algoritmo Logto. contudo é livre de personalizar.',
+      'O app terá um tema escuro gerado automaticamente com base na cor da marca e no algoritmo Aster. contudo é livre de personalizar.',
     dark_mode_reset_tip: 'Recalcular a cor do tema escuro com base na cor da marca.',
     reset: 'Recalcular',
   },
@@ -86,7 +86,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Traga o seu UI',
     bring_your_ui_upload_title: 'Carregar recursos de UI personalizados',
     bring_your_ui_description:
-      'Carregue um pacote comprimido (.zip) para substituir o UI predefinido do Logto pelo seu próprio código. <a>Saiba mais</a>',
+      'Carregue um pacote comprimido (.zip) para substituir o UI predefinido do Aster pelo seu próprio código. <a>Saiba mais</a>',
     preview_with_bring_your_ui_description:
       'Os seus recursos de UI personalizados foram carregados com êxito e agora estão sendo servidos. Consequentemente, a janela de visualização incorporada foi desativada.\nPara testar o seu UI de início de sessão personalizado, clique no botão "Visualização ao vivo" para abri-lo num novo separador do navegador.',
     csp_description:
@@ -103,10 +103,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'CENTRO DE CONTA',
-    description: 'Personalize os fluxos do centro de conta com as APIs da Logto.',
+    description: 'Personalize os fluxos do centro de conta com as APIs da Aster.',
     enable_account_api: 'Ativar o centro de conta e a Account API',
     enable_account_api_description:
-      'Ativa tanto a Account API destinada aos utilizadores finais como o centro de conta pronto a usar da Logto. Quando desativado, ambas as funcionalidades ficam indisponíveis.',
+      'Ativa tanto a Account API destinada aos utilizadores finais como o centro de conta pronto a usar da Aster. Quando desativado, ambas as funcionalidades ficam indisponíveis.',
     field_options: {
       off: 'Desligado',
       edit: 'Editar',

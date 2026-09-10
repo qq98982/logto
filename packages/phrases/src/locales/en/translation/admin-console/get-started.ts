@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Get started',
   title: 'Something to help you succeed',
-  subtitle: 'A few things you can do to quickly get value of Logto',
+  subtitle: 'A few things you can do to quickly get value of Aster',
   develop: {
     title: 'Develop: Take 5 minutes to integrate your app',
     title_cloud: 'Develop: Securely integrate your app in minutes',
@@ -13,7 +13,7 @@ const get_started = {
     title: 'Customize: Deliver a great sign-in experience',
     preview: {
       title: 'Check the live preview of the sign-in experience you just customized',
-      subtitle: 'Try Logto sign-in experience now to see how it works',
+      subtitle: 'Try Aster sign-in experience now to see how it works',
     },
     connector: {
       title: 'Add more connectors to support more social sign-in methods',

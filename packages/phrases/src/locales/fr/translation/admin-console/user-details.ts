@@ -154,11 +154,11 @@ const user_details = {
   sessions: {
     title: 'Sessions',
     description:
-      "Gérer les sessions maintenues par le Logto Authorization Server. Révoquer une session Logto ici empêche le consentement automatique lors de futures demandes d'autorisation.",
+      "Gérer les sessions maintenues par l'Aster Authorization Server. Révoquer une session Aster ici empêche le consentement automatique lors de futures demandes d'autorisation.",
     field_name: 'Sessions',
     multiple_signed_in: "Cet utilisateur s'est connecté sur plusieurs appareils ou navigateurs.",
     not_found:
-      "Aucune session Logto active trouvée. L'utilisateur n'est actuellement connecté sur aucun appareil.",
+      "Aucune session Aster active trouvée. L'utilisateur n'est actuellement connecté sur aucun appareil.",
     name_column: 'Nom',
     session_id_column: 'ID de session',
     location_column: 'Emplacement',
@@ -177,7 +177,7 @@ const user_details = {
   third_party_apps: {
     title: 'Applications tierces',
     description:
-      "Utilisez Logto comme fournisseur d'identité pour autoriser des applications tierces. Consultez et gérez les applications auxquelles cet utilisateur a accordé l'accès.",
+      "Utilisez Aster comme fournisseur d'identité pour autoriser des applications tierces. Consultez et gérez les applications auxquelles cet utilisateur a accordé l'accès.",
     field_name: 'Applications tierces autorisées',
     multiple_authorized: 'Cet utilisateur a autorisé plusieurs applications et services tiers.',
     not_authorized:
