@@ -1,4 +1,8 @@
+import CaptchaClient, { VerifyIntelligentCaptchaRequest } from '@alicloud/captcha20230305';
+import { $OpenApiUtil } from '@alicloud/openapi-core';
+import * as $dara from '@darabonba/typescript';
 import {
+  type AliyunCaptchaConfig,
   CaptchaType,
   RecaptchaEnterpriseMode,
   type CaptchaProvider,
@@ -20,10 +24,66 @@ function isTurnstile(config: CaptchaProvider['config']): config is TurnstileConf
   return config.type === CaptchaType.Turnstile;
 }
 
+function isAliyun(config: CaptchaProvider['config']): config is AliyunCaptchaConfig {
+  return config.type === CaptchaType.Aliyun;
+}
+
+type AliyunCaptchaVerification = {
+  success?: boolean;
+  verifyResult?: boolean;
+  verifyCode?: string;
+};
+
+export type VerifyAliyunCaptcha = (
+  config: AliyunCaptchaConfig,
+  captchaToken: string
+) => Promise<AliyunCaptchaVerification | undefined>;
+
+const AliyunCaptchaClient = CaptchaClient.default;
+// The no-retry 5-second provider budget stays below the hosted auth request budget;
+// timeout failures are audited without provider details and fail closed.
+const aliyunCaptchaConnectTimeout = 2000;
+const aliyunCaptchaReadTimeout = 3000;
+
+const verifyAliyunCaptchaWithSdk: VerifyAliyunCaptcha = async (config, captchaToken) => {
+  const client = new AliyunCaptchaClient(
+    new $OpenApiUtil.Config({
+      accessKeyId: config.accessKeyId,
+      accessKeySecret: config.accessKeySecret,
+      endpoint: 'captcha.cn-shanghai.aliyuncs.com',
+      regionId: 'cn-shanghai',
+      retryOptions: new $dara.RetryOptions({ retryable: false }),
+    })
+  );
+  const request = new VerifyIntelligentCaptchaRequest({
+    captchaVerifyParam: captchaToken,
+    sceneId: config.sceneId,
+  });
+  const runtime = new $dara.RuntimeOptions({
+    connectTimeout: aliyunCaptchaConnectTimeout,
+    readTimeout: aliyunCaptchaReadTimeout,
+  });
+  const { body } = await client.verifyIntelligentCaptchaWithOptions(request, runtime);
+
+  return {
+    success: body?.success,
+    verifyResult: body?.result?.verifyResult,
+    verifyCode: body?.result?.verifyCode,
+  };
+};
+
+const aliyunCaptchaResponseGuard = z.object({
+  success: z.boolean(),
+  verifyResult: z.boolean(),
+  verifyCode: z.string().regex(/^[A-Z]\d{3}$/),
+});
+const maximumAliyunCaptchaTokenBytes = 16 * 1024;
+
 export class CaptchaValidator {
   constructor(
     private readonly captchaProvider: CaptchaProvider,
-    private readonly log: LogEntry
+    private readonly log: LogEntry,
+    private readonly verifyAliyunCaptcha: VerifyAliyunCaptcha = verifyAliyunCaptchaWithSdk
   ) {}
 
   public async verifyCaptcha(captchaToken: string): Promise<boolean> {
@@ -37,7 +97,39 @@ export class CaptchaValidator {
       return this.verifyTurnstile(config, captchaToken);
     }
 
+    if (isAliyun(config)) {
+      return this.verifyAliyun(config, captchaToken);
+    }
+
     throw new Error('Invalid captcha provider');
+  }
+
+  private async verifyAliyun(config: AliyunCaptchaConfig, captchaToken: string) {
+    const provider = CaptchaType.Aliyun;
+
+    if (
+      captchaToken.length === 0 ||
+      Buffer.byteLength(captchaToken, 'utf8') > maximumAliyunCaptchaTokenBytes
+    ) {
+      this.log.append({ provider, success: false });
+
+      return false;
+    }
+
+    try {
+      const { success, verifyResult, verifyCode } = aliyunCaptchaResponseGuard.parse(
+        await this.verifyAliyunCaptcha(config, captchaToken)
+      );
+      const accepted = success && verifyResult && verifyCode === 'T001';
+
+      this.log.append({ provider, success: accepted, verifyResult, verifyCode });
+
+      return accepted;
+    } catch {
+      this.log.append({ provider, success: false });
+
+      return false;
+    }
   }
 
   private async verifyTurnstile(config: TurnstileConfig, captchaToken: string) {

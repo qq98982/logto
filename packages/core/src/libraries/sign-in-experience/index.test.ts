@@ -1,8 +1,11 @@
+/* eslint-disable max-lines -- Public CAPTCHA serialization cases belong with this library suite. */
 import type { LanguageTag } from '@logto/language-kit';
 import { builtInLanguages } from '@logto/phrases-experience';
 import {
   CaptchaType,
   ForgotPasswordMethod,
+  RecaptchaEnterpriseMode,
+  type CaptchaProvider,
   type CreateSignInExperience,
   type SignInExperience,
 } from '@logto/schemas';
@@ -372,7 +375,7 @@ describe('get sso connectors', () => {
 });
 
 describe('findCaptchaPublicConfig', () => {
-  it('should return captcha public config', async () => {
+  it('should return Turnstile public config unchanged', async () => {
     findCaptchaProvider.mockResolvedValueOnce(mockCaptchaProvider);
 
     const captchaPublicConfig = await findCaptchaPublicConfig();
@@ -381,6 +384,60 @@ describe('findCaptchaPublicConfig', () => {
       type: CaptchaType.Turnstile,
       siteKey: 'captcha_site_key',
     });
+  });
+
+  it('should return reCAPTCHA Enterprise public config unchanged', async () => {
+    findCaptchaProvider.mockResolvedValueOnce({
+      ...mockCaptchaProvider,
+      config: {
+        type: CaptchaType.RecaptchaEnterprise,
+        siteKey: 'recaptcha_site_key',
+        secretKey: 'recaptcha_secret_key',
+        projectId: 'recaptcha_project',
+        domain: 'captcha.example.com',
+        mode: RecaptchaEnterpriseMode.Checkbox,
+      },
+    });
+
+    const captchaPublicConfig = await findCaptchaPublicConfig();
+
+    expect(captchaPublicConfig).toEqual({
+      type: CaptchaType.RecaptchaEnterprise,
+      siteKey: 'recaptcha_site_key',
+      domain: 'captcha.example.com',
+      mode: RecaptchaEnterpriseMode.Checkbox,
+    });
+  });
+
+  it('should serialize only Alibaba public configuration', async () => {
+    const accessKeyId = 'test_access_key_id';
+    const accessKeySecret = 'test_access_key_secret';
+    const aliyunProvider: CaptchaProvider = {
+      ...mockCaptchaProvider,
+      config: {
+        type: CaptchaType.Aliyun,
+        region: 'cn',
+        prefix: 'test_prefix',
+        sceneId: 'test_scene',
+        accessKeyId,
+        accessKeySecret,
+      },
+    };
+    findCaptchaProvider.mockResolvedValueOnce(aliyunProvider);
+
+    const captchaPublicConfig = await findCaptchaPublicConfig();
+    const serializedConfig = JSON.stringify(captchaPublicConfig);
+
+    expect(captchaPublicConfig).toEqual({
+      type: CaptchaType.Aliyun,
+      region: 'cn',
+      prefix: 'test_prefix',
+      sceneId: 'test_scene',
+    });
+    expect(serializedConfig).not.toContain(accessKeyId);
+    expect(serializedConfig).not.toContain(accessKeySecret);
+    expect(serializedConfig).not.toContain('accessKeyId');
+    expect(serializedConfig).not.toContain('accessKeySecret');
   });
 
   it('should return undefined if captcha provider is not found', async () => {
@@ -426,3 +483,4 @@ describe('forgot password methods', () => {
     });
   });
 });
+/* eslint-enable max-lines */

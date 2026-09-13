@@ -27,9 +27,12 @@
     "test:report": "codecov -F core"
   },
   "dependencies": {
+    "@alicloud/captcha20230305": "1.1.4",
+    "@alicloud/openapi-core": "1.0.8",
     "@authenio/samlify-node-xmllint": "^2.0.0",
     "@aws-sdk/client-s3": "^3.556.0",
     "@azure/storage-blob": "^12.17.0",
+    "@darabonba/typescript": "1.0.5",
     "@google-cloud/storage": "^7.10.0",
     "@koa/cors": "^5.0.0",
     "@logto/account": "workspace:*",

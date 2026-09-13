@@ -3,6 +3,8 @@ import { TemplateType } from '@logto/connector-kit';
 import {
   adminConsoleApplicationId,
   adminTenantId,
+  type CaptchaProvider,
+  CaptchaType,
   type CreateUser,
   InteractionEvent,
   LogtoActionKey,
@@ -36,6 +38,11 @@ const { mockEsm } = createMockUtils(jest);
 mockEsm('#src/utils/tenant.js', () => ({
   getTenantId: () => [adminTenantId],
 }));
+
+const verifyCaptchaToken = jest.fn();
+const CaptchaValidator = jest.fn(() => ({ verifyCaptcha: verifyCaptchaToken }));
+
+mockEsm('./libraries/captcha-validator.js', () => ({ CaptchaValidator }));
 
 const mockEmail = 'foo@bar.com';
 const userQueries = {
@@ -102,6 +109,7 @@ const createSignInInteraction = ({
   user = mockUser,
   interactionResult = {},
   signInExperienceOverrides = {},
+  captchaProvider,
 }: {
   headers?: Record<string, string>;
   interactionEvent?: InteractionEvent;
@@ -109,6 +117,7 @@ const createSignInInteraction = ({
   user?: User;
   interactionResult?: Record<string, unknown>;
   signInExperienceOverrides?: Partial<SignInExperience>;
+  captchaProvider?: CaptchaProvider;
 } = {}) => {
   const userGeoLocations = {
     upsertUserGeoLocation: jest.fn().mockResolvedValue(null),
@@ -155,6 +164,9 @@ const createSignInInteraction = ({
       signInExperiences: signInExperiencesWithAdaptiveMfa,
       userGeoLocations,
       userSignInCountries,
+      captchaProviders: {
+        findCaptchaProvider: jest.fn().mockResolvedValue(captchaProvider),
+      },
     },
     undefined,
     {
@@ -255,12 +267,66 @@ describe('ExperienceInteraction class', () => {
     verified: true,
   });
 
+  const aliyunCaptchaProvider: CaptchaProvider = {
+    id: 'aliyun_captcha_provider',
+    tenantId: 'fake_tenant',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    config: {
+      type: CaptchaType.Aliyun,
+      region: 'cn',
+      prefix: 'test_prefix',
+      sceneId: 'test_scene',
+      accessKeyId: 'test_access_key_id',
+      accessKeySecret: 'test_access_key_secret',
+    },
+  };
+
   beforeAll(() => {
     jest.clearAllMocks();
   });
 
   afterEach(() => {
     setDevFeaturesEnabled(originalIsDevFeaturesEnabled);
+  });
+
+  describe('Alibaba CAPTCHA verification', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('records verified state and permits the submission guard after successful verification', async () => {
+      verifyCaptchaToken.mockResolvedValueOnce(true);
+      const { experienceInteraction, provider } = createSignInInteraction({
+        captchaProvider: aliyunCaptchaProvider,
+      });
+      const guardCaptcha = jest
+        .spyOn(experienceInteraction.signInExperienceValidator, 'guardCaptcha')
+        .mockRejectedValue(new RequestError({ code: 'session.captcha_required', status: 422 }));
+
+      await experienceInteraction.verifyCaptcha('raw-captcha-token');
+      await experienceInteraction.submit();
+
+      expect(CaptchaValidator).toHaveBeenCalledWith(aliyunCaptchaProvider, expect.anything());
+      expect(verifyCaptchaToken).toHaveBeenCalledWith('raw-captcha-token');
+      expect(experienceInteraction.toJson().captcha).toEqual({ verified: true, skipped: false });
+      expect(guardCaptcha).not.toHaveBeenCalled();
+      expect(provider.interactionResult).toHaveBeenCalled();
+    });
+
+    it('returns 422 and keeps state unverified after rejected verification', async () => {
+      verifyCaptchaToken.mockResolvedValueOnce(false);
+      const { experienceInteraction } = createSignInInteraction({
+        captchaProvider: aliyunCaptchaProvider,
+      });
+
+      await expect(
+        experienceInteraction.verifyCaptcha('rejected-captcha-token')
+      ).rejects.toMatchError(new RequestError({ code: 'session.captcha_failed', status: 422 }));
+
+      expect(verifyCaptchaToken).toHaveBeenCalledWith('rejected-captcha-token');
+      expect(experienceInteraction.toJson().captcha).toEqual({ verified: false, skipped: false });
+    });
   });
 
   describe('new user registration', () => {
