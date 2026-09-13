@@ -1,14 +1,21 @@
-import { CaptchaType, RecaptchaEnterpriseMode, Theme } from '@logto/schemas';
+import {
+  CaptchaPolicyScope,
+  CaptchaType,
+  RecaptchaEnterpriseMode,
+  SignInIdentifier,
+  Theme,
+} from '@logto/schemas';
 import { useMemo, useContext, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import useToast from '@/hooks/use-toast';
+import { type VerificationCodeIdentifier } from '@/types';
 
 import PageContext from '../PageContextProvider/PageContext';
 
 import CaptchaContext, { type CaptchaContextType } from './CaptchaContext';
-import { scriptId } from './constant';
-import { getScript } from './utils';
+import { aliyunCaptchaButtonId, aliyunCaptchaElementId, scriptId } from './constant';
+import { getScript, useAliyunCaptcha } from './utils';
 
 type Props = {
   readonly children: React.ReactNode;
@@ -22,11 +29,23 @@ const CaptchaContextProvider = ({ children }: Props) => {
 
   const captchaPolicy = experienceSettings?.captchaPolicy;
   const captchaConfig = experienceSettings?.captchaConfig;
-
   const isCaptchaRequired = Boolean(captchaPolicy?.enabled);
+  const isAliyunCaptchaActive = isCaptchaRequired && captchaConfig?.type === CaptchaType.Aliyun;
+  const handleAliyunFailure = useCallback(() => {
+    setToast(t('error.captcha_verification_failed'));
+  }, [setToast, t]);
+  const { prepare: prepareAliyunCaptcha, execute: executeAliyunCaptcha } = useAliyunCaptcha(
+    captchaConfig,
+    handleAliyunFailure
+  );
 
   const initCaptcha = useCallback(() => {
     if (!isCaptchaRequired || !captchaConfig) {
+      return;
+    }
+
+    if (captchaConfig.type === CaptchaType.Aliyun) {
+      prepareAliyunCaptcha();
       return;
     }
 
@@ -35,81 +54,99 @@ const CaptchaContextProvider = ({ children }: Props) => {
     }
 
     const script = document.createElement('script');
-    /* eslint-disable @silverhand/fp/no-mutation */
+    /* eslint-disable @silverhand/fp/no-mutation -- Script element properties must be set before attachment. */
     script.src = getScript(captchaConfig);
     script.id = scriptId;
     script.async = true;
     /* eslint-enable @silverhand/fp/no-mutation */
-
     document.body.append(script);
-  }, [isCaptchaRequired, captchaConfig]);
+  }, [captchaConfig, isCaptchaRequired, prepareAliyunCaptcha]);
 
-  const executeCaptcha = useCallback(async () => {
-    if (!isCaptchaRequired || !captchaConfig) {
-      return;
-    }
+  const executeCaptcha = useCallback(
+    async (identifier?: VerificationCodeIdentifier) => {
+      if (!isCaptchaRequired || !captchaConfig) {
+        return;
+      }
 
-    if (captchaConfig.type === CaptchaType.Turnstile) {
-      return new Promise<string | undefined>((resolve, reject) => {
-        if (!window.turnstile || !widgetRef.current) {
-          resolve(undefined);
-          return;
-        }
+      const captchaScope = captchaPolicy?.scope ?? CaptchaPolicyScope.Interaction;
+      if (
+        captchaScope === CaptchaPolicyScope.PhoneVerificationCode &&
+        identifier !== SignInIdentifier.Phone
+      ) {
+        return;
+      }
 
-        // Clear the dom element first
-        // eslint-disable-next-line @silverhand/fp/no-mutation
-        widgetRef.current.innerHTML = '';
+      if (captchaConfig.type === CaptchaType.Aliyun) {
+        return executeAliyunCaptcha();
+      }
 
-        window.turnstile.render(widgetRef.current, {
-          sitekey: captchaConfig.siteKey,
-          theme: theme === Theme.Light ? 'light' : 'dark',
-          callback: (token: string) => {
-            resolve(token);
-          },
-          'error-callback': (errorCode) => {
-            setToast(t('error.captcha_verification_failed'));
-            reject(new Error(`Turnstile error: ${errorCode}`));
-          },
-          size: 'flexible',
+      if (captchaConfig.type === CaptchaType.Turnstile) {
+        return new Promise<string | undefined>((resolve, reject) => {
+          if (!window.turnstile || !widgetRef.current) {
+            resolve(undefined);
+            return;
+          }
+
+          // eslint-disable-next-line @silverhand/fp/no-mutation -- The provider owns this SDK render target.
+          widgetRef.current.innerHTML = '';
+
+          window.turnstile.render(widgetRef.current, {
+            sitekey: captchaConfig.siteKey,
+            theme: theme === Theme.Light ? 'light' : 'dark',
+            callback: (token: string) => {
+              resolve(token);
+            },
+            'error-callback': (errorCode) => {
+              setToast(t('error.captcha_verification_failed'));
+              reject(new Error(`Turnstile error: ${errorCode}`));
+            },
+            size: 'flexible',
+          });
         });
-      });
-    }
+      }
 
-    if (!window.grecaptcha?.enterprise) {
-      return;
-    }
+      if (!window.grecaptcha?.enterprise) {
+        return;
+      }
 
-    // Handle checkbox mode for reCAPTCHA Enterprise
-    if (captchaConfig.mode === RecaptchaEnterpriseMode.Checkbox) {
-      return new Promise<string | undefined>((resolve, reject) => {
-        if (!window.grecaptcha || !widgetRef.current) {
-          resolve(undefined);
-          return;
-        }
+      if (captchaConfig.mode === RecaptchaEnterpriseMode.Checkbox) {
+        return new Promise<string | undefined>((resolve, reject) => {
+          if (!window.grecaptcha || !widgetRef.current) {
+            resolve(undefined);
+            return;
+          }
 
-        // Clear the dom element first
-        // eslint-disable-next-line @silverhand/fp/no-mutation
-        widgetRef.current.innerHTML = '';
+          // eslint-disable-next-line @silverhand/fp/no-mutation -- The provider owns this SDK render target.
+          widgetRef.current.innerHTML = '';
 
-        window.grecaptcha.enterprise.render(widgetRef.current, {
-          sitekey: captchaConfig.siteKey,
-          theme: theme === Theme.Light ? 'light' : 'dark',
-          callback: (token: string) => {
-            resolve(token);
-          },
-          'error-callback': (errorCode) => {
-            setToast(t('error.captcha_verification_failed'));
-            reject(new Error(`reCAPTCHA error: ${errorCode}`));
-          },
+          window.grecaptcha.enterprise.render(widgetRef.current, {
+            sitekey: captchaConfig.siteKey,
+            theme: theme === Theme.Light ? 'light' : 'dark',
+            callback: (token: string) => {
+              resolve(token);
+            },
+            'error-callback': (errorCode) => {
+              setToast(t('error.captcha_verification_failed'));
+              reject(new Error(`reCAPTCHA error: ${errorCode}`));
+            },
+          });
         });
-      });
-    }
+      }
 
-    // Default invisible mode
-    return window.grecaptcha.enterprise.execute(captchaConfig.siteKey, {
-      action: 'interaction',
-    });
-  }, [isCaptchaRequired, captchaConfig, theme, setToast, t]);
+      return window.grecaptcha.enterprise.execute(captchaConfig.siteKey, {
+        action: 'interaction',
+      });
+    },
+    [
+      captchaConfig,
+      captchaPolicy?.scope,
+      executeAliyunCaptcha,
+      isCaptchaRequired,
+      setToast,
+      t,
+      theme,
+    ]
+  );
 
   useEffect(() => {
     initCaptcha();
@@ -125,7 +162,23 @@ const CaptchaContextProvider = ({ children }: Props) => {
     [isCaptchaRequired, executeCaptcha, captchaConfig, widgetRef]
   );
 
-  return <CaptchaContext.Provider value={captchaContext}>{children}</CaptchaContext.Provider>;
+  return (
+    <CaptchaContext.Provider value={captchaContext}>
+      {isAliyunCaptchaActive && (
+        <>
+          <div id={aliyunCaptchaElementId} />
+          <button
+            hidden
+            id={aliyunCaptchaButtonId}
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+        </>
+      )}
+      {children}
+    </CaptchaContext.Provider>
+  );
 };
 
 export default CaptchaContextProvider;

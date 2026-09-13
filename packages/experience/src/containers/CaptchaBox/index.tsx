@@ -9,12 +9,13 @@ const CaptchaBox = () => {
   const { captchaConfig, widgetRef, isCaptchaRequired } = useContext(CaptchaContext);
 
   // Check if widget rendering is needed
-  // Turnstile always needs a widget, reCAPTCHA Enterprise needs it only in checkbox mode
+  // Turnstile always needs a target, while reCAPTCHA needs one only in checkbox mode.
   const needsWidget =
     isCaptchaRequired &&
     captchaConfig &&
     (captchaConfig.type === CaptchaType.Turnstile ||
-      captchaConfig.mode === RecaptchaEnterpriseMode.Checkbox);
+      (captchaConfig.type === CaptchaType.RecaptchaEnterprise &&
+        captchaConfig.mode === RecaptchaEnterpriseMode.Checkbox));
 
   if (!needsWidget) {
     return null;

@@ -87,6 +87,7 @@ export class ExperienceClient extends MockClient {
   public async sendVerificationCode(payload: {
     identifier: VerificationCodeIdentifier;
     interactionEvent: InteractionEvent;
+    captchaToken?: string;
   }) {
     return this.api
       .post(`${experienceRoutes.verification}/verification-code`, {

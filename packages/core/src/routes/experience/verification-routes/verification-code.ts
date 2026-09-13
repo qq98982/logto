@@ -28,6 +28,12 @@ import {
   getMfaVerificationType,
 } from './verification-code-helpers.js';
 
+const maximumCaptchaTokenBytes = 16 * 1024;
+const captchaTokenGuard = z.string().refine((token) => {
+  const byteLength = Buffer.byteLength(token, 'utf8');
+  return byteLength > 0 && byteLength <= maximumCaptchaTokenBytes;
+});
+
 export default function verificationCodeRoutes<T extends ExperienceInteractionRouterContext>(
   router: Router<unknown, T>,
   { libraries, queries, sentinel }: TenantContext
@@ -38,6 +44,7 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
       body: z.object({
         identifier: verificationCodeIdentifierGuard,
         interactionEvent: z.nativeEnum(InteractionEvent),
+        captchaToken: captchaTokenGuard.optional(),
       }),
       response: z.object({
         verificationId: z.string(),
@@ -46,7 +53,11 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
       status: [200, 400, 404, 422, 429, 501],
     }),
     async (ctx, next) => {
-      const { identifier, interactionEvent } = ctx.guard.body;
+      const { identifier, interactionEvent, captchaToken } = ctx.guard.body;
+      if (captchaToken !== undefined) {
+        await ctx.experienceInteraction.verifyCaptcha(captchaToken);
+      }
+
       await ctx.experienceInteraction.guardCaptcha(
         CaptchaPolicyScope.PhoneVerificationCode,
         identifier.type

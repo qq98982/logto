@@ -101,13 +101,15 @@ type VerificationCodePayload = {
 
 export const sendVerificationCode = async (
   interactionEvent: InteractionEvent,
-  identifier: VerificationCodeIdentifier
+  identifier: VerificationCodeIdentifier,
+  captchaToken?: string
 ) =>
   api
     .post(`${experienceApiRoutes.verification}/verification-code`, {
       json: {
         interactionEvent,
         identifier,
+        captchaToken,
       },
     })
     .json<VerificationResponse>();

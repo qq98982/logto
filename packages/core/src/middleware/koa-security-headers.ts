@@ -84,6 +84,21 @@ const createSecurityHeaderSettings = (tenantId: string): SecurityHeaderSettings 
   const logtoOrigin = 'https://*.logto.io';
   /** Google Sign-In (GSI) origin for Google One Tap. */
   const gsiOrigin = 'https://accounts.google.com/gsi/';
+  const aliyunCaptchaCdnOrigins = [
+    'https://o.alicdn.com',
+    'https://g.alicdn.com',
+    'https://x.alicdn.com',
+  ];
+  const aliyunCaptchaConnectOrigins = [
+    'https://*.captcha-open.aliyuncs.com/',
+    'https://*.captcha-open-b.aliyuncs.com/',
+    'https://cloudauth-device.aliyuncs.com',
+    'https://cn-shanghai.device.saf.aliyuncs.com',
+  ];
+  const aliyunCaptchaImageOrigins = [
+    ...aliyunCaptchaCdnOrigins,
+    'https://static-captcha.aliyuncs.com',
+  ];
 
   // Parse the OSS survey endpoint origin for CSP connect-src allowlisting.
   const ossSurveyOrigins = getOssServerOrigins();
@@ -142,6 +157,7 @@ const createSecurityHeaderSettings = (tenantId: string): SecurityHeaderSettings 
     // Google Recaptcha static resources
     'https://www.gstatic.com/recaptcha/',
     'https://www.gstatic.cn/recaptcha/',
+    ...aliyunCaptchaCdnOrigins,
     // Allow "unsafe-eval" for debugging purpose in non-production environment
     ...conditionalArray(!isProduction && "'unsafe-eval'"),
   ];
@@ -155,6 +171,7 @@ const createSecurityHeaderSettings = (tenantId: string): SecurityHeaderSettings 
     'https://recaptcha.net/recaptcha/',
     'https://www.gstatic.com/recaptcha/',
     'https://www.gstatic.cn/recaptcha/',
+    ...aliyunCaptchaConnectOrigins,
     ...developmentOrigins,
   ];
 
@@ -172,7 +189,7 @@ const createSecurityHeaderSettings = (tenantId: string): SecurityHeaderSettings 
         useDefaults: true,
         directives: {
           'upgrade-insecure-requests': null,
-          imgSrc: avatarCropImageSources,
+          imgSrc: [...avatarCropImageSources, ...aliyunCaptchaImageOrigins],
           scriptSrc: appendCustomSources(experienceScriptSource, customUiCsp.scriptSrc),
           scriptSrcAttr: ["'unsafe-inline'"],
           connectSrc: appendCustomSources(experienceConnectSource, customUiCsp.connectSrc),

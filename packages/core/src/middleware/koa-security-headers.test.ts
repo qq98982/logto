@@ -55,7 +55,67 @@ const getCspDirective = (ctx: Koa.Context, directiveName: string): string | unde
     .map((directive) => directive.trim())
     .find((directive) => directive.startsWith(`${directiveName} `));
 
+const getCspDirectiveSources = (ctx: Koa.Context, directiveName: string): string[] =>
+  getCspDirective(ctx, directiveName)?.split(' ').slice(1) ?? [];
+
 describe('koaSecurityHeaders() middleware — experience CSP', () => {
+  it('allows the exact Alibaba mainland Captcha V3 origins in hosted experience', async () => {
+    const run = koaExperienceSecurityHeaders('default', createQueries());
+    const ctx = createMockContext({ method: 'GET', url: '/sign-in' });
+
+    await run(ctx, koaNoop);
+
+    expect(getCspDirectiveSources(ctx, 'script-src')).toEqual(
+      expect.arrayContaining([
+        'https://o.alicdn.com',
+        'https://g.alicdn.com',
+        'https://x.alicdn.com',
+      ])
+    );
+    expect(getCspDirectiveSources(ctx, 'connect-src')).toEqual(
+      expect.arrayContaining([
+        'https://*.captcha-open.aliyuncs.com/',
+        'https://*.captcha-open-b.aliyuncs.com/',
+        'https://cloudauth-device.aliyuncs.com',
+        'https://cn-shanghai.device.saf.aliyuncs.com',
+      ])
+    );
+    expect(getCspDirectiveSources(ctx, 'img-src')).toEqual(
+      expect.arrayContaining([
+        'https://o.alicdn.com',
+        'https://g.alicdn.com',
+        'https://x.alicdn.com',
+        'https://static-captcha.aliyuncs.com',
+      ])
+    );
+    expect(getCspDirectiveSources(ctx, 'script-src')).not.toContain('https:');
+    expect(getCspDirectiveSources(ctx, 'connect-src')).not.toContain('https:');
+  });
+
+  it('does not add Alibaba Captcha sources outside hosted experience', async () => {
+    const run = koaSecurityHeaders(['api', 'oidc', '.well-known', 'demo-app'], 'default');
+    const urls = ['/console', '/account', '/oidc/auth', '/demo-app'];
+
+    const cspHeaders = await Promise.all(
+      urls.map(async (url) => {
+        const ctx = createMockContext({ method: 'GET', url });
+
+        await run(ctx, koaNoop);
+
+        return getCsp(ctx);
+      })
+    );
+
+    for (const cspHeader of cspHeaders) {
+      expect(cspHeader).not.toContain('alicdn.com');
+      expect(cspHeader).not.toContain('captcha-open.aliyuncs.com');
+      expect(cspHeader).not.toContain('captcha-open-b.aliyuncs.com');
+      expect(cspHeader).not.toContain('cloudauth-device.aliyuncs.com');
+      expect(cspHeader).not.toContain('cn-shanghai.device.saf.aliyuncs.com');
+      expect(cspHeader).not.toContain('static-captcha.aliyuncs.com');
+    }
+  });
+
   it('adds Custom UI CSP sources to the matching experience directives', async () => {
     const run = koaExperienceSecurityHeaders(
       'default',

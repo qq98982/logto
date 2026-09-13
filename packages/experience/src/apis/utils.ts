@@ -36,7 +36,11 @@ export const sendVerificationCodeApi = async (
   captchaToken?: string
 ) => {
   if (flow === UserFlow.Continue) {
-    return sendVerificationCode(interactionEvent ?? InteractionEvent.SignIn, identifier);
+    return sendVerificationCode(
+      interactionEvent ?? InteractionEvent.SignIn,
+      identifier,
+      captchaToken
+    );
   }
 
   const event = userFlowToInteractionEventMap[flow];

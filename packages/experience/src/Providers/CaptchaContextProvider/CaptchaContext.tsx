@@ -1,11 +1,11 @@
 import { createContext } from 'react';
 
-import { type SignInExperienceResponse } from '@/types';
+import { type SignInExperienceResponse, type VerificationCodeIdentifier } from '@/types';
 
 export type CaptchaContextType = {
   isCaptchaRequired: boolean;
   captchaConfig: SignInExperienceResponse['captchaConfig'];
-  executeCaptcha: () => Promise<string | undefined>;
+  executeCaptcha: (identifier?: VerificationCodeIdentifier) => Promise<string | undefined>;
   // Some captcha providers need to render a widget (checkbox, etc.) to the page
   // and this is the ref to the widget
   widgetRef: React.RefObject<HTMLDivElement> | undefined;

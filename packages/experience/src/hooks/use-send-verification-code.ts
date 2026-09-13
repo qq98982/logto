@@ -1,11 +1,13 @@
 /* Replace legacy useSendVerificationCode hook with this one after the refactor */
 
-import { SignInIdentifier } from '@logto/schemas';
+import { SignInIdentifier, type RequestErrorBody } from '@logto/schemas';
 import { conditional } from '@silverhand/essentials';
+import { HTTPError } from 'ky';
 import { useCallback, useContext, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
+import { CaptchaExecutionError } from '@/Providers/CaptchaContextProvider/aliyun-captcha';
 import UserInteractionContext from '@/Providers/UserInteractionContextProvider/UserInteractionContext';
 import { sendVerificationCodeApi } from '@/apis/utils';
 import useApi from '@/hooks/use-api';
@@ -22,6 +24,19 @@ import { codeVerificationTypeMap } from '@/utils/sign-in-experience';
 type Payload = {
   identifier: VerificationCodeIdentifier;
   value: string;
+};
+
+const isCaptchaRequiredError = async (error: unknown) => {
+  if (!(error instanceof HTTPError)) {
+    return false;
+  }
+
+  try {
+    const { code } = await error.response.clone().json<RequestErrorBody>();
+    return code === 'session.captcha_required';
+  } catch {
+    return false;
+  }
 };
 
 const useSendVerificationCode = (flow: UserFlow, replaceCurrentPage?: boolean) => {
@@ -45,17 +60,49 @@ const useSendVerificationCode = (flow: UserFlow, replaceCurrentPage?: boolean) =
       interactionEvent?: ContinueFlowInteractionEvent,
       errorHandlers?: ErrorHandlers
     ) => {
-      const captchaToken = await executeCaptcha();
+      const send = async (captchaToken?: string) =>
+        asyncSendVerificationCode(
+          flow,
+          {
+            type: identifier,
+            value,
+          },
+          interactionEvent,
+          captchaToken
+        );
 
-      const [error, result] = await asyncSendVerificationCode(
-        flow,
-        {
-          type: identifier,
-          value,
-        },
-        interactionEvent,
-        captchaToken
-      );
+      const executeCaptchaAndSend = async () => {
+        try {
+          return await send(await executeCaptcha(identifier));
+        } catch (error: unknown) {
+          if (error instanceof CaptchaExecutionError) {
+            return;
+          }
+
+          throw error;
+        }
+      };
+
+      const sendWithAdaptiveContinueCaptcha = async () => {
+        const initialResponse = await send();
+
+        if (!(await isCaptchaRequiredError(initialResponse[0]))) {
+          return initialResponse;
+        }
+
+        return executeCaptchaAndSend();
+      };
+
+      const response =
+        flow === UserFlow.Continue
+          ? await sendWithAdaptiveContinueCaptcha()
+          : await executeCaptchaAndSend();
+
+      if (!response) {
+        return;
+      }
+
+      const [error, result] = response;
 
       if (error) {
         await handleError(error, {

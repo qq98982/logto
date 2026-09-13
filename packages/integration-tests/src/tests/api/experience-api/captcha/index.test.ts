@@ -384,20 +384,67 @@ describe('captcha', () => {
 
     it('sends exactly one phone code after captcha is verified', async () => {
       const phone = generatePhone();
-      const client = await initExperienceClient({
-        interactionEvent: InteractionEvent.Register,
-        captchaToken: 'captcha-token',
-      });
+      const captchaToken = 'captcha-token-on-verification-code-post';
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
 
       const result = await client.sendVerificationCode({
         identifier: { type: SignInIdentifier.Phone, value: phone },
         interactionEvent: InteractionEvent.Register,
+        captchaToken,
       });
 
       expect(result.verificationId).toBeTruthy();
       await expect(readSmsConnectorSendCount()).resolves.toBe(1);
       await expect(readConnectorMessage('Sms')).resolves.toMatchObject({ phone });
+      expect(JSON.stringify(await client.getInteractionData())).not.toContain(captchaToken);
     });
+
+    it('rejects an invalid POST captcha token before sending and preserves the full interaction', async () => {
+      await setAlwaysFailCaptcha();
+      const { userProfile, user } = await generateNewUser({ username: true, password: true });
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.SignIn });
+      await identifyUserWithUsernamePassword(client, userProfile.username, userProfile.password);
+      const interactionBeforeSend = await client.getInteractionData();
+      const captchaToken = 'invalid-captcha-token-on-verification-code-post';
+
+      await expectRejects(
+        client.sendVerificationCode({
+          identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+          interactionEvent: InteractionEvent.SignIn,
+          captchaToken,
+        }),
+        { code: 'session.captcha_failed', status: 422 }
+      );
+
+      await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+      const interactionAfterSend = await client.getInteractionData();
+      expect(interactionAfterSend).toEqual(interactionBeforeSend);
+      expect(JSON.stringify(interactionAfterSend)).not.toContain(captchaToken);
+      await deleteUser(user.id);
+    });
+
+    it.each([
+      ['an empty token', ''],
+      ['a 16385-byte token', `${'界'.repeat(5461)}aa`],
+    ])(
+      'rejects %s at the request guard without changing state or sending',
+      async (_label, token) => {
+        const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
+        const interactionBeforeSend = await client.getInteractionData();
+
+        await expectRejects(
+          client.sendVerificationCode({
+            identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+            interactionEvent: InteractionEvent.Register,
+            captchaToken: token,
+          }),
+          { code: 'guard.invalid_input', status: 400 }
+        );
+
+        await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+        await expect(client.getInteractionData()).resolves.toEqual(interactionBeforeSend);
+      }
+    );
 
     it('allows an email code without captcha under the phone-only policy', async () => {
       const email = generateEmail();
