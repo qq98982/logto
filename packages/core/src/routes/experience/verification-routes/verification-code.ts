@@ -1,6 +1,7 @@
 import { TemplateType } from '@logto/connector-kit';
 import {
   AlternativeSignUpIdentifier,
+  CaptchaPolicyScope,
   InteractionEvent,
   SignInIdentifier,
   verificationCodeIdentifierGuard,
@@ -46,10 +47,10 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
     }),
     async (ctx, next) => {
       const { identifier, interactionEvent } = ctx.guard.body;
-      // Require captcha if the user is not identified.
-      if (!ctx.experienceInteraction.identifiedUserId) {
-        await ctx.experienceInteraction.guardCaptcha();
-      }
+      await ctx.experienceInteraction.guardCaptcha(
+        CaptchaPolicyScope.PhoneVerificationCode,
+        identifier.type
+      );
 
       // Check if email/phone is in sign up identifiers, to determine if it's binding email/phone for MFA
       const { signUp } =
@@ -130,6 +131,7 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
       const { identifierType } = ctx.guard.body;
       const { experienceInteraction } = ctx;
 
+      // CAPTCHA is intentionally exempt: the server resolves the recipient from the identified user.
       const identifier = await getMfaIdentifier({
         identifierType,
         experienceInteraction,

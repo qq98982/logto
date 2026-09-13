@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 import {
   AlternativeSignUpIdentifier,
+  CaptchaPolicyScope,
   ForgotPasswordMethod,
   InteractionEvent,
   MfaFactor,
@@ -361,10 +362,22 @@ export class SignInExperienceValidator {
    *
    * @throws {RequestError} with 422 if the captcha is required
    */
-  public async guardCaptcha() {
+  public async guardCaptcha(
+    action: CaptchaPolicyScope = CaptchaPolicyScope.Interaction,
+    identifier?: SignInIdentifier
+  ) {
     const { captchaPolicy } = await this.getSignInExperienceData();
 
     if (!captchaPolicy.enabled) {
+      return;
+    }
+
+    const scope = captchaPolicy.scope ?? CaptchaPolicyScope.Interaction;
+
+    if (
+      scope === CaptchaPolicyScope.PhoneVerificationCode &&
+      (action !== CaptchaPolicyScope.PhoneVerificationCode || identifier !== SignInIdentifier.Phone)
+    ) {
       return;
     }
 

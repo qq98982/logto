@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 import { TemplateType } from '@logto/connector-kit';
 import {
+  CaptchaPolicyScope,
   InteractionEvent,
   MfaFactor,
   MissingProfile,
@@ -41,6 +42,15 @@ const buildValidatorWithSignInMode = (signInMode: SignInMode) => {
   signInExperiences.findDefaultSignInExperience.mockResolvedValueOnce({
     ...mockSignInExperience,
     signInMode,
+  });
+
+  return new SignInExperienceValidator(mockTenant.libraries, mockTenant.queries);
+};
+
+const buildValidatorWithCaptchaPolicy = (captchaPolicy: SignInExperience['captchaPolicy']) => {
+  signInExperiences.findDefaultSignInExperience.mockResolvedValueOnce({
+    ...mockSignInExperience,
+    captchaPolicy,
   });
 
   return new SignInExperienceValidator(mockTenant.libraries, mockTenant.queries);
@@ -105,6 +115,58 @@ const oneTimeTokenVerificationRecord = new OneTimeTokenVerification(
 );
 
 describe('SignInExperienceValidator', () => {
+  describe('guardCaptcha', () => {
+    it('requires captcha for phone verification-code sends under the phone-only policy', async () => {
+      const validator = buildValidatorWithCaptchaPolicy({
+        enabled: true,
+        scope: CaptchaPolicyScope.PhoneVerificationCode,
+      });
+
+      await expect(
+        validator.guardCaptcha(CaptchaPolicyScope.PhoneVerificationCode, SignInIdentifier.Phone)
+      ).rejects.toMatchError(new RequestError({ code: 'session.captcha_required', status: 422 }));
+    });
+
+    it('allows email verification-code sends under the phone-only policy', async () => {
+      const validator = buildValidatorWithCaptchaPolicy({
+        enabled: true,
+        scope: CaptchaPolicyScope.PhoneVerificationCode,
+      });
+
+      await expect(
+        validator.guardCaptcha(CaptchaPolicyScope.PhoneVerificationCode, SignInIdentifier.Email)
+      ).resolves.not.toThrow();
+    });
+
+    it('allows ordinary interaction guards under the phone-only policy', async () => {
+      const validator = buildValidatorWithCaptchaPolicy({
+        enabled: true,
+        scope: CaptchaPolicyScope.PhoneVerificationCode,
+      });
+
+      await expect(validator.guardCaptcha()).resolves.not.toThrow();
+    });
+
+    it('preserves global interaction behavior when the configured scope is missing', async () => {
+      const validator = buildValidatorWithCaptchaPolicy({ enabled: true });
+
+      await expect(validator.guardCaptcha()).rejects.toMatchError(
+        new RequestError({ code: 'session.captcha_required', status: 422 })
+      );
+    });
+
+    it('allows guarded actions when captcha is disabled', async () => {
+      const validator = buildValidatorWithCaptchaPolicy({
+        enabled: false,
+        scope: CaptchaPolicyScope.PhoneVerificationCode,
+      });
+
+      await expect(
+        validator.guardCaptcha(CaptchaPolicyScope.PhoneVerificationCode, SignInIdentifier.Phone)
+      ).resolves.not.toThrow();
+    });
+  });
+
   describe('guardInteractionEvent', () => {
     it('SignInMode.Register', async () => {
       const signInExperience = {

@@ -48,6 +48,7 @@ services:
       COVERAGE: ${COVERAGE:-0}
       COVERAGE_REPORT_DIR: /coverage/report
       COVERAGE_TEMP_DIR: /coverage/raw
+      CONNECTOR_MESSAGE_HISTORY_FILE: /tmp/logto/mock_sms_send_history.jsonl
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 3001 || exit 1"]
       interval: 3s

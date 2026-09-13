@@ -2,11 +2,13 @@
 
 import { appInsights } from '@logto/app-insights/node';
 import {
+  CaptchaPolicyScope,
   InteractionEvent,
   InteractionHookEvent,
   LogtoActionKey,
   MfaFactor,
   type PostSignInEvent,
+  type SignInIdentifier,
   VerificationType,
   type User,
 } from '@logto/schemas';
@@ -660,12 +662,15 @@ export default class ExperienceInteraction {
     }
   }
 
-  async guardCaptcha() {
+  async guardCaptcha(
+    action: CaptchaPolicyScope = CaptchaPolicyScope.Interaction,
+    identifier?: SignInIdentifier
+  ) {
     if (this.captcha.verified || this.captcha.skipped) {
       return;
     }
 
-    await this.signInExperienceValidator.guardCaptcha();
+    await this.signInExperienceValidator.guardCaptcha(action, identifier);
   }
 
   /** Convert the current interaction to JSON, so that it can be stored as the OIDC provider interaction result */

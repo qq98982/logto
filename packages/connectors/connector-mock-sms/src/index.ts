@@ -37,11 +37,15 @@ const sendMessage =
     );
 
     const filePath = mockConnectorFilePaths.Sms;
+    const historyFilePath = process.env.CONNECTOR_MESSAGE_HISTORY_FILE;
+    const record = JSON.stringify({ phone: to, code: payload.code, type, payload }) + '\n';
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(
-      filePath,
-      JSON.stringify({ phone: to, code: payload.code, type, payload }) + '\n'
-    );
+    await fs.writeFile(filePath, record);
+
+    if (historyFilePath) {
+      await fs.mkdir(path.dirname(historyFilePath), { recursive: true });
+      await fs.appendFile(historyFilePath, record);
+    }
 
     return { phone: to, data: payload };
   };

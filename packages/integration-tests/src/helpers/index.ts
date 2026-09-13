@@ -60,6 +60,10 @@ const resolveMockConnectorFilePath = (defaultPath: string) => {
   return path.join(connectorMessageDir, path.basename(defaultPath));
 };
 
+const smsConnectorSendHistoryFilePath =
+  process.env.CONNECTOR_MESSAGE_HISTORY_FILE ??
+  resolveMockConnectorFilePath('/tmp/logto/mock_sms_send_history.jsonl');
+
 /**
  * Read the most recent connector message record from file system that is created by mock connectors.
  *
@@ -95,6 +99,34 @@ export const removeConnectorMessage = async (
     await fs.writeFile(resolveMockConnectorFilePath(mockConnectorFilePaths[forType]), '');
   } catch {
     // Do nothing
+  }
+};
+
+/** Reset the append-only mock SMS connector history for an isolated send-count assertion. */
+export const resetSmsConnectorSendCount = async (): Promise<void> => {
+  await fs.mkdir(path.dirname(smsConnectorSendHistoryFilePath), { recursive: true });
+  await fs.writeFile(smsConnectorSendHistoryFilePath, '');
+};
+
+/** Read the number of complete sends recorded by the mock SMS connector since the last reset. */
+export const readSmsConnectorSendCount = async (): Promise<number> => {
+  try {
+    const history = await fs.readFile(smsConnectorSendHistoryFilePath, 'utf8');
+
+    const records = history.split('\n').filter((line) => line.trim().length > 0);
+
+    for (const record of records) {
+      // Validate that every counted send is a complete JSONL record.
+      JSON.parse(record);
+    }
+
+    return records.length;
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return 0;
+    }
+
+    throw error;
   }
 };
 

@@ -1,4 +1,12 @@
-import { ConnectorType, InteractionEvent, SignInIdentifier, SignInMode } from '@logto/schemas';
+/* eslint-disable max-lines -- Keep the stateful CAPTCHA integration scenarios in one isolated suite. */
+import { TemplateType } from '@logto/connector-kit';
+import {
+  CaptchaPolicyScope,
+  ConnectorType,
+  InteractionEvent,
+  SignInIdentifier,
+  SignInMode,
+} from '@logto/schemas';
 import { generateStandardId } from '@logto/shared';
 
 import { mockSocialConnectorId } from '#src/__mocks__/connectors-mock.js';
@@ -11,22 +19,29 @@ import { initExperienceClient, processSession } from '#src/helpers/client.js';
 import {
   clearConnectorsByTypes,
   setEmailConnector,
+  setSmsConnector,
   setSocialConnector,
 } from '#src/helpers/connector.js';
 import {
   registerNewUserUsernamePassword,
+  identifyUserWithUsernamePassword,
   signInWithEnterpriseSso,
   signInWithPassword,
   signInWithSocial,
 } from '#src/helpers/experience/index.js';
-import { expectRejects } from '#src/helpers/index.js';
+import {
+  expectRejects,
+  readConnectorMessage,
+  readSmsConnectorSendCount,
+  resetSmsConnectorSendCount,
+} from '#src/helpers/index.js';
 import {
   disableCaptcha,
   enableAllPasswordSignInMethods,
   enableCaptcha,
 } from '#src/helpers/sign-in-experience.js';
 import { UserApiTest, generateNewUser, generateNewUserProfile } from '#src/helpers/user.js';
-import { generateEmail } from '#src/utils.js';
+import { generateEmail, generatePhone } from '#src/utils.js';
 
 import { successfullySendVerificationCode } from '../../../../helpers/experience/verification-code.js';
 
@@ -322,4 +337,191 @@ describe('captcha', () => {
       });
     });
   });
+
+  describe('phone verification-code captcha policy', () => {
+    const connectorIdMap = new Map<string, string>();
+
+    beforeAll(async () => {
+      await clearConnectorsByTypes([ConnectorType.Email, ConnectorType.Sms, ConnectorType.Social]);
+      const [{ id: socialConnectorId }] = await Promise.all([
+        setSocialConnector(),
+        setEmailConnector(),
+        setSmsConnector(),
+      ]);
+      connectorIdMap.set(mockSocialConnectorId, socialConnectorId);
+      await updateSignInExperience({
+        captchaPolicy: {
+          enabled: true,
+          scope: CaptchaPolicyScope.PhoneVerificationCode,
+        },
+      });
+    });
+
+    beforeEach(async () => {
+      await resetSmsConnectorSendCount();
+    });
+
+    afterAll(async () => {
+      await clearConnectorsByTypes([ConnectorType.Email, ConnectorType.Sms, ConnectorType.Social]);
+    });
+
+    it('rejects a phone code without captcha before the SMS connector is called', async () => {
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
+      const interactionBeforeSend = await client.getInteractionData();
+
+      await expectRejects(
+        client.sendVerificationCode({
+          identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+          interactionEvent: InteractionEvent.Register,
+        }),
+        { code: 'session.captcha_required', status: 422 }
+      );
+
+      await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+      const interactionAfterSend = await client.getInteractionData();
+      expect(interactionAfterSend).toEqual(interactionBeforeSend);
+    });
+
+    it('sends exactly one phone code after captcha is verified', async () => {
+      const phone = generatePhone();
+      const client = await initExperienceClient({
+        interactionEvent: InteractionEvent.Register,
+        captchaToken: 'captcha-token',
+      });
+
+      const result = await client.sendVerificationCode({
+        identifier: { type: SignInIdentifier.Phone, value: phone },
+        interactionEvent: InteractionEvent.Register,
+      });
+
+      expect(result.verificationId).toBeTruthy();
+      await expect(readSmsConnectorSendCount()).resolves.toBe(1);
+      await expect(readConnectorMessage('Sms')).resolves.toMatchObject({ phone });
+    });
+
+    it('allows an email code without captcha under the phone-only policy', async () => {
+      const email = generateEmail();
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
+
+      const result = await client.sendVerificationCode({
+        identifier: { type: SignInIdentifier.Email, value: email },
+        interactionEvent: InteractionEvent.Register,
+      });
+
+      expect(result.verificationId).toBeTruthy();
+      await expect(readConnectorMessage('Email')).resolves.toMatchObject({
+        address: email,
+        type: TemplateType.Register,
+      });
+      await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+    });
+
+    it('rejects a client-selected phone after password identification without trusted skip', async () => {
+      const { userProfile, user } = await generateNewUser({ username: true, password: true });
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.SignIn });
+      await identifyUserWithUsernamePassword(client, userProfile.username, userProfile.password);
+      const interactionBeforeSend = await client.getInteractionData();
+
+      await expectRejects(
+        client.sendVerificationCode({
+          identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+          interactionEvent: InteractionEvent.SignIn,
+        }),
+        { code: 'session.captcha_required', status: 422 }
+      );
+
+      await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+      await expect(client.getInteractionData()).resolves.toEqual(interactionBeforeSend);
+      await deleteUser(user.id);
+    });
+
+    it('sends phone MFA to the identified user stored phone without captcha', async () => {
+      const { userProfile, user } = await generateNewUser({
+        username: true,
+        password: true,
+        primaryPhone: true,
+      });
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.SignIn });
+      await identifyUserWithUsernamePassword(client, userProfile.username, userProfile.password);
+
+      const result = await client.sendMfaVerificationCode({
+        identifierType: SignInIdentifier.Phone,
+        phone: '15555550123',
+      } as unknown as Parameters<typeof client.sendMfaVerificationCode>[0]);
+
+      expect(result.verificationId).toBeTruthy();
+      await expect(readSmsConnectorSendCount()).resolves.toBe(1);
+      await expect(readConnectorMessage('Sms')).resolves.toMatchObject({
+        phone: userProfile.primaryPhone,
+        type: TemplateType.MfaVerification,
+      });
+      await deleteUser(user.id);
+    });
+
+    it('allows verified social registration to bind a phone without a second captcha', async () => {
+      await updateSignInExperience({
+        signUp: {
+          identifiers: [SignInIdentifier.Phone],
+          password: false,
+          verify: true,
+        },
+      });
+
+      const connectorId = connectorIdMap.get(mockSocialConnectorId)!;
+      const client = await initExperienceClient();
+      const state = 'state';
+      const redirectUri = 'http://localhost:3000';
+      const { verificationId } = await client.getSocialAuthorizationUri(connectorId, {
+        redirectUri,
+        state,
+      });
+
+      await client.verifySocialAuthorization(connectorId, {
+        verificationId,
+        connectorData: {
+          state,
+          redirectUri,
+          code: 'fake_code',
+          userId: generateStandardId(),
+        },
+      });
+      await expectRejects(client.identifyUser({ verificationId }), {
+        code: 'user.identity_not_exist',
+        status: 404,
+      });
+      await client.updateInteractionEvent({ interactionEvent: InteractionEvent.Register });
+      await expectRejects(client.identifyUser({ verificationId }), {
+        code: 'user.missing_profile',
+        status: 422,
+      });
+
+      const result = await client.sendVerificationCode({
+        identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+        interactionEvent: InteractionEvent.Register,
+      });
+
+      expect(result.verificationId).toBeTruthy();
+      await expect(readSmsConnectorSendCount()).resolves.toBe(1);
+    });
+
+    it('does not allow a direct caller to forge the server-owned captcha skip state', async () => {
+      const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
+
+      await client.initInteraction({
+        interactionEvent: InteractionEvent.Register,
+        captcha: { verified: false, skipped: true },
+      } as unknown as Parameters<typeof client.initInteraction>[0]);
+
+      await expectRejects(
+        client.sendVerificationCode({
+          identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+          interactionEvent: InteractionEvent.Register,
+        }),
+        { code: 'session.captcha_required', status: 422 }
+      );
+
+      await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+    });
+  });
 });
+/* eslint-enable max-lines */
