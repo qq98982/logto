@@ -21,6 +21,9 @@ const security = {
     enable_captcha: 'Enable CAPTCHA',
     enable_captcha_description:
       'Enable CAPTCHA verification for sign-up, sign-in, and password recovery flows.',
+    captcha_scope: 'Protection scope',
+    captcha_scope_interaction: 'All protected interactions',
+    captcha_scope_phone_verification_code: 'Phone verification codes only',
     custom_ui_captcha_notice:
       'You are using Bring your UI. Additional configuration is required to enable CAPTCHA in your custom UI. <a>View setup guide</a>.',
   },
@@ -28,6 +31,11 @@ const security = {
     setup_captcha: 'Setup CAPTCHA',
   },
   captcha_providers: {
+    aliyun: {
+      name: 'Alibaba Cloud CAPTCHA 2.0',
+      description:
+        'Alibaba Cloud CAPTCHA 2.0 protects phone verification code requests from automated abuse in the China region.',
+    },
     recaptcha_enterprise: {
       name: 'reCAPTCHA Enterprise',
       description:
@@ -61,6 +69,10 @@ const security = {
     mode_checkbox: 'Checkbox',
     mode_notice:
       'The verification mode is defined in your reCAPTCHA key settings in Google Cloud Console. Changing the mode here requires a matching key type.',
+    aliyun_prefix: 'Prefix',
+    aliyun_scene_id: 'Scene ID',
+    aliyun_access_key_id: 'AccessKey ID',
+    aliyun_access_key_secret: 'AccessKey Secret',
   },
   password_policy: {
     password_requirements: 'Password requirements',

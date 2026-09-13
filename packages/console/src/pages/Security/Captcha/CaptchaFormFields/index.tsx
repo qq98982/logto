@@ -25,6 +25,9 @@ function CaptchaFormFields({ metadata, errors, register, control }: Props) {
   const projectIdField = metadata.requiredFields.find((field) => field.field === 'projectId');
   const domainField = metadata.requiredFields.find((field) => field.field === 'domain');
   const modeField = metadata.requiredFields.find((field) => field.field === 'mode');
+  const textFields = metadata.requiredFields.filter(({ field }) =>
+    ['prefix', 'sceneId', 'accessKeyId', 'accessKeySecret'].includes(field)
+  );
   const { t } = useTranslation(undefined, { keyPrefix: 'admin_console' });
 
   return (
@@ -91,6 +94,16 @@ function CaptchaFormFields({ metadata, errors, register, control }: Props) {
           </InlineNotification>
         </>
       )}
+      {textFields.map(({ field, label, placeholder, isOptional, isSecret }) => (
+        <FormField key={field} isRequired={!isOptional} title={label}>
+          <TextInput
+            type={isSecret ? 'password' : 'text'}
+            error={Boolean(errors[field])}
+            placeholder={String(t(placeholder))}
+            {...register(field, { required: !isOptional })}
+          />
+        </FormField>
+      ))}
     </>
   );
 }

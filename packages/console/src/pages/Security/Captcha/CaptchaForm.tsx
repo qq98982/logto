@@ -23,6 +23,7 @@ import CaptchaCard from './CaptchaCard';
 import styles from './CaptchaForm.module.scss';
 import CreateCaptchaForm from './CreateCaptchaForm';
 import EnableCaptcha from './EnableCaptcha';
+import { normalizeCaptchaPolicy } from './utils';
 
 type Props = {
   readonly captchaProvider?: CaptchaProvider;
@@ -36,7 +37,7 @@ function CaptchaForm({ captchaProvider, formData }: Props) {
 
   const [isCreateCaptchaFormOpen, setIsCreateCaptchaFormOpen] = useState(false);
   const formMethods = useForm<CaptchaPolicy>({
-    defaultValues: formData,
+    defaultValues: normalizeCaptchaPolicy(formData),
     mode: 'onBlur',
   });
   const {
@@ -49,12 +50,13 @@ function CaptchaForm({ captchaProvider, formData }: Props) {
   const { mutate: mutateGlobal } = useSWRConfig();
 
   const onSubmit = trySubmitSafe(async (data: CaptchaPolicy) => {
+    const submittedCaptchaPolicy = normalizeCaptchaPolicy(data);
     const { captchaPolicy } = await api
       .patch('api/sign-in-exp', {
-        json: { captchaPolicy: data },
+        json: { captchaPolicy: submittedCaptchaPolicy },
       })
       .json<SignInExperience>();
-    reset(captchaPolicy);
+    reset(normalizeCaptchaPolicy(captchaPolicy));
     mutateSubscriptionQuotaAndUsages();
 
     // Global mutate the SIE data

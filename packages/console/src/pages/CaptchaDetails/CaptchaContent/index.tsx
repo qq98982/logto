@@ -11,6 +11,7 @@ import useApi from '@/hooks/use-api';
 import CaptchaFormFields from '@/pages/Security/Captcha/CaptchaFormFields';
 import { captchaProviders } from '@/pages/Security/Captcha/CreateCaptchaForm/constants';
 import { type CaptchaFormType } from '@/pages/Security/Captcha/types';
+import { buildCaptchaConfig } from '@/pages/Security/Captcha/utils';
 import { trySubmitSafe } from '@/utils/form';
 
 type Props = {
@@ -45,10 +46,7 @@ function CaptchaContent({ isDeleted, captchaProvider, onUpdate }: Props) {
       const updatedCaptchaProvider = await api
         .put('api/captcha-provider', {
           json: {
-            config: {
-              ...data,
-              type: captchaProvider.config.type,
-            },
+            config: buildCaptchaConfig(captchaProvider.config.type, data),
           },
         })
         .json<CaptchaProvider>();

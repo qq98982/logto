@@ -1,7 +1,16 @@
 import { type AdminConsoleKey } from '@logto/phrases';
 import { type CaptchaType } from '@logto/schemas';
 
-type FormField = 'siteKey' | 'secretKey' | 'projectId' | 'domain' | 'mode';
+type FormField =
+  | 'siteKey'
+  | 'secretKey'
+  | 'projectId'
+  | 'domain'
+  | 'mode'
+  | 'prefix'
+  | 'sceneId'
+  | 'accessKeyId'
+  | 'accessKeySecret';
 
 export type CaptchaProviderMetadata = {
   name: AdminConsoleKey;
@@ -15,5 +24,6 @@ export type CaptchaProviderMetadata = {
     label: AdminConsoleKey;
     placeholder: AdminConsoleKey;
     isOptional?: boolean;
+    isSecret?: boolean;
   }>;
 };

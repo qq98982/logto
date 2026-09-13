@@ -5,7 +5,11 @@ import useSWR from 'swr';
 import { z } from 'zod';
 
 import { FormCardSkeleton } from '@/components/FormCard';
-import { recaptchaEnterpriseBringYourUi, turnstileBringYourUi } from '@/consts/external-links';
+import {
+  captcha,
+  recaptchaEnterpriseBringYourUi,
+  turnstileBringYourUi,
+} from '@/consts/external-links';
 import InlineNotification from '@/ds-components/InlineNotification';
 import TextLink from '@/ds-components/TextLink';
 import { type RequestError } from '@/hooks/use-api';
@@ -34,7 +38,9 @@ function Captcha() {
   const customUiCaptchaGuideLink =
     data?.config.type === CaptchaType.Turnstile
       ? turnstileBringYourUi
-      : recaptchaEnterpriseBringYourUi;
+      : data?.config.type === CaptchaType.RecaptchaEnterprise
+        ? recaptchaEnterpriseBringYourUi
+        : captcha;
 
   if (guideType.success) {
     return (

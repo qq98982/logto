@@ -1,5 +1,6 @@
 import { CaptchaType } from '@logto/schemas';
 
+import security from '@/assets/icons/security.svg?react';
 import recaptchaEnterprise from '@/assets/images/recaptcha.svg?react';
 import turnstile from '@/assets/images/turnstile.svg?react';
 
@@ -73,7 +74,59 @@ reCAPTCHA Enterprise is a Google service that protects websites from fraud and a
 ${enableCaptchaReadme}
 `;
 
+const aliyunReadme = `
+# Alibaba Cloud CAPTCHA 2.0
+
+Alibaba Cloud CAPTCHA 2.0 protects phone verification code requests from automated abuse. This integration is available for the China region.
+
+## Prerequisites
+
+- An Alibaba Cloud account
+- A CAPTCHA 2.0 instance and verification scenario
+- An AccessKey with permission to call CAPTCHA 2.0
+
+## Setup
+
+1. Open [Alibaba Cloud CAPTCHA 2.0](https://captcha.console.aliyun.com/).
+2. Create or select a CAPTCHA instance and verification scenario.
+3. Copy the Prefix and Scene ID from the scenario configuration.
+4. Create an AccessKey ID and AccessKey Secret with the minimum required permissions.
+
+${enableCaptchaReadme}
+`;
+
 export const captchaProviders: CaptchaProviderMetadata[] = [
+  {
+    name: 'security.captcha_providers.aliyun.name',
+    type: CaptchaType.Aliyun,
+    logo: security,
+    logoDark: security,
+    description: 'security.captcha_providers.aliyun.description',
+    readme: aliyunReadme,
+    requiredFields: [
+      {
+        field: 'prefix',
+        label: 'security.captcha_details.aliyun_prefix',
+        placeholder: 'security.captcha_details.aliyun_prefix',
+      },
+      {
+        field: 'sceneId',
+        label: 'security.captcha_details.aliyun_scene_id',
+        placeholder: 'security.captcha_details.aliyun_scene_id',
+      },
+      {
+        field: 'accessKeyId',
+        label: 'security.captcha_details.aliyun_access_key_id',
+        placeholder: 'security.captcha_details.aliyun_access_key_id',
+      },
+      {
+        field: 'accessKeySecret',
+        label: 'security.captcha_details.aliyun_access_key_secret',
+        placeholder: 'security.captcha_details.aliyun_access_key_secret',
+        isSecret: true,
+      },
+    ],
+  },
   {
     name: 'security.captcha_providers.recaptcha_enterprise.name',
     type: CaptchaType.RecaptchaEnterprise,

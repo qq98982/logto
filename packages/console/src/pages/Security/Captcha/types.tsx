@@ -6,4 +6,8 @@ export type CaptchaFormType = {
   projectId: string;
   domain?: string;
   mode?: RecaptchaEnterpriseMode;
+  prefix: string;
+  sceneId: string;
+  accessKeyId: string;
+  accessKeySecret: string;
 };

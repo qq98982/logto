@@ -19,11 +19,18 @@ const security = {
     settings: '设置',
     enable_captcha: '启用验证码',
     enable_captcha_description: '为注册、登录和密码恢复流程启用验证码验证。',
+    captcha_scope: '保护范围',
+    captcha_scope_interaction: '所有受保护的身份验证',
+    captcha_scope_phone_verification_code: '仅手机号验证码',
   },
   create_captcha: {
     setup_captcha: '设置验证码',
   },
   captcha_providers: {
+    aliyun: {
+      name: '阿里云验证码 2.0',
+      description: '阿里云验证码 2.0 可保护中国区域的手机号验证码请求免受自动化滥用。',
+    },
     recaptcha_enterprise: {
       name: 'reCAPTCHA Enterprise',
       description:
@@ -57,6 +64,10 @@ const security = {
     mode_checkbox: '复选框验证',
     mode_notice:
       '验证模式在 Google Cloud Console 的 reCAPTCHA 密钥设置中定义。更改此处的模式需要匹配的密钥类型。',
+    aliyun_prefix: '前缀',
+    aliyun_scene_id: '场景 ID',
+    aliyun_access_key_id: 'AccessKey ID',
+    aliyun_access_key_secret: 'AccessKey Secret',
   },
   password_policy: {
     password_requirements: '密码要求',

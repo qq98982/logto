@@ -22,6 +22,7 @@ import CaptchaFormFields from '../CaptchaFormFields';
 import { captchaProviders } from '../CreateCaptchaForm/constants';
 import { type CaptchaFormType } from '../types';
 import useDataFetch from '../use-data-fetch';
+import { buildCaptchaConfig } from '../utils';
 
 import styles from './index.module.scss';
 
@@ -44,6 +45,10 @@ function Guide({ type, onClose }: Props) {
       secretKey: '',
       projectId: '',
       mode: RecaptchaEnterpriseMode.Invisible,
+      prefix: '',
+      sceneId: '',
+      accessKeyId: '',
+      accessKeySecret: '',
     },
   });
 
@@ -63,10 +68,7 @@ function Guide({ type, onClose }: Props) {
       const provider = await api
         .put('api/captcha-provider', {
           json: {
-            config: {
-              ...data,
-              type,
-            },
+            config: buildCaptchaConfig(type, data),
           },
         })
         .json<CaptchaProvider>();
