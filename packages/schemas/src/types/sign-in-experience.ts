@@ -12,7 +12,14 @@ import {
   type SignInExperience,
   SignInExperiences,
 } from '../db-entries/index.js';
-import { CaptchaType, RecaptchaEnterpriseMode } from '../foundations/jsonb-types/index.js';
+import {
+  aliyunCaptchaConfigGuard,
+  type AliyunCaptchaConfig,
+  recaptchaEnterpriseConfigGuard,
+  type RecaptchaEnterpriseConfig,
+  turnstileConfigGuard,
+  type TurnstileConfig,
+} from '../foundations/jsonb-types/index.js';
 import { type ToZodObject } from '../utils/zod.js';
 
 import { type SsoConnectorMetadata, ssoConnectorMetadataGuard } from './sso-connector.js';
@@ -21,6 +28,19 @@ type ForgotPassword = {
   phone: boolean;
   email: boolean;
 };
+
+export type PublicCaptchaConfig =
+  | Pick<TurnstileConfig, 'type' | 'siteKey'>
+  | Pick<RecaptchaEnterpriseConfig, 'type' | 'siteKey' | 'domain' | 'mode'>
+  | Pick<AliyunCaptchaConfig, 'type' | 'region' | 'prefix' | 'sceneId'>;
+
+export const publicCaptchaConfigGuard = z.discriminatedUnion('type', [
+  turnstileConfigGuard.pick({ type: true, siteKey: true }).strict(),
+  recaptchaEnterpriseConfigGuard
+    .pick({ type: true, siteKey: true, domain: true, mode: true })
+    .strict(),
+  aliyunCaptchaConfigGuard.pick({ type: true, region: true, prefix: true, sceneId: true }).strict(),
+]);
 
 /**
  * Basic information about a social connector for sign-in experience rendering. This type can avoid
@@ -48,12 +68,7 @@ export type FullSignInExperience = Omit<
    * minimal data needed here.
    */
   googleOneTap?: GoogleOneTapConfig & { clientId: string; connectorId: string };
-  captchaConfig?: {
-    type: CaptchaType;
-    siteKey: string;
-    domain?: string;
-    mode?: RecaptchaEnterpriseMode;
-  };
+  captchaConfig?: PublicCaptchaConfig;
   /**
    * Custom profile fields selected for the sign-up (Collect user profile) flow.
    */
@@ -83,14 +98,7 @@ export const fullSignInExperienceGuard = SignInExperiences.guard
     googleOneTap: googleOneTapConfigGuard
       .extend({ clientId: z.string(), connectorId: z.string() })
       .optional(),
-    captchaConfig: z
-      .object({
-        type: z.nativeEnum(CaptchaType),
-        siteKey: z.string(),
-        domain: z.string().optional(),
-        mode: z.nativeEnum(RecaptchaEnterpriseMode).optional(),
-      })
-      .optional(),
+    captchaConfig: publicCaptchaConfigGuard.optional(),
     customProfileFields: CustomProfileFields.guard.array(),
     customProfileFieldCatalog: CustomProfileFields.guard.array().optional(),
   }) satisfies ToZodObject<FullSignInExperience>;

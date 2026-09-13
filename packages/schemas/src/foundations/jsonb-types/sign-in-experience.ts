@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { Theme } from '../../types/theme.js';
 import { type ToZodObject } from '../../utils/zod.js';
 
+import { CaptchaPolicyScope } from './captcha.js';
+
 export const colorGuard = z.object({
   primaryColor: z.string().regex(hexColorRegEx),
   isDarkModeEnabled: z.boolean(),
@@ -279,6 +281,7 @@ export type CustomUiAssets = z.infer<typeof customUiAssetsGuard>;
 
 export const captchaPolicyGuard = z.object({
   enabled: z.boolean().optional(),
+  scope: z.nativeEnum(CaptchaPolicyScope).optional(),
 });
 
 export type CaptchaPolicy = z.infer<typeof captchaPolicyGuard>;

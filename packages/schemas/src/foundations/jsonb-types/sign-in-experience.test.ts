@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 
-import { customUiCspGuard, passwordExpirationPolicyGuard } from './sign-in-experience.js';
+import {
+  captchaPolicyGuard,
+  customUiCspGuard,
+  passwordExpirationPolicyGuard,
+} from './sign-in-experience.js';
+
+describe('captchaPolicyGuard', () => {
+  it.each([
+    [{}, {}],
+    [{ enabled: true }, { enabled: true }],
+    [
+      { enabled: true, scope: 'PhoneVerificationCode' },
+      { enabled: true, scope: 'PhoneVerificationCode' },
+    ],
+  ])('accepts policy %p', (value, expected) => {
+    expect(captchaPolicyGuard.parse(value)).toEqual(expected);
+  });
+
+  it('rejects an unknown scope', () => {
+    expect(captchaPolicyGuard.safeParse({ enabled: true, scope: 'Unknown' }).success).toBe(false);
+  });
+});
 
 describe('customUiCspGuard', () => {
   it.each([
