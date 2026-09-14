@@ -92,7 +92,7 @@ describe('ForgotPasswordForm', () => {
               value,
             },
             undefined,
-            undefined
+            expect.any(Function)
           );
           expect(mockedNavigate).toBeCalledWith(
             {

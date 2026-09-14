@@ -1,9 +1,15 @@
-import { InteractionEvent, type VerificationCodeIdentifier } from '@logto/schemas';
+import {
+  InteractionEvent,
+  SignInIdentifier,
+  type VerificationCodeIdentifier,
+} from '@logto/schemas';
 import { t } from 'i18next';
 import { useCallback, useContext, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTimer } from 'react-timer-hook';
 
+import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
+import { CaptchaExecutionError } from '@/Providers/CaptchaContextProvider/aliyun-captcha';
 import UserInteractionContext from '@/Providers/UserInteractionContextProvider/UserInteractionContext';
 import { sendVerificationCode } from '@/apis/experience';
 import { getInteractionEventFromState, userFlowToInteractionEventMap } from '@/apis/utils';
@@ -29,7 +35,6 @@ const useResendVerificationCode = (flow: UserFlow, identifier: VerificationCodeI
   const interactionEvent = useMemo<InteractionEvent>(() => {
     if (flow === UserFlow.Continue) {
       const interactionEvent = getInteractionEventFromState(state);
-      console.log('interactionEvent', interactionEvent);
       return interactionEvent ?? InteractionEvent.SignIn;
     }
 
@@ -44,9 +49,34 @@ const useResendVerificationCode = (flow: UserFlow, identifier: VerificationCodeI
   const handleError = useErrorHandler();
   const resendVerificationCode = useApi(sendVerificationCode);
   const { setVerificationId } = useContext(UserInteractionContext);
+  const { executeCaptcha } = useContext(CaptchaContext);
 
   const onResendVerificationCode = useCallback(async () => {
-    const [error, result] = await resendVerificationCode(interactionEvent, identifier);
+    const captchaResult = await (async (): Promise<{ captchaToken?: string } | undefined> => {
+      if (identifier.type !== SignInIdentifier.Phone) {
+        return {};
+      }
+
+      try {
+        return { captchaToken: await executeCaptcha(identifier.type) };
+      } catch (error: unknown) {
+        if (error instanceof CaptchaExecutionError) {
+          return;
+        }
+
+        throw error;
+      }
+    })();
+
+    if (!captchaResult) {
+      return;
+    }
+
+    const { captchaToken } = captchaResult;
+    const [error, result] =
+      captchaToken === undefined
+        ? await resendVerificationCode(interactionEvent, identifier)
+        : await resendVerificationCode(interactionEvent, identifier, captchaToken);
 
     if (error) {
       await handleError(error);
@@ -68,6 +98,7 @@ const useResendVerificationCode = (flow: UserFlow, identifier: VerificationCodeI
     setVerificationId,
     setToast,
     restart,
+    executeCaptcha,
   ]);
 
   return {

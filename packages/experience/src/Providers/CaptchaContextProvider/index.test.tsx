@@ -227,7 +227,7 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
     expect(container.textContent).not.toContain('captcha');
   });
 
-  it('passes one successful phone token only to interaction initialization before sending', async () => {
+  it('initializes first and passes one successful phone token only to the send POST', async () => {
     const { initAliyunCaptcha, instances } = installAliyunSdk();
     const token = 'captcha-verify-param';
     const { submission } = submitPhone();
@@ -243,13 +243,25 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
     });
 
     expect(mockedInitInteraction).toHaveBeenCalledTimes(1);
-    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn, token);
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
     expect(mockedSendVerificationCode).toHaveBeenCalledTimes(1);
-    expect(mockedSendVerificationCode).toHaveBeenCalledWith(InteractionEvent.SignIn, {
-      type: SignInIdentifier.Phone,
-      value: '+8613800138000',
-    });
+    expect(mockedSendVerificationCode).toHaveBeenCalledWith(
+      InteractionEvent.SignIn,
+      {
+        type: SignInIdentifier.Phone,
+        value: '+8613800138000',
+      },
+      token
+    );
+    const [instance] = instances;
+    if (!instance) {
+      throw new TypeError('Expected Alibaba CAPTCHA to create an instance');
+    }
+    const startVerification = jest.mocked(instance.startTracelessVerification);
     expect(mockedInitInteraction.mock.invocationCallOrder[0]).toBeLessThan(
+      startVerification.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(startVerification.mock.invocationCallOrder[0]).toBeLessThan(
       mockedSendVerificationCode.mock.invocationCallOrder[0] ?? 0
     );
     expect(instances[0]?.destroyCaptcha).toHaveBeenCalledTimes(1);
@@ -274,7 +286,7 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
 
     expect(initAliyunCaptcha).toHaveBeenCalledTimes(1);
     expect(instances[0]?.startTracelessVerification).not.toHaveBeenCalled();
-    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn, undefined);
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
     expect(mockedSendVerificationCode).toHaveBeenCalledWith(InteractionEvent.SignIn, {
       type: SignInIdentifier.Email,
       value: 'person@example.com',
@@ -511,7 +523,7 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
         options.success('界'.repeat(5462));
       },
     ],
-  ])('aborts %s without calling interaction or send APIs', async (_label, trigger) => {
+  ])('initializes but aborts %s before calling the send API', async (_label, trigger) => {
     const { initAliyunCaptcha, instances } = installAliyunSdk();
     const { submission } = submitPhone();
 
@@ -523,13 +535,13 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
     });
 
     await expect(submission).resolves.toBeUndefined();
-    expect(mockedInitInteraction).not.toHaveBeenCalled();
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
     expect(mockedSendVerificationCode).not.toHaveBeenCalled();
     expect(instances[0]?.destroyCaptcha).toHaveBeenCalledTimes(1);
     expect(document.body.textContent).not.toContain('界');
   });
 
-  it('aborts an expected Register CAPTCHA failure without initializing or sending', async () => {
+  it('keeps the initialized Register flow after an expected CAPTCHA failure without sending', async () => {
     const { initAliyunCaptcha, instances } = installAliyunSdk();
     const { submission } = submitPhone(createSettings(), UserFlow.Register);
 
@@ -544,7 +556,7 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
     });
 
     await expect(submission).resolves.toBeUndefined();
-    expect(mockedInitInteraction).not.toHaveBeenCalled();
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.Register);
     expect(mockedSendVerificationCode).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('PRIVATE_CODE');
     expect(document.body.textContent).not.toContain('private provider detail');
@@ -552,28 +564,32 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
 
   it('rejects when the loaded script does not expose the SDK', async () => {
     const { submission } = submitPhone();
+    await waitFor(() => {
+      expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
+    });
     const script = document.querySelector<HTMLScriptElement>(`script#${scriptId}`);
 
     expect(script).not.toBeNull();
-    act(() => {
+    await act(async () => {
+      await Promise.resolve();
       script?.dispatchEvent(new Event('load'));
     });
 
     await expect(submission).resolves.toBeUndefined();
-    expect(mockedInitInteraction).not.toHaveBeenCalled();
     expect(mockedSendVerificationCode).not.toHaveBeenCalled();
   });
 
-  it('rejects an initialization timeout without calling interaction or send APIs', async () => {
+  it('rejects a CAPTCHA initialization timeout after interaction init without sending', async () => {
     jest.useFakeTimers();
     installAliyunSdk(false);
     const { submission } = submitPhone();
     await act(async () => {
+      await Promise.resolve();
       jest.advanceTimersByTime(5000);
     });
 
     await expect(submission).resolves.toBeUndefined();
-    expect(mockedInitInteraction).not.toHaveBeenCalled();
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
     expect(mockedSendVerificationCode).not.toHaveBeenCalled();
   });
 
@@ -697,7 +713,7 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
         value: '+8613800138000',
       })
     ).rejects.toBe(unexpectedError);
-    expect(mockedInitInteraction).not.toHaveBeenCalled();
+    expect(mockedInitInteraction).toHaveBeenCalledWith(InteractionEvent.SignIn);
     expect(mockedSendVerificationCode).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('unexpected runtime detail');
   });

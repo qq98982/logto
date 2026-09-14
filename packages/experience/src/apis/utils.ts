@@ -33,17 +33,24 @@ export const sendVerificationCodeApi = async (
   flow: UserFlow,
   identifier: VerificationCodeIdentifier,
   interactionEvent?: ContinueFlowInteractionEvent,
-  captchaToken?: string
+  captchaTokenOrGetter?: string | (() => Promise<string | undefined>)
 ) => {
+  const resolveCaptchaToken = async () =>
+    typeof captchaTokenOrGetter === 'function' ? captchaTokenOrGetter() : captchaTokenOrGetter;
+
   if (flow === UserFlow.Continue) {
     return sendVerificationCode(
       interactionEvent ?? InteractionEvent.SignIn,
       identifier,
-      captchaToken
+      await resolveCaptchaToken()
     );
   }
 
   const event = userFlowToInteractionEventMap[flow];
-  await initInteraction(event, captchaToken);
-  return sendVerificationCode(event, identifier);
+  await initInteraction(event);
+  const captchaToken = await resolveCaptchaToken();
+
+  return captchaToken === undefined
+    ? sendVerificationCode(event, identifier)
+    : sendVerificationCode(event, identifier, captchaToken);
 };

@@ -1,4 +1,4 @@
-import { InteractionEvent, type SignInIdentifier } from '@logto/schemas';
+import { InteractionEvent, SignInIdentifier } from '@logto/schemas';
 import { conditional } from '@silverhand/essentials';
 import { type TFuncKey } from 'i18next';
 import { useCallback, useContext, useState } from 'react';
@@ -6,9 +6,12 @@ import { useLocation } from 'react-router-dom';
 import { validate } from 'superstruct';
 
 import SecondaryPageLayout from '@/Layout/SecondaryPageLayout';
+import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
+import { CaptchaExecutionError } from '@/Providers/CaptchaContextProvider/aliyun-captcha';
 import UserInteractionContext from '@/Providers/UserInteractionContextProvider/UserInteractionContext';
 import { sendVerificationCode } from '@/apis/experience';
 import SwitchMfaFactorsLink from '@/components/SwitchMfaFactorsLink';
+import CaptchaBox from '@/containers/CaptchaBox';
 import useErrorHandler from '@/hooks/use-error-handler';
 import useNavigateWithPreservedSearchParams from '@/hooks/use-navigate-with-preserved-search-params';
 import useSkipMfa from '@/hooks/use-skip-mfa';
@@ -17,6 +20,7 @@ import IdentifierProfileForm from '@/pages/Continue/IdentifierProfileForm';
 import ErrorPage from '@/pages/ErrorPage';
 import { UserMfaFlow } from '@/types';
 import { mfaFlowStateGuard } from '@/types/guard';
+import { isCaptchaRequiredError } from '@/utils/captcha';
 import { codeVerificationTypeMap } from '@/utils/sign-in-experience';
 
 import styles from './index.module.scss';
@@ -43,6 +47,7 @@ const VerificationCodeMfaBinding = ({
   const skipMfa = useSkipMfa();
   const skipOptionalMfa = useSkipOptionalMfa();
   const handleError = useErrorHandler();
+  const { executeCaptcha } = useContext(CaptchaContext);
 
   const clearErrorMessage = useCallback(() => {
     setErrorMessage('');
@@ -53,7 +58,21 @@ const VerificationCodeMfaBinding = ({
       const identifier = { type: identifierType, value };
 
       try {
-        const result = await sendVerificationCode(InteractionEvent.Register, identifier);
+        const result = await (async () => {
+          try {
+            return await sendVerificationCode(InteractionEvent.Register, identifier);
+          } catch (error: unknown) {
+            if (
+              identifierType !== SignInIdentifier.Phone ||
+              !(await isCaptchaRequiredError(error))
+            ) {
+              throw error;
+            }
+
+            const captchaToken = await executeCaptcha(identifierType);
+            return sendVerificationCode(InteractionEvent.Register, identifier, captchaToken);
+          }
+        })();
 
         setVerificationId(codeVerificationTypeMap[identifierType], result.verificationId);
         setIdentifierInputValue(identifier);
@@ -64,7 +83,11 @@ const VerificationCodeMfaBinding = ({
             mfaFlowState,
           },
         });
-      } catch (error) {
+      } catch (error: unknown) {
+        if (error instanceof CaptchaExecutionError) {
+          return;
+        }
+
         await handleError(error, {
           'guard.invalid_input': () => {
             setErrorMessage(invalidInputErrorKey);
@@ -74,6 +97,7 @@ const VerificationCodeMfaBinding = ({
     },
     [
       handleError,
+      executeCaptcha,
       identifierType,
       invalidInputErrorKey,
       mfaFlowState,
@@ -103,6 +127,7 @@ const VerificationCodeMfaBinding = ({
         enabledTypes={[identifierType]}
         onSubmit={handleSubmit}
       />
+      <CaptchaBox />
       {availableFactors.length > 1 && (
         <SwitchMfaFactorsLink
           flow={UserMfaFlow.MfaBinding}

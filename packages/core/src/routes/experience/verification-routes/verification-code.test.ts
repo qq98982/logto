@@ -16,9 +16,23 @@ async function resolveVoid(): Promise<void> {
   await Promise.resolve();
 }
 const koaGuard = jest.fn((_options: unknown) => passThroughMiddleware);
-const sendCode = jest.fn(async () => ({ verificationId: 'verification-id' }));
+const phoneLockMiddleware = async (_ctx: unknown, next: Next) => next();
+const koaPhoneVerificationCodeLock = jest.fn(() => phoneLockMiddleware);
+const sendCode = jest.fn(async ({ prepareCodeSend }: { prepareCodeSend?: () => void }) => {
+  prepareCodeSend?.();
+
+  return { verificationId: 'verification-id' };
+});
+const verifyCode = jest.fn(async ({ onCodeVerified }: { onCodeVerified?: () => void }) => {
+  onCodeVerified?.();
+
+  return { verificationId: 'verification-id' };
+});
 
 mockEsm('#src/middleware/koa-guard.js', () => ({ default: koaGuard }));
+mockEsm('../middleware/koa-phone-verification-code-lock.js', () => ({
+  default: koaPhoneVerificationCodeLock,
+}));
 mockEsm('../classes/verifications/code-verification.js', () => ({
   createNewCodeVerificationRecord: jest.fn(),
   createNewMfaCodeVerificationRecord: jest.fn(),
@@ -26,7 +40,7 @@ mockEsm('../classes/verifications/code-verification.js', () => ({
 }));
 mockEsm('./verification-code-helpers.js', () => ({
   sendCode,
-  verifyCode: jest.fn(),
+  verifyCode,
   getMfaIdentifier: jest.fn(),
   getMfaVerificationType: jest.fn(),
 }));
@@ -37,12 +51,10 @@ const createRouter = (): RouterLike => ({
   post: jest.fn<void, [string, ...unknown[]]>(),
 });
 
-const registerRoute = () => {
+const registerRoute = (path = '/experience/verification/verification-code') => {
   const router = createRouter();
   verificationCodeRoutes(router as never, { libraries: {}, queries: {}, sentinel: {} } as never);
-  const route = router.post.mock.calls.find(
-    ([path]) => path === '/experience/verification/verification-code'
-  );
+  const route = router.post.mock.calls.find(([registeredPath]) => registeredPath === path);
   const handler = route?.at(-1);
 
   if (typeof handler !== 'function') {
@@ -53,18 +65,20 @@ const registerRoute = () => {
 };
 
 const identifier = { type: SignInIdentifier.Phone, value: '13800138000' } as const;
-const createContext = (captchaToken = 'captcha-token') => ({
+const createContext = (captchaToken: string | undefined = 'captcha-token') => ({
   guard: {
     body: {
       identifier,
       interactionEvent: InteractionEvent.SignIn,
-      captchaToken,
+      captchaToken: captchaToken as string | undefined,
     },
   },
   experienceInteraction: {
     identifiedUserId: undefined,
     verifyCaptcha: jest.fn().mockImplementation(resolveVoid),
     guardCaptcha: jest.fn().mockImplementation(resolveVoid),
+    consumeCaptchaForPhoneSend: jest.fn(),
+    markCaptchaVerified: jest.fn(),
     signInExperienceValidator: {
       getSignInExperienceData: jest.fn(async () => ({ signUp: { identifiers: [] } })),
     },
@@ -109,6 +123,22 @@ describe('verification-code send CAPTCHA token', () => {
     expect(sendCode).not.toHaveBeenCalled();
   });
 
+  it('registers the phone lock after the request body guard and before the send handler', () => {
+    const router = createRouter();
+    const tenant = {
+      libraries: {},
+      queries: {},
+      sentinel: {},
+    };
+    verificationCodeRoutes(router as never, tenant as never);
+    const route = router.post.mock.calls.find(
+      ([registeredPath]) => registeredPath === '/experience/verification/verification-code'
+    );
+
+    expect(koaPhoneVerificationCodeLock).toHaveBeenCalledWith(tenant);
+    expect(route?.at(-2)).toBe(phoneLockMiddleware);
+  });
+
   it('verifies a POST token before the phone cost guard and send work', async () => {
     const handler = registerRoute();
     const ctx = createContext();
@@ -118,7 +148,8 @@ describe('verification-code send CAPTCHA token', () => {
     expect(ctx.experienceInteraction.verifyCaptcha).toHaveBeenCalledWith('captcha-token');
     expect(ctx.experienceInteraction.guardCaptcha).toHaveBeenCalledWith(
       CaptchaPolicyScope.PhoneVerificationCode,
-      SignInIdentifier.Phone
+      SignInIdentifier.Phone,
+      true
     );
     expect(ctx.experienceInteraction.verifyCaptcha.mock.invocationCallOrder[0]).toBeLessThan(
       ctx.experienceInteraction.guardCaptcha.mock.invocationCallOrder[0] ?? 0
@@ -126,7 +157,63 @@ describe('verification-code send CAPTCHA token', () => {
     expect(ctx.experienceInteraction.guardCaptcha.mock.invocationCallOrder[0]).toBeLessThan(
       sendCode.mock.invocationCallOrder[0] ?? 0
     );
+    expect(sendCode.mock.invocationCallOrder[0]).toBeLessThan(
+      ctx.experienceInteraction.consumeCaptchaForPhoneSend.mock.invocationCallOrder[0] ?? 0
+    );
     expect(sendCode).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a tokenless phone send as lacking fresh proof for the server-owned skip check', async () => {
+    const handler = registerRoute();
+    const ctx = createContext();
+    ctx.guard.body.captchaToken = undefined;
+
+    await handler(ctx, jest.fn().mockImplementation(resolveVoid));
+
+    expect(ctx.experienceInteraction.verifyCaptcha).not.toHaveBeenCalled();
+    expect(ctx.experienceInteraction.guardCaptcha).toHaveBeenCalledWith(
+      CaptchaPolicyScope.PhoneVerificationCode,
+      SignInIdentifier.Phone,
+      false
+    );
+    expect(sendCode).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores interaction trust after a protected phone code is verified', async () => {
+    const handler = registerRoute('/experience/verification/verification-code/verify');
+    const experienceInteraction = {
+      markCaptchaVerified: jest.fn(),
+    };
+    const ctx = {
+      guard: {
+        body: {
+          identifier,
+          verificationId: 'verification-id',
+          code: '123456',
+        },
+      },
+      experienceInteraction,
+      body: undefined as unknown,
+    };
+
+    await handler(ctx, jest.fn().mockImplementation(resolveVoid));
+
+    expect(verifyCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier,
+      })
+    );
+    expect(typeof verifyCode.mock.calls[0]?.[0].onCodeVerified).toBe('function');
+    expect(experienceInteraction.markCaptchaVerified).toHaveBeenCalledTimes(1);
+  });
+
+  it('delegates phone authorization consumption to the send helper', async () => {
+    const handler = registerRoute();
+    const ctx = createContext();
+
+    await handler(ctx, jest.fn().mockImplementation(resolveVoid));
+
+    expect(ctx.experienceInteraction.consumeCaptchaForPhoneSend).toHaveBeenCalledTimes(1);
   });
 
   it('does not enter the phone guard or send work when token verification rejects', async () => {
@@ -140,6 +227,7 @@ describe('verification-code send CAPTCHA token', () => {
     );
 
     expect(ctx.experienceInteraction.guardCaptcha).not.toHaveBeenCalled();
+    expect(ctx.experienceInteraction.consumeCaptchaForPhoneSend).not.toHaveBeenCalled();
     expect(sendCode).not.toHaveBeenCalled();
     expect(ctx.body).toBeUndefined();
   });

@@ -181,6 +181,13 @@ describe('interaction routes', () => {
       expect(response.status).toEqual(204);
     });
 
+    it('rejects deprecated client-selected phone sends that cannot provide a CAPTCHA proof', async () => {
+      const response = await sessionRequest.post(path).send({ phone: '1234567890' });
+
+      expect(response.status).toEqual(400);
+      expect(sendVerificationCodeToIdentifier).not.toHaveBeenCalled();
+    });
+
     it('should reject with 429 and not send when the recipient is over the rate-limit cap', async () => {
       // Simulate the per-recipient cap being reached for the default policy.
       countActivities.mockResolvedValueOnce(defaultMessageRateLimitPolicy.maxSendsPerRecipient);

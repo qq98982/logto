@@ -1,8 +1,11 @@
+/* eslint-disable max-lines -- Keep send and verify state-transition contracts with the shared helper. */
 import {
   defaultMessageRateLimitPolicy,
   InteractionEvent,
+  SentinelDecision,
   SentinelActivityAction,
   SignInIdentifier,
+  VerificationType,
 } from '@logto/schemas';
 
 import type Libraries from '#src/tenants/Libraries.js';
@@ -14,6 +17,7 @@ import type { ExperienceInteractionRouterContext } from '../types.js';
 type MockExperienceInteraction = {
   interactionEvent: InteractionEvent;
   identifiedUserId?: string;
+  getVerificationRecordByTypeAndId: jest.MockedFunction<() => EmailCodeVerification>;
   setVerificationRecord: jest.MockedFunction<() => Promise<void>>;
   save: jest.MockedFunction<() => Promise<void>>;
   signInExperienceValidator: {
@@ -28,7 +32,7 @@ async function resolveVoid(): Promise<void> {
   await Promise.resolve();
 }
 
-const { sendCode } = await import('./verification-code-helpers.js');
+const { sendCode, verifyCode } = await import('./verification-code-helpers.js');
 
 // Provide a permissive activity store so the message rate guard allows sends by default.
 const mockSentinelActivities = {
@@ -40,18 +44,24 @@ const mockSentinelActivities = {
 const mockLogtoConfigs = {
   getMessageRateLimitOverride: jest.fn().mockResolvedValue(null),
 };
+const mockSentinel = {
+  reportActivity: jest.fn().mockResolvedValue([SentinelDecision.Allowed, Date.now() + 60_000]),
+};
 
 describe('sendCode parameter passing', () => {
   // To make a void callable function/method
   const mockSendVerificationCode = jest.fn().mockImplementation(resolveVoid);
+  const mockVerifyCode = jest.fn().mockImplementation(resolveVoid);
 
   const mockCodeVerification = {
     id: 'helper-test-verification-id',
     sendVerificationCode: mockSendVerificationCode,
+    verify: mockVerifyCode,
   } as unknown as EmailCodeVerification;
 
   const mockExperienceInteraction: MockExperienceInteraction = {
     interactionEvent: InteractionEvent.SignIn,
+    getVerificationRecordByTypeAndId: jest.fn(() => mockCodeVerification),
     setVerificationRecord: jest.fn().mockImplementation(resolveVoid),
     save: jest.fn().mockImplementation(resolveVoid),
     signInExperienceValidator: {
@@ -78,6 +88,7 @@ describe('sendCode parameter passing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSendVerificationCode.mockImplementation(resolveVoid);
+    mockVerifyCode.mockImplementation(resolveVoid);
     mockExperienceInteraction.save.mockImplementation(resolveVoid);
     mockBuildVerificationCodeContext.mockResolvedValue({});
     // Restore the default: registration is enabled, so sign-in delivery is not suppressed.
@@ -400,4 +411,118 @@ describe('sendCode parameter passing', () => {
       mockExperienceInteraction.signInExperienceValidator.isRegistrationDisabled
     ).not.toHaveBeenCalled();
   });
+
+  it('persists phone-send authorization consumption before connector delivery', async () => {
+    const ctx = buildSignInCtx();
+    const libraries = { passcodes: mockPasscodeLibrary } as unknown as Partial<Libraries>;
+    const prepareCodeSend = jest.fn();
+
+    await sendCode({
+      identifier: { type: SignInIdentifier.Phone, value: '+8613123456789' },
+      interactionEvent: InteractionEvent.Register,
+      createVerificationRecord: () => mockCodeVerification,
+      prepareCodeSend,
+      libraries: libraries as Libraries,
+      queries: mockQueries,
+      ctx: ctx as unknown as ExperienceInteractionRouterContext,
+    });
+
+    expect(prepareCodeSend.mock.invocationCallOrder[0]).toBeLessThan(
+      mockExperienceInteraction.save.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(mockExperienceInteraction.save.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSendVerificationCode.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it('keeps the phone-send authorization consumed when connector delivery fails', async () => {
+    const ctx = buildSignInCtx();
+    const libraries = { passcodes: mockPasscodeLibrary } as unknown as Partial<Libraries>;
+    const prepareCodeSend = jest.fn();
+    const connectorError = new Error('connector failed');
+    mockSendVerificationCode.mockRejectedValueOnce(connectorError);
+
+    await expect(
+      sendCode({
+        identifier: { type: SignInIdentifier.Phone, value: '+8613123456789' },
+        interactionEvent: InteractionEvent.Register,
+        createVerificationRecord: () => mockCodeVerification,
+        prepareCodeSend,
+        libraries: libraries as Libraries,
+        queries: mockQueries,
+        ctx: ctx as unknown as ExperienceInteractionRouterContext,
+      })
+    ).rejects.toBe(connectorError);
+
+    expect(prepareCodeSend).toHaveBeenCalledTimes(1);
+    expect(mockExperienceInteraction.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call the connector when phone authorization persistence fails', async () => {
+    const ctx = buildSignInCtx();
+    const libraries = { passcodes: mockPasscodeLibrary } as unknown as Partial<Libraries>;
+    const prepareCodeSend = jest.fn();
+    const persistenceError = new Error('interaction save failed');
+    mockExperienceInteraction.save.mockRejectedValueOnce(persistenceError);
+
+    await expect(
+      sendCode({
+        identifier: { type: SignInIdentifier.Phone, value: '+8613123456789' },
+        interactionEvent: InteractionEvent.Register,
+        createVerificationRecord: () => mockCodeVerification,
+        prepareCodeSend,
+        libraries: libraries as Libraries,
+        queries: mockQueries,
+        ctx: ctx as unknown as ExperienceInteractionRouterContext,
+      })
+    ).rejects.toBe(persistenceError);
+
+    expect(prepareCodeSend).toHaveBeenCalledTimes(1);
+    expect(mockSendVerificationCode).not.toHaveBeenCalled();
+  });
+
+  it('restores interaction trust after phone-code verification succeeds and before save', async () => {
+    const ctx = buildSignInCtx();
+    const onCodeVerified = jest.fn();
+
+    await verifyCode({
+      identifier: { type: SignInIdentifier.Phone, value: '+8613123456789' },
+      verificationId: mockCodeVerification.id,
+      code: '123456',
+      verificationType: VerificationType.PhoneVerificationCode,
+      onCodeVerified,
+      sentinel: mockSentinel as never,
+      ctx: ctx as unknown as ExperienceInteractionRouterContext,
+    });
+
+    expect(mockVerifyCode.mock.invocationCallOrder[0]).toBeLessThan(
+      onCodeVerified.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(onCodeVerified.mock.invocationCallOrder[0]).toBeLessThan(
+      mockExperienceInteraction.save.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it('does not restore interaction trust when phone-code verification fails', async () => {
+    const ctx = buildSignInCtx();
+    const onCodeVerified = jest.fn();
+    const verificationError = new Error('verification failed');
+    mockVerifyCode.mockRejectedValueOnce(verificationError);
+
+    await expect(
+      verifyCode({
+        identifier: { type: SignInIdentifier.Phone, value: '+8613123456789' },
+        verificationId: mockCodeVerification.id,
+        code: '123456',
+        verificationType: VerificationType.PhoneVerificationCode,
+        onCodeVerified,
+        sentinel: mockSentinel as never,
+        ctx: ctx as unknown as ExperienceInteractionRouterContext,
+      })
+    ).rejects.toBe(verificationError);
+
+    expect(onCodeVerified).not.toHaveBeenCalled();
+    expect(mockExperienceInteraction.save).not.toHaveBeenCalled();
+  });
 });
+/* eslint-enable max-lines */

@@ -19,6 +19,7 @@ import {
   getTemplateTypeByEvent,
 } from '../classes/verifications/code-verification.js';
 import { experienceRoutes } from '../const.js';
+import koaPhoneVerificationCodeLock from '../middleware/koa-phone-verification-code-lock.js';
 import { type ExperienceInteractionRouterContext } from '../types.js';
 
 import {
@@ -36,8 +37,10 @@ const captchaTokenGuard = z.string().refine((token) => {
 
 export default function verificationCodeRoutes<T extends ExperienceInteractionRouterContext>(
   router: Router<unknown, T>,
-  { libraries, queries, sentinel }: TenantContext
+  tenant: TenantContext
 ) {
+  const { libraries, queries, sentinel } = tenant;
+
   router.post(
     `${experienceRoutes.verification}/verification-code`,
     koaGuard({
@@ -52,6 +55,7 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
       // 429: rate limited; 501: connector not found
       status: [200, 400, 404, 422, 429, 501],
     }),
+    koaPhoneVerificationCodeLock(tenant),
     async (ctx, next) => {
       const { identifier, interactionEvent, captchaToken } = ctx.guard.body;
       if (captchaToken !== undefined) {
@@ -60,7 +64,8 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
 
       await ctx.experienceInteraction.guardCaptcha(
         CaptchaPolicyScope.PhoneVerificationCode,
-        identifier.type
+        identifier.type,
+        captchaToken !== undefined
       );
 
       // Check if email/phone is in sign up identifiers, to determine if it's binding email/phone for MFA
@@ -87,6 +92,12 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
             // If the interaction already identified a user, we are binding a new MFA verification
             isBindingEmailForMfa ? TemplateType.BindMfa : getTemplateTypeByEvent(interactionEvent)
           ),
+        prepareCodeSend:
+          identifier.type === SignInIdentifier.Phone
+            ? () => {
+                ctx.experienceInteraction.consumeCaptchaForPhoneSend();
+              }
+            : undefined,
         libraries,
         queries,
         ctx,
@@ -117,6 +128,12 @@ export default function verificationCodeRoutes<T extends ExperienceInteractionRo
         verificationId,
         code,
         identifier,
+        onCodeVerified:
+          identifier.type === SignInIdentifier.Phone
+            ? () => {
+                ctx.experienceInteraction.markCaptchaVerified();
+              }
+            : undefined,
         verificationType: codeVerificationIdentifierRecordTypeMap[identifier.type],
         sentinel,
         ctx,

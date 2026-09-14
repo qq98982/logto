@@ -343,7 +343,7 @@ describe('<IdentifierRegisterForm />', () => {
               value: 'foo@logto.io',
             },
             undefined,
-            undefined
+            expect.any(Function)
           );
         });
       });
@@ -408,7 +408,7 @@ describe('<IdentifierRegisterForm />', () => {
               value: `${getDefaultCountryCallingCode()}8573333333`,
             },
             undefined,
-            undefined
+            expect.any(Function)
           );
         });
       });
@@ -454,7 +454,7 @@ describe('<IdentifierRegisterForm />', () => {
             value: email,
           },
           undefined,
-          undefined
+          expect.any(Function)
         );
       });
     });
@@ -496,7 +496,7 @@ describe('<IdentifierRegisterForm />', () => {
             value: email,
           },
           undefined,
-          undefined
+          expect.any(Function)
         );
       });
     });

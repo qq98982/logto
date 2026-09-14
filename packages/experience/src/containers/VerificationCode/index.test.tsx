@@ -1,15 +1,25 @@
+/* eslint-disable max-lines -- Keep the VerificationCode user workflows in one component suite. */
 import resource from '@logto/phrases-experience';
 import {
   AgreeToTermsPolicy,
+  CaptchaType,
   InteractionEvent,
+  RecaptchaEnterpriseMode,
   SignInIdentifier,
   type VerificationCodeIdentifier,
 } from '@logto/schemas';
 import { assert } from '@silverhand/essentials';
 import { act, fireEvent, waitFor, within } from '@testing-library/react';
 import { HTTPError } from 'ky';
+import { createRef } from 'react';
 
+import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
+import {
+  CaptchaExecutionError,
+  CaptchaExecutionErrorCode,
+} from '@/Providers/CaptchaContextProvider/aliyun-captcha';
 import ConfirmModalProvider from '@/Providers/ConfirmModalProvider';
+import UserInteractionContext from '@/Providers/UserInteractionContextProvider/UserInteractionContext';
 import renderWithPageContext from '@/__mocks__/RenderWithPageContext';
 import SettingsProvider from '@/__mocks__/RenderWithPageContext/SettingsProvider';
 import { mockSignInExperienceSettings } from '@/__mocks__/logto';
@@ -126,6 +136,76 @@ describe('<VerificationCode />', () => {
     expect(queryByText('description.resend_passcode')).not.toBeNull();
   });
 
+  it.each([
+    [
+      'Turnstile',
+      {
+        type: CaptchaType.Turnstile,
+        siteKey: 'turnstile-site-key',
+      },
+    ],
+    [
+      'reCAPTCHA Enterprise checkbox',
+      {
+        type: CaptchaType.RecaptchaEnterprise,
+        siteKey: 'recaptcha-site-key',
+        mode: RecaptchaEnterpriseMode.Checkbox,
+      },
+    ],
+  ] as const)(
+    'mounts the %s widget target on the verification-code page',
+    (_name, captchaConfig) => {
+      const widgetRef = createRef<HTMLDivElement>();
+
+      renderWithPageContext(
+        <CaptchaContext.Provider
+          value={{
+            isCaptchaRequired: true,
+            captchaConfig,
+            widgetRef,
+            executeCaptcha: jest.fn(),
+          }}
+        >
+          <VerificationCode
+            flow={UserFlow.SignIn}
+            identifier={phoneIdentifier}
+            verificationId={verificationId}
+          />
+        </CaptchaContext.Provider>
+      );
+
+      expect(widgetRef.current).toBeInstanceOf(HTMLDivElement);
+    }
+  );
+
+  it('does not duplicate the global Alibaba CAPTCHA target on the verification-code page', () => {
+    const widgetRef = createRef<HTMLDivElement>();
+
+    renderWithPageContext(
+      <CaptchaContext.Provider
+        value={{
+          isCaptchaRequired: true,
+          captchaConfig: {
+            type: CaptchaType.Aliyun,
+            region: 'cn',
+            prefix: 'test-prefix',
+            sceneId: 'test-scene',
+          },
+          widgetRef,
+          executeCaptcha: jest.fn(),
+        }}
+      >
+        <VerificationCode
+          flow={UserFlow.SignIn}
+          identifier={phoneIdentifier}
+          verificationId={verificationId}
+        />
+      </CaptchaContext.Provider>
+    );
+
+    expect(widgetRef.current).toBeNull();
+  });
+
   it('fire resend event', async () => {
     /**
      * Apply the resource with resend_passcode for testing nested translation
@@ -161,6 +241,100 @@ describe('<VerificationCode />', () => {
     expect(sendVerificationCode).toBeCalledWith(InteractionEvent.SignIn, emailIdentifier);
 
     // Reset i18n
+    await setupI18nForTesting();
+  });
+
+  it('executes a fresh CAPTCHA and sends its token when resending a phone code', async () => {
+    await setupI18nForTesting({
+      translation: {
+        description: { resend_passcode: resource.en.translation.description.resend_passcode },
+      },
+    });
+    const captchaToken = 'fresh-resend-captcha-token';
+    const executeCaptcha = jest.fn().mockResolvedValue(captchaToken);
+    const setVerificationId = jest.fn();
+    jest.mocked(sendVerificationCode).mockResolvedValueOnce({ verificationId: 'renewed-id' });
+
+    const { getByText } = renderWithPageContext(
+      <CaptchaContext.Provider
+        value={{
+          isCaptchaRequired: true,
+          captchaConfig: undefined,
+          widgetRef: undefined,
+          executeCaptcha,
+        }}
+      >
+        <UserInteractionContext.Provider value={{ setVerificationId } as never}>
+          <VerificationCode
+            flow={UserFlow.SignIn}
+            identifier={phoneIdentifier}
+            verificationId={verificationId}
+          />
+        </UserInteractionContext.Provider>
+      </CaptchaContext.Provider>
+    );
+    act(() => {
+      jest.advanceTimersByTime(1e3 * 60);
+    });
+
+    fireEvent.click(getByText('Resend verification code'));
+
+    await waitFor(() => {
+      expect(executeCaptcha).toHaveBeenCalledWith(SignInIdentifier.Phone);
+      expect(sendVerificationCode).toHaveBeenCalledWith(
+        InteractionEvent.SignIn,
+        phoneIdentifier,
+        captchaToken
+      );
+      expect(setVerificationId).toHaveBeenCalledWith(expect.any(String), 'renewed-id');
+    });
+
+    await setupI18nForTesting();
+  });
+
+  it('keeps resend recovery context when the phone CAPTCHA is cancelled', async () => {
+    await setupI18nForTesting({
+      translation: {
+        description: { resend_passcode: resource.en.translation.description.resend_passcode },
+      },
+    });
+    const executeCaptcha = jest
+      .fn()
+      .mockRejectedValue(new CaptchaExecutionError(CaptchaExecutionErrorCode.UserClosed));
+    const setVerificationId = jest.fn();
+
+    const { getByText } = renderWithPageContext(
+      <CaptchaContext.Provider
+        value={{
+          isCaptchaRequired: true,
+          captchaConfig: undefined,
+          widgetRef: undefined,
+          executeCaptcha,
+        }}
+      >
+        <UserInteractionContext.Provider value={{ setVerificationId } as never}>
+          <VerificationCode
+            flow={UserFlow.SignIn}
+            identifier={phoneIdentifier}
+            verificationId={verificationId}
+          />
+        </UserInteractionContext.Provider>
+      </CaptchaContext.Provider>
+    );
+    act(() => {
+      jest.advanceTimersByTime(1e3 * 60);
+    });
+    const resendButton = getByText('Resend verification code');
+
+    fireEvent.click(resendButton);
+
+    await waitFor(() => {
+      expect(executeCaptcha).toHaveBeenCalledWith(SignInIdentifier.Phone);
+    });
+    expect(sendVerificationCode).not.toHaveBeenCalled();
+    expect(setVerificationId).not.toHaveBeenCalled();
+    expect(getByText('Resend verification code')).toBe(resendButton);
+
     await setupI18nForTesting();
   });
 
@@ -514,3 +688,4 @@ describe('<VerificationCode />', () => {
     });
   });
 });
+/* eslint-enable max-lines */

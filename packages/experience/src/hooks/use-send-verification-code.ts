@@ -1,6 +1,6 @@
 /* Replace legacy useSendVerificationCode hook with this one after the refactor */
 
-import { SignInIdentifier, type RequestErrorBody } from '@logto/schemas';
+import { SignInIdentifier } from '@logto/schemas';
 import { conditional } from '@silverhand/essentials';
 import { HTTPError } from 'ky';
 import { useCallback, useContext, useState } from 'react';
@@ -19,24 +19,12 @@ import {
   type ContinueFlowInteractionEvent,
   type VerificationCodeIdentifier,
 } from '@/types';
+import { isCaptchaRequiredError } from '@/utils/captcha';
 import { codeVerificationTypeMap } from '@/utils/sign-in-experience';
 
 type Payload = {
   identifier: VerificationCodeIdentifier;
   value: string;
-};
-
-const isCaptchaRequiredError = async (error: unknown) => {
-  if (!(error instanceof HTTPError)) {
-    return false;
-  }
-
-  try {
-    const { code } = await error.response.clone().json<RequestErrorBody>();
-    return code === 'session.captcha_required';
-  } catch {
-    return false;
-  }
 };
 
 const useSendVerificationCode = (flow: UserFlow, replaceCurrentPage?: boolean) => {
@@ -60,7 +48,7 @@ const useSendVerificationCode = (flow: UserFlow, replaceCurrentPage?: boolean) =
       interactionEvent?: ContinueFlowInteractionEvent,
       errorHandlers?: ErrorHandlers
     ) => {
-      const send = async (captchaToken?: string) =>
+      const send = async (captchaTokenOrGetter?: string | (() => Promise<string | undefined>)) =>
         asyncSendVerificationCode(
           flow,
           {
@@ -68,19 +56,26 @@ const useSendVerificationCode = (flow: UserFlow, replaceCurrentPage?: boolean) =
             value,
           },
           interactionEvent,
-          captchaToken
+          captchaTokenOrGetter
         );
 
       const executeCaptchaAndSend = async () => {
-        try {
-          return await send(await executeCaptcha(identifier));
-        } catch (error: unknown) {
-          if (error instanceof CaptchaExecutionError) {
-            return;
+        const response = await send(async () => executeCaptcha(identifier));
+        const [error] = response;
+
+        if (error instanceof CaptchaExecutionError) {
+          return;
+        }
+
+        if (error && !(error instanceof HTTPError)) {
+          if (error instanceof Error) {
+            throw error;
           }
 
-          throw error;
+          throw new TypeError('Unexpected CAPTCHA execution failure', { cause: error });
         }
+
+        return response;
       };
 
       const sendWithAdaptiveContinueCaptcha = async () => {

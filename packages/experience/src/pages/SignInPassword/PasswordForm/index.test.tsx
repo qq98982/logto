@@ -113,7 +113,7 @@ describe('PasswordSignInForm', () => {
         });
 
         await waitFor(() => {
-          expect(initInteraction).toBeCalledWith(InteractionEvent.SignIn, undefined);
+          expect(initInteraction).toBeCalledWith(InteractionEvent.SignIn);
           expect(sendVerificationCode).toBeCalledWith(InteractionEvent.SignIn, {
             type: identifier,
             value,

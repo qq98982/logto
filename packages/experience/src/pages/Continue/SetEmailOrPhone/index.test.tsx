@@ -1,12 +1,20 @@
-import { InteractionEvent, MissingProfile, SignInIdentifier } from '@logto/schemas';
+import {
+  CaptchaType,
+  InteractionEvent,
+  MissingProfile,
+  RecaptchaEnterpriseMode,
+  SignInIdentifier,
+} from '@logto/schemas';
 import { assert } from '@silverhand/essentials';
 import { fireEvent, waitFor } from '@testing-library/react';
+import { createRef } from 'react';
 import { act } from 'react-dom/test-utils';
 
+import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
 import renderWithPageContext from '@/__mocks__/RenderWithPageContext';
 import SettingsProvider from '@/__mocks__/RenderWithPageContext/SettingsProvider';
 import { sendVerificationCodeApi } from '@/apis/utils';
-import { UserFlow, type VerificationCodeIdentifier } from '@/types';
+import { UserFlow, type SignInExperienceResponse, type VerificationCodeIdentifier } from '@/types';
 import { getDefaultCountryCallingCode } from '@/utils/country-code';
 
 import SetEmailOrPhone, { type VerificationCodeProfileType, pageContent } from '.';
@@ -68,6 +76,52 @@ describe('continue with email or phone', () => {
     if (type === MissingProfile.email || type === MissingProfile.emailOrPhone) {
       expect(queryByText('description.social_identity_exist')).not.toBeNull();
     }
+  });
+
+  test.each([
+    ['Turnstile', { type: CaptchaType.Turnstile, siteKey: 'turnstile-site-key' }, true],
+    [
+      'reCAPTCHA checkbox',
+      {
+        type: CaptchaType.RecaptchaEnterprise,
+        siteKey: 'recaptcha-site-key',
+        mode: RecaptchaEnterpriseMode.Checkbox,
+      },
+      true,
+    ],
+    [
+      'Alibaba',
+      { type: CaptchaType.Aliyun, region: 'cn', prefix: 'test-prefix', sceneId: 'test-scene' },
+      false,
+    ],
+  ] satisfies Array<
+    [
+      name: string,
+      captchaConfig: NonNullable<SignInExperienceResponse['captchaConfig']>,
+      needsWidget: boolean,
+    ]
+  >)('mounts the expected %s CAPTCHA target', (_name, captchaConfig, needsWidget) => {
+    const widgetRef = createRef<HTMLDivElement>();
+
+    renderWithPageContext(
+      <CaptchaContext.Provider
+        value={{
+          isCaptchaRequired: true,
+          captchaConfig,
+          widgetRef,
+          executeCaptcha: jest.fn(),
+        }}
+      >
+        <SettingsProvider>
+          <SetEmailOrPhone
+            missingProfile={MissingProfile.phone}
+            interactionEvent={InteractionEvent.Register}
+          />
+        </SettingsProvider>
+      </CaptchaContext.Provider>
+    );
+
+    expect(widgetRef.current instanceof HTMLDivElement).toBe(needsWidget);
   });
 
   const email = 'foo@logto.io';

@@ -5,6 +5,7 @@ import { useTranslation, Trans } from 'react-i18next';
 
 import SwitchToVerificationMethodsLink from '@/components/SwitchToVerificationMethodsLink';
 import TextLink from '@/components/TextLink';
+import CaptchaBox from '@/containers/CaptchaBox';
 import Button from '@/shared/components/Button';
 import VerificationCodeInput, { defaultLength } from '@/shared/components/VerificationCode';
 import { UserFlow } from '@/types';
@@ -105,6 +106,7 @@ const VerificationCode = ({
         error={errorMessage}
         onChange={setCodeInput}
       />
+      <CaptchaBox />
       <div className={styles.message}>
         {isRunning ? (
           <Trans components={{ span: <span key="counter" /> }}>

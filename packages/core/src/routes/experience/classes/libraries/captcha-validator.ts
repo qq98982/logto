@@ -1,6 +1,3 @@
-import CaptchaClient, { VerifyIntelligentCaptchaRequest } from '@alicloud/captcha20230305';
-import { $OpenApiUtil } from '@alicloud/openapi-core';
-import * as $dara from '@darabonba/typescript';
 import {
   type AliyunCaptchaConfig,
   CaptchaType,
@@ -39,13 +36,18 @@ export type VerifyAliyunCaptcha = (
   captchaToken: string
 ) => Promise<AliyunCaptchaVerification | undefined>;
 
-const AliyunCaptchaClient = CaptchaClient.default;
 // The no-retry 5-second provider budget stays below the hosted auth request budget;
 // timeout failures are audited without provider details and fail closed.
 const aliyunCaptchaConnectTimeout = 2000;
 const aliyunCaptchaReadTimeout = 3000;
 
 const verifyAliyunCaptchaWithSdk: VerifyAliyunCaptcha = async (config, captchaToken) => {
+  const [captchaSdk, { $OpenApiUtil }, $dara] = await Promise.all([
+    import('@alicloud/captcha20230305'),
+    import('@alicloud/openapi-core'),
+    import('@darabonba/typescript'),
+  ]);
+  const AliyunCaptchaClient = captchaSdk.default.default;
   const client = new AliyunCaptchaClient(
     new $OpenApiUtil.Config({
       accessKeyId: config.accessKeyId,
@@ -55,7 +57,7 @@ const verifyAliyunCaptchaWithSdk: VerifyAliyunCaptcha = async (config, captchaTo
       retryOptions: new $dara.RetryOptions({ retryable: false }),
     })
   );
-  const request = new VerifyIntelligentCaptchaRequest({
+  const request = new captchaSdk.VerifyIntelligentCaptchaRequest({
     captchaVerifyParam: captchaToken,
     sceneId: config.sceneId,
   });

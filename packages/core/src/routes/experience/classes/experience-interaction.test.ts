@@ -3,6 +3,7 @@ import { TemplateType } from '@logto/connector-kit';
 import {
   adminConsoleApplicationId,
   adminTenantId,
+  CaptchaPolicyScope,
   type CaptchaProvider,
   CaptchaType,
   type CreateUser,
@@ -326,6 +327,87 @@ describe('ExperienceInteraction class', () => {
 
       expect(verifyCaptchaToken).toHaveBeenCalledWith('rejected-captcha-token');
       expect(experienceInteraction.toJson().captcha).toEqual({ verified: false, skipped: false });
+    });
+
+    it('preserves the server-owned social CAPTCHA skip for the phone-code guard', async () => {
+      const { experienceInteraction } = createSignInInteraction();
+      const guardCaptcha = jest
+        .spyOn(experienceInteraction.signInExperienceValidator, 'guardCaptcha')
+        .mockRejectedValue(new RequestError({ code: 'session.captcha_required', status: 422 }));
+
+      experienceInteraction.skipCaptcha();
+
+      await expect(
+        experienceInteraction.guardCaptcha(
+          CaptchaPolicyScope.PhoneVerificationCode,
+          SignInIdentifier.Phone,
+          false
+        )
+      ).resolves.not.toThrow();
+      experienceInteraction.consumeCaptchaForPhoneSend();
+      expect(experienceInteraction.toJson().captcha).toEqual({ verified: false, skipped: false });
+      await expect(
+        experienceInteraction.guardCaptcha(
+          CaptchaPolicyScope.PhoneVerificationCode,
+          SignInIdentifier.Phone
+        )
+      ).rejects.toMatchError(new RequestError({ code: 'session.captcha_required', status: 422 }));
+      expect(guardCaptcha).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reuse an earlier CAPTCHA verification for another phone-code send', async () => {
+      verifyCaptchaToken.mockResolvedValueOnce(true);
+      const { experienceInteraction } = createSignInInteraction({
+        captchaProvider: aliyunCaptchaProvider,
+      });
+      const guardCaptcha = jest
+        .spyOn(experienceInteraction.signInExperienceValidator, 'guardCaptcha')
+        .mockRejectedValue(new RequestError({ code: 'session.captcha_required', status: 422 }));
+
+      await experienceInteraction.verifyCaptcha('raw-captcha-token');
+
+      await expect(
+        experienceInteraction.guardCaptcha(
+          CaptchaPolicyScope.PhoneVerificationCode,
+          SignInIdentifier.Phone,
+          true
+        )
+      ).resolves.not.toThrow();
+      experienceInteraction.consumeCaptchaForPhoneSend();
+      await expect(
+        experienceInteraction.guardCaptcha(
+          CaptchaPolicyScope.PhoneVerificationCode,
+          SignInIdentifier.Phone
+        )
+      ).rejects.toMatchError(new RequestError({ code: 'session.captcha_required', status: 422 }));
+      expect(guardCaptcha).toHaveBeenCalledTimes(1);
+    });
+
+    it('restores ordinary interaction trust after the protected phone code is verified', () => {
+      const { experienceInteraction } = createSignInInteraction();
+
+      experienceInteraction.consumeCaptchaForPhoneSend();
+      experienceInteraction.markCaptchaVerified();
+
+      expect(experienceInteraction.toJson().captcha).toEqual({ verified: true, skipped: false });
+    });
+
+    it('does not use restored interaction trust to authorize another phone send', async () => {
+      const { experienceInteraction } = createSignInInteraction();
+      const guardCaptcha = jest
+        .spyOn(experienceInteraction.signInExperienceValidator, 'guardCaptcha')
+        .mockRejectedValue(new RequestError({ code: 'session.captcha_required', status: 422 }));
+
+      experienceInteraction.markCaptchaVerified();
+
+      await expect(
+        experienceInteraction.guardCaptcha(
+          CaptchaPolicyScope.PhoneVerificationCode,
+          SignInIdentifier.Phone,
+          false
+        )
+      ).rejects.toMatchError(new RequestError({ code: 'session.captcha_required', status: 422 }));
+      expect(guardCaptcha).toHaveBeenCalledTimes(1);
     });
   });
 

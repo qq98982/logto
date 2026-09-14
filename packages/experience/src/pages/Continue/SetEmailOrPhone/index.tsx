@@ -5,6 +5,7 @@ import { useContext } from 'react';
 
 import SecondaryPageLayout from '@/Layout/SecondaryPageLayout';
 import UserInteractionContext from '@/Providers/UserInteractionContextProvider/UserInteractionContext';
+import CaptchaBox from '@/containers/CaptchaBox';
 import useSendVerificationCode from '@/hooks/use-send-verification-code';
 import type { ContinueFlowInteractionEvent, VerificationCodeIdentifier } from '@/types';
 import { UserFlow } from '@/types';
@@ -86,6 +87,7 @@ const SetEmailOrPhone = ({ missingProfile, interactionEvent }: Props) => {
         {...formSettings[missingProfile]}
         onSubmit={handleSubmit}
       />
+      <CaptchaBox />
       <SocialIdentityNotification missingProfileTypes={formSettings[missingProfile].enabledTypes} />
     </SecondaryPageLayout>
   );

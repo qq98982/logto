@@ -69,6 +69,7 @@ type SendCodeParams = {
   identifier: VerificationCodeIdentifier;
   interactionEvent?: InteractionEvent;
   createVerificationRecord: () => CodeVerificationRecord;
+  prepareCodeSend?: () => void;
   libraries: Libraries;
   queries: Queries;
   ctx: ExperienceInteractionRouterContext;
@@ -125,6 +126,7 @@ export const sendCode = async ({
   identifier,
   interactionEvent,
   createVerificationRecord,
+  prepareCodeSend,
   libraries,
   queries,
   ctx,
@@ -170,6 +172,12 @@ export const sendCode = async ({
   // still created but nothing is sent.
   const send = async () => codeVerification.sendVerificationCode(payload, { skipDelivery });
 
+  if (prepareCodeSend) {
+    prepareCodeSend();
+    experienceInteraction.setVerificationRecord(codeVerification);
+    await experienceInteraction.save();
+  }
+
   const messageRateLimit = {
     action: SentinelActivityAction.VerificationCodeSend,
     recipient: identifier.value,
@@ -189,9 +197,10 @@ export const sendCode = async ({
     send
   );
 
-  // Save state
-  experienceInteraction.setVerificationRecord(codeVerification);
-  await experienceInteraction.save();
+  if (!prepareCodeSend) {
+    experienceInteraction.setVerificationRecord(codeVerification);
+    await experienceInteraction.save();
+  }
 
   return {
     verificationId: codeVerification.id,
@@ -202,6 +211,7 @@ type VerifyCodeParams = {
   verificationId: string;
   code: string;
   identifier: VerificationCodeIdentifier;
+  onCodeVerified?: () => void;
   verificationType:
     | VerificationType.EmailVerificationCode
     | VerificationType.PhoneVerificationCode
@@ -219,6 +229,7 @@ export const verifyCode = async ({
   verificationId,
   code,
   identifier,
+  onCodeVerified,
   verificationType,
   sentinel,
   ctx,
@@ -259,6 +270,8 @@ export const verifyCode = async ({
     },
     codeVerificationRecord.verify(identifier, code)
   );
+
+  onCodeVerified?.();
 
   // Save state
   await experienceInteraction.save();

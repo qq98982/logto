@@ -8,7 +8,7 @@ import {
   LogtoActionKey,
   MfaFactor,
   type PostSignInEvent,
-  type SignInIdentifier,
+  SignInIdentifier,
   VerificationType,
   type User,
 } from '@logto/schemas';
@@ -449,6 +449,18 @@ export default class ExperienceInteraction {
     this.captcha.skipped = true;
   }
 
+  /** Consume the one-time CAPTCHA authorization before a phone-code delivery attempt. */
+  public consumeCaptchaForPhoneSend() {
+    this.captcha.skipped = false;
+    this.captcha.verified = false;
+  }
+
+  /** A verified phone code restores ordinary interaction-level CAPTCHA trust. */
+  public markCaptchaVerified() {
+    this.captcha.skipped = false;
+    this.captcha.verified = true;
+  }
+
   /** Save the current interaction result. */
   public async save() {
     const { provider } = this.tenant;
@@ -664,9 +676,16 @@ export default class ExperienceInteraction {
 
   async guardCaptcha(
     action: CaptchaPolicyScope = CaptchaPolicyScope.Interaction,
-    identifier?: SignInIdentifier
+    identifier?: SignInIdentifier,
+    captchaVerifiedInRequest = false
   ) {
-    if (this.captcha.verified || this.captcha.skipped) {
+    const requiresFreshPhoneCaptcha =
+      action === CaptchaPolicyScope.PhoneVerificationCode && identifier === SignInIdentifier.Phone;
+
+    if (
+      this.captcha.skipped ||
+      (this.captcha.verified && (!requiresFreshPhoneCaptcha || captchaVerifiedInRequest))
+    ) {
       return;
     }
 

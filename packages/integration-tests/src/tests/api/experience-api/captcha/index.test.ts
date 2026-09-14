@@ -8,6 +8,7 @@ import {
   SignInMode,
 } from '@logto/schemas';
 import { generateStandardId } from '@logto/shared';
+import { HTTPError } from 'ky';
 
 import { mockSocialConnectorId } from '#src/__mocks__/connectors-mock.js';
 import { deleteUser } from '#src/api/admin-user.js';
@@ -382,21 +383,97 @@ describe('captcha', () => {
       expect(interactionAfterSend).toEqual(interactionBeforeSend);
     });
 
-    it('sends exactly one phone code after captcha is verified', async () => {
+    it.each([InteractionEvent.Register, InteractionEvent.SignIn])(
+      'does not use a CAPTCHA verified during %s interaction init to authorize a phone send',
+      async (interactionEvent) => {
+        const captchaToken = 'captcha-token-on-interaction-init';
+        const client = await initExperienceClient({ interactionEvent, captchaToken });
+
+        await expectRejects(
+          client.sendVerificationCode({
+            identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+            interactionEvent,
+          }),
+          { code: 'session.captcha_required', status: 422 }
+        );
+
+        await expect(readSmsConnectorSendCount()).resolves.toBe(0);
+        expect(JSON.stringify(await client.getInteractionData())).not.toContain(captchaToken);
+      }
+    );
+
+    it.each([InteractionEvent.Register, InteractionEvent.SignIn])(
+      'sends exactly one phone code when the %s verification-code POST has a fresh CAPTCHA',
+      async (interactionEvent) => {
+        const phone = generatePhone();
+        const captchaToken = 'captcha-token-on-verification-code-post';
+        const client = await initExperienceClient({ interactionEvent });
+
+        const result = await client.sendVerificationCode({
+          identifier: { type: SignInIdentifier.Phone, value: phone },
+          interactionEvent,
+          captchaToken,
+        });
+
+        expect(result.verificationId).toBeTruthy();
+        await expect(readSmsConnectorSendCount()).resolves.toBe(1);
+        await expect(readConnectorMessage('Sms')).resolves.toMatchObject({ phone });
+        expect(JSON.stringify(await client.getInteractionData())).not.toContain(captchaToken);
+
+        await expectRejects(
+          client.sendVerificationCode({
+            identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+            interactionEvent,
+          }),
+          { code: 'session.captcha_required', status: 422 }
+        );
+        await expect(readSmsConnectorSendCount()).resolves.toBe(1);
+      }
+    );
+
+    it('restores global interaction trust after the protected phone code is verified', async () => {
+      await updateSignInExperience({
+        signUp: {
+          identifiers: [SignInIdentifier.Phone],
+          password: false,
+          verify: true,
+        },
+        captchaPolicy: {
+          enabled: true,
+          scope: CaptchaPolicyScope.Interaction,
+        },
+      });
       const phone = generatePhone();
-      const captchaToken = 'captcha-token-on-verification-code-post';
+      const identifier = { type: SignInIdentifier.Phone, value: phone } as const;
       const client = await initExperienceClient({ interactionEvent: InteractionEvent.Register });
 
-      const result = await client.sendVerificationCode({
-        identifier: { type: SignInIdentifier.Phone, value: phone },
-        interactionEvent: InteractionEvent.Register,
-        captchaToken,
-      });
+      try {
+        const { verificationId } = await client.sendVerificationCode({
+          identifier,
+          interactionEvent: InteractionEvent.Register,
+          captchaToken: 'captcha-token-on-verification-code-post',
+        });
+        const { code } = await readConnectorMessage('Sms');
 
-      expect(result.verificationId).toBeTruthy();
-      await expect(readSmsConnectorSendCount()).resolves.toBe(1);
-      await expect(readConnectorMessage('Sms')).resolves.toMatchObject({ phone });
-      expect(JSON.stringify(await client.getInteractionData())).not.toContain(captchaToken);
+        await client.verifyVerificationCode({ identifier, verificationId, code });
+        await client.identifyUser({ verificationId });
+        const { redirectTo } = await client.submitInteraction();
+        const userId = await processSession(client, redirectTo);
+
+        await deleteUser(userId);
+      } finally {
+        await updateSignInExperience({
+          signUp: {
+            identifiers: [SignInIdentifier.Username],
+            password: true,
+            verify: false,
+          },
+          captchaPolicy: {
+            enabled: true,
+            scope: CaptchaPolicyScope.PhoneVerificationCode,
+          },
+        });
+      }
     });
 
     it('rejects an invalid POST captcha token before sending and preserves the full interaction', async () => {
@@ -505,6 +582,28 @@ describe('captcha', () => {
       await deleteUser(user.id);
     });
 
+    it('completes twenty different phone interactions without exhausting the database pool', async () => {
+      const clients = await Promise.all(
+        Array.from({ length: 20 }, async () =>
+          initExperienceClient({ interactionEvent: InteractionEvent.Register })
+        )
+      );
+
+      const results = await Promise.all(
+        clients.map(async (client) =>
+          client.sendVerificationCode({
+            identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+            interactionEvent: InteractionEvent.Register,
+            captchaToken: 'fresh-captcha-token',
+          })
+        )
+      );
+
+      expect(results).toHaveLength(20);
+      expect(results.every(({ verificationId }) => Boolean(verificationId))).toBe(true);
+      await expect(readSmsConnectorSendCount()).resolves.toBe(20);
+    });
+
     it('allows verified social registration to bind a phone without a second captcha', async () => {
       await updateSignInExperience({
         signUp: {
@@ -542,12 +641,38 @@ describe('captcha', () => {
         status: 422,
       });
 
-      const result = await client.sendVerificationCode({
-        identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
-        interactionEvent: InteractionEvent.Register,
-      });
+      const results = await Promise.allSettled(
+        Array.from({ length: 30 }, async () =>
+          client.sendVerificationCode({
+            identifier: { type: SignInIdentifier.Phone, value: generatePhone() },
+            interactionEvent: InteractionEvent.Register,
+          })
+        )
+      );
 
-      expect(result.verificationId).toBeTruthy();
+      const successful = results.filter(({ status }) => status === 'fulfilled');
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult => result.status === 'rejected'
+      );
+
+      expect(successful).toHaveLength(1);
+      expect(rejected).toHaveLength(29);
+      await Promise.all(
+        rejected.map(async (result) => {
+          // TypeScript deliberately exposes PromiseRejectedResult.reason as any.
+          // eslint-disable-next-line prefer-destructuring
+          const reason: unknown = result.reason;
+          expect(reason).toBeInstanceOf(HTTPError);
+          if (!(reason instanceof HTTPError)) {
+            throw new TypeError('Expected the rejected phone send to return an HTTP error');
+          }
+
+          expect(reason.response.status).toBe(422);
+          await expect(reason.response.clone().json()).resolves.toMatchObject({
+            code: 'session.captcha_required',
+          });
+        })
+      );
       await expect(readSmsConnectorSendCount()).resolves.toBe(1);
     });
 

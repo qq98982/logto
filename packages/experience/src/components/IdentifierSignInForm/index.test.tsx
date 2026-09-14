@@ -184,7 +184,7 @@ describe('IdentifierSignInForm', () => {
                     : value,
               },
               undefined,
-              undefined
+              expect.any(Function)
             );
             expect(mockedNavigate).not.toBeCalled();
           });

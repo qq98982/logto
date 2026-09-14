@@ -66,6 +66,10 @@ const buildVerificationCodeTemplateContext = async (
   );
 };
 
+const legacyVerificationCodePayloadGuard = requestVerificationCodePayloadGuard.refine(
+  (payload) => 'email' in payload
+);
+
 export default function additionalRoutes<T extends IRouterParamContext>(
   router: Router<unknown, WithInteractionDetailsContext<WithI18nContext<WithLogContext<T>>>>,
   tenant: TenantContext
@@ -120,7 +124,8 @@ export default function additionalRoutes<T extends IRouterParamContext>(
   router.post(
     `${interactionPrefix}/${verificationPath}/verification-code`,
     koaGuard({
-      body: requestVerificationCodePayloadGuard,
+      // Deprecated clients cannot provide a per-send CAPTCHA proof, so keep phone sends closed.
+      body: legacyVerificationCodePayloadGuard,
       // 429: rate limited; 501: connector not found
       status: [204, 400, 404, 429, 501],
     }),
@@ -132,7 +137,7 @@ export default function additionalRoutes<T extends IRouterParamContext>(
       const messageContext = await buildVerificationCodeTemplateContext(passcodes, ctx, guard.body);
       const { uiLocales } = getLogtoCookie(ctx);
 
-      const recipient = 'email' in guard.body ? guard.body.email : guard.body.phone;
+      const recipient = guard.body.email;
       const send = async () =>
         sendVerificationCodeToIdentifier(
           {
