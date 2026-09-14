@@ -46,6 +46,7 @@ RUN node --input-type=module -e "import { readFile } from 'node:fs/promises'; co
 
 RUN pnpm --filter @logto/connector-kit build \
   && pnpm --filter @logto/phrases build \
+  && pnpm --filter @logto/schemas build \
   && pnpm --filter @logto/core build \
   && pnpm --filter @logto/connector-wechat-web build \
   && pnpm --filter @logto/connector-wechat-native build \
@@ -104,11 +105,14 @@ LABEL org.opencontainers.image.source="https://github.com/qq98982/logto" \
 RUN rm -rf \
   /etc/logto/packages/core/build \
   /etc/logto/packages/experience/dist \
+  /etc/logto/packages/schemas/lib \
   /etc/logto/packages/toolkit/connector-kit/lib \
   /etc/logto/packages/phrases/lib
 
 COPY --from=box-ai-build /src/packages/core/build /etc/logto/packages/core/build
 COPY --from=box-ai-build /src/packages/core/package.json /etc/logto/packages/core/package.json
+COPY --from=box-ai-build /src/packages/schemas/lib /etc/logto/packages/schemas/lib
+COPY --from=box-ai-build /src/packages/schemas/package.json /etc/logto/packages/schemas/package.json
 COPY --from=box-ai-build /src/packages/toolkit/connector-kit/lib /etc/logto/packages/toolkit/connector-kit/lib
 COPY --from=box-ai-build /src/packages/toolkit/connector-kit/package.json /etc/logto/packages/toolkit/connector-kit/package.json
 COPY --from=box-ai-build /src/packages/phrases/lib /etc/logto/packages/phrases/lib
@@ -153,6 +157,8 @@ RUN set -eu; \
     fi; \
   done; \
   test -n "${core_artifact}"; \
+  test -s /etc/logto/packages/schemas/lib/index.js; \
+  node --input-type=module -e "const schemas = await import('/etc/logto/packages/schemas/lib/index.js'); if (schemas.CaptchaPolicyScope?.PhoneVerificationCode !== 'PhoneVerificationCode') process.exit(1);"; \
   test -s /etc/logto/packages/toolkit/connector-kit/lib/types/error.js; \
   test -s /etc/logto/packages/toolkit/connector-kit/lib/types/error.d.ts; \
   grep -Fq 'WeChatUnionIdRequired' /etc/logto/packages/toolkit/connector-kit/lib/types/error.js; \
