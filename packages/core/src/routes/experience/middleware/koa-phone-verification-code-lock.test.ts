@@ -15,6 +15,12 @@ const { default: koaPhoneVerificationCodeLock } = await import(
 const { createPhoneSendPermitGate, phoneSendLockRetryInterval, phoneSendLockWaitTimeout } =
   await import('./koa-phone-verification-code-lock.js');
 
+class RetryableDatabaseError extends Error {
+  get code() {
+    return '40001';
+  }
+}
+
 const phonePath = '/experience/verification/verification-code';
 const createContext = (type = SignInIdentifier.Phone, jti = 'interaction-jti') => ({
   request: {
@@ -32,8 +38,10 @@ const createMiddleware = (permitGate = createPhoneSendPermitGate()) => {
   const oneFirst = jest.fn().mockResolvedValue(true);
   const connection = { oneFirst };
   const transaction = jest.fn(
-    async (callback: (transactionConnection: { oneFirst: typeof oneFirst }) => Promise<unknown>) =>
-      callback(connection)
+    async (
+      callback: (transactionConnection: { oneFirst: typeof oneFirst }) => Promise<unknown>,
+      _retryLimit?: number
+    ) => callback(connection)
   );
   const freshInteractionDetails = {
     jti: 'interaction-jti',
@@ -214,6 +222,39 @@ describe('phone verification-code interaction lock', () => {
 
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a retryable database error after the guarded side effect', async () => {
+    const { connection, middleware, transaction } = createMiddleware();
+    const retryableError = new RetryableDatabaseError('serialization failure after delivery');
+    const sideEffect = jest.fn();
+    transaction.mockImplementation(async (callback, retryLimit) => {
+      try {
+        return await callback(connection);
+      } catch (error: unknown) {
+        if (
+          retryLimit !== 0 &&
+          error instanceof Error &&
+          'code' in error &&
+          typeof error.code === 'string' &&
+          error.code.startsWith('40')
+        ) {
+          return callback(connection);
+        }
+
+        throw error;
+      }
+    });
+
+    await expect(
+      middleware(createContext() as never, async () => {
+        sideEffect();
+        throw retryableError;
+      })
+    ).rejects.toBe(retryableError);
+
+    expect(sideEffect).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), 0);
   });
 
   it('returns an explicit busy error without entering database or send work when permit wait expires', async () => {

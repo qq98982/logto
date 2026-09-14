@@ -105,7 +105,7 @@ export default function koaPhoneVerificationCodeLock<T extends ExperienceInterac
 
         await next();
         return { acquired: true } as const;
-      });
+      }, 0);
 
       if (result.acquired) {
         return;

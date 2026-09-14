@@ -374,6 +374,7 @@ describe('ExperienceInteraction class', () => {
         )
       ).resolves.not.toThrow();
       experienceInteraction.consumeCaptchaForPhoneSend();
+      expect(experienceInteraction.toJson().captcha).toEqual({ verified: false, skipped: false });
       await expect(
         experienceInteraction.guardCaptcha(
           CaptchaPolicyScope.PhoneVerificationCode,
