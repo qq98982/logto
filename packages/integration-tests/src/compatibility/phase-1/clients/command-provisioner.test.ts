@@ -8,6 +8,7 @@ import {
   createExpectedPhase1FixtureStateProjection,
   createPhase1FixtureMap,
   phase1FixtureEntityKinds,
+  phase1PasswordMatrixUsers,
   type Phase1FixtureMap,
 } from '../fixture-map.js';
 import type { Phase1Profile } from '../profile-types.js';
@@ -254,47 +255,61 @@ const resultMap = (recipe: Phase1FixtureMap['recipe'], base: string): Phase1Fixt
       ? []
       : recipe === 'dataProtocol'
         ? [allocation('data', `${base}-data`, target.coreUrl)]
-        : recipe === 'adminConsole'
-          ? [allocation('admin', `${base}-admin`, target.adminUrl)]
-          : recipe === 'fullPhase1'
-            ? [
-                allocation('data', `${base}-data`, target.coreUrl),
-                allocation('admin', `${base}-admin`, target.adminUrl),
-              ]
-            : recipe === 'corsBoundary'
+        : recipe === 'passwordMatrix'
+          ? [
+              {
+                ...allocation('data', `${base}-data`, target.coreUrl),
+                entities: [
+                  ...allocation('data', `${base}-data`, target.coreUrl).entities,
+                  ...Object.values(phase1PasswordMatrixUsers).map(({ logicalId }, index) => ({
+                    kind: 'user' as const,
+                    logicalId,
+                    runtimeId: `${base}-matrix-user-${index + 1}`,
+                  })),
+                ],
+              },
+            ]
+          : recipe === 'adminConsole'
+            ? [allocation('admin', `${base}-admin`, target.adminUrl)]
+            : recipe === 'fullPhase1'
               ? [
                   allocation('data', `${base}-data`, target.coreUrl),
                   allocation('admin', `${base}-admin`, target.adminUrl),
-                  {
-                    ...allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
-                    entities: [
-                      {
-                        kind: 'tenant' as const,
-                        logicalId: 'default',
-                        runtimeId: `${base}-foreign-tenant`,
-                      },
-                    ],
-                  },
                 ]
-              : [
-                  {
-                    ...allocation('data', `${base}-data`, target.coreUrl),
-                    entities: [
-                      ...allocation('data', `${base}-data`, target.coreUrl).entities,
-                      {
-                        kind: 'user' as const,
-                        logicalId: 'consent.primary.user-b',
-                        runtimeId: `${base}-primary-peer-user`,
-                      },
-                      {
-                        kind: 'application' as const,
-                        logicalId: 'consent.primary.client-b',
-                        runtimeId: `${base}-primary-peer-client`,
-                      },
-                    ],
-                  },
-                  allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
-                ];
+              : recipe === 'corsBoundary'
+                ? [
+                    allocation('data', `${base}-data`, target.coreUrl),
+                    allocation('admin', `${base}-admin`, target.adminUrl),
+                    {
+                      ...allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
+                      entities: [
+                        {
+                          kind: 'tenant' as const,
+                          logicalId: 'default',
+                          runtimeId: `${base}-foreign-tenant`,
+                        },
+                      ],
+                    },
+                  ]
+                : [
+                    {
+                      ...allocation('data', `${base}-data`, target.coreUrl),
+                      entities: [
+                        ...allocation('data', `${base}-data`, target.coreUrl).entities,
+                        {
+                          kind: 'user' as const,
+                          logicalId: 'consent.primary.user-b',
+                          runtimeId: `${base}-primary-peer-user`,
+                        },
+                        {
+                          kind: 'application' as const,
+                          logicalId: 'consent.primary.client-b',
+                          runtimeId: `${base}-primary-peer-client`,
+                        },
+                      ],
+                    },
+                    allocation('foreign', `${base}-foreign`, foreignTarget.coreUrl),
+                  ];
 
   return createPhase1FixtureMap({ schemaVersion: 1, recipe, allocations });
 };
@@ -418,6 +433,36 @@ const readOwnedPids = async (directory: string): Promise<readonly number[]> =>
   JSON.parse(await readFile(path.join(directory, 'pids.json'), 'utf8')) as number[];
 
 describe('candidate fixture command descriptor', () => {
+  it('seeds the password matrix subject and suspended user but not the passwordless user', async () => {
+    const { provisioner, requests } = createHarness();
+    const fixture = await provisioner.provision('passwordMatrix');
+    const descriptor = JSON.parse(String(requests[0]?.stdin ?? '{}')) as {
+      seeds?: { passwords?: Array<{ logicalId?: string }> };
+    };
+
+    expect(descriptor.seeds?.passwords?.map(({ logicalId }) => logicalId)).toEqual([
+      'phase1-user',
+      'password-matrix.suspended',
+    ]);
+    expect(descriptor.seeds?.passwords).not.toContainEqual(
+      expect.objectContaining({ logicalId: 'password-matrix.passwordless' })
+    );
+    await fixture.withSecretLease(async (lease) => {
+      expect(lease.getPassword('phase1-user')).toBe(seededPassword);
+      expect(lease.getPassword('password-matrix.suspended')).toBe(seededPassword);
+      expect(() => lease.getPassword('password-matrix.passwordless')).toThrow(
+        'Secret seed is unavailable'
+      );
+    });
+    await expect(provisioner.projectState(fixture)).resolves.toEqual(
+      projectStateProjection(fixture.public)
+    );
+    await expect(provisioner.readUserActivityState(fixture, 'phase1-user')).resolves.toEqual({
+      lastSignInState: 'never',
+    });
+    await expect(provisioner.cleanup(fixture)).resolves.toBeUndefined();
+  });
+
   it('invokes exact aster-admin fixture apply with a private descriptor and allowlisted environment', async () => {
     const { provisioner, requests } = createHarness();
     const fixture = await provisioner.provision('fullPhase1');

@@ -26,6 +26,7 @@ import {
   createPhase1FixtureStateProjection,
   getExpectedPhase1FixtureEntityKeys,
   phase1FixtureRecipeDefinitions,
+  phase1PasswordMatrixUsers,
 } from '../fixture-map.js';
 import type { Phase1FixtureRecipe } from '../model.js';
 
@@ -384,11 +385,15 @@ const seedLogicalIds = (
 
   if (
     recipe === 'dataProtocol' ||
+    recipe === 'passwordMatrix' ||
     recipe === 'fullPhase1' ||
     recipe === 'corsBoundary' ||
     recipe === 'consentBoundary'
   ) {
     ids.push(profile.fixtures.dataTenant.subject.id);
+  }
+  if (recipe === 'passwordMatrix') {
+    ids.push(phase1PasswordMatrixUsers.suspended.logicalId);
   }
   if (recipe === 'adminConsole' || recipe === 'fullPhase1' || recipe === 'corsBoundary') {
     ids.push(profile.fixtures.adminTenant.operator.id);
