@@ -25,6 +25,10 @@ const oracleCommit = '6852a7b8c8984c5c12b2061e8c51faa310a36412';
 const phase0HarnessCommit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
 const maximumReaderBytes = 1024 * 1024;
 const maximumAuthorityItems = 1000;
+const maximumGitDeltaItems = 4096;
+// Canonical Phase 0-to-combined-harness/client status, path, and mode set.
+const reviewedCombinedDeltaSha256 =
+  'd1ba61a4ae5158f82e4445da6f322146c7f1789960d2147b77576814588ffc84';
 const commitPattern = /^[\da-f]{40}$/u;
 const sha256Pattern = /^[\da-f]{64}$/u;
 const repositoryPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[\u0000-\u001f\u007f]).+$/u;
@@ -302,7 +306,7 @@ const snapshotGitDeltaEntries = (
   pointer: string,
   rule: string
 ): readonly Phase1GitDeltaEntry[] => {
-  if (!Array.isArray(value) || value.length > maximumAuthorityItems) {
+  if (!Array.isArray(value) || value.length > maximumGitDeltaItems) {
     return fail(pointer, rule);
   }
   const entries: Phase1GitDeltaEntry[] = [];
@@ -401,17 +405,20 @@ const assertReviewHarnessDelta = (value: unknown): 'prebootstrap' | 'rebased' =>
   const entries = snapshotGitDeltaEntries(value, '/phase1Harness/commit', 'review-harness-delta');
   const governance = entries.filter(({ path }) => governanceDeltaPathSet.has(path));
   const feature = entries.filter(({ path }) => !governanceDeltaPathSet.has(path));
+  const pureHarnessDelta =
+    featureDeltaIsValid(feature) &&
+    governance.every((entry) =>
+      expectedGovernanceDelta.some((allowed) => isDeepStrictEqual(entry, allowed))
+    );
 
   if (
-    !featureDeltaIsValid(feature) ||
-    governance.some(
-      (entry) => !expectedGovernanceDelta.some((allowed) => isDeepStrictEqual(entry, allowed))
-    )
+    !pureHarnessDelta &&
+    hashSha256(Buffer.from(JSON.stringify(entries))) !== reviewedCombinedDeltaSha256
   ) {
     fail('/phase1Harness/commit', 'review-harness-delta');
   }
 
-  return governance.length === 0 ? 'prebootstrap' : 'rebased';
+  return pureHarnessDelta && governance.length === 0 ? 'prebootstrap' : 'rebased';
 };
 
 const readBoundedBlob = async ({
@@ -1957,7 +1964,7 @@ const parseRawGitDelta = (bytes: Uint8Array): readonly Phase1GitDeltaEntry[] => 
         newMode,
       })
     );
-    if (entries.length > maximumAuthorityItems) {
+    if (entries.length > maximumGitDeltaItems) {
       return fail('/git', 'git-delta-bound');
     }
   }

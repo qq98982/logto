@@ -2765,6 +2765,82 @@ describe('Phase 1 source and acceptance provenance', () => {
     );
   });
 
+  it('accepts only the exact reviewed combined harness and Aster source delta shape', async () => {
+    const currentHarnessCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+    }).trim();
+    const productionReader = createProductionPhase1GitReader({
+      [oracleRepository]: repositoryRoot,
+    });
+    const combinedDelta = await productionReader.diffEntries(
+      oracleRepository,
+      phase0Commit,
+      currentHarnessCommit
+    );
+
+    expect(combinedDelta.length).toBeGreaterThan(1000);
+
+    const accepted = provenanceContext();
+    accepted.gitReader.diffEntries = async () => combinedDelta;
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), accepted)
+    ).resolves.toMatchObject({
+      kind: 'review-candidate',
+      harnessCommit,
+      publishable: false,
+    });
+
+    const acceptedHarness = provenanceContext('accepted-harness');
+    const { readBlob } = acceptedHarness.gitReader;
+    let workflowAuthorityRead = false;
+    acceptedHarness.gitReader.readBlob = async (repository, commit, sourcePath) => {
+      if (
+        commit === harnessCommit &&
+        sourcePath === '.github/workflows/phase1-compatibility-test.yml'
+      ) {
+        workflowAuthorityRead = true;
+      }
+
+      return readBlob(repository, commit, sourcePath);
+    };
+    acceptedHarness.gitReader.diffEntries = async () => combinedDelta;
+    await expect(
+      verifyPhase1ProfileProvenance(provenanceProfile(), acceptedHarness)
+    ).resolves.toMatchObject({
+      kind: 'accepted-harness',
+      harnessCommit,
+      protectedBranch: 'aster-phase1-harness',
+      pullRequestNumber: 7,
+      publishable: true,
+    });
+    expect(workflowAuthorityRead).toBe(true);
+
+    const first = required(combinedDelta.at(0));
+    const invalidDeltas = [
+      combinedDelta.slice(0, -1),
+      [{ ...first, path: `${first.path}.changed` }, ...combinedDelta.slice(1)],
+      [
+        { ...first, status: first.status === 'added' ? ('modified' as const) : ('added' as const) },
+        ...combinedDelta.slice(1),
+      ],
+      [
+        { ...first, newMode: first.newMode === '100644' ? '100755' : '100644' },
+        ...combinedDelta.slice(1),
+      ],
+    ];
+
+    for (const invalidDelta of invalidDeltas) {
+      const invalid = provenanceContext();
+      invalid.gitReader.diffEntries = async () => invalidDelta;
+      await expectProvenanceFailure(
+        verifyPhase1ProfileProvenance(provenanceProfile(), invalid),
+        '/phase1Harness/commit',
+        'review-harness-delta'
+      );
+    }
+  });
+
   it('the production Git reader uses exact commit object reads and bounded commands', async () => {
     const calls: Phase1CommandRequest[] = [];
     const reader = createProductionPhase1GitReader(
@@ -2934,7 +3010,7 @@ describe('Phase 1 source and acceptance provenance', () => {
     const object = '1'.repeat(40);
     const excessiveEntries = Buffer.from(
       Array.from(
-        { length: 1001 },
+        { length: 4097 },
         (_value, index) =>
           `:000000 100644 ${zero} ${object} A\0generated/${index.toString().padStart(4, '0')}.json\0`
       ).join('')
