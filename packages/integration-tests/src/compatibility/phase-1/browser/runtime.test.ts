@@ -38,6 +38,11 @@ const environment = Object.freeze({
   ASTER_PHASE1_CANDIDATE_FOREIGN_URL: 'http://localhost:3322',
   ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL: 'http://localhost:3422',
 });
+const commandEnvironment = Object.freeze({
+  PATH: '/approved/bin',
+  ASTER_FIXTURE_SOCKET: '/private/fixture.sock',
+  ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL: 'must-not-pass',
+});
 
 const attestation = (prefix: string, primaryDatabase: string) => ({
   data: {
@@ -133,14 +138,23 @@ const provisioner = (): Phase1BrowserFixtureProvisioner => ({
   cleanup: async () => {},
 });
 
-const observation = (id: (typeof phase1BrowserFlowIds)[number]): JsonObject => ({
+const observation = (
+  id: (typeof phase1BrowserFlowIds)[number],
+  implementation: 'oracle' | 'candidate' = 'oracle'
+): JsonObject => ({
   flow: id,
   accepted: true,
   nested: {
     stable: true,
     managementExchange: {
-      resource: 'https://default.logto.app/api',
-      responseScope: 'urn:logto:scope:organizations profile',
+      resource:
+        implementation === 'candidate'
+          ? 'urn:aster:resource:management'
+          : 'https://default.logto.app/api',
+      responseScope:
+        implementation === 'candidate'
+          ? 'urn:aster:scope:organizations profile'
+          : 'urn:logto:scope:organizations profile',
     },
     consent: {
       resource: {
@@ -160,7 +174,10 @@ const observation = (id: (typeof phase1BrowserFlowIds)[number]): JsonObject => (
   },
 });
 
-const runEvidence = (mutateApplicationFlow = false): Phase1BrowserRunEvidence => ({
+const runEvidence = (
+  mutateApplicationFlow = false,
+  implementation: 'oracle' | 'candidate' = 'oracle'
+): Phase1BrowserRunEvidence => ({
   groups: [
     {
       id: 'experience',
@@ -169,7 +186,7 @@ const runEvidence = (mutateApplicationFlow = false): Phase1BrowserRunEvidence =>
           id: 'experience.password-pkce-consent',
           executionGroup: 'experience',
           sourceEvidence: [],
-          observation: observation('experience.password-pkce-consent'),
+          observation: observation('experience.password-pkce-consent', implementation),
         },
       ],
     },
@@ -180,35 +197,39 @@ const runEvidence = (mutateApplicationFlow = false): Phase1BrowserRunEvidence =>
           id: 'console.clean-authentication',
           executionGroup: 'console',
           sourceEvidence: [],
-          observation: observation('console.clean-authentication'),
+          observation: observation('console.clean-authentication', implementation),
         },
         {
           id: 'console.application-read',
           executionGroup: 'console',
           sourceEvidence: [],
           observation: mutateApplicationFlow
-            ? { ...observation('console.application-read'), accepted: false }
-            : observation('console.application-read'),
+            ? { ...observation('console.application-read', implementation), accepted: false }
+            : observation('console.application-read', implementation),
         },
         {
           id: 'console.user-read',
           executionGroup: 'console',
           sourceEvidence: [],
-          observation: observation('console.user-read'),
+          observation: observation('console.user-read', implementation),
         },
       ],
     },
   ],
 });
 
-const dependencies = (mutateCandidate = false) => {
+const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
   type ReferenceProvisionerInput = Parameters<
     Phase1BrowserRuntimeDependencies['createReferenceProvisioner']
+  >[0];
+  type CommandProvisionerInput = Parameters<
+    Phase1BrowserRuntimeDependencies['createCommandProvisioner']
   >[0];
   const targetOrder: Array<TargetConfig['label']> = [];
   const profileImplementations: string[] = [];
   const artifactImplementations: string[] = [];
   const provisionerInputs: ReferenceProvisionerInput[] = [];
+  const commandProvisionerInputs: CommandProvisionerInput[] = [];
   const adapter = provisioner();
   const observer: Phase1BrowserGroupObserver = {
     runInFreshContext: async () => {
@@ -216,6 +237,7 @@ const dependencies = (mutateCandidate = false) => {
     },
   };
   const value: Phase1BrowserRuntimeDependencies = {
+    environment: commandEnvironment,
     projectProfile: (profile, implementation) => {
       profileImplementations.push(implementation);
       return profile;
@@ -225,13 +247,20 @@ const dependencies = (mutateCandidate = false) => {
       return projectNativeSurfaceArtifact(artifact, implementation);
     },
     createObserver: () => observer,
+    createCommandProvisioner: (input) => {
+      commandProvisionerInputs.push(input);
+      return adapter;
+    },
     createReferenceProvisioner: (input) => {
       provisionerInputs.push(input);
       return adapter;
     },
     runBrowserFlows: async (input) => {
       targetOrder.push(input.target.label);
-      return runEvidence(mutateCandidate && input.target.label === 'candidate');
+      return runEvidence(
+        mutateCandidate && input.target.label === 'candidate',
+        runtimeCandidate && input.target.label === 'candidate' ? 'candidate' : 'oracle'
+      );
     },
   };
 
@@ -241,6 +270,7 @@ const dependencies = (mutateCandidate = false) => {
     profileImplementations,
     artifactImplementations,
     provisionerInputs,
+    commandProvisionerInputs,
   };
 };
 
@@ -254,6 +284,7 @@ describe('Phase 1 browser production runtime', () => {
     expect(harness.profileImplementations).toEqual(['oracle', 'oracle']);
     expect(harness.artifactImplementations).toEqual(Array.from({ length: 8 }, () => 'oracle'));
     expect(harness.provisionerInputs).toHaveLength(2);
+    expect(harness.commandProvisionerInputs).toHaveLength(0);
     expect(harness.provisionerInputs[0]).toMatchObject({
       target: runtimeContext.targets.oracle.primary,
       foreignTarget: runtimeContext.targets.oracle.foreign,
@@ -307,14 +338,76 @@ describe('Phase 1 browser production runtime', () => {
     expect(Object.isFrozen(result.flows[0]?.oracle.value)).toBe(true);
   });
 
-  it('refuses runtime-candidate before constructing any browser or fixture adapter', async () => {
-    const harness = dependencies();
+  it('uses the command fixture adapter and candidate namespace for runtime-candidate', async () => {
+    const runtimeContext = context('runtime-candidate');
+    const harness = dependencies(false, true);
+    const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
+
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.profileImplementations).toEqual(['oracle', 'candidate']);
+    expect(harness.artifactImplementations).toEqual(
+      Array.from({ length: 4 }, () => ['oracle', 'candidate']).flat()
+    );
+    expect(harness.provisionerInputs).toHaveLength(1);
+    expect(harness.provisionerInputs[0]).toMatchObject({
+      target: runtimeContext.targets.oracle.primary,
+      foreignTarget: runtimeContext.targets.oracle.foreign,
+      isolation: runtimeContext.isolationAttestations.oracle,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
+    });
+    expect(harness.commandProvisionerInputs).toHaveLength(1);
+    expect(harness.commandProvisionerInputs[0]).toMatchObject({
+      profile: runtimeContext.authorization.profile,
+      target: runtimeContext.targets.candidate.primary,
+      foreignTarget: runtimeContext.targets.candidate.foreign,
+      environment: {
+        PATH: '/approved/bin',
+        ASTER_FIXTURE_SOCKET: '/private/fixture.sock',
+      },
+    });
+    expect(
+      harness.commandProvisionerInputs[0]?.environment?.ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL
+    ).toBeUndefined();
+    expect(result.mode).toBe('runtime-candidate');
+    expect(result.flows.every(({ differences }) => differences.length === 0)).toBe(true);
+    expect(JSON.stringify(result)).toContain('urn:aster:resource:management');
+    expect(JSON.stringify(result)).not.toContain('https://default.logto.app/api');
+  });
+
+  it('rejects a runtime-candidate browser observation difference', async () => {
+    const harness = dependencies(true, true);
 
     await expect(
       runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
-    ).rejects.toThrow(/^Phase 1 candidate browser fixture adapter is unavailable$/u);
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.provisionerInputs).toHaveLength(1);
+    expect(harness.commandProvisionerInputs).toHaveLength(1);
+  });
+
+  it('rejects reference-namespace evidence from the runtime candidate', async () => {
+    const harness = dependencies(false, false);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.artifactImplementations).toEqual(['oracle', 'candidate']);
+  });
+
+  it('rejects runtime-candidate before adapter construction without an absolute fixture socket', async () => {
+    const harness = dependencies(false, true);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), {
+        ...harness.value,
+        environment: { PATH: '/approved/bin' },
+      })
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
     expect(harness.targetOrder).toEqual([]);
     expect(harness.provisionerInputs).toEqual([]);
+    expect(harness.commandProvisionerInputs).toEqual([]);
   });
 
   it('rejects a candidate browser observation difference instead of publishing false parity', async () => {

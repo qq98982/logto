@@ -348,6 +348,7 @@ const allowlistedEnvironment = (
   environment: CommandEnvironment | undefined
 ): Readonly<Record<string, string>> => {
   let path = '/usr/bin:/bin';
+  let fixtureSocket: string | undefined;
 
   if (environment !== undefined) {
     if (
@@ -363,10 +364,23 @@ const allowlistedEnvironment = (
     if (descriptor && Object.hasOwn(descriptor, 'value') && descriptor.value !== undefined) {
       path = safeText(descriptor.value);
     }
+    const fixtureSocketDescriptor = Object.getOwnPropertyDescriptor(
+      environment,
+      'ASTER_FIXTURE_SOCKET'
+    );
+
+    if (
+      fixtureSocketDescriptor &&
+      Object.hasOwn(fixtureSocketDescriptor, 'value') &&
+      fixtureSocketDescriptor.value !== undefined
+    ) {
+      fixtureSocket = safeText(fixtureSocketDescriptor.value);
+    }
   }
 
   return Object.freeze({
     PATH: path,
+    ...(fixtureSocket && { ASTER_FIXTURE_SOCKET: fixtureSocket }),
     ASTER_TARGET_LABEL: target.label,
     ASTER_CORE_URL: target.coreUrl,
     ASTER_ADMIN_URL: target.adminUrl,

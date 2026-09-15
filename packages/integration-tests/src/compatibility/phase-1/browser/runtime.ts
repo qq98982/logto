@@ -1,11 +1,13 @@
 /* eslint-disable no-restricted-syntax -- Playwright must load natively outside the tsup ESM bundle; the fixed shape assertion exposes only Chromium's launch capability. */
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
 import type { Browser, BrowserType } from '@playwright/test';
 
 import { compareJson } from '../../compare.js';
 import type { JsonObject } from '../../normalize.js';
 import { assertPhase1PublicArtifactValue, bytewiseCompare } from '../artifact-contract.js';
+import { createCommandPhase1FixtureProvisioner } from '../clients/command-provisioner.js';
 import { createReferencePhase1FixtureProvisioner } from '../clients/reference-provisioner.js';
 import {
   createPhase1EvidenceProvenance,
@@ -47,27 +49,56 @@ export type Phase1BrowserEvidenceArtifact = Readonly<{
 }>;
 
 export type Phase1BrowserRuntimeDependencies = Readonly<{
+  environment: Readonly<Record<string, string | undefined>>;
   projectProfile: typeof projectPhase1ProfileForImplementation;
   projectArtifact: typeof projectNativeSurfaceArtifact;
   createObserver: () => Phase1BrowserGroupObserver;
+  createCommandProvisioner: typeof createCommandPhase1FixtureProvisioner;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
   runBrowserFlows: typeof runPhase1BrowserFlows;
 }>;
 
 const diagnostic = 'Invalid Phase 1 browser runtime';
-const candidateAdapterUnavailable = 'Phase 1 candidate browser fixture adapter is unavailable';
 const browserTimeoutMs = 300_000;
+const maximumSocketPathLength = 4096;
 const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
   chromium: BrowserType<Browser>;
 };
 
 const defaultDependencies: Phase1BrowserRuntimeDependencies = Object.freeze({
+  environment: process.env,
   projectProfile: projectPhase1ProfileForImplementation,
   projectArtifact: projectNativeSurfaceArtifact,
   createObserver: () => createPlaywrightBrowserGroupObserver(chromium),
+  createCommandProvisioner: createCommandPhase1FixtureProvisioner,
   createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
   runBrowserFlows: runPhase1BrowserFlows,
 });
+
+const commandEnvironment = (
+  environment: Phase1BrowserRuntimeDependencies['environment']
+): Readonly<Record<string, string | undefined>> => {
+  const fixtureSocket = environment.ASTER_FIXTURE_SOCKET;
+
+  if (
+    typeof fixtureSocket !== 'string' ||
+    fixtureSocket.length === 0 ||
+    fixtureSocket.length > maximumSocketPathLength ||
+    fixtureSocket.split('').some((character) => {
+      const codePoint = character.codePointAt(0);
+
+      return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
+    }) ||
+    !path.isAbsolute(fixtureSocket)
+  ) {
+    throw new TypeError(diagnostic);
+  }
+
+  return Object.freeze({
+    PATH: environment.PATH,
+    ASTER_FIXTURE_SOCKET: fixtureSocket,
+  });
+};
 
 const flattenObservations = (
   evidence: Phase1BrowserRunEvidence
@@ -104,16 +135,18 @@ const executePhase1BrowserRuntime = async (
   context: Phase1EvidenceRuntimeContext,
   dependencies: Phase1BrowserRuntimeDependencies
 ): Promise<Phase1BrowserEvidenceArtifact> => {
-  if (context.authorization.mode === 'runtime-candidate') {
-    throw new TypeError(candidateAdapterUnavailable);
-  }
-
   try {
+    const candidateEnvironment =
+      context.authorization.mode === 'runtime-candidate'
+        ? commandEnvironment(dependencies.environment)
+        : undefined;
     const observer = dependencies.createObserver();
     const oracleProfile = dependencies.projectProfile(context.authorization.profile, 'oracle');
-    const candidateMirrorProfile = dependencies.projectProfile(
+    const candidateImplementation =
+      context.authorization.mode === 'runtime-candidate' ? 'candidate' : 'oracle';
+    const candidateProfile = dependencies.projectProfile(
       context.authorization.profile,
-      'oracle'
+      candidateImplementation
     );
     const oracleProvisioner = dependencies.createReferenceProvisioner({
       profile: oracleProfile,
@@ -123,14 +156,22 @@ const executePhase1BrowserRuntime = async (
       applicationRedirectUriMode: 'target',
       signInExperienceBrandingMode: 'clear',
     });
-    const candidateProvisioner = dependencies.createReferenceProvisioner({
-      profile: candidateMirrorProfile,
-      target: context.targets.candidate.primary,
-      foreignTarget: context.targets.candidate.foreign,
-      isolation: context.isolationAttestations.candidate,
-      applicationRedirectUriMode: 'target',
-      signInExperienceBrandingMode: 'clear',
-    });
+    const candidateProvisioner =
+      context.authorization.mode === 'runtime-candidate'
+        ? dependencies.createCommandProvisioner({
+            profile: candidateProfile,
+            target: context.targets.candidate.primary,
+            foreignTarget: context.targets.candidate.foreign,
+            environment: candidateEnvironment,
+          })
+        : dependencies.createReferenceProvisioner({
+            profile: candidateProfile,
+            target: context.targets.candidate.primary,
+            foreignTarget: context.targets.candidate.foreign,
+            isolation: context.isolationAttestations.candidate,
+            applicationRedirectUriMode: 'target',
+            signInExperienceBrandingMode: 'clear',
+          });
     const controller = new AbortController();
     const oracle = await dependencies.runBrowserFlows({
       profile: oracleProfile,
@@ -141,7 +182,7 @@ const executePhase1BrowserRuntime = async (
       timeoutMs: browserTimeoutMs,
     });
     const candidate = await dependencies.runBrowserFlows({
-      profile: candidateMirrorProfile,
+      profile: candidateProfile,
       target: context.targets.candidate.primary,
       provisioner: candidateProvisioner,
       observer,
@@ -159,7 +200,10 @@ const executePhase1BrowserRuntime = async (
           throw new TypeError(diagnostic);
         }
         const projectedOracle = dependencies.projectArtifact(oracleObservation, 'oracle');
-        const projectedCandidate = dependencies.projectArtifact(candidateObservation, 'oracle');
+        const projectedCandidate = dependencies.projectArtifact(
+          candidateObservation,
+          candidateImplementation
+        );
         assertCandidateNativeSurfaceArtifact(projectedCandidate);
 
         if (compareJson(projectedOracle, projectedCandidate).length > 0) {

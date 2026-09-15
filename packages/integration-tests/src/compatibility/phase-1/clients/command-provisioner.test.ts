@@ -377,7 +377,13 @@ const createHarness = (
     target,
     foreignTarget,
     runner,
-    environment: { PATH: '/approved/bin', HOME: '/must-not-pass', DB_URL: 'must-not-pass' },
+    environment: {
+      PATH: '/approved/bin',
+      ASTER_FIXTURE_SOCKET: '/private/fixture.sock',
+      ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL: 'must-not-pass',
+      HOME: '/must-not-pass',
+      DB_URL: 'must-not-pass',
+    },
     createAllocationId: () => `command-allocation-${++allocation}`,
     createSecret: () => seededPassword,
   });
@@ -478,11 +484,14 @@ describe('candidate fixture command descriptor', () => {
     expect(Object.keys(request?.env ?? {}).toSorted()).toEqual([
       'ASTER_ADMIN_URL',
       'ASTER_CORE_URL',
+      'ASTER_FIXTURE_SOCKET',
       'ASTER_FOREIGN_ADMIN_URL',
       'ASTER_FOREIGN_CORE_URL',
       'ASTER_TARGET_LABEL',
       'PATH',
     ]);
+    expect(request?.env.ASTER_FIXTURE_SOCKET).toBe('/private/fixture.sock');
+    expect(request?.env.ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL).toBeUndefined();
     expect(JSON.stringify(request?.args)).not.toContain(seededPassword);
     expect(JSON.stringify(request?.env)).not.toContain(seededPassword);
     const descriptor = JSON.parse(request?.stdin ?? '') as Record<string, unknown>;
