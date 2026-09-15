@@ -51,7 +51,16 @@ describe('UsernamePasswordSignInForm', () => {
     settings?: Partial<SignInExperienceResponse>
   ) =>
     renderWithPageContext(
-      <SettingsProvider settings={{ ...mockSignInExperienceSettings, ...settings }}>
+      <SettingsProvider
+        settings={{
+          ...mockSignInExperienceSettings,
+          customContent: {
+            ...mockSignInExperienceSettings.customContent,
+            boxAiDefaultPhoneCountry: 'US',
+          },
+          ...settings,
+        }}
+      >
         <ConfirmModalProvider>
           <UserInteractionContextProvider>
             <SingleSignOnFormModeContextProvider>
@@ -184,7 +193,7 @@ describe('UsernamePasswordSignInForm', () => {
             type,
             value:
               type === SignInIdentifier.Phone
-                ? `${getDefaultCountryCallingCode()}${identifier}`
+                ? `${getDefaultCountryCallingCode({ timeZone: 'Etc/UTC' })}${identifier}`
                 : identifier,
           },
           password: 'password',

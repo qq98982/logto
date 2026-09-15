@@ -56,6 +56,10 @@ const renderForm = (signInMethods: SignIn['methods'], ssoConnectors: SsoConnecto
     <SettingsProvider
       settings={{
         ...mockSignInExperienceSettings,
+        customContent: {
+          ...mockSignInExperienceSettings.customContent,
+          boxAiDefaultPhoneCountry: 'US',
+        },
         ssoConnectors,
       }}
     >
@@ -180,7 +184,7 @@ describe('IdentifierSignInForm', () => {
                 type: identifier,
                 value:
                   identifier === SignInIdentifier.Phone
-                    ? `${getDefaultCountryCallingCode()}${value}`
+                    ? `${getDefaultCountryCallingCode({ timeZone: 'Etc/UTC' })}${value}`
                     : value,
               },
               undefined,

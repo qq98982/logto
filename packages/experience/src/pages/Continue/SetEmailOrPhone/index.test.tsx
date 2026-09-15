@@ -13,6 +13,7 @@ import { act } from 'react-dom/test-utils';
 import CaptchaContext from '@/Providers/CaptchaContextProvider/CaptchaContext';
 import renderWithPageContext from '@/__mocks__/RenderWithPageContext';
 import SettingsProvider from '@/__mocks__/RenderWithPageContext/SettingsProvider';
+import { mockSignInExperienceSettings } from '@/__mocks__/logto';
 import { sendVerificationCodeApi } from '@/apis/utils';
 import { UserFlow, type SignInExperienceResponse, type VerificationCodeIdentifier } from '@/types';
 import { getDefaultCountryCallingCode } from '@/utils/country-code';
@@ -20,6 +21,13 @@ import { getDefaultCountryCallingCode } from '@/utils/country-code';
 import SetEmailOrPhone, { type VerificationCodeProfileType, pageContent } from '.';
 
 const mockedNavigate = jest.fn();
+const defaultPhoneSettings = {
+  ...mockSignInExperienceSettings,
+  customContent: {
+    ...mockSignInExperienceSettings.customContent,
+    boxAiDefaultPhoneCountry: 'US',
+  },
+};
 
 // PhoneNum CountryCode detection
 jest.mock('i18next', () => ({
@@ -51,7 +59,7 @@ describe('continue with email or phone', () => {
 
   const renderPage = (missingProfile: VerificationCodeProfileType) =>
     renderWithPageContext(
-      <SettingsProvider>
+      <SettingsProvider settings={defaultPhoneSettings}>
         <SetEmailOrPhone
           missingProfile={missingProfile}
           interactionEvent={InteractionEvent.Register}
@@ -112,7 +120,7 @@ describe('continue with email or phone', () => {
           executeCaptcha: jest.fn(),
         }}
       >
-        <SettingsProvider>
+        <SettingsProvider settings={defaultPhoneSettings}>
           <SetEmailOrPhone
             missingProfile={MissingProfile.phone}
             interactionEvent={InteractionEvent.Register}
@@ -126,7 +134,7 @@ describe('continue with email or phone', () => {
 
   const email = 'foo@logto.io';
   const phone = '8573333333';
-  const countryCode = getDefaultCountryCallingCode();
+  const countryCode = getDefaultCountryCallingCode({ timeZone: 'Etc/UTC' });
 
   test.each([
     [MissingProfile.email, SignInIdentifier.Email, email],

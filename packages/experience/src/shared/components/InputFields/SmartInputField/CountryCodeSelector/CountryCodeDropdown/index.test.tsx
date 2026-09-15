@@ -17,7 +17,7 @@ jest.mock('i18next', () => ({
 describe('CountryCodeDropdown', () => {
   const onChange = jest.fn();
   const onClose = jest.fn();
-  const countryList = getCountryList();
+  const countryList = getCountryList('US');
 
   afterEach(() => {
     jest.clearAllMocks();

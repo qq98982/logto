@@ -54,6 +54,10 @@ const renderForm = (
     <SettingsProvider
       settings={{
         ...mockSignInExperienceSettings,
+        customContent: {
+          ...mockSignInExperienceSettings.customContent,
+          boxAiDefaultPhoneCountry: 'US',
+        },
         ssoConnectors,
         usernamePolicy,
       }}
@@ -405,7 +409,7 @@ describe('<IdentifierRegisterForm />', () => {
             UserFlow.Register,
             {
               type: SignInIdentifier.Phone,
-              value: `${getDefaultCountryCallingCode()}8573333333`,
+              value: `${getDefaultCountryCallingCode({ timeZone: 'Etc/UTC' })}8573333333`,
             },
             undefined,
             expect.any(Function)

@@ -4,7 +4,7 @@ import { assert } from '@silverhand/essentials';
 import { act, fireEvent, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import renderWithPageContext from '@/__mocks__/RenderWithPageContext';
+import PageContextProvider from '@/Providers/PageContextProvider';
 import SettingsProvider from '@/__mocks__/RenderWithPageContext/SettingsProvider';
 import { getBoundingClientRectMock, mockSignInExperienceSettings } from '@/__mocks__/logto';
 import { getDefaultCountryCallingCode } from '@/utils/country-code';
@@ -17,10 +17,18 @@ jest.mock('i18next', () => ({
   t: (key: string) => key,
 }));
 
+const defaultPhoneSettings = {
+  ...mockSignInExperienceSettings,
+  customContent: {
+    ...mockSignInExperienceSettings.customContent,
+    boxAiDefaultPhoneCountry: 'US',
+  },
+};
+
 describe('SmartInputField Component', () => {
   const onChange = jest.fn();
 
-  const defaultCountryCallingCode = getDefaultCountryCallingCode();
+  const defaultCountryCallingCode = getDefaultCountryCallingCode({ timeZone: 'Etc/UTC' });
 
   const renderInputField = (props: {
     defaultValue?: string;
@@ -29,7 +37,11 @@ describe('SmartInputField Component', () => {
   }) =>
     render(
       <MemoryRouter>
-        <SmartInputField {...props} onChange={onChange} />
+        <PageContextProvider>
+          <SettingsProvider settings={defaultPhoneSettings}>
+            <SmartInputField {...props} onChange={onChange} />
+          </SettingsProvider>
+        </PageContextProvider>
       </MemoryRouter>
     );
 
@@ -108,18 +120,28 @@ describe('SmartInputField Component', () => {
     });
 
     test('China deployment starts at +86 and keeps a manual country switch', async () => {
-      const { container, findByText, getByText } = renderWithPageContext(
-        <SettingsProvider
-          settings={{
-            ...mockSignInExperienceSettings,
-            customContent: {
-              ...mockSignInExperienceSettings.customContent,
-              boxAiDefaultPhoneCountry: 'CN',
-            },
-          }}
-        >
-          <SmartInputField enabledTypes={[SignInIdentifier.Phone]} onChange={onChange} />
-        </SettingsProvider>
+      const chinaSettings = {
+        ...mockSignInExperienceSettings,
+        customContent: {
+          ...mockSignInExperienceSettings.customContent,
+          boxAiDefaultPhoneCountry: 'CN',
+        },
+      };
+      const renderChinaPhoneField = (placeholder: string) => (
+        <MemoryRouter>
+          <PageContextProvider>
+            <SettingsProvider settings={chinaSettings}>
+              <SmartInputField
+                placeholder={placeholder}
+                enabledTypes={[SignInIdentifier.Phone]}
+                onChange={onChange}
+              />
+            </SettingsProvider>
+          </PageContextProvider>
+        </MemoryRouter>
+      );
+      const { container, findByText, getByText, rerender } = render(
+        renderChinaPhoneField('before rerender')
       );
 
       const defaultCountryCode = await findByText('+86');
@@ -130,9 +152,12 @@ describe('SmartInputField Component', () => {
       assert(input, new Error('input should not be null'));
       fireEvent.change(input, { target: { value: '6502530000' } });
 
+      rerender(renderChinaPhoneField('after rerender'));
+
       expect(
         container.querySelector('[data-testid="prefix"] [role="button"] > span')?.textContent
       ).toBe('+1');
+      expect(input.placeholder).toBe('after rerender');
       expect(onChange).toHaveBeenLastCalledWith({
         type: SignInIdentifier.Phone,
         value: '16502530000',
