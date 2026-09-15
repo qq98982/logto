@@ -4,7 +4,9 @@ import { assert } from '@silverhand/essentials';
 import { act, fireEvent, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import { getBoundingClientRectMock } from '@/__mocks__/logto';
+import renderWithPageContext from '@/__mocks__/RenderWithPageContext';
+import SettingsProvider from '@/__mocks__/RenderWithPageContext/SettingsProvider';
+import { getBoundingClientRectMock, mockSignInExperienceSettings } from '@/__mocks__/logto';
 import { getDefaultCountryCallingCode } from '@/utils/country-code';
 
 import type { IdentifierInputType } from '.';
@@ -102,6 +104,38 @@ describe('SmartInputField Component', () => {
       expect(onChange).toBeCalledWith({
         type: SignInIdentifier.Phone,
         value: `${newCountryCode}12315`,
+      });
+    });
+
+    test('China deployment starts at +86 and keeps a manual country switch', async () => {
+      const { container, findByText, getByText } = renderWithPageContext(
+        <SettingsProvider
+          settings={{
+            ...mockSignInExperienceSettings,
+            customContent: {
+              ...mockSignInExperienceSettings.customContent,
+              boxAiDefaultPhoneCountry: 'CN',
+            },
+          }}
+        >
+          <SmartInputField enabledTypes={[SignInIdentifier.Phone]} onChange={onChange} />
+        </SettingsProvider>
+      );
+
+      const defaultCountryCode = await findByText('+86');
+      fireEvent.click(defaultCountryCode);
+      fireEvent.click(getByText('+1'));
+
+      const input = container.querySelector('input');
+      assert(input, new Error('input should not be null'));
+      fireEvent.change(input, { target: { value: '6502530000' } });
+
+      expect(
+        container.querySelector('[data-testid="prefix"] [role="button"] > span')?.textContent
+      ).toBe('+1');
+      expect(onChange).toHaveBeenLastCalledWith({
+        type: SignInIdentifier.Phone,
+        value: '16502530000',
       });
     });
 

@@ -2,7 +2,7 @@ import { SignInIdentifier } from '@logto/schemas';
 import { useState, useCallback, useMemo } from 'react';
 import type { ChangeEventHandler } from 'react';
 
-import { getDefaultCountryCallingCode } from '@/utils/country-code';
+import usePhoneCountryDefaults from '@/hooks/use-phone-country-defaults';
 import { parseIdentifierValue, parsePhoneIdentifier } from '@/utils/form';
 
 import { detectIdentifierType } from './utils';
@@ -30,6 +30,7 @@ type Props = {
 };
 
 const useSmartInputField = ({ defaultValue, enabledTypes }: Props) => {
+  const { countryCallingCode: defaultCountryCallingCode } = usePhoneCountryDefaults();
   const enabledTypeSet = useMemo(() => new Set(enabledTypes), [enabledTypes]);
 
   // Parse default type from enabled types and default value
@@ -47,7 +48,7 @@ const useSmartInputField = ({ defaultValue, enabledTypes }: Props) => {
   const [currentType, setCurrentType] = useState(defaultType);
 
   const [countryCode, setCountryCode] = useState<string>(
-    defaultCountryCode ?? getDefaultCountryCallingCode()
+    defaultCountryCode ?? defaultCountryCallingCode
   );
 
   const [inputValue, setInputValue] = useState<string>(defaultInputValue ?? '');

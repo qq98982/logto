@@ -2,15 +2,26 @@ import { PhoneNumberParser } from '@logto/shared/universal';
 import i18next from 'i18next';
 import type { CountryCode, CountryCallingCode } from 'libphonenumber-js/mobile';
 import { getCountries, getCountryCallingCode } from 'libphonenumber-js/mobile';
+import timeZoneMetadata from 'moment-timezone/data/meta/latest.json';
 
 export const fallbackCountryCode = 'US';
+export const boxAiDefaultPhoneCountryKey = 'boxAiDefaultPhoneCountry';
 
-export const countryCallingCodeMap: Record<string, CountryCode> = {
+export const countryCallingCodeMap: Partial<Record<string, CountryCode>> = {
   zh: 'CN',
   en: 'US',
   ja: 'JP',
   ko: 'KR',
 };
+
+export type DefaultCountrySignals = {
+  readonly deploymentCountry?: string;
+  readonly timeZone?: string;
+  readonly language?: string;
+};
+
+const timeZoneCountriesByName: Readonly<Record<string, { readonly countries: readonly string[] }>> =
+  timeZoneMetadata.zones;
 
 export const isValidCountryCode = (countryCode: string): countryCode is CountryCode => {
   try {
@@ -24,11 +35,9 @@ export const isValidCountryCode = (countryCode: string): countryCode is CountryC
   }
 };
 
-export const getDefaultCountryCode = (): CountryCode => {
-  const { language } = i18next;
-
+const countryFromLanguage = (language: string | undefined): CountryCode | undefined => {
   // Extract the country code from language tag suffix
-  const [languageCode, countryCode] = language.split('-');
+  const [languageCode, countryCode] = language?.split('-') ?? [];
 
   if (countryCode && isValidCountryCode(countryCode)) {
     return countryCode;
@@ -40,10 +49,55 @@ export const getDefaultCountryCode = (): CountryCode => {
     return upperCaseLanguageCode;
   }
 
-  return countryCallingCodeMap[language] ?? fallbackCountryCode;
+  return languageCode ? countryCallingCodeMap[languageCode.toLowerCase()] : undefined;
 };
 
-export const getDefaultCountryCallingCode = () => getCountryCallingCode(getDefaultCountryCode());
+const countriesForTimeZone = (timeZone: string | undefined): CountryCode[] => {
+  if (!timeZone) {
+    return [];
+  }
+
+  const zone = timeZoneCountriesByName[timeZone];
+
+  return zone ? zone.countries.filter((country) => isValidCountryCode(country)) : [];
+};
+
+const browserTimeZone = () => {
+  try {
+    return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {}
+};
+
+export const resolveDefaultCountryCode = ({
+  deploymentCountry,
+  timeZone,
+  language,
+}: DefaultCountrySignals): CountryCode => {
+  const normalizedDeploymentCountry = deploymentCountry?.toUpperCase();
+  if (normalizedDeploymentCountry && isValidCountryCode(normalizedDeploymentCountry)) {
+    return normalizedDeploymentCountry;
+  }
+
+  const languageCountry = countryFromLanguage(language);
+  const timeZoneCountries = countriesForTimeZone(timeZone);
+  const [primaryTimeZoneCountry] = timeZoneCountries;
+
+  if (primaryTimeZoneCountry) {
+    return primaryTimeZoneCountry;
+  }
+
+  return languageCountry ?? fallbackCountryCode;
+};
+
+export const getDefaultCountryCode = (signals: DefaultCountrySignals = {}): CountryCode =>
+  resolveDefaultCountryCode({
+    deploymentCountry: signals.deploymentCountry,
+    timeZone: signals.timeZone ?? browserTimeZone(),
+    language: signals.language ?? i18next.language,
+  });
+
+export const getDefaultCountryCallingCode = (signals?: DefaultCountrySignals) =>
+  getCountryCallingCode(getDefaultCountryCode(signals));
 
 /**
  * Provide Country Code Options
@@ -53,8 +107,7 @@ export type CountryMetaData = {
   countryCallingCode: CountryCallingCode;
 };
 
-export const getCountryList = (): CountryMetaData[] => {
-  const defaultCountryCode = getDefaultCountryCode();
+export const getCountryList = (defaultCountryCode = getDefaultCountryCode()): CountryMetaData[] => {
   const defaultCountryCallingCode = getCountryCallingCode(defaultCountryCode);
 
   const countryList = getCountries()

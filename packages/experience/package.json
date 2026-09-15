@@ -19,6 +19,9 @@
     "test:ci": "jest --coverage --silent",
     "test": "jest"
   },
+  "dependencies": {
+    "moment-timezone": "0.5.48"
+  },
   "devDependencies": {
     "@jest/types": "^29.5.0",
     "@logto/connector-kit": "workspace:^",

@@ -1,10 +1,10 @@
 import classNames from 'classnames';
 import type { ForwardedRef } from 'react';
-import { useState, useMemo, forwardRef } from 'react';
+import { useState, forwardRef } from 'react';
 
 import DownArrowIcon from '@/assets/icons/arrow-down.svg?react';
+import usePhoneCountryDefaults from '@/hooks/use-phone-country-defaults';
 import { onKeyDownHandler } from '@/shared/utils/a11y';
-import { getCountryList, getDefaultCountryCallingCode } from '@/utils/country-code';
 
 import CountryCodeDropdown from './CountryCodeDropdown';
 import styles from './index.module.scss';
@@ -23,8 +23,7 @@ const CountryCodeSelector = (
   ref: ForwardedRef<HTMLDivElement>
 ) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const countryList = useMemo(getCountryList, []);
-  const defaultCountCode = useMemo(getDefaultCountryCallingCode, []);
+  const { countryCallingCode: defaultCountryCallingCode, countryList } = usePhoneCountryDefaults();
 
   const showDropDown = () => {
     setIsDropdownOpen(true);
@@ -35,7 +34,7 @@ const CountryCodeSelector = (
   };
 
   // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
-  const countryCode = value || defaultCountCode;
+  const countryCode = value || defaultCountryCallingCode;
 
   return (
     <div
