@@ -5,7 +5,10 @@ import { inspect } from 'node:util';
 import { ReservedResource } from '@logto/core-kit';
 
 import type { TargetConfig } from '../../model.js';
-import { createExpectedPhase1FixtureStateProjection } from '../fixture-map.js';
+import {
+  createExpectedPhase1FixtureStateProjection,
+  phase1PasswordMatrixUsers,
+} from '../fixture-map.js';
 import { revokeProvisionedPhase1Fixture } from '../fixtures.js';
 import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1Profile } from '../profile-types.js';
@@ -319,7 +322,7 @@ const responseFor = (request: Request, history: readonly Request[] = []): unknow
         profile: patch.profile ?? {},
         applicationId: patch.applicationId ?? null,
         customData: patch.customData ?? {},
-        hasPassword: true,
+        hasPassword: typeof createBody.password === 'string',
       })
     ) as unknown;
   }
@@ -747,6 +750,117 @@ describe('reference Phase 1 fixture provisioner', () => {
       expect(lease.getPassword('phase1-admin')).toBe('seeded-password-value-7391');
     });
     revokeProvisionedPhase1Fixture(fixture);
+  });
+
+  it('provisions password matrix users through published APIs with lease-only secrets', async () => {
+    const { provisioner, requests } = createHarness();
+    const fixture = await provisioner.provision('passwordMatrix');
+    const users = fixture.public.allocations[0]?.entities.filter(({ kind }) => kind === 'user');
+
+    expect(requests.map(({ method, path }) => `${method}:${path}`)).toEqual([
+      'GET:sign-in-exp',
+      'PATCH:sign-in-exp',
+      'POST:users',
+      'PATCH:users/data-phase1_user-id',
+      'POST:resources',
+      'POST:resources/data-resource-id/scopes',
+      'POST:roles',
+      'POST:roles/data-role-id/users',
+      'POST:applications',
+      'POST:applications',
+      'POST:applications/data-phase-1-consent-client-id/user-consent-scopes',
+      'POST:users',
+      'POST:users',
+      'PATCH:users/data-phase1_suspended-id/is-suspended',
+    ]);
+    const createdUsers = requests
+      .filter(({ method, path }) => method === 'POST' && path === 'users')
+      .map(({ body }) => body as Readonly<Record<string, unknown>>);
+    const passwordlessUsername = createdUsers[1]?.username;
+    const suspendedUsername = createdUsers[2]?.username;
+
+    expect(createdUsers).toHaveLength(3);
+    expect(createdUsers[0]?.password).toBe('seeded-password-value-7391');
+    expect(typeof passwordlessUsername).toBe('string');
+    expect(passwordlessUsername).toMatch(/^phase1_passwordless_[a-z0-9_]+$/u);
+    expect(createdUsers[1]).toEqual({ username: passwordlessUsername });
+    expect(typeof suspendedUsername).toBe('string');
+    expect(suspendedUsername).toMatch(/^phase1_suspended_[a-z0-9_]+$/u);
+    expect(createdUsers[2]).toEqual({
+      username: suspendedUsername,
+      password: 'seeded-password-value-7391',
+    });
+    expect(requests.at(-1)?.body).toEqual({ isSuspended: true });
+    expect(users?.map(({ logicalId }) => logicalId)).toEqual([
+      profile.fixtures.dataTenant.subject.id,
+      phase1PasswordMatrixUsers.passwordless.logicalId,
+      phase1PasswordMatrixUsers.suspended.logicalId,
+    ]);
+    await fixture.withSecretLease(async (lease) => {
+      expect(lease.getPassword(profile.fixtures.dataTenant.subject.id)).toBe(
+        'seeded-password-value-7391'
+      );
+      expect(lease.getPassword(phase1PasswordMatrixUsers.suspended.logicalId)).toBe(
+        'seeded-password-value-7391'
+      );
+      expect(() => lease.getPassword(phase1PasswordMatrixUsers.passwordless.logicalId)).toThrow(
+        'Secret seed is unavailable'
+      );
+    });
+    await expect(provisioner.projectState(fixture)).resolves.toEqual(
+      createExpectedPhase1FixtureStateProjection(fixture.public, profile)
+    );
+    const provisionCount = requests.length;
+
+    await provisioner.cleanup(fixture);
+    expect(
+      requests
+        .slice(provisionCount, provisionCount + 2)
+        .map(({ method, path }) => `${method}:${path}`)
+    ).toEqual([
+      'DELETE:users/data-phase1_suspended-id',
+      'DELETE:users/data-phase1_passwordless-id',
+    ]);
+  });
+
+  it('compensates both matrix users when suspension fails', async () => {
+    const { provisioner, requests } = createHarness({ failAt: 14 });
+
+    await expect(provisioner.provision('passwordMatrix')).rejects.toThrow(
+      'Reference fixture operation failed'
+    );
+    const failedSuspension = requests.findIndex(
+      ({ method, path }) =>
+        method === 'PATCH' && path === 'users/data-phase1_suspended-id/is-suspended'
+    );
+    expect(
+      requests
+        .slice(failedSuspension + 1, failedSuspension + 3)
+        .map(({ method, path }) => `${method}:${path}`)
+    ).toEqual([
+      'DELETE:users/data-phase1_suspended-id',
+      'DELETE:users/data-phase1_passwordless-id',
+    ]);
+  });
+
+  it('quarantines the matrix allocation when the suspended-user create result is ambiguous', async () => {
+    const allocationIds = [
+      'ambiguous-matrix-allocation',
+      'ambiguous-matrix-allocation',
+      'fresh-matrix-allocation',
+    ];
+    const { provisioner, requests } = createHarness({
+      failAt: 13,
+      createAllocationId: () => allocationIds.shift() ?? 'unexpected-allocation',
+    });
+
+    await expect(provisioner.provision('passwordMatrix')).rejects.toBeInstanceOf(AggregateError);
+    expect(requests.filter(({ method }) => method === 'DELETE')).toHaveLength(0);
+    await expect(provisioner.provision('passwordMatrix')).rejects.toThrow(
+      'Reference fixture operation failed'
+    );
+    const fixture = await provisioner.provision('passwordMatrix');
+    await expect(provisioner.cleanup(fixture)).resolves.toBeUndefined();
   });
 
   it('rebases application redirect URIs for browser-target fixture provisioning', async () => {

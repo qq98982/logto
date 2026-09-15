@@ -146,6 +146,7 @@ describe('phase 1 closed model', () => {
     expect(phase1FixtureRecipes).toEqual([
       'none',
       'dataProtocol',
+      'passwordMatrix',
       'adminConsole',
       'fullPhase1',
       'corsBoundary',

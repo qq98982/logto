@@ -13,6 +13,7 @@ export const fixtureSetupCapabilityIds = Object.freeze([
   'http.management-api.patch./api/sign-in-exp',
   'http.management-api.post./api/users',
   'http.management-api.patch./api/users/{userId}',
+  'http.management-api.patch./api/users/{userId}/is-suspended',
   'http.management-api.delete./api/users/{userId}',
   'http.management-api.post./api/applications',
   'http.management-api.delete./api/applications/{id}',
@@ -31,9 +32,23 @@ export const fixtureSetupCapabilityIds = Object.freeze([
   'http.management-api.delete./api/organizations/{id}/users/{userId}',
 ] as const);
 
+export const phase1PasswordMatrixUsers = Object.freeze({
+  passwordless: Object.freeze({
+    logicalId: 'password-matrix.passwordless',
+    username: 'phase1_passwordless',
+    localAuthenticationPresent: false,
+  }),
+  suspended: Object.freeze({
+    logicalId: 'password-matrix.suspended',
+    username: 'phase1_suspended',
+    localAuthenticationPresent: true,
+  }),
+});
+
 export const phase1FixtureRecipeDefinitions = Object.freeze({
   none: Object.freeze({ allocationRoles: Object.freeze([]), mutableSetup: false }),
   dataProtocol: Object.freeze({ allocationRoles: Object.freeze(['data']), mutableSetup: true }),
+  passwordMatrix: Object.freeze({ allocationRoles: Object.freeze(['data']), mutableSetup: true }),
   adminConsole: Object.freeze({ allocationRoles: Object.freeze(['admin']), mutableSetup: true }),
   fullPhase1: Object.freeze({
     allocationRoles: Object.freeze(['data', 'admin']),
@@ -88,6 +103,10 @@ const consentDataEntityCounts = Object.freeze({
   user: 2,
   application: 3,
 });
+const passwordMatrixDataEntityCounts = Object.freeze({
+  ...dataEntityCounts,
+  user: 3,
+});
 const foreignEntityCounts = Object.freeze({
   tenant: 1,
   user: 1,
@@ -112,6 +131,7 @@ const corsForeignEntityCounts = Object.freeze({
 export const phase1FixtureRecipeEntityCounts = Object.freeze({
   none: Object.freeze({}),
   dataProtocol: Object.freeze({ data: dataEntityCounts }),
+  passwordMatrix: Object.freeze({ data: passwordMatrixDataEntityCounts }),
   adminConsole: Object.freeze({ admin: adminEntityCounts }),
   fullPhase1: Object.freeze({ data: dataEntityCounts, admin: adminEntityCounts }),
   corsBoundary: Object.freeze({
@@ -688,6 +708,22 @@ const expectedUserSnapshot = (
       localAuthenticationPresent: true,
     });
   }
+  const passwordMatrixUser = Object.values(phase1PasswordMatrixUsers).find(
+    (candidate) => candidate.logicalId === logicalId
+  );
+
+  if (passwordMatrixUser) {
+    return Object.freeze({
+      username: passwordMatrixUser.username,
+      name: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      profile: Object.freeze({}),
+      applicationLogicalId: null,
+      customData: Object.freeze({}),
+      localAuthenticationPresent: passwordMatrixUser.localAuthenticationPresent,
+    });
+  }
   const prefix = peerLogicalPrefix(logicalId);
 
   if (!prefix || logicalId !== `${prefix}.user-b`) {
@@ -1024,6 +1060,9 @@ export const getExpectedPhase1FixtureEntityKeys = (
     ...adminTenant.tenantOrganization.organizationRoles.map(({ id }) => `organization-role.${id}`),
   ];
   const primaryPeer = ['user.consent.primary.user-b', 'application.consent.primary.client-b'];
+  const passwordMatrixUsers = Object.values(phase1PasswordMatrixUsers).map(
+    ({ logicalId }) => `user.${logicalId}`
+  );
   const foreign = [
     `tenant.${dataTenant.id}`,
     'user.consent.foreign.user-b',
@@ -1036,20 +1075,22 @@ export const getExpectedPhase1FixtureEntityKeys = (
       ? {}
       : recipe === 'dataProtocol'
         ? { data: Object.freeze(data) }
-        : recipe === 'adminConsole'
-          ? { admin: Object.freeze(admin) }
-          : recipe === 'fullPhase1'
-            ? { data: Object.freeze(data), admin: Object.freeze(admin) }
-            : recipe === 'corsBoundary'
-              ? {
-                  data: Object.freeze(data),
-                  admin: Object.freeze(admin),
-                  foreign: corsForeign,
-                }
-              : {
-                  data: Object.freeze([...data, ...primaryPeer]),
-                  foreign: Object.freeze(foreign),
-                }
+        : recipe === 'passwordMatrix'
+          ? { data: Object.freeze([...data, ...passwordMatrixUsers]) }
+          : recipe === 'adminConsole'
+            ? { admin: Object.freeze(admin) }
+            : recipe === 'fullPhase1'
+              ? { data: Object.freeze(data), admin: Object.freeze(admin) }
+              : recipe === 'corsBoundary'
+                ? {
+                    data: Object.freeze(data),
+                    admin: Object.freeze(admin),
+                    foreign: corsForeign,
+                  }
+                : {
+                    data: Object.freeze([...data, ...primaryPeer]),
+                    foreign: Object.freeze(foreign),
+                  }
   );
 };
 

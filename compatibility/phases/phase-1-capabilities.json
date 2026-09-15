@@ -28,6 +28,7 @@
     "http.management-api.patch./api/sign-in-exp",
     "http.management-api.post./api/users",
     "http.management-api.patch./api/users/{userId}",
+    "http.management-api.patch./api/users/{userId}/is-suspended",
     "http.management-api.delete./api/users/{userId}",
     "http.management-api.post./api/applications",
     "http.management-api.delete./api/applications/{id}",

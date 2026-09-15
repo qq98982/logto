@@ -41,6 +41,7 @@ import {
   getPhase1FixtureRuntimeResourceIndicator,
   getPhase1FixtureRuntimeText,
   getPhase1FixtureRuntimeUsername,
+  phase1PasswordMatrixUsers,
   phase1FixtureRecipeDefinitions,
   type Phase1FixtureAllocation,
   type Phase1FixtureAllocationRole,
@@ -1219,6 +1220,59 @@ export const createReferencePhase1FixtureProvisioner = (
     );
   };
 
+  const provisionPasswordMatrixUsers = async (
+    mutable: MutableProvisioning,
+    namespace: AllocationNamespace,
+    data: ProvisionedData
+  ): Promise<void> => {
+    const passwordlessRuntimeId = await createWithCleanup(
+      {
+        targetRole: 'data',
+        method: 'POST',
+        path: 'users',
+        body: {
+          username: namespacedUsername(phase1PasswordMatrixUsers.passwordless.username, namespace),
+        },
+      },
+      mutable,
+      (runtimeId) => `users/${encodeURIComponent(runtimeId)}`
+    );
+    const suspendedPassword = safeText(createSecret());
+    const suspendedRuntimeId = await createWithCleanup(
+      {
+        targetRole: 'data',
+        method: 'POST',
+        path: 'users',
+        body: {
+          username: namespacedUsername(phase1PasswordMatrixUsers.suspended.username, namespace),
+          password: suspendedPassword,
+        },
+      },
+      mutable,
+      (runtimeId) => `users/${encodeURIComponent(runtimeId)}`
+    );
+    mutable.passwords.push({
+      logicalId: phase1PasswordMatrixUsers.suspended.logicalId,
+      value: suspendedPassword,
+    });
+    await call({
+      targetRole: 'data',
+      method: 'PATCH',
+      path: `users/${encodeURIComponent(suspendedRuntimeId)}/is-suspended`,
+      body: { isSuspended: true },
+    });
+    const replacement = Object.freeze({
+      ...data.allocation,
+      entities: Object.freeze([
+        ...data.allocation.entities,
+        entity('user', phase1PasswordMatrixUsers.passwordless.logicalId, passwordlessRuntimeId),
+        entity('user', phase1PasswordMatrixUsers.suspended.logicalId, suspendedRuntimeId),
+      ]),
+    });
+    const index = mutable.allocations.indexOf(data.allocation);
+    mutable.allocations[index] = replacement;
+  };
+
   const provisionConsentPeer = async (
     targetRole: 'data' | 'foreign',
     logicalPrefix: 'consent.primary' | 'consent.foreign',
@@ -1321,7 +1375,7 @@ export const createReferencePhase1FixtureProvisioner = (
       const allocationRoles: readonly ReferenceTargetRole[] =
         recipe === 'none'
           ? []
-          : recipe === 'dataProtocol'
+          : recipe === 'dataProtocol' || recipe === 'passwordMatrix'
             ? ['data']
             : recipe === 'adminConsole'
               ? ['admin']
@@ -1357,7 +1411,7 @@ export const createReferencePhase1FixtureProvisioner = (
                 ? ['admin']
                 : recipe === 'consentBoundary'
                   ? ['data', 'foreign']
-                  : recipe === 'dataProtocol'
+                  : recipe === 'dataProtocol' || recipe === 'passwordMatrix'
                     ? ['data']
                     : [];
         await snapshotAndConfigure(signInRoles, mutable);
@@ -1365,6 +1419,7 @@ export const createReferencePhase1FixtureProvisioner = (
 
         if (
           recipe === 'dataProtocol' ||
+          recipe === 'passwordMatrix' ||
           recipe === 'fullPhase1' ||
           recipe === 'corsBoundary' ||
           recipe === 'consentBoundary'
@@ -1374,6 +1429,12 @@ export const createReferencePhase1FixtureProvisioner = (
             throw new TypeError(invalidReferenceConfiguration);
           }
           provisionedData = await provisionData(mutable, namespace);
+        }
+        if (recipe === 'passwordMatrix') {
+          if (!provisionedData) {
+            throw new TypeError(invalidReferenceConfiguration);
+          }
+          await provisionPasswordMatrixUsers(mutable, namespaces.get('data')!, provisionedData);
         }
         if (recipe === 'fullPhase1' || recipe === 'corsBoundary' || recipe === 'adminConsole') {
           const namespace = namespaces.get('admin');

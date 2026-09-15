@@ -10,6 +10,8 @@ import {
   getPhase1FixtureRuntimeId,
   phase1FixtureEntityKinds,
   phase1FixtureRecipeDefinitions,
+  phase1FixtureRecipeEntityCounts,
+  phase1PasswordMatrixUsers,
   type Phase1FixtureMap,
 } from './fixture-map.js';
 import type { Phase1Profile } from './profile-types.js';
@@ -125,6 +127,7 @@ const expectedCapabilities = [
   'http.management-api.patch./api/sign-in-exp',
   'http.management-api.post./api/users',
   'http.management-api.patch./api/users/{userId}',
+  'http.management-api.patch./api/users/{userId}/is-suspended',
   'http.management-api.delete./api/users/{userId}',
   'http.management-api.post./api/applications',
   'http.management-api.delete./api/applications/{id}',
@@ -243,10 +246,11 @@ const stateProjection = (map: Phase1FixtureMap): unknown =>
   createExpectedPhase1FixtureStateProjection(map, profile);
 
 describe('Phase 1 fixture recipe lock', () => {
-  it('keeps the six exact recipe compositions', () => {
+  it('keeps the seven exact recipe compositions', () => {
     expect(Object.keys(phase1FixtureRecipeDefinitions)).toEqual([
       'none',
       'dataProtocol',
+      'passwordMatrix',
       'adminConsole',
       'fullPhase1',
       'corsBoundary',
@@ -255,11 +259,86 @@ describe('Phase 1 fixture recipe lock', () => {
     expect(phase1FixtureRecipeDefinitions).toEqual({
       none: { allocationRoles: [], mutableSetup: false },
       dataProtocol: { allocationRoles: ['data'], mutableSetup: true },
+      passwordMatrix: { allocationRoles: ['data'], mutableSetup: true },
       adminConsole: { allocationRoles: ['admin'], mutableSetup: true },
       fullPhase1: { allocationRoles: ['data', 'admin'], mutableSetup: true },
       corsBoundary: { allocationRoles: ['data', 'admin', 'foreign'], mutableSetup: true },
       consentBoundary: { allocationRoles: ['data', 'foreign'], mutableSetup: true },
     });
+    expect(phase1FixtureRecipeEntityCounts.passwordMatrix).toEqual({
+      data: {
+        tenant: 1,
+        user: 3,
+        application: 2,
+        resource: 1,
+        scope: 1,
+        role: 1,
+        organization: 0,
+        'organization-role': 0,
+      },
+    });
+  });
+
+  it('accepts the exact password matrix users and projects only public account state', () => {
+    const data = allocation('data', 'password-matrix');
+    const map = createPhase1FixtureMap(
+      fixtureMap('passwordMatrix', [
+        {
+          ...data,
+          entities: [
+            ...data.entities,
+            {
+              kind: 'user',
+              logicalId: phase1PasswordMatrixUsers.passwordless.logicalId,
+              runtimeId: 'runtime-passwordless',
+            },
+            {
+              kind: 'user',
+              logicalId: phase1PasswordMatrixUsers.suspended.logicalId,
+              runtimeId: 'runtime-suspended',
+            },
+          ],
+        },
+      ])
+    );
+    const projection = createExpectedPhase1FixtureStateProjection(map, profile);
+
+    expect(map.allocations[0]?.entities.filter(({ kind }) => kind === 'user')).toHaveLength(3);
+    expect(projection.recipe).toBe('passwordMatrix');
+    expect(projection.allocations[0]?.entities.filter(({ kind }) => kind === 'user')).toEqual([
+      expect.objectContaining({
+        kind: 'user',
+        logicalId: profile.fixtures.dataTenant.subject.id,
+      }),
+      {
+        kind: 'user',
+        logicalId: phase1PasswordMatrixUsers.passwordless.logicalId,
+        snapshot: {
+          username: phase1PasswordMatrixUsers.passwordless.username,
+          name: null,
+          primaryEmail: null,
+          primaryPhone: null,
+          profile: {},
+          applicationLogicalId: null,
+          customData: {},
+          localAuthenticationPresent: false,
+        },
+      },
+      {
+        kind: 'user',
+        logicalId: phase1PasswordMatrixUsers.suspended.logicalId,
+        snapshot: {
+          username: phase1PasswordMatrixUsers.suspended.username,
+          name: null,
+          primaryEmail: null,
+          primaryPhone: null,
+          profile: {},
+          applicationLogicalId: null,
+          customData: {},
+          localAuthenticationPresent: true,
+        },
+      },
+    ]);
   });
 
   it('accepts the CORS boundary allocation shape with a tenant-only foreign target', () => {
@@ -297,9 +376,9 @@ describe('Phase 1 fixture recipe lock', () => {
     ).toThrow('Invalid Phase 1 fixture map');
   });
 
-  it('keeps the twenty setup capabilities separate and immutable', () => {
+  it('keeps the twenty-one setup capabilities separate and immutable', () => {
     expect(fixtureSetupCapabilityIds).toEqual(expectedCapabilities);
-    expect(new Set(fixtureSetupCapabilityIds).size).toBe(20);
+    expect(new Set(fixtureSetupCapabilityIds).size).toBe(21);
     expect(Object.isFrozen(fixtureSetupCapabilityIds)).toBe(true);
     expect(
       fixtureSetupCapabilityIds.some((capabilityId) => capabilityId.includes('candidate-invariant'))

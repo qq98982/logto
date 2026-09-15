@@ -8,7 +8,7 @@ import type { Phase1Profile } from './profile-types.js';
 
 const diagnostic = 'Invalid phase 1 capability selection';
 const baselineCapabilityCount = 20;
-const fixtureSetupCapabilityCount = 20;
+const fixtureSetupCapabilityCount = 21;
 const profileOwnedContractCount = 3;
 const manifestCapabilityCount = 667;
 

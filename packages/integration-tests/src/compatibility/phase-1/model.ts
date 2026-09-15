@@ -104,6 +104,7 @@ export type Phase1ObservationKind = (typeof phase1ObservationKinds)[number];
 export const phase1FixtureRecipes = Object.freeze([
   'none',
   'dataProtocol',
+  'passwordMatrix',
   'adminConsole',
   'fullPhase1',
   'corsBoundary',
