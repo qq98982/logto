@@ -494,7 +494,7 @@
         "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json",
         "ASTER_PHASE1_DATA_ISSUER": "http://localhost:3322/oidc",
         "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3422/oidc",
-        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3422"
+        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3002"
       },
       "healthcheck": {
         "test": [

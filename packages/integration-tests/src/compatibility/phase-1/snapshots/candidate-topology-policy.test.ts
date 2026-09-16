@@ -186,7 +186,7 @@ const assertCandidateTopology = (
   expect(foreignCore?.environment).toMatchObject({
     ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3322/oidc',
     ASTER_PHASE1_ADMIN_ISSUER: 'http://localhost:3422/oidc',
-    ASTER_PHASE1_ADMIN_ORIGIN: 'http://localhost:3422',
+    ASTER_PHASE1_ADMIN_ORIGIN: 'http://localhost:3002',
   });
   expect(primaryCore?.healthcheck?.test).toEqual([
     'CMD-SHELL',
