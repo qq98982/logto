@@ -315,7 +315,10 @@ const requireCreatedUserId = (value: unknown): string => {
   return requireNonemptyString(value.id, 'Create user failed');
 };
 
-const defaultFixtureLifecycle: PasswordCodeFixtureLifecycle = async (context, use) => {
+export const managementPasswordCodeFixtureLifecycle: PasswordCodeFixtureLifecycle = async (
+  context,
+  use
+) => {
   await fixedOperation('Set sign-in experience failed', async () =>
     context.client.setUsernamePasswordExperience()
   );
@@ -1037,7 +1040,7 @@ export const createPasswordCodeScenario = (
       runPasswordCode(context, {
         ...defaultDependencies,
         ...dependencies,
-        fixtureLifecycle: dependencies.fixtureLifecycle ?? defaultFixtureLifecycle,
+        fixtureLifecycle: dependencies.fixtureLifecycle ?? managementPasswordCodeFixtureLifecycle,
       }),
   }) satisfies CompatibilityScenario;
 

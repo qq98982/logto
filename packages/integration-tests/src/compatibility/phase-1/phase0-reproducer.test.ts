@@ -5,6 +5,7 @@ import path from 'node:path';
 import { phase0HarnessCommit } from './model.js';
 import { reproducePhase0EvidenceForTesting } from './phase0-reproducer.js';
 import type { Phase0EvidenceReproductionRequest } from './profile-semantics.js';
+import type { Phase1Profile } from './profile-types.js';
 
 const roots = new Set<string>();
 const createRoot = async () => {
@@ -33,6 +34,17 @@ const request: Phase0EvidenceReproductionRequest = Object.freeze({
     'password-code.json',
     'run.json',
   ] as const),
+  fixtureProfile: Object.freeze({
+    fixtures: Object.freeze({
+      dataTenant: Object.freeze({
+        subject: Object.freeze({ id: 'phase1-user', username: 'phase1-user' }),
+        applications: Object.freeze([
+          Object.freeze({ id: 'phase1-app', isThirdParty: false as const }),
+          Object.freeze({ id: 'phase1-browser', isThirdParty: true as const }),
+        ]),
+      }),
+    }),
+  }) as Pick<Phase1Profile, 'fixtures'>,
 });
 
 const environment = (root: string, buildRoot = '/var/tmp/henry-build') => ({
@@ -50,6 +62,7 @@ const environment = (root: string, buildRoot = '/var/tmp/henry-build') => ({
   ASTER_PHASE1_PHASE0_ORACLE_ADMIN_URL: 'http://localhost:3431',
   ASTER_PHASE1_PHASE0_CANDIDATE_URL: 'http://localhost:3341',
   ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL: 'http://localhost:3441',
+  ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET: '/private/phase0-fixture.sock',
   ASTER_PHASE1_ORACLE_IMAGE_DIGEST: `sha256:${'1'.repeat(64)}`,
   ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST: `sha256:${'1'.repeat(64)}`,
 });
@@ -211,6 +224,29 @@ describe('live Phase 0 evidence reproducer', () => {
         expect(touched).toBe(false);
       })
     );
+  });
+
+  it('rejects a measured fixture-socket alias before invoking the CLI', async () => {
+    const root = await createRoot();
+    let touched = false;
+
+    await expect(
+      reproducePhase0EvidenceForTesting(
+        request,
+        {
+          ...environment(root),
+          ASTER_FIXTURE_SOCKET: '/private/shared.sock',
+          ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET: '/private/shared.sock',
+        },
+        {
+          runCli: async () => {
+            touched = true;
+            return 0;
+          },
+        }
+      )
+    ).rejects.toThrow(/^Phase 0 reproduction failed\.$/u);
+    expect(touched).toBe(false);
   });
 
   it.each([

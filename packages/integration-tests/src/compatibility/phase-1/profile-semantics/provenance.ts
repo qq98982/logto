@@ -28,7 +28,7 @@ const maximumAuthorityItems = 1000;
 const maximumGitDeltaItems = 4096;
 // Canonical Phase 0-to-combined-harness/client status, path, and mode set.
 const reviewedCombinedDeltaSha256 =
-  'd1ba61a4ae5158f82e4445da6f322146c7f1789960d2147b77576814588ffc84';
+  'dbe6a15ffc235f31e411f1e8b401cc8f8689fbed88732fa685d11873c34dc22b';
 const commitPattern = /^[\da-f]{40}$/u;
 const sha256Pattern = /^[\da-f]{64}$/u;
 const repositoryPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[\u0000-\u001f\u007f]).+$/u;
@@ -96,6 +96,7 @@ export type Phase0EvidenceReproductionRequest = Readonly<{
   commit: typeof phase0HarnessCommit;
   lifecyclePath: '.scripts/compatibility/run.sh';
   files: readonly ['discovery.json', 'negative-control.json', 'password-code.json', 'run.json'];
+  fixtureProfile: Pick<Phase1Profile, 'fixtures'>;
 }>;
 export type Phase0EvidenceReproduction = Readonly<{
   commit: typeof phase0HarnessCommit;
@@ -1142,6 +1143,7 @@ const assertPhase0Evidence = async (
       files: Object.freeze([
         ...expectedNames,
       ]) as unknown as Phase0EvidenceReproductionRequest['files'],
+      fixtureProfile: Object.freeze({ fixtures: profile.fixtures }),
     })
   );
 

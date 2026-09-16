@@ -3,12 +3,15 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/pro
 import path from 'node:path';
 
 import { runCompatibilityCli } from '../cli.js';
+import { createCompatibilityScenarios } from '../scenarios/index.js';
+import { managementPasswordCodeFixtureLifecycle } from '../scenarios/password-code.js';
 
 import {
   type AsterPhase1BuildRootEnvironment,
   withTrustedAsterPhase1BuildDirectory,
 } from './build-root.js';
-import { phase0HarnessCommit } from './model.js';
+import { phase0HarnessCommit, snapshotClosedDataGraph } from './model.js';
+import { createCandidatePhase0FixtureLifecycle } from './phase0-candidate-fixture.js';
 import {
   type Phase0EvidenceFileName,
   type Phase0EvidenceReproducer,
@@ -42,15 +45,24 @@ const requiredEnvironmentValue = (environment: RuntimeEnvironment, name: string)
   return typeof value === 'string' && value.length > 0 ? value : fail();
 };
 
-const assertRequest = (request: Phase0EvidenceReproductionRequest): void => {
+const assertRequest = (
+  request: Phase0EvidenceReproductionRequest
+): Phase0EvidenceReproductionRequest => {
+  const snapshot = snapshotClosedDataGraph<Phase0EvidenceReproductionRequest>(request) ?? fail();
+
   if (
-    request.commit !== phase0HarnessCommit ||
-    request.lifecyclePath !== '.scripts/compatibility/run.sh' ||
-    request.repository !== 'https://github.com/qq98982/logto.git' ||
-    JSON.stringify(request.files) !== JSON.stringify(expectedFiles)
+    Object.keys(snapshot).toSorted().join(',') !==
+      'commit,files,fixtureProfile,lifecyclePath,repository' ||
+    Object.keys(snapshot.fixtureProfile).join(',') !== 'fixtures' ||
+    snapshot.commit !== phase0HarnessCommit ||
+    snapshot.lifecyclePath !== '.scripts/compatibility/run.sh' ||
+    snapshot.repository !== 'https://github.com/qq98982/logto.git' ||
+    JSON.stringify(snapshot.files) !== JSON.stringify(expectedFiles)
   ) {
     return fail();
   }
+
+  return snapshot;
 };
 
 const localHttpEndpointPattern = /^http:\/\/localhost:[0-9]{1,5}\/?$/iu;
@@ -86,6 +98,23 @@ const canonicalLocalHttpOrigin = (value: string): string => {
   } catch {
     return fail();
   }
+};
+
+const canonicalAbsolutePath = (value: string): string => {
+  if (
+    !path.isAbsolute(value) ||
+    path.resolve(value) !== value ||
+    value.includes('\0') ||
+    Array.from(value).some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+
+      return codePoint <= 31 || codePoint === 127;
+    })
+  ) {
+    return fail();
+  }
+
+  return value;
 };
 
 const loadDedicatedTargets = (environment: RuntimeEnvironment) => {
@@ -149,7 +178,7 @@ const reproduce = async (
   environment: RuntimeEnvironment,
   dependencies: Phase0ReproducerDependencies
 ): Promise<Phase0EvidenceReproduction> => {
-  assertRequest(request);
+  const validatedRequest = assertRequest(request);
   const root = requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT');
 
   try {
@@ -184,6 +213,29 @@ const reproduce = async (
           return fail();
         }
         const targets = loadDedicatedTargets(environment);
+        const fixtureSocket = canonicalAbsolutePath(
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET')
+        );
+        const measuredFixtureSocket = environment.ASTER_FIXTURE_SOCKET;
+
+        if (
+          measuredFixtureSocket !== undefined &&
+          canonicalAbsolutePath(measuredFixtureSocket) === fixtureSocket
+        ) {
+          return fail();
+        }
+        const candidateTarget = Object.freeze({
+          label: 'candidate' as const,
+          coreUrl: `${targets.candidateUrl}/`,
+          adminUrl: `${targets.candidateAdminUrl}/`,
+        });
+        const passwordCodeLifecycle = createCandidatePhase0FixtureLifecycle({
+          profile: validatedRequest.fixtureProfile,
+          target: candidateTarget,
+          fixtureSocket,
+          managementLifecycle: managementPasswordCodeFixtureLifecycle,
+        });
+        const scenarios = createCompatibilityScenarios({ passwordCodeLifecycle });
         const cliEnvironment = Object.freeze({
           ASTER_ORACLE_URL: targets.oracleUrl,
           ASTER_ORACLE_ADMIN_URL: targets.oracleAdminUrl,
@@ -195,7 +247,8 @@ const reproduce = async (
           ASTER_CANDIDATE_MESSAGE_DIR: visibleCandidateMessages,
           ASTER_EVIDENCE_DIR: visibleEvidenceDirectory,
         });
-        const quiet = Object.freeze({
+        const cliDependencies = Object.freeze({
+          scenarios,
           stdout: async (_message: string) => {
             await Promise.resolve();
           },
@@ -203,16 +256,16 @@ const reproduce = async (
             await Promise.resolve();
           },
         });
-        const positive = await dependencies.runCli([], cliEnvironment, quiet);
+        const positive = await dependencies.runCli([], cliEnvironment, cliDependencies);
         const negative = await dependencies.runCli(
           ['--fault-injection', 'discovery-issuer'],
           cliEnvironment,
-          quiet
+          cliDependencies
         );
         const finalized = await dependencies.runCli(
           ['--finalize-run', '--negative-control-path', '/observations/0/value/issuer'],
           cliEnvironment,
-          quiet
+          cliDependencies
         );
 
         if (positive !== 0 || negative !== 2 || finalized !== 0) {

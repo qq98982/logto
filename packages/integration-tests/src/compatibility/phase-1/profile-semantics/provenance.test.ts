@@ -278,6 +278,17 @@ const packageAuthorityHarness = {
 };
 const packageAuthorityBaseBytes = Buffer.from(`${JSON.stringify(packageAuthorityBase)}\n`);
 const packageAuthorityHarnessBytes = Buffer.from(`${JSON.stringify(packageAuthorityHarness)}\n`);
+const phase0FixtureProfile = Object.freeze({
+  fixtures: Object.freeze({
+    dataTenant: Object.freeze({
+      subject: Object.freeze({ id: 'phase1-user', username: 'phase1-user' }),
+      applications: Object.freeze([
+        Object.freeze({ id: 'phase1-app', isThirdParty: false as const }),
+        Object.freeze({ id: 'phase1-browser', isThirdParty: true as const }),
+      ]),
+    }),
+  }),
+}) as unknown as Pick<Phase1Profile, 'fixtures'>;
 
 const provenanceProfile = () =>
   ({
@@ -346,6 +357,7 @@ const provenanceProfile = () =>
         sourceCapabilities: ['capability-a'],
       },
     ],
+    fixtures: phase0FixtureProfile.fixtures,
   }) as unknown as Phase1Profile;
 
 const acceptedAuthority = (): Phase1AcceptedHarnessAuthority => ({
@@ -635,6 +647,7 @@ describe('Phase 1 source and acceptance provenance', () => {
         commit: phase0Commit,
         lifecyclePath: '.scripts/compatibility/run.sh',
         files: ['discovery.json', 'negative-control.json', 'password-code.json', 'run.json'],
+        fixtureProfile: phase0FixtureProfile,
       },
     ]);
     for (const path of profilePaths) {
