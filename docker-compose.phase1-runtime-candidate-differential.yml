@@ -1,0 +1,867 @@
+{
+  "services": {
+    "oracle-primary-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U aster -d aster"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-primary"
+      ],
+      "volumes": [
+        "oracle-primary-postgres:/var/lib/postgresql/data"
+      ]
+    },
+    "oracle-primary-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-primary"
+      ],
+      "volumes": [
+        "oracle-primary-redis:/data"
+      ]
+    },
+    "oracle-primary-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-primary-postgres": {
+          "condition": "service_healthy"
+        },
+        "oracle-primary-redis": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD:?required}@oracle-primary-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-primary-redis:6379",
+        "ENDPOINT": "http://localhost:3311",
+        "ADMIN_ENDPOINT": "http://localhost:3411",
+        "ADMIN_PORT": "3411",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "nc -z localhost 3001 && nc -z localhost 3411"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": [
+        "oracle-primary"
+      ]
+    },
+    "oracle-foreign-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U aster -d aster"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-foreign"
+      ],
+      "volumes": [
+        "oracle-foreign-postgres:/var/lib/postgresql/data"
+      ]
+    },
+    "oracle-foreign-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-foreign"
+      ],
+      "volumes": [
+        "oracle-foreign-redis:/data"
+      ]
+    },
+    "oracle-foreign-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-foreign-postgres": {
+          "condition": "service_healthy"
+        },
+        "oracle-foreign-redis": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_PASSWORD:?required}@oracle-foreign-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-foreign-redis:6379",
+        "ENDPOINT": "http://localhost:3312",
+        "ADMIN_ENDPOINT": "http://localhost:3412",
+        "ADMIN_PORT": "3002",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_FOREIGN_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_FOREIGN_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "nc -z localhost 3001 && nc -z localhost 3002"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": [
+        "oracle-foreign"
+      ]
+    },
+    "oracle-phase0-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_ORACLE_PHASE0_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U aster -d aster"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-phase0"
+      ],
+      "volumes": [
+        "oracle-phase0-postgres:/var/lib/postgresql/data"
+      ]
+    },
+    "oracle-phase0-redis": {
+      "image": "${ASTER_PHASE1_REDIS_IMAGE:?required}",
+      "command": [
+        "redis-server",
+        "--appendonly",
+        "yes"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "redis-cli",
+          "ping"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 40
+      },
+      "networks": [
+        "oracle-phase0"
+      ],
+      "volumes": [
+        "oracle-phase0-redis:/data"
+      ]
+    },
+    "oracle-phase0-core": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-phase0-postgres": {
+          "condition": "service_healthy"
+        },
+        "oracle-phase0-redis": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "DB_URL": "postgres://aster:${ASTER_PHASE1_ORACLE_PHASE0_POSTGRES_PASSWORD:?required}@oracle-phase0-postgres:5432/aster",
+        "REDIS_URL": "redis://oracle-phase0-redis:6379",
+        "ENDPOINT": "http://localhost:3331",
+        "ADMIN_ENDPOINT": "http://localhost:3431",
+        "ADMIN_PORT": "3431",
+        "SECRET_VAULT_KEK": "${ASTER_PHASE1_ORACLE_PHASE0_SECRET_VAULT_KEK:?required}",
+        "STATUS_API_KEY": "${ASTER_PHASE1_ORACLE_PHASE0_STATUS_API_KEY:?required}",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "nc -z localhost 3001 && nc -z localhost 3431"
+        ],
+        "interval": "3s",
+        "timeout": "3s",
+        "retries": 80
+      },
+      "networks": [
+        "oracle-phase0"
+      ]
+    },
+    "candidate-primary-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "command": [
+        "postgres",
+        "-c",
+        "max_prepared_transactions=0",
+        "-c",
+        "password_encryption=scram-sha-256",
+        "-c",
+        "log_statement=none",
+        "-c",
+        "log_duration=off",
+        "-c",
+        "log_min_duration_statement=-1",
+        "-c",
+        "log_min_error_statement=panic",
+        "-c",
+        "log_parameter_max_length=0",
+        "-c",
+        "log_parameter_max_length_on_error=0",
+        "-c",
+        "log_statement_sample_rate=0",
+        "-c",
+        "log_transaction_sample_rate=0"
+      ],
+      "environment": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-local=trust --auth-host=scram-sha-256",
+        "ASTER_PHASE1_INIT_CIDR": "172.30.241.11/32",
+        "ASTER_PHASE1_CORE_CIDR": "172.30.241.12/32",
+        "ASTER_PHASE1_COORDINATOR_CIDR": "172.30.241.13/32"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d postgres"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-primary": {
+          "ipv4_address": "172.30.241.10"
+        }
+      },
+      "volumes": [
+        "candidate-primary-postgres:/var/lib/postgresql/data",
+        "./.scripts/compatibility/phase1-candidate-postgres-init.sh:/docker-entrypoint-initdb.d/010-aster-phase1-hba.sh:ro"
+      ]
+    },
+    "candidate-primary-init": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "init",
+        "primary"
+      ],
+      "depends_on": {
+        "candidate-primary-postgres": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json"
+      },
+      "networks": {
+        "candidate-primary": {
+          "ipv4_address": "172.30.241.11"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
+    "candidate-primary-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "core",
+        "primary"
+      ],
+      "depends_on": {
+        "candidate-primary-init": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json",
+        "ASTER_PHASE1_DATA_ISSUER": "http://localhost:3321/oidc",
+        "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3421/oidc",
+        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3421"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -f /run/aster/maintainer-ready && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3001 | grep -q ' 200 OK' && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3421 | grep -q ' 200 OK'"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-primary": {
+          "ipv4_address": "172.30.241.12"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s"
+    },
+    "candidate-foreign-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "command": [
+        "postgres",
+        "-c",
+        "max_prepared_transactions=0",
+        "-c",
+        "password_encryption=scram-sha-256",
+        "-c",
+        "log_statement=none",
+        "-c",
+        "log_duration=off",
+        "-c",
+        "log_min_duration_statement=-1",
+        "-c",
+        "log_min_error_statement=panic",
+        "-c",
+        "log_parameter_max_length=0",
+        "-c",
+        "log_parameter_max_length_on_error=0",
+        "-c",
+        "log_statement_sample_rate=0",
+        "-c",
+        "log_transaction_sample_rate=0"
+      ],
+      "environment": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-local=trust --auth-host=scram-sha-256",
+        "ASTER_PHASE1_INIT_CIDR": "172.30.242.11/32",
+        "ASTER_PHASE1_CORE_CIDR": "172.30.242.12/32",
+        "ASTER_PHASE1_COORDINATOR_CIDR": "172.30.242.13/32"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d postgres"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-foreign": {
+          "ipv4_address": "172.30.242.10"
+        }
+      },
+      "volumes": [
+        "candidate-foreign-postgres:/var/lib/postgresql/data",
+        "./.scripts/compatibility/phase1-candidate-postgres-init.sh:/docker-entrypoint-initdb.d/010-aster-phase1-hba.sh:ro"
+      ]
+    },
+    "candidate-foreign-init": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "init",
+        "foreign"
+      ],
+      "depends_on": {
+        "candidate-foreign-postgres": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_FOREIGN_CONFIG_FILE": "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json"
+      },
+      "networks": {
+        "candidate-foreign": {
+          "ipv4_address": "172.30.242.11"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:ro",
+        "candidate-foreign-keyring:/var/lib/aster/foreign"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
+    "candidate-foreign-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "core",
+        "foreign"
+      ],
+      "depends_on": {
+        "candidate-foreign-init": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_FOREIGN_CONFIG_FILE": "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json",
+        "ASTER_PHASE1_DATA_ISSUER": "http://localhost:3322/oidc",
+        "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3422/oidc",
+        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3422"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -f /run/aster/maintainer-ready && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3001 | grep -q ' 200 OK' && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3002 | grep -q ' 200 OK'"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-foreign": {
+          "ipv4_address": "172.30.242.12"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:ro",
+        "candidate-foreign-keyring:/var/lib/aster/foreign:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s"
+    },
+    "candidate-fixture-coordinator": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "fixture-coordinator"
+      ],
+      "depends_on": {
+        "candidate-primary-init": {
+          "condition": "service_completed_successfully"
+        },
+        "candidate-foreign-init": {
+          "condition": "service_completed_successfully"
+        },
+        "candidate-primary-core": {
+          "condition": "service_healthy"
+        },
+        "candidate-foreign-core": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_FOREIGN_CONFIG_FILE": "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json",
+        "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json",
+        "ASTER_FIXTURE_SOCKET": "${ASTER_PHASE1_FIXTURE_SOCKET:?required}"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -S \"$${ASTER_FIXTURE_SOCKET}\""
+        ],
+        "interval": "1s",
+        "timeout": "2s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-primary": {
+          "ipv4_address": "172.30.241.13"
+        },
+        "candidate-foreign": {
+          "ipv4_address": "172.30.242.13"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:ro",
+        "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary:ro",
+        "candidate-foreign-keyring:/var/lib/aster/foreign:ro",
+        "${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}:${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}:rw"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s"
+    },
+    "candidate-phase0-postgres": {
+      "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
+      "command": [
+        "postgres",
+        "-c",
+        "max_prepared_transactions=0",
+        "-c",
+        "password_encryption=scram-sha-256",
+        "-c",
+        "log_statement=none",
+        "-c",
+        "log_duration=off",
+        "-c",
+        "log_min_duration_statement=-1",
+        "-c",
+        "log_min_error_statement=panic",
+        "-c",
+        "log_parameter_max_length=0",
+        "-c",
+        "log_parameter_max_length_on_error=0",
+        "-c",
+        "log_statement_sample_rate=0",
+        "-c",
+        "log_transaction_sample_rate=0"
+      ],
+      "environment": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "${ASTER_PHASE1_CANDIDATE_PHASE0_POSTGRES_PASSWORD:?required}",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-local=trust --auth-host=scram-sha-256",
+        "ASTER_PHASE1_INIT_CIDR": "172.30.243.11/32",
+        "ASTER_PHASE1_CORE_CIDR": "172.30.243.12/32",
+        "ASTER_PHASE1_COORDINATOR_CIDR": "172.30.243.13/32"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "pg_isready -U postgres -d postgres"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-phase0": {
+          "ipv4_address": "172.30.243.10"
+        }
+      },
+      "volumes": [
+        "candidate-phase0-postgres:/var/lib/postgresql/data",
+        "./.scripts/compatibility/phase1-candidate-postgres-init.sh:/docker-entrypoint-initdb.d/010-aster-phase1-hba.sh:ro"
+      ]
+    },
+    "candidate-phase0-init": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "init",
+        "phase0"
+      ],
+      "depends_on": {
+        "candidate-phase0-postgres": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PHASE0_CONFIG_FILE": "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PHASE0_MASTER_KEY_FILE": "/var/lib/aster/phase0/aster-master-key.json"
+      },
+      "networks": {
+        "candidate-phase0": {
+          "ipv4_address": "172.30.243.11"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:ro",
+        "candidate-phase0-keyring:/var/lib/aster/primary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
+    "candidate-phase0-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "core",
+        "phase0"
+      ],
+      "depends_on": {
+        "candidate-phase0-init": {
+          "condition": "service_completed_successfully"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PHASE0_CONFIG_FILE": "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PHASE0_MASTER_KEY_FILE": "/var/lib/aster/phase0/aster-master-key.json",
+        "ASTER_PHASE1_DATA_ISSUER": "http://localhost:3341/oidc",
+        "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3441/oidc",
+        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3441"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -f /run/aster/maintainer-ready && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3001 | grep -q ' 200 OK' && printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 3441 | grep -q ' 200 OK'"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-phase0": {
+          "ipv4_address": "172.30.243.12"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:ro",
+        "candidate-phase0-keyring:/var/lib/aster/primary:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s"
+    },
+    "candidate-phase0-fixture-coordinator": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE:?required}",
+      "command": [
+        "fixture-coordinator",
+        "phase0"
+      ],
+      "depends_on": {
+        "candidate-phase0-init": {
+          "condition": "service_completed_successfully"
+        },
+        "candidate-phase0-core": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PHASE0_CONFIG_FILE": "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}",
+        "ASTER_PHASE1_PHASE0_MASTER_KEY_FILE": "/var/lib/aster/phase0/aster-master-key.json",
+        "ASTER_FIXTURE_SOCKET": "${ASTER_PHASE1_PHASE0_FIXTURE_SOCKET:?required}"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -S \"$${ASTER_FIXTURE_SOCKET}\""
+        ],
+        "interval": "1s",
+        "timeout": "2s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-phase0": {
+          "ipv4_address": "172.30.243.13"
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:ro",
+        "candidate-phase0-keyring:/var/lib/aster/phase0:ro",
+        "${ASTER_PHASE1_PHASE0_FIXTURE_DIRECTORY:?required}:${ASTER_PHASE1_PHASE0_FIXTURE_DIRECTORY:?required}:rw"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s"
+    }
+  },
+  "networks": {
+    "oracle-primary": {
+      "internal": true
+    },
+    "oracle-foreign": {
+      "internal": true
+    },
+    "oracle-phase0": {
+      "internal": true
+    },
+    "candidate-primary": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.241.0/24"
+          }
+        ]
+      }
+    },
+    "candidate-foreign": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.242.0/24"
+          }
+        ]
+      }
+    },
+    "candidate-phase0": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.243.0/24"
+          }
+        ]
+      }
+    }
+  },
+  "volumes": {
+    "oracle-primary-postgres": {},
+    "oracle-primary-redis": {},
+    "oracle-foreign-postgres": {},
+    "oracle-foreign-redis": {},
+    "oracle-phase0-postgres": {},
+    "oracle-phase0-redis": {},
+    "candidate-primary-postgres": {},
+    "candidate-foreign-postgres": {},
+    "candidate-primary-keyring": {
+      "driver": "local",
+      "driver_opts": {
+        "type": "none",
+        "o": "bind",
+        "device": "${ASTER_PHASE1_PRIMARY_KEYRING_DIRECTORY:?required}"
+      }
+    },
+    "candidate-foreign-keyring": {
+      "driver": "local",
+      "driver_opts": {
+        "type": "none",
+        "o": "bind",
+        "device": "${ASTER_PHASE1_FOREIGN_KEYRING_DIRECTORY:?required}"
+      }
+    },
+    "candidate-phase0-postgres": {},
+    "candidate-phase0-keyring": {
+      "driver": "local",
+      "driver_opts": {
+        "type": "none",
+        "o": "bind",
+        "device": "${ASTER_PHASE1_PHASE0_KEYRING_DIRECTORY:?required}"
+      }
+    }
+  }
+}
