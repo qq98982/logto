@@ -1,9 +1,13 @@
-/* eslint-disable no-use-extend-native/no-use-extend-native -- The exact registry ordering assertion uses the standard ES2023 non-mutating array method. */
+/* eslint-disable no-use-extend-native/no-use-extend-native, max-lines -- The exact registry ordering assertion uses the standard ES2023 non-mutating array method, and this focused runtime contract suite keeps all mode composition checks together. */
 import type { JsonValue } from '../../normalize.js';
 import { SymbolTable } from '../../symbol-table.js';
 import type { Phase1BrowserFixtureProvisioner } from '../browser/activity-reader.js';
+import type { CommandRunnerRequest, CommandRunnerResult } from '../clients/command-provisioner.js';
 import { assertPhase1EvidenceIsSanitized, createVerifiedTokenObservations } from '../evidence.js';
+import type { Phase1FixtureSymbolTables } from '../fixture-map.js';
+import type { ProvisionedPhase1Fixture } from '../fixtures.js';
 import { differentialScenarioIds, type Phase1ScenarioStepResult } from '../model.js';
+import type { Phase1ProtocolSession } from '../scenario-runtime.js';
 import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import {
@@ -106,6 +110,28 @@ const provisioner: Phase1BrowserFixtureProvisioner = Object.freeze({
   },
 });
 
+const commandResult = (): CommandRunnerResult =>
+  Object.freeze({
+    exitCode: 0,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    timedOut: false,
+    killed: false,
+    reaped: true,
+  });
+
+const fixture = Object.freeze({}) as ProvisionedPhase1Fixture;
+const protocolSession = Object.freeze({}) as Phase1ProtocolSession;
+const symbolTables = new Map<string, SymbolTable>();
+const fixtureSymbols: Phase1FixtureSymbolTables = Object.freeze({
+  allocationIds: Object.freeze([]),
+  get: (allocationId: string) => symbolTables.get(allocationId),
+});
+const emptyScenarioStateProjector: ReturnType<
+  Phase1DifferentialRuntimeDependencies['createReferenceProjector']
+> = async () => ({ body: null, semanticState: null, sideEffects: null });
+
 const dependencies = (
   mutateCandidate?: (
     scenarioId: string,
@@ -115,6 +141,7 @@ const dependencies = (
   projectProfile: (profile) => profile,
   createReferenceProvisioner: () => provisioner,
   createCandidateProvisioner: () => provisioner,
+  runFixtureCommand: async () => commandResult(),
   createSessionBinding: () => {
     throw new Error('the injected scenario runner does not create protocol sessions');
   },
@@ -291,6 +318,139 @@ describe('Phase 1 differential runtime', () => {
     );
   });
 
+  it('binds candidate state projection only to candidate containers and the candidate driver', async () => {
+    const base = dependencies();
+    const createReferenceProjector: jest.MockedFunction<
+      Phase1DifferentialRuntimeDependencies['createReferenceProjector']
+    > = import.meta.jest.fn(
+      (
+        _options: Parameters<Phase1DifferentialRuntimeDependencies['createReferenceProjector']>[0]
+      ) => emptyScenarioStateProjector
+    );
+
+    await runPhase1DifferentialRuntimeForTesting(context('runtime-candidate'), {
+      ...base,
+      createSessionBinding: () => ({ session: protocolSession, symbols: fixtureSymbols }),
+      createReferenceProjector,
+      runScenario: async (scenario, runtime) => {
+        if (scenario.id === 'discovery.config') {
+          const { signal } = new AbortController();
+
+          runtime.createProtocolSession({ target: runtime.target, fixture, signal });
+          await runtime.projectScenarioState({
+            scenarioId: scenario.id,
+            stepId: scenario.orderedSteps[0]!.id,
+            fixture,
+            target: runtime.target,
+            signal,
+          });
+        }
+
+        return base.runScenario(scenario, runtime);
+      },
+    });
+    const [oracleProjectorOptions, candidateProjectorOptions] =
+      createReferenceProjector.mock.calls.map(([options]) => options);
+
+    expect(createReferenceProjector).toHaveBeenCalledTimes(2);
+    expect(oracleProjectorOptions).toMatchObject({
+      primaryContainerId: '1'.repeat(64),
+      foreignContainerId: '2'.repeat(64),
+      primaryService: 'oracle-primary-postgres',
+      foreignService: 'oracle-foreign-postgres',
+      driverPath: '/home/henry/repo/logto/.scripts/compatibility/phase1-reference-state-driver.sh',
+    });
+    expect(candidateProjectorOptions).toMatchObject({
+      primaryContainerId: '3'.repeat(64),
+      foreignContainerId: '4'.repeat(64),
+      primaryService: 'candidate-primary-postgres',
+      foreignService: 'candidate-foreign-postgres',
+      driverPath: '/home/henry/repo/logto/.scripts/compatibility/phase1-candidate-state-driver.sh',
+    });
+  });
+
+  it('rejects a candidate state graph that aliases an oracle container', async () => {
+    const base = dependencies();
+    const createReferenceProjector = import.meta.jest.fn(base.createReferenceProjector);
+
+    await expect(
+      runPhase1DifferentialRuntimeForTesting(context('runtime-candidate'), {
+        ...base,
+        createReferenceProjector,
+        loadContainerGraph: () => ({
+          projectName: 'aster-phase1-0123456789abcdef',
+          oracle: { primary: '1'.repeat(64), foreign: '2'.repeat(64) },
+          candidate: { primary: '1'.repeat(64), foreign: '4'.repeat(64) },
+        }),
+      })
+    ).rejects.toThrow(/^Invalid Phase 1 differential runtime$/u);
+    expect(createReferenceProjector).not.toHaveBeenCalled();
+  });
+
+  it('removes database and Management authority from candidate fixture child processes', async () => {
+    const base = dependencies();
+    const candidateOptionCalls: Array<
+      Parameters<Phase1DifferentialRuntimeDependencies['createCandidateProvisioner']>[0]
+    > = [];
+    const createCandidateProvisioner: jest.MockedFunction<
+      Phase1DifferentialRuntimeDependencies['createCandidateProvisioner']
+    > = import.meta.jest.fn((options) => {
+      // eslint-disable-next-line @silverhand/fp/no-mutating-methods -- This typed spy records one closed factory call without reading Jest's any-typed call metadata.
+      candidateOptionCalls.push(options);
+
+      return provisioner;
+    });
+    const fixtureCommandRequests: CommandRunnerRequest[] = [];
+    const runFixtureCommand: jest.MockedFunction<
+      Phase1DifferentialRuntimeDependencies['runFixtureCommand']
+    > = import.meta.jest.fn(async (request: CommandRunnerRequest) => {
+      // eslint-disable-next-line @silverhand/fp/no-mutating-methods -- This typed spy records one sanitized child-process request.
+      fixtureCommandRequests.push(request);
+
+      return commandResult();
+    });
+
+    await runPhase1DifferentialRuntimeForTesting(context('runtime-candidate'), {
+      ...base,
+      createCandidateProvisioner,
+      runFixtureCommand,
+    });
+    const [candidateOptions] = candidateOptionCalls;
+
+    expect(createCandidateProvisioner).toHaveBeenCalledTimes(1);
+    expect(candidateOptions?.environment).toEqual({
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      ASTER_FIXTURE_SOCKET: process.env.ASTER_FIXTURE_SOCKET,
+    });
+    await candidateOptions?.runner?.({
+      command: 'aster-admin',
+      args: Object.freeze(['fixture', 'apply']),
+      stdin: '{}',
+      env: Object.freeze({
+        PATH: '/forbidden/bin',
+        DATABASE_URL: 'postgres://forbidden',
+        ASTER_ADMIN_DATABASE_URL: 'postgres://forbidden',
+        ASTER_MANAGEMENT_TOKEN: 'forbidden',
+      }),
+      timeoutMs: 1,
+      maxStdoutBytes: 1,
+      maxStderrBytes: 1,
+      shell: false,
+    });
+    const [request] = fixtureCommandRequests;
+
+    expect(runFixtureCommand).toHaveBeenCalledTimes(1);
+    expect(request?.env).toEqual({
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      ...(process.env.ASTER_FIXTURE_SOCKET && {
+        ASTER_FIXTURE_SOCKET: process.env.ASTER_FIXTURE_SOCKET,
+      }),
+    });
+    expect(Object.keys(request?.env ?? {})).not.toEqual(
+      expect.arrayContaining(['DATABASE_URL', 'ASTER_ADMIN_DATABASE_URL', 'ASTER_MANAGEMENT_TOKEN'])
+    );
+  });
+
   it('refuses a non-mirror review image before invoking adapters', async () => {
     const createReferenceProvisioner = import.meta.jest.fn(() => provisioner);
     const blocked = {
@@ -329,4 +489,4 @@ describe('Phase 1 differential runtime', () => {
   });
 });
 
-/* eslint-enable no-use-extend-native/no-use-extend-native */
+/* eslint-enable no-use-extend-native/no-use-extend-native, max-lines */

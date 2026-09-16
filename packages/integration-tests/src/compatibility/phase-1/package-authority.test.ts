@@ -112,6 +112,17 @@ describe('Phase 1 integration package authority', () => {
     expectRejected(baseBytes, serialize(extraDependency));
   });
 
+  it.each(['pg', 'postgres', '@logto/management-sdk'] as const)(
+    'rejects candidate adapter authority escalation through %s',
+    async (dependency) => {
+      const { baseBytes, harnessBytes } = await authorities();
+      const mutated = mutableManifest(harnessBytes);
+
+      mutated.devDependencies[dependency] = '1.0.0';
+      expectRejected(baseBytes, serialize(mutated));
+    }
+  );
+
   it('rejects mutation of every pre-existing top-level section', async () => {
     const { baseBytes, harnessBytes } = await authorities();
     const base = mutableManifest(baseBytes);

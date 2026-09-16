@@ -64,6 +64,7 @@ export type Phase1DifferentialRuntimeDependencies = Readonly<{
   projectProfile: typeof projectPhase1ProfileForImplementation;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
   createCandidateProvisioner: typeof createCommandPhase1FixtureProvisioner;
+  runFixtureCommand: typeof runPhase1FixtureCommand;
   createSessionBinding: typeof createPhase1ProtocolSessionBinding;
   createReferenceProjector: typeof createReferenceScenarioStateProjector;
   loadContainerGraph: () => Phase1ReferenceContainerGraph;
@@ -115,6 +116,7 @@ const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze
   projectProfile: projectPhase1ProfileForImplementation,
   createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
   createCandidateProvisioner: createCommandPhase1FixtureProvisioner,
+  runFixtureCommand: runPhase1FixtureCommand,
   createSessionBinding: createPhase1ProtocolSessionBinding,
   createReferenceProjector: createReferenceScenarioStateProjector,
   loadContainerGraph: loadPhase1ReferenceContainerGraph,
@@ -188,7 +190,7 @@ const createCandidateRuntime = (
     foreignTarget,
     environment: { PATH: fixturePath, ASTER_FIXTURE_SOCKET: fixtureSocket },
     runner: async (request) =>
-      runPhase1FixtureCommand({
+      dependencies.runFixtureCommand({
         ...request,
         env: Object.freeze({
           PATH: fixturePath,
