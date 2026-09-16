@@ -1,13 +1,20 @@
 /* eslint-disable no-await-in-loop, no-use-extend-native/no-use-extend-native, @typescript-eslint/consistent-type-assertions -- Closed hostile fixtures intentionally cast partial profiles and await each rejected runtime case. */
+import type { JsonObject } from '../../normalize.js';
 import type { Phase1RunAuthorization, Phase1RunMode } from '../cli.js';
 import { hashCanonicalPhase1Json } from '../evidence-envelope.js';
-import { candidateInvariantScenarioIds, phase1ObservationKinds } from '../model.js';
+import {
+  candidateInvariantScenarioIds,
+  phase1ObservationKinds,
+  type CandidateInvariantScenarioId,
+} from '../model.js';
 import type { Phase1Profile } from '../profile-types.js';
 import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import { candidateInvariantContracts } from './index.js';
 import {
   runPhase1CandidateControlRuntime,
+  runPhase1CandidateControlRuntimeForTesting,
+  type Phase1CandidateInvariantRuntimeDependencies,
   type Phase1CandidateControlsEvidence,
 } from './runtime.js';
 
@@ -69,6 +76,33 @@ const expectedObservationPointers = [
   '/value/aud',
   '/value/grants/0/scopes/0',
 ] as const;
+
+const projectionFor = (
+  id: CandidateInvariantScenarioId,
+  control: 'positive' | 'negative' = 'positive'
+): JsonObject => {
+  const contract = candidateInvariantContracts.find((candidate) => candidate.id === id);
+  const projection =
+    control === 'positive'
+      ? contract?.positiveControl.expectedProjection
+      : contract?.negativeControl.expectedProjection;
+
+  if (typeof projection !== 'object' || projection === null || Array.isArray(projection)) {
+    throw new Error('missing candidate invariant projection');
+  }
+
+  return projection;
+};
+
+const otherInvariantId = (id: CandidateInvariantScenarioId): CandidateInvariantScenarioId => {
+  const other = candidateInvariantScenarioIds.find((candidate) => candidate !== id);
+
+  if (!other) {
+    throw new Error('missing alternate candidate invariant id');
+  }
+
+  return other;
+};
 
 describe('Phase 1 candidate control production runtime', () => {
   it.each(['review-candidate', 'mirror-control'] as const)(
@@ -173,6 +207,65 @@ describe('Phase 1 candidate control production runtime', () => {
       /^Phase 1 candidate invariant runtime is unavailable$/u
     );
   });
+
+  it('builds runtime-candidate evidence from all eighteen live projections in registry order', async () => {
+    const runtime = context('runtime-candidate');
+    const runLiveInvariant = import.meta.jest.fn(async (id: CandidateInvariantScenarioId) => ({
+      id,
+      projection: projectionFor(id),
+    }));
+    const result = await runPhase1CandidateControlRuntimeForTesting(runtime, {
+      runLiveInvariant,
+    });
+
+    expect(runLiveInvariant.mock.calls.map(([id]) => id)).toEqual(candidateInvariantScenarioIds);
+    expect(result.mode).toBe('runtime-candidate');
+    expect(result.provenance.imageDigest).toBe(runtime.candidateImageDigest);
+    expect(result.outcomes).toHaveLength(18);
+    expect(result.outcomes.map(({ id }) => id)).toEqual(
+      [...candidateInvariantScenarioIds].toSorted()
+    );
+  });
+
+  const invalidLiveExecutors: ReadonlyArray<
+    readonly [string, Phase1CandidateInvariantRuntimeDependencies['runLiveInvariant']]
+  > = [
+    [
+      'wrong id',
+      async (id) => ({
+        id: otherInvariantId(id),
+        projection: projectionFor(id),
+      }),
+    ],
+    [
+      'wrong projection',
+      async (id) => ({
+        id,
+        projection: projectionFor(id, 'negative'),
+      }),
+    ],
+    [
+      'credential field',
+      async (id) => ({
+        id,
+        projection: {
+          ...projectionFor(id),
+          password: 'private-value',
+        },
+      }),
+    ],
+  ];
+
+  it.each(invalidLiveExecutors)(
+    'rejects a live executor with %s',
+    async (_name, runLiveInvariant) => {
+      await expect(
+        runPhase1CandidateControlRuntimeForTesting(context('runtime-candidate'), {
+          runLiveInvariant,
+        })
+      ).rejects.toThrow(/^Invalid phase 1 candidate control runtime$/u);
+    }
+  );
 
   it('rejects disabled controls and profile registry drift with one fixed diagnostic', async () => {
     const disabled = context();

@@ -1,4 +1,4 @@
-/* eslint-disable complexity -- The candidate-control runtime closes eighteen heterogeneous controls and seven comparator mutations into one exact artifact. */
+/* eslint-disable max-lines, complexity, no-await-in-loop, @silverhand/fp/no-mutating-methods -- The candidate-control runtime serializes eighteen stateful live probes and closes seven comparator mutations into one exact artifact; Task 2 moves the process driver behind this boundary. */
 import { isDeepStrictEqual } from 'node:util';
 
 import { compareJson } from '../../compare.js';
@@ -16,11 +16,15 @@ import {
   candidateInvariantScenarioIds,
   cloneAndDeepFreeze,
   phase1ObservationKinds,
+  type CandidateInvariantScenarioId,
 } from '../model.js';
 import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import { assertCandidateInvariantProjectionIsSanitized } from './evidence.js';
-import { runAllCandidateInvariantFakeControls } from './fake-controls.js';
+import {
+  runAllCandidateInvariantFakeControls,
+  runCandidateInvariantFakeControls,
+} from './fake-controls.js';
 import { candidateInvariantContracts } from './index.js';
 
 type CandidateControlEnvelope = Phase1ProjectionEnvelope<
@@ -52,7 +56,7 @@ export type Phase1CandidateObservationControl = Readonly<{
 
 export type Phase1CandidateControlsEvidence = Readonly<{
   schemaVersion: 1;
-  mode: 'review-candidate' | 'mirror-control';
+  mode: 'review-candidate' | 'mirror-control' | 'runtime-candidate';
   provenance: Phase1EvidenceProvenance;
   sanitizerSuccess: true;
   outcomes: readonly Phase1CandidateControlOutcome[];
@@ -64,9 +68,26 @@ export type Phase1CandidateControlsEvidence = Readonly<{
   }>;
 }>;
 
+export type Phase1LiveCandidateInvariantResult = Readonly<{
+  id: CandidateInvariantScenarioId;
+  projection: JsonValue;
+}>;
+
+export type Phase1CandidateInvariantRuntimeDependencies = Readonly<{
+  runLiveInvariant(
+    id: CandidateInvariantScenarioId,
+    context: Phase1EvidenceRuntimeContext
+  ): Promise<Phase1LiveCandidateInvariantResult>;
+}>;
+
 const diagnostic = 'Invalid phase 1 candidate control runtime';
 const runtimeUnavailable = 'Phase 1 candidate invariant runtime is unavailable';
 const imageDigestPattern = /^sha256:[0-9a-f]{64}$/u;
+const allowedModes: ReadonlySet<unknown> = new Set([
+  'review-candidate',
+  'mirror-control',
+  'runtime-candidate',
+]);
 const observationRoot = '/observations/0';
 const discoveryPointer = '/value/__unexpected';
 
@@ -150,12 +171,12 @@ const envelope = <Label extends CandidateControlEnvelope['label']>(
 
 const requireAuthorization = (
   context: Phase1EvidenceRuntimeContext
-): 'review-candidate' | 'mirror-control' => {
+): 'review-candidate' | 'mirror-control' | 'runtime-candidate' => {
   const { authorization } = context;
   const { mode, profile, provenance, protectedExecution, controls } = authorization;
 
   if (
-    (mode !== 'review-candidate' && mode !== 'mirror-control') ||
+    !allowedModes.has(mode) ||
     profile.phase1Harness.commit !== provenance.harnessCommit ||
     !isDeepStrictEqual(profile.candidateInvariantScenarios, candidateInvariantScenarioIds) ||
     !controls.observationControls ||
@@ -164,6 +185,7 @@ const requireAuthorization = (
     !imageDigestPattern.test(context.oracleImageDigest) ||
     !imageDigestPattern.test(context.candidateImageDigest) ||
     (mode === 'mirror-control' && context.oracleImageDigest !== context.candidateImageDigest) ||
+    (mode === 'runtime-candidate' && context.oracleImageDigest === context.candidateImageDigest) ||
     (mode === 'review-candidate'
       ? provenance.kind !== 'review-candidate' || protectedExecution !== undefined
       : provenance.kind !== 'accepted-harness' ||
@@ -176,7 +198,7 @@ const requireAuthorization = (
   return mode;
 };
 
-const createOutcomes = (): readonly Phase1CandidateControlOutcome[] => {
+const createFakeOutcomes = (): readonly Phase1CandidateControlOutcome[] => {
   const evidence = runAllCandidateInvariantFakeControls();
 
   if (evidence.length !== candidateInvariantContracts.length) {
@@ -214,6 +236,72 @@ const createOutcomes = (): readonly Phase1CandidateControlOutcome[] => {
   });
 
   return Object.freeze(outcomes.toSorted((left, right) => bytewiseCompare(left.id, right.id)));
+};
+
+const liveOutcome = (
+  contract: (typeof candidateInvariantContracts)[number],
+  projection: JsonValue
+): Phase1CandidateControlOutcome => {
+  const snapshot = cloneAndDeepFreeze(projection);
+
+  assertCandidateInvariantProjectionIsSanitized(snapshot);
+  if (!isDeepStrictEqual(snapshot, contract.positiveControl.expectedProjection)) {
+    throw new TypeError(diagnostic);
+  }
+  const control = runCandidateInvariantFakeControls(contract.id);
+  const difference = control.negativeControl.differences[0];
+
+  if (
+    control.positiveControl.differences.length > 0 ||
+    control.negativeControl.differences.length !== 1 ||
+    !difference ||
+    difference.path !== contract.negativeControl.expectedDifferencePointer
+  ) {
+    throw new TypeError(diagnostic);
+  }
+
+  return cloneAndDeepFreeze({
+    id: contract.id,
+    detected: true as const,
+    candidate: envelope('candidate-only', snapshot),
+    positiveControl: {
+      detected: true as const,
+      result: envelope('positive-control', snapshot),
+    },
+    negativeControl: {
+      detected: true as const,
+      pointer: difference.path,
+      result: envelope('negative-control', contract.negativeControl.expectedProjection),
+    },
+  });
+};
+
+const createLiveOutcomes = async (
+  context: Phase1EvidenceRuntimeContext,
+  dependencies: Phase1CandidateInvariantRuntimeDependencies
+): Promise<readonly Phase1CandidateControlOutcome[]> => {
+  const outcomes: Phase1CandidateControlOutcome[] = [];
+
+  for (const contract of candidateInvariantContracts) {
+    const result = await dependencies.runLiveInvariant(contract.id, context);
+
+    if (result.id !== contract.id) {
+      throw new TypeError(diagnostic);
+    }
+    outcomes.push(liveOutcome(contract, result.projection));
+  }
+
+  return Object.freeze(outcomes.toSorted((left, right) => bytewiseCompare(left.id, right.id)));
+};
+
+const requireLiveDependencies = (
+  dependencies: Phase1CandidateInvariantRuntimeDependencies | undefined
+): Phase1CandidateInvariantRuntimeDependencies => {
+  if (!dependencies) {
+    throw new TypeError(diagnostic);
+  }
+
+  return dependencies;
 };
 
 const createObservationControls = (): readonly Phase1CandidateObservationControl[] =>
@@ -281,10 +369,11 @@ const createDiscoveryExtraControl =
     });
   };
 
-export const runPhase1CandidateControlRuntime = async (
-  context: Phase1EvidenceRuntimeContext
+const executeCandidateControlRuntime = async (
+  context: Phase1EvidenceRuntimeContext,
+  dependencies?: Phase1CandidateInvariantRuntimeDependencies
 ): Promise<Phase1CandidateControlsEvidence> => {
-  if (context.authorization.mode === 'runtime-candidate') {
+  if (context.authorization.mode === 'runtime-candidate' && !dependencies) {
     throw new TypeError(runtimeUnavailable);
   }
 
@@ -295,6 +384,10 @@ export const runPhase1CandidateControlRuntime = async (
     if (typeof harnessCommit !== 'string') {
       throw new TypeError(diagnostic);
     }
+    const outcomes =
+      mode === 'runtime-candidate'
+        ? await createLiveOutcomes(context, requireLiveDependencies(dependencies))
+        : createFakeOutcomes();
     const result = cloneAndDeepFreeze({
       schemaVersion: 1 as const,
       mode,
@@ -302,10 +395,11 @@ export const runPhase1CandidateControlRuntime = async (
         harnessCommit,
         profileSha256: context.authorization.profileSha256,
         schemaSha256: context.authorization.schemaSha256,
-        imageDigest: context.oracleImageDigest,
+        imageDigest:
+          mode === 'runtime-candidate' ? context.candidateImageDigest : context.oracleImageDigest,
       }),
       sanitizerSuccess: true as const,
-      outcomes: createOutcomes(),
+      outcomes,
       observationNegativeControls: createObservationControls(),
       discoveryExtraControl: createDiscoveryExtraControl(),
     });
@@ -319,4 +413,19 @@ export const runPhase1CandidateControlRuntime = async (
   }
 };
 
-/* eslint-enable complexity */
+export const runPhase1CandidateControlRuntime = async (
+  context: Phase1EvidenceRuntimeContext
+): Promise<Phase1CandidateControlsEvidence> => executeCandidateControlRuntime(context);
+
+export const runPhase1CandidateControlRuntimeForTesting = async (
+  context: Phase1EvidenceRuntimeContext,
+  dependencies: Phase1CandidateInvariantRuntimeDependencies
+): Promise<Phase1CandidateControlsEvidence> => {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new TypeError(diagnostic);
+  }
+
+  return executeCandidateControlRuntime(context, dependencies);
+};
+
+/* eslint-enable max-lines, complexity, no-await-in-loop, @silverhand/fp/no-mutating-methods */
