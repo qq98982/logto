@@ -838,7 +838,9 @@ const runPasswordCode = async (
     };
     const { createdUser } = fixtureSession;
     const userId = requireCreatedUserId(createdUser);
-    context.symbols.bind('application.phase0', fixtureSession.applicationId);
+    if (fixtureSession.applicationId !== demoAppApplicationId) {
+      context.symbols.bind('application.phase0', fixtureSession.applicationId);
+    }
     context.symbols.bind('user.primary', userId);
     observeSafely(
       context,

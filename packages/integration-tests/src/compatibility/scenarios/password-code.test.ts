@@ -635,7 +635,7 @@ describe('password authorization-code compatibility scenario', () => {
     expect(evidence.observations[3]?.value).toMatchObject({
       iss: '<target.core-url>/oidc',
       sub: '<user.primary>',
-      aud: '<application.phase0>',
+      aud: 'demo-app',
       iat: { $timestamp: timestamp, $toleranceSeconds: 60 },
       exp: { $timestamp: timestamp + 3600, $toleranceSeconds: 60 },
       name: null,
