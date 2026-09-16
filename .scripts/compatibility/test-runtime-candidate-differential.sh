@@ -123,8 +123,11 @@ ENV_BIN="$(trusted_system_binary /usr/bin/env)"
 PS_BIN="$(trusted_system_binary /usr/bin/ps)"
 AWK_BIN="$(trusted_system_binary /usr/bin/awk)"
 SHA256_BIN="$(trusted_system_binary /usr/bin/sha256sum)"
+READELF_BIN="$(trusted_system_binary /usr/bin/readelf)"
+LDD_BIN="$(trusted_system_binary /usr/bin/ldd)"
 DOCKER_BIN="$(trusted_system_binary /usr/bin/docker)"
 readonly GIT_BIN NODE_BIN PNPM_BIN SS_BIN SETSID_BIN SOCAT_BIN ENV_BIN PS_BIN AWK_BIN SHA256_BIN
+readonly READELF_BIN LDD_BIN
 readonly DOCKER_BIN
 export GIT_NO_REPLACE_OBJECTS=1
 readonly GIT_AUTHORITY=("${GIT_BIN}" --no-replace-objects)
@@ -201,26 +204,31 @@ PROXY_TOKENS=()
 NODE_RUN_PID=''
 NODE_RUN_PGID=''
 NODE_RUN_TOKEN=''
+EXTRACTION_CONTAINER_ID=''
 COMPOSE_ENV="${RUN_DIR}/compose.env"
 PRIVATE_HOME="${RUN_DIR}/home"
 BROWSER_TMP="${RUN_DIR}/browser-tmp"
 XDG_RUNTIME="${RUN_DIR}/xdg-runtime"
+HOST_BIN_DIRECTORY="${RUN_DIR}/host-bin"
 PRIMARY_KEYRING_DIRECTORY="${RUN_DIR}/candidate-primary-keys"
 FOREIGN_KEYRING_DIRECTORY="${RUN_DIR}/candidate-foreign-keys"
 FIXTURE_DIRECTORY="${RUN_DIR}/fx"
 PRIMARY_CONFIG_FILE="${RUN_DIR}/candidate-primary.conf"
 FOREIGN_CONFIG_FILE="${RUN_DIR}/candidate-foreign.conf"
 FIXTURE_SOCKET="${FIXTURE_DIRECTORY}/aster-fixture.sock"
+ASTER_ADMIN_BIN="${HOST_BIN_DIRECTORY}/aster-admin"
 REVIEW_PROFILE="${RUN_DIR}/review-profile.json"
 [[ "${#FIXTURE_SOCKET}" -le 107 ]] || fail
 /usr/bin/mkdir -m 700 -- "${PRIVATE_HOME}" "${BROWSER_TMP}" "${XDG_RUNTIME}" \
+  "${HOST_BIN_DIRECTORY}" \
   "${PRIMARY_KEYRING_DIRECTORY}" "${FOREIGN_KEYRING_DIRECTORY}" \
   "${FIXTURE_DIRECTORY}"
 assert_build_root_identity
 readonly COMPOSE_ENV PRIVATE_HOME BROWSER_TMP XDG_RUNTIME
+readonly HOST_BIN_DIRECTORY
 readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY
 readonly FIXTURE_DIRECTORY PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE
-readonly FIXTURE_SOCKET REVIEW_PROFILE
+readonly FIXTURE_SOCKET ASTER_ADMIN_BIN REVIEW_PROFILE
 CLOSED_NODE_ENV=(
   env -i
   PATH='/usr/bin:/bin'
@@ -438,6 +446,11 @@ cleanup() {
   NODE_RUN_PGID=''
   NODE_RUN_TOKEN=''
 
+  if [[ -n "${EXTRACTION_CONTAINER_ID}" ]]; then
+    docker_cli rm --force "${EXTRACTION_CONTAINER_ID}" >/dev/null 2>&1 || cleanup_failed=1
+    EXTRACTION_CONTAINER_ID=''
+  fi
+
   for ((index=${#PROXY_PGIDS[@]} - 1; index >= 0; index--)); do
     terminate_owned_process_group \
       "${PROXY_PIDS[index]}" "${PROXY_PGIDS[index]}" "${PROXY_TOKENS[index]}" || cleanup_failed=1
@@ -521,6 +534,21 @@ ORACLE_IMAGE="$(docker_cli image inspect --format '{{.Id}}' "${ORACLE_IMAGE_INPU
 CANDIDATE_IMAGE="$(docker_cli image inspect --format '{{.Id}}' "${CANDIDATE_IMAGE_INPUT}" 2>/dev/null || true)"
 [[ "${ORACLE_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ && "${CANDIDATE_IMAGE}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
 readonly ORACLE_IMAGE CANDIDATE_IMAGE
+
+failure_stage=host-binary
+EXTRACTION_CONTAINER_ID="$(docker_cli create --network none "${CANDIDATE_IMAGE}" unknown)"
+[[ "${EXTRACTION_CONTAINER_ID}" =~ ^[0-9a-f]{12,64}$ ]] || fail
+docker_cli cp "${EXTRACTION_CONTAINER_ID}:/usr/local/bin/aster-admin" "${ASTER_ADMIN_BIN}" >/dev/null || fail
+docker_cli rm --force "${EXTRACTION_CONTAINER_ID}" >/dev/null || fail
+EXTRACTION_CONTAINER_ID=''
+/usr/bin/chmod 0555 "${ASTER_ADMIN_BIN}"
+[[ ! -L "${ASTER_ADMIN_BIN}" && -f "${ASTER_ADMIN_BIN}" ]] || fail
+[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${ASTER_ADMIN_BIN}")" == "$(id -u)|$(id -g)|555|regular file" ]] || fail
+"${READELF_BIN}" -l "${ASTER_ADMIN_BIN}" >"${RUN_DIR}/aster-admin.readelf" || fail
+/usr/bin/grep -F -q '[Requesting program interpreter: /lib64/ld-linux-x86-64.so.2]' \
+  "${RUN_DIR}/aster-admin.readelf" || fail
+"${LDD_BIN}" "${ASTER_ADMIN_BIN}" >"${RUN_DIR}/aster-admin.ldd" 2>&1 || fail
+! /usr/bin/grep -F -q 'not found' "${RUN_DIR}/aster-admin.ldd" || fail
 
 random_uuid() {
   local value
@@ -697,7 +725,7 @@ CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:dat
 
 NODE_RUN_TOKEN="$(random_hex 32)"
 PUBLIC_ENV=(
-  env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${BROWSER_TMP}" XDG_RUNTIME_DIR="${XDG_RUNTIME}"
+  env -i PATH="${HOST_BIN_DIRECTORY}:/usr/bin:/bin" HOME="${PRIVATE_HOME}" TMPDIR="${BROWSER_TMP}" XDG_RUNTIME_DIR="${XDG_RUNTIME}"
   ASTER_PHASE1_MODE='runtime-candidate' ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}"
   ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}" ASTER_PHASE1_ORACLE_IMAGE_DIGEST="${ORACLE_IMAGE}"
   ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE}"
