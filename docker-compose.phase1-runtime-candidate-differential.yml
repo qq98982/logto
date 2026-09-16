@@ -669,7 +669,7 @@
       },
       "volumes": [
         "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:ro",
-        "candidate-phase0-keyring:/var/lib/aster/primary"
+        "candidate-phase0-keyring:/var/lib/aster/phase0"
       ],
       "tmpfs": [
         "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
@@ -719,7 +719,7 @@
       },
       "volumes": [
         "${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:${ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}:ro",
-        "candidate-phase0-keyring:/var/lib/aster/primary:ro"
+        "candidate-phase0-keyring:/var/lib/aster/phase0:ro"
       ],
       "tmpfs": [
         "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",

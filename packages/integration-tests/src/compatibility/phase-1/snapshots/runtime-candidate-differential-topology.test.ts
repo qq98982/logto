@@ -117,6 +117,9 @@ describe('runtime-candidate differential topology', () => {
         ASTER_FIXTURE_SOCKET: ['$', '{ASTER_PHASE1_PHASE0_FIXTURE_SOCKET:?required}'].join(''),
       },
     });
+    expect(init?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0');
+    expect(core?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0:ro');
+    expect(coordinator?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0:ro');
     expect(JSON.stringify(core)).not.toMatch(/DB_URL|DATABASE_URL|POSTGRES|PASSWORD|SENTINEL/iu);
     expect(JSON.stringify(coordinator)).not.toMatch(/FOREIGN/iu);
   });
