@@ -117,7 +117,7 @@ with model_rows as (
   from aster_tenant.authorization_codes
   union all
   select 'rotation', family.tenant_id, family.client_id, family.account_id,
-    encode(sha256(convert_to('phase1-family:'||family.family_id,'UTF8')),'hex'), encode(token.refresh_digest,'hex'),
+    encode(sha256(convert_to('phase1-family:'||family.grant_id,'UTF8')),'hex'), encode(token.refresh_digest,'hex'),
     token.consumed_at is not null, token.expires_at > extract(epoch from clock_timestamp())::bigint,
     token.rotation_ordinal, 0, false, '[]'::jsonb, '[]'::jsonb
   from aster_tenant.refresh_tokens as token join aster_tenant.token_families as family using (tenant_id,family_id)
