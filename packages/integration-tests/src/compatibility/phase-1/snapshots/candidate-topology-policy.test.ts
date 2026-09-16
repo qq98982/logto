@@ -1,4 +1,6 @@
+/* eslint-disable max-lines -- One policy file keeps the standalone Compose, PostgreSQL HBA, smoke runner, mutation, and live file-behavior contracts reviewed together. */
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -10,6 +12,7 @@ const postgresInitPath = path.join(
   '.scripts/compatibility/phase1-candidate-postgres-init.sh'
 );
 const smokePath = path.join(repositoryRoot, '.scripts/compatibility/test-candidate-topology.sh');
+const formalRunnerPath = path.join(repositoryRoot, '.scripts/compatibility/run-phase1.sh');
 const executeFile = promisify(execFile);
 const composeRequired = (name: string): string => ['$', `{${name}:?required}`].join('');
 const shellVariable = (name: string): string => ['$', `{${name}}`].join('');
@@ -240,8 +243,72 @@ const assertCandidateTopology = (
   expect(smokeSource.startsWith('#!/usr/bin/env bash\n\nset -euo pipefail\numask 077\n')).toBe(
     true
   );
-  expect(smokeSource).toContain('Aster candidate topology smoke is not implemented');
-  expect(smokeSource).not.toMatch(/docker|DB_URL|DATABASE_URL|POSTGRES_PASSWORD/u);
+};
+
+const assertCandidateSmoke = (source: string, formalRunnerSource: string): void => {
+  for (const required of [
+    "readonly FORMAL_RUNNER_SHA256='1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'",
+    '/var/tmp/henry-build',
+    'require_private_root',
+    'capture_path_identity',
+    'assert_path_identity',
+    'ASTER_PHASE1_FIXTURE_DIRECTORY',
+    'ASTER_PHASE1_FIXTURE_SOCKET',
+    'ASTER_PHASE1_NODE_BIN',
+    'v22.23.2',
+    '/usr/bin/timeout',
+    'DOCKER_COMMAND_TIMEOUT',
+    'candidate-primary.conf',
+    'candidate-foreign.conf',
+    'chmod 0400',
+    'candidate-primary-keys',
+    'candidate-foreign-keys',
+    'compose.env',
+    'candidate-primary-postgres candidate-primary-init candidate-primary-core',
+    'candidate-foreign-postgres candidate-foreign-init candidate-foreign-core',
+    'candidate-fixture-coordinator',
+    "'candidate-primary-core|candidate-primary|172.30.241.12|3321|3001'",
+    "'candidate-primary-core|candidate-primary|172.30.241.12|3421|3421'",
+    "'candidate-foreign-core|candidate-foreign|172.30.242.12|3322|3001'",
+    "'candidate-foreign-core|candidate-foreign|172.30.242.12|3422|3002'",
+    'container_network_ipv4',
+    'start_loopback_proxy',
+    'port_is_listened_by_pid',
+    'terminate_owned_process_group',
+    'usr/local/bin/aster-admin',
+    'docker_cli export',
+    'readelf',
+    'ldd',
+    'ASTER_ADMIN_LDD_ALLOWLIST',
+    'master-key active-id',
+    '/oidc/.well-known/openid-configuration',
+    'fullPhase1 corsBoundary none dataProtocol passwordMatrix adminConsole consentBoundary',
+    'env: { PATH: fixtureCommandPath, ASTER_FIXTURE_SOCKET: fixtureSocket }',
+    'projectState',
+    'cleanup',
+    'fixture_socket_device="$($STAT_BIN -c %d -- "$FIXTURE_SOCKET")"',
+    'fixture_socket_inode="$($STAT_BIN -c %i -- "$FIXTURE_SOCKET")"',
+    'compose stop -t 20 candidate-fixture-coordinator',
+    'compose down --volumes --remove-orphans',
+    'docker_cli container inspect "$extract_container_name"',
+  ]) {
+    expect(source).toContain(required);
+  }
+  expect(source).not.toContain('Aster candidate topology smoke is not implemented');
+  expect(source).not.toContain('docker.sock');
+  expect(source).not.toContain('/dev/shm');
+  expect(source).not.toMatch(/docker exec|compose exec/u);
+  const fixtureNodeStart = source.indexOf('cat >"$fixture_node_script"');
+  const fixtureNodeEnd = source.indexOf('\nNODE', fixtureNodeStart);
+
+  expect(fixtureNodeStart).toBeGreaterThan(0);
+  expect(fixtureNodeEnd).toBeGreaterThan(fixtureNodeStart);
+  const fixtureNodeSource = source.slice(fixtureNodeStart, fixtureNodeEnd);
+
+  expect(fixtureNodeSource).not.toMatch(/DATABASE_URL|POSTGRES_PASSWORD|docker/u);
+  expect(createHash('sha256').update(formalRunnerSource).digest('hex')).toBe(
+    '1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'
+  );
 };
 
 describe('Aster candidate standalone topology policy', () => {
@@ -396,4 +463,63 @@ host all all ::/0 reject
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('pins the private topology smoke without changing the formal Phase 1 runner', async () => {
+    const [source, formalRunnerSource] = await Promise.all([
+      readFile(smokePath, 'utf8'),
+      readFile(formalRunnerPath, 'utf8'),
+    ]);
+
+    assertCandidateSmoke(source, formalRunnerSource);
+  });
+
+  it('rejects smoke mutations that weaken identity, proxy, fixture, or runner authority', async () => {
+    const [source, formalRunnerSource] = await Promise.all([
+      readFile(smokePath, 'utf8'),
+      readFile(formalRunnerPath, 'utf8'),
+    ]);
+    const mutations = [
+      {
+        name: 'socket inode identity',
+        source: source.replaceAll('fixture_socket_inode', 'socket_inode_removed'),
+      },
+      {
+        name: 'proxy destination',
+        source: source.replace(
+          "'candidate-primary-core|candidate-primary|172.30.241.12|3321|3001'",
+          "'candidate-primary-core|candidate-primary|172.30.241.99|3321|3001'"
+        ),
+      },
+      {
+        name: 'fixture database authority',
+        source: source.replace(
+          'env: { PATH: fixtureCommandPath, ASTER_FIXTURE_SOCKET: fixtureSocket }',
+          "env: { PATH: fixtureCommandPath, ASTER_FIXTURE_SOCKET: fixtureSocket, DATABASE_URL: 'forbidden' }"
+        ),
+      },
+      {
+        name: 'formal runner digest',
+        source: source.replace(
+          "readonly FORMAL_RUNNER_SHA256='1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'",
+          `readonly FORMAL_RUNNER_SHA256='${'0'.repeat(64)}'`
+        ),
+      },
+    ];
+
+    for (const mutation of mutations) {
+      expect(mutation.source).not.toBe(source);
+      const rejected = (() => {
+        try {
+          assertCandidateSmoke(mutation.source, formalRunnerSource);
+          return false;
+        } catch {
+          return true;
+        }
+      })();
+
+      expect({ name: mutation.name, rejected }).toEqual({ name: mutation.name, rejected: true });
+    }
+  });
 });
+
+/* eslint-enable max-lines */
