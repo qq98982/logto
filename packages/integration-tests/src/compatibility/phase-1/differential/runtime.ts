@@ -123,8 +123,8 @@ const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze
   runScenario: runPhase1ScenarioForTarget,
 });
 
-// Mirror control runs the pinned oracle image under both target labels. Runtime-candidate mode is
-// rejected before this factory, so both adapters intentionally consume the oracle profile view.
+// Mirror control runs the pinned oracle image under both target labels. Runtime-candidate uses this
+// factory only for its oracle adapter, so every runtime created here consumes the oracle profile.
 const createMirrorControlRuntime = (
   context: Phase1EvidenceRuntimeContext,
   implementation: 'oracle' | 'candidate',

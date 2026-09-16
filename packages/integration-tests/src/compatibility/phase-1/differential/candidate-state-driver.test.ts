@@ -24,24 +24,27 @@ afterEach(async () => {
   roots.clear();
 });
 
-const fakeDocker = async (service = 'candidate-primary-postgres') => {
+const fakeDocker = async (service = 'candidate-primary-postgres', project = projectName) => {
   const root = await mkdtemp('/var/tmp/henry-build/candidate-state-driver-');
   roots.add(root);
   const binary = path.join(root, 'docker');
   const calls = path.join(root, 'calls');
+  const stdin = path.join(root, 'stdin.sql');
   await writeFile(
     binary,
-    `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "$*" >>"$CALLS"\nif [[ "$1" == inspect ]]; then printf '%s|%s\\n' "$SERVICE" "$PROJECT"; exit 0; fi\nif [[ "$1" == exec ]]; then cat >/dev/null; printf '%s\\n' "$OUTPUT"; exit 0; fi\nexit 1\n`,
+    `#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' "$*" >>"$CALLS"\nif [[ "$1" == inspect ]]; then printf '%s|%s\\n' "$SERVICE" "$PROJECT"; exit 0; fi\nif [[ "$1" == exec ]]; then cat >"$STDIN"; printf '%s\\n' "$OUTPUT"; exit 0; fi\nexit 1\n`,
     { mode: 0o700 }
   );
   await chmod(binary, 0o700);
   return {
     calls,
+    stdin,
     env: {
       PATH: `${root}:/usr/bin:/bin`,
       CALLS: calls,
+      STDIN: stdin,
       SERVICE: service,
-      PROJECT: projectName,
+      PROJECT: project,
       OUTPUT: safeOutput,
     },
   };
@@ -74,6 +77,40 @@ describe('Phase 1 candidate state driver', () => {
     const calls = await readFile(fake.calls, 'utf8');
     expect(calls).toContain(`--dbname ${database}`);
     expect(calls).toContain('exec --interactive --user postgres');
+  });
+
+  it('locks the isolated superuser projection inside one read-only transaction', async () => {
+    const fake = await fakeDocker();
+
+    await executeFile(
+      driver,
+      [
+        '--container-id',
+        '1'.repeat(64),
+        '--project-name',
+        projectName,
+        '--expected-service',
+        'candidate-primary-postgres',
+        '--scenario-id',
+        'token.authorization-code',
+        '--step-id',
+        'state',
+      ],
+      { env: fake.env }
+    );
+
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(calls).toContain('--single-transaction');
+    expect(sql.startsWith('SET TRANSACTION READ ONLY;\n')).toBe(true);
+    expect(sql).toContain("SET LOCAL statement_timeout = '20s';");
+    expect(sql).toContain("SET LOCAL lock_timeout = '5s';");
+    expect(sql).toContain("SET LOCAL idle_in_transaction_session_timeout = '20s';");
+    expect(sql).toContain('SET LOCAL search_path = pg_catalog;');
+    expect(sql).not.toMatch(
+      /^\s*(?:insert|update|delete|create|alter|drop|truncate|grant|revoke)\b/imu
+    );
   });
 
   it('pins the Aster-only read model and excludes raw credential material', async () => {
@@ -153,6 +190,37 @@ describe('Phase 1 candidate state driver', () => {
       await expect(executeFile(driver, args, { env: fake.env })).rejects.toThrow();
       await expect(readFile(fake.calls, 'utf8')).rejects.toThrow();
     }
+  });
+
+  it.each([
+    ['a container outside the candidate Postgres services', 'candidate-primary-core', projectName],
+    [
+      'a correctly named service from another Compose project',
+      'candidate-primary-postgres',
+      'aster-phase1-fedcba9876543210',
+    ],
+  ] as const)('rejects %s', async (_name, actualService, actualProject) => {
+    const fake = await fakeDocker(actualService, actualProject);
+
+    await expect(
+      executeFile(
+        driver,
+        [
+          '--container-id',
+          '1'.repeat(64),
+          '--project-name',
+          projectName,
+          '--expected-service',
+          'candidate-primary-postgres',
+          '--scenario-id',
+          'token.authorization-code',
+          '--step-id',
+          'state',
+        ],
+        { env: fake.env }
+      )
+    ).rejects.toThrow();
+    expect(await readFile(fake.calls, 'utf8')).not.toContain('exec --interactive');
   });
 });
 

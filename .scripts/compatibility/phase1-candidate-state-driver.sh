@@ -75,9 +75,15 @@ labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.comp
 [[ "$labels" == "${expected_service}|${project_name}" ]] || fail
 
 projection="$($DOCKER_BIN exec --interactive --user postgres "$container_id" \
-  psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+  psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+  --set=ON_ERROR_STOP=1 \
   --set="scenario_id=$scenario_id" --set="step_id=$step_id" \
   --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL lock_timeout = '5s';
+SET LOCAL idle_in_transaction_session_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
 with model_rows as (
   select 'interaction'::text as kind, tenant_id,
     nullif(payload #>> '{params,client_id}', '') as client_id,

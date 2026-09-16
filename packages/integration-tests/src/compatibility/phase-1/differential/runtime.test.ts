@@ -369,9 +369,19 @@ describe('Phase 1 differential runtime', () => {
     });
   });
 
-  it('rejects a candidate state graph that aliases an oracle container', async () => {
+  it.each([
+    ['oracle primary and foreign', ['1', '1', '3', '4']],
+    ['oracle primary and candidate primary', ['1', '2', '1', '4']],
+    ['oracle primary and candidate foreign', ['1', '2', '3', '1']],
+    ['oracle foreign and candidate primary', ['1', '2', '2', '4']],
+    ['oracle foreign and candidate foreign', ['1', '2', '3', '2']],
+    ['candidate primary and foreign', ['1', '2', '3', '3']],
+  ] as const)('rejects a state graph that aliases %s', async (_name, identifiers) => {
     const base = dependencies();
     const createReferenceProjector = import.meta.jest.fn(base.createReferenceProjector);
+    const [oraclePrimary, oracleForeign, candidatePrimary, candidateForeign] = identifiers.map(
+      (identifier) => identifier.repeat(64)
+    );
 
     await expect(
       runPhase1DifferentialRuntimeForTesting(context('runtime-candidate'), {
@@ -379,8 +389,8 @@ describe('Phase 1 differential runtime', () => {
         createReferenceProjector,
         loadContainerGraph: () => ({
           projectName: 'aster-phase1-0123456789abcdef',
-          oracle: { primary: '1'.repeat(64), foreign: '2'.repeat(64) },
-          candidate: { primary: '1'.repeat(64), foreign: '4'.repeat(64) },
+          oracle: { primary: oraclePrimary!, foreign: oracleForeign! },
+          candidate: { primary: candidatePrimary!, foreign: candidateForeign! },
         }),
       })
     ).rejects.toThrow(/^Invalid Phase 1 differential runtime$/u);
