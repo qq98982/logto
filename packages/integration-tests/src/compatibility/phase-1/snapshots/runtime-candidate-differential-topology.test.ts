@@ -195,6 +195,8 @@ describe('runtime-candidate differential topology', () => {
       'value.scenarios.length !== 22',
       'scenario.differences.length !== 0',
       'terminate_owned_process_group',
+      ['container_id="$(compose ps --all -q "', '$', '{service}" 2>/dev/null || true)"'].join(''),
+      ['container_id="$(compose ps --all -q "', '$', '{service}")"'].join(''),
       'label=com.docker.compose.project=',
       '^[A-Za-z0-9._/:-]+@sha256:',
       ['rm -rf -- "', '$', '{RUN_DIR}"'].join(''),

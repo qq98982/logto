@@ -602,7 +602,7 @@ deadline=$((SECONDS + 600))
 while ((SECONDS < deadline)); do
   ready=1
   for service in "${SERVICES[@]}"; do
-    container_id="$(compose ps -q "${service}" 2>/dev/null || true)"
+    container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
     [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { ready=0; break; }
     state="$(docker_cli inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}")"
     case "${service}" in
@@ -625,7 +625,7 @@ ORACLE_FOREIGN_POSTGRES_CONTAINER_ID=''
 CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID=''
 CANDIDATE_FOREIGN_POSTGRES_CONTAINER_ID=''
 for service in "${SERVICES[@]}"; do
-  container_id="$(compose ps -q "${service}")"
+  container_id="$(compose ps --all -q "${service}")"
   container_ids+=("${container_id}")
   case "${service}" in
     oracle-primary-postgres) ORACLE_PRIMARY_POSTGRES_CONTAINER_ID="${container_id}" ;;
