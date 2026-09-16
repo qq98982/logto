@@ -158,7 +158,7 @@ const designHarnessLockState =
   'design-unlocked; a reviewed descendant commit must be pinned before Rust behavior implementation';
 const sourceProfileRelativePath = 'compatibility/phase-1-profile.json';
 const sourceSchemaRelativePath = 'compatibility/phase-1-profile.schema.json';
-export const phase1ReviewSourceCommit = '562f23c9a14dbdc7085404e1e83f5b7c6e476c8f';
+export const phase1ReviewSourceCommit = '88600da072e81826a4f6d60e8704ba9b5dbbc3a2';
 const canonicalAsterOrigins = new Set([
   'https://github.com/qq98982/aster.git',
   'git@github.com:qq98982/aster.git',
