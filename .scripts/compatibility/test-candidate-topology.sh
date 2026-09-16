@@ -175,7 +175,7 @@ printf 'deployment_id=%s\ndatabase_sentinel=%s\n' \
   "$foreign_deployment_id" "$foreign_sentinel" >"$FOREIGN_CONFIG_FILE"
 /usr/bin/chmod 0400 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"
 
-project_name="aster-candidate-$(random_hex 8)"
+project_name="aster-phase1-$(random_hex 8)"
 readonly project_name
 fixture_socket_device=''
 fixture_socket_inode=''
@@ -488,6 +488,7 @@ done
 [[ "${primary_init_state-}" == 'exited|0' && "${foreign_init_state-}" == 'exited|0' \
   && "${primary_health-}" == healthy && "${foreign_health-}" == healthy \
   && "${coordinator_health-}" == healthy ]] || fail
+primary_postgres_id="$(service_container_id candidate-primary-postgres)"
 for service in "${SERVICES[@]}"; do
   container_ids+=("$(service_container_id "$service")")
 done
@@ -536,9 +537,10 @@ import { pathToFileURL } from 'node:url';
 
 let stage = 'startup';
 try {
-  const [profileModulePath, commandModulePath, profilePath, schemaPath, fixtureCommandPath, fixtureSocket, recipeOrder] = process.argv.slice(2);
+  const [profileModulePath, commandModulePath, referenceStateModulePath, candidateDriverPath, primaryContainerId, projectName, profilePath, schemaPath, fixtureCommandPath, fixtureSocket, recipeOrder] = process.argv.slice(2);
   const { loadPhase1Profile } = await import(pathToFileURL(profileModulePath).href);
   const { createCommandPhase1FixtureProvisioner, runPhase1FixtureCommand } = await import(pathToFileURL(commandModulePath).href);
+  const { readReferenceStateDriver } = await import(pathToFileURL(referenceStateModulePath).href);
   const profile = await loadPhase1Profile({ profilePath, schemaPath });
   const runner = async (request) => {
     const descriptor = JSON.parse(request.stdin);
@@ -568,21 +570,39 @@ try {
   const lifecycle = async (recipe, validate = () => undefined) => {
     stage = `${recipe}-provision`;
     const fixture = await provisioner.provision(recipe);
+    let failedStage;
     try {
       stage = `${recipe}-projectState`;
       await provisioner.projectState(fixture);
-      validate(fixture);
+      await validate(fixture);
+    } catch (error) {
+      failedStage = stage;
+      throw error;
     } finally {
       stage = `${recipe}-cleanup`;
       await provisioner.cleanup(fixture);
+      if (failedStage) stage = failedStage;
     }
   };
-  await lifecycle('fullPhase1', (fixture) => {
+  await lifecycle('fullPhase1', async (fixture) => {
     const data = byRole(fixture, 'data');
     const admin = byRole(fixture, 'admin');
     if (data.isolation.persistenceId !== admin.isolation.persistenceId) throw new Error('primary persistence split');
     if (new Set([data.isolation.cookieKeyId, admin.isolation.cookieKeyId]).size !== 2) throw new Error('primary cookie key collision');
     if (new Set([data.isolation.signingKeyId, admin.isolation.signingKeyId]).size !== 2) throw new Error('primary signing key collision');
+    stage = 'fullPhase1-candidate-state-driver-read';
+    const snapshot = await readReferenceStateDriver({
+      source: 'primary',
+      projectName,
+      expectedService: 'candidate-primary-postgres',
+      containerId: primaryContainerId,
+      scenarioId: 'management.application-read',
+      stepId: 'state',
+      signal: new AbortController().signal,
+    }, { driverPath: candidateDriverPath, environment: { PATH: '/usr/bin:/bin' } });
+    stage = 'fullPhase1-candidate-state-driver-validate';
+    const userIds = snapshot.users.map(({ tenantId, id }) => `${tenantId}:${id}`).toSorted();
+    if (snapshot.models.length !== 0 || !userIds.includes('default:phase1-user') || !userIds.includes('admin:phase1-admin')) throw new Error('candidate state snapshot mismatch');
   });
   await lifecycle('corsBoundary', (fixture) => {
     const data = byRole(fixture, 'data');
@@ -610,6 +630,9 @@ fixture_status=0
   "$NODE_BIN" "$fixture_node_script" \
   "$REPO_ROOT/packages/integration-tests/lib/compatibility/phase-1/profile.js" \
   "$REPO_ROOT/packages/integration-tests/lib/compatibility/phase-1/clients/command-provisioner.js" \
+  "$REPO_ROOT/packages/integration-tests/lib/compatibility/phase-1/differential/reference-state.js" \
+  "$REPO_ROOT/.scripts/compatibility/phase1-candidate-state-driver.sh" \
+  "$primary_postgres_id" "$project_name" \
   "$PROFILE_PATH" "$SCHEMA_PATH" "$fixture_command_path" "$FIXTURE_SOCKET" \
   "$FIXTURE_RECIPE_ORDER" >"$RUN_DIR/fixture.stdout" 2>"$RUN_DIR/fixture.stderr" || fixture_status=$?
 if [[ "$fixture_status" -ne 0 ]]; then

@@ -90,12 +90,12 @@ with model_rows as (
     '[]'::jsonb as oidc_scopes, '[]'::jsonb as resources
   from aster_tenant.interactions
   union all
-  select 'session', session_row.tenant_id, authorization.key, session_row.account_id,
-    case when nullif(authorization.value->>'grant_id','') is null then null else encode(sha256(convert_to('phase1-family:'||(authorization.value->>'grant_id'),'UTF8')),'hex') end,
+  select 'session', session_row.tenant_id, authorization_entry.key, session_row.account_id,
+    case when nullif(authorization_entry.value->>'grant_id','') is null then null else encode(sha256(convert_to('phase1-family:'||(authorization_entry.value->>'grant_id'),'UTF8')),'hex') end,
     encode(session_row.handle_digest,'hex'), false,
     session_row.expires_at > extract(epoch from clock_timestamp())::bigint, null, 0, false, '[]'::jsonb, '[]'::jsonb
   from aster_tenant.sessions as session_row
-  cross join lateral jsonb_each(case when jsonb_typeof(session_row.session_context->'authorizations')='object' then session_row.session_context->'authorizations' else '{}'::jsonb end) as authorization
+  cross join lateral jsonb_each(case when jsonb_typeof(session_row.session_context->'authorizations')='object' then session_row.session_context->'authorizations' else '{}'::jsonb end) as authorization_entry
   union all
   select 'grant', grant_row.tenant_id, grant_row.client_id, grant_row.account_id,
     encode(sha256(convert_to('phase1-family:'||grant_row.grant_id,'UTF8')),'hex'),
@@ -118,8 +118,8 @@ with model_rows as (
 ), model_json as (
   select coalesce(jsonb_agg(jsonb_build_object('kind',kind,'tenantId',tenant_id,'clientId',client_id,'accountId',account_id,'familyFingerprint',family_fingerprint,'artifactFingerprint',artifact_fingerprint,'consumed',consumed,'active',active,'rotation',rotation,'verificationCount',verification_count,'identified',identified,'oidcScopes',oidc_scopes,'resources',resources) order by kind,tenant_id,client_id nulls first,account_id nulls first,artifact_fingerprint),'[]'::jsonb) value from model_rows
 ), extension_json as (
-  select coalesce(jsonb_agg(jsonb_build_object('tenantId',session_row.tenant_id,'accountId',session_row.account_id,'clientId',authorization.key,'loginAccountId',session_row.account_id,'updatedAt',session_row.issued_at*1000) order by session_row.tenant_id,session_row.account_id,authorization.key),'[]'::jsonb) value
-  from aster_tenant.sessions as session_row cross join lateral jsonb_each(case when jsonb_typeof(session_row.session_context->'authorizations')='object' then session_row.session_context->'authorizations' else '{}'::jsonb end) authorization where session_row.account_id is not null
+  select coalesce(jsonb_agg(jsonb_build_object('tenantId',session_row.tenant_id,'accountId',session_row.account_id,'clientId',authorization_entry.key,'loginAccountId',session_row.account_id,'updatedAt',session_row.issued_at*1000) order by session_row.tenant_id,session_row.account_id,authorization_entry.key),'[]'::jsonb) value
+  from aster_tenant.sessions as session_row cross join lateral jsonb_each(case when jsonb_typeof(session_row.session_context->'authorizations')='object' then session_row.session_context->'authorizations' else '{}'::jsonb end) authorization_entry where session_row.account_id is not null
 ), user_json as (
   select coalesce(jsonb_agg(jsonb_build_object('tenantId',tenant_id,'id',user_id,'applicationId',first_consent_client_id) order by tenant_id,user_id),'[]'::jsonb) value from aster_tenant.users
 ), verification_json as (
