@@ -826,7 +826,10 @@ export const executeAuthorizedPhase1Run = async (
   environment: RuntimeEnvironment = process.env
 ): Promise<readonly string[]> => {
   try {
-    if (requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode) {
+    if (
+      authorization.differentialGate === true ||
+      requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode
+    ) {
       return fail();
     }
     const context = createPhase1EvidenceRuntimeContext(
@@ -869,6 +872,7 @@ export const executeAuthorizedPhase1DifferentialGate = async (
   try {
     if (
       authorization.mode !== 'runtime-candidate' ||
+      authorization.differentialGate !== true ||
       authorization.controls.recordOracle ||
       !authorization.controls.observationControls ||
       !authorization.controls.discoveryExtraControl ||

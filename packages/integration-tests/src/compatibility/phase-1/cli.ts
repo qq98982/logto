@@ -786,7 +786,10 @@ const verifyRunProvenance = async (
   });
 
   return verifyPhase1ProfileProvenance(bundle.profile, {
-    mode: command.mode === 'review-candidate' ? 'review-candidate' : 'accepted-harness',
+    mode:
+      command.command === 'run-differential' || command.mode === 'review-candidate'
+        ? 'review-candidate'
+        : 'accepted-harness',
     schemaBytes: bundle.readSchemaBytes(),
     profileLock: phase1ProfileSchemaLock,
     schemaLockDocument: phase1SchemaLockDocument,
@@ -854,11 +857,11 @@ export const runPhase1Cli = async (
       baselineCapabilityIds
     );
     const closedProvenance =
-      command.mode === 'review-candidate'
+      command.command === 'run-differential' || command.mode === 'review-candidate'
         ? closeReviewProvenance(provenance, bundle.profile.phase1Harness.commit ?? undefined)
         : provenance;
     const protectedExecution =
-      command.mode === 'review-candidate'
+      command.command === 'run-differential' || command.mode === 'review-candidate'
         ? undefined
         : dependencies.authorizeProtectedExecution(command.mode, closedProvenance);
     const authorization = mintPhase1RunAuthorization(
@@ -870,6 +873,7 @@ export const runPhase1Cli = async (
         provenance: closedProvenance,
         protectedExecution,
         controls: command.controls,
+        ...(command.command === 'run-differential' && { differentialGate: true as const }),
       } satisfies Phase1RunAuthorization)
     );
     if (command.command === 'run-differential') {

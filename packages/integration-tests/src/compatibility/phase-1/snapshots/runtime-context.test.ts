@@ -114,6 +114,35 @@ const contextInput = (mode: Phase1RunMode = 'review-candidate') => ({
   isolationAttestations: isolation(),
 });
 
+const differentialGateInput = () => {
+  const provenance = Object.freeze({
+    kind: 'review-candidate' as const,
+    harnessCommit,
+    publishable: false as const,
+  });
+  const gateAuthorization = authorizePhase1RunForTesting(
+    Object.freeze({
+      mode: 'runtime-candidate' as const,
+      profile: Object.freeze({
+        phase1Harness: Object.freeze({ commit: harnessCommit }),
+      }) as Phase1Profile,
+      profileSha256: '4'.repeat(64),
+      schemaSha256: '5'.repeat(64),
+      provenance,
+      protectedExecution: undefined,
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+      differentialGate: true as const,
+    })
+  );
+
+  return { ...contextInput('runtime-candidate'), authorization: gateAuthorization };
+};
+
 describe('Phase 1 evidence runtime context', () => {
   it('loads the exact separated primary and foreign target graph', () => {
     const targets = loadPhase1RuntimeTargetGraph(environment);
@@ -173,6 +202,29 @@ describe('Phase 1 evidence runtime context', () => {
     expect(() => {
       assertValidatedPhase1EvidenceRuntimeContext({ ...context });
     }).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
+  });
+
+  it('accepts review provenance only for an explicit runtime differential gate', () => {
+    const input = differentialGateInput();
+    const context = createPhase1EvidenceRuntimeContext(input, environment);
+
+    expect(context.authorization).toBe(input.authorization);
+    expect(context.authorization).toMatchObject({
+      mode: 'runtime-candidate',
+      differentialGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
+    });
+    const withoutMarker = authorizePhase1RunForTesting(
+      Object.freeze({
+        ...input.authorization,
+        differentialGate: undefined,
+      }) as Phase1RunAuthorization
+    );
+
+    expect(() =>
+      createPhase1EvidenceRuntimeContext({ ...input, authorization: withoutMarker }, environment)
+    ).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
   });
 
   it('rejects a structurally valid protected authorization that lacks accepted provenance identity', () => {

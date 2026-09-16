@@ -292,15 +292,30 @@ const assertAcceptedAuthorization = (
   dependencies: Phase1RuntimeContextDependencies
 ): void => {
   dependencies.assertRunAuthorization(value);
-  const authorization = exactRecord(value, [
-    'mode',
-    'profile',
-    'profileSha256',
-    'schemaSha256',
-    'provenance',
-    'protectedExecution',
-    'controls',
-  ]);
+  const differentialGate = Object.hasOwn(value, 'differentialGate');
+  const authorization = exactRecord(
+    value,
+    differentialGate
+      ? [
+          'mode',
+          'profile',
+          'profileSha256',
+          'schemaSha256',
+          'provenance',
+          'protectedExecution',
+          'controls',
+          'differentialGate',
+        ]
+      : [
+          'mode',
+          'profile',
+          'profileSha256',
+          'schemaSha256',
+          'provenance',
+          'protectedExecution',
+          'controls',
+        ]
+  );
   const mode = ownValue(authorization, 'mode');
   const profile = ownValue(authorization, 'profile');
   const provenance = ownValue(authorization, 'provenance');
@@ -330,6 +345,18 @@ const assertAcceptedAuthorization = (
     provenanceCommit !== harnessCommit
   ) {
     return fail();
+  }
+  if (differentialGate) {
+    if (
+      ownValue(authorization, 'differentialGate') !== true ||
+      mode !== 'runtime-candidate' ||
+      protectedExecution !== undefined ||
+      Reflect.get(provenance, 'kind') !== 'review-candidate' ||
+      Reflect.get(provenance, 'publishable') !== false
+    ) {
+      return fail();
+    }
+    return;
   }
   if (mode === 'review-candidate') {
     if (

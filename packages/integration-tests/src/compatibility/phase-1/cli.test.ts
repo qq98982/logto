@@ -293,16 +293,7 @@ describe('Phase 1 CLI grammar', () => {
   });
 
   it('authorizes the differential gate without invoking the complete run port', async () => {
-    const harness = createCliHarness({
-      verifyRunProvenance: async () => ({
-        kind: 'accepted-harness',
-        harnessCommit: 'a'.repeat(40),
-        protectedBranch: 'aster-phase1-harness',
-        pullRequestNumber: 1,
-        publishable: true,
-      }),
-      authorizeProtectedExecution: () => Object.freeze({}) as never,
-    });
+    const harness = createCliHarness();
 
     await expect(
       runPhase1Cli(
@@ -325,6 +316,9 @@ describe('Phase 1 CLI grammar', () => {
     expect(harness.differentialAuthorizations).toHaveLength(1);
     expect(harness.differentialAuthorizations[0]).toMatchObject({
       mode: 'runtime-candidate',
+      differentialGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
       controls: {
         recordOracle: false,
         observationControls: true,
