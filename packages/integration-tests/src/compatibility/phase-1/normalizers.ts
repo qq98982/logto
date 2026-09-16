@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The twelve reviewed field-specific normalizers use guarded JSON narrowing, an RFC-style authentication challenge cursor, and one local header accumulator. */
+/* eslint-disable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The twelve reviewed field-specific normalizers use guarded JSON narrowing, RFC-style header cursors, and one local header accumulator. */
 import { createHash } from 'node:crypto';
 
 import { decodeJwt, decodeProtectedHeader } from 'jose';
@@ -30,6 +30,7 @@ const ephemeralCredentialKeyPattern =
 const authCredentialParameterPattern =
   /^(?:authorization|proxy-authorization|cookie|access[_-]?token|refresh[_-]?token|id[_-]?token|token|credential|password|private[_-]?key|api[_-]?key|signature)$/iu;
 const authTokenPattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+/u;
+const headerTokenPattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
 const authToken68Pattern = /^[A-Za-z0-9._~+/-]+={0,}$/u;
 const coreRequestIdPattern = /^[A-Za-z0-9_-]{16}$/u;
 const entityTagPattern = /^(W\/)?"[\u0021\u0023-\u007E\u0080-\u00FF]*"$/u;
@@ -302,7 +303,67 @@ const normalizeCoreRequestId = (value: string): JsonValue =>
     ? '<per-request-id>'
     : fixedFailure('Invalid phase 1 request ID');
 
-const normalizeLinkHeader = (value: string, context: NormalizationContext): string => {
+const splitLinkHeaderValues = (value: string): readonly string[] => {
+  const result: string[] = [];
+  let start = 0;
+  let insideTarget = false;
+  let insideQuote = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (insideQuote) {
+      if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        insideQuote = false;
+      }
+      continue;
+    }
+    if (character === '"') {
+      insideQuote = true;
+      continue;
+    }
+    if (character === '<') {
+      if (insideTarget) {
+        return fixedFailure('Invalid phase 1 Link header');
+      }
+      insideTarget = true;
+      continue;
+    }
+    if (character === '>') {
+      if (!insideTarget) {
+        return fixedFailure('Invalid phase 1 Link header');
+      }
+      insideTarget = false;
+      continue;
+    }
+    if (character === ',' && !insideTarget) {
+      const entry = value.slice(start, index).trim();
+
+      if (entry.length === 0) {
+        return fixedFailure('Invalid phase 1 Link header');
+      }
+      result.push(entry);
+      start = index + 1;
+    }
+  }
+  const entry = value.slice(start).trim();
+
+  if (insideTarget || insideQuote || escaped || entry.length === 0) {
+    return fixedFailure('Invalid phase 1 Link header');
+  }
+  result.push(entry);
+
+  return Object.freeze(result);
+};
+
+const normalizeLinkValue = (value: string, context: NormalizationContext): string => {
   if (!/<[^>]*>/u.test(value)) {
     return fixedFailure('Invalid phase 1 Link header');
   }
@@ -337,6 +398,20 @@ const normalizeLinkHeader = (value: string, context: NormalizationContext): stri
 
     return `<${originToken}${target.slice(url.origin.length)}>`;
   });
+};
+
+const normalizeLinkHeader = (value: string, context: NormalizationContext): readonly string[] =>
+  Object.freeze(splitLinkHeaderValues(value).map((entry) => normalizeLinkValue(entry, context)));
+
+const normalizeVaryHeader = (value: string): string | undefined => {
+  const fields = value.split(',').map((field) => field.trim());
+
+  if (fields.length === 0 || fields.some((field) => !headerTokenPattern.test(field))) {
+    return fixedFailure('Invalid phase 1 Vary header');
+  }
+  const semantic = fields.filter((field) => field.toLowerCase() !== 'accept-encoding');
+
+  return semantic.length === 0 ? undefined : semantic.join(', ');
 };
 
 type JsonPointerPattern = readonly string[];
@@ -1013,6 +1088,18 @@ const normalizeHeadersValue = (
         return fixedFailure('Invalid phase 1 headers');
       }
       const name = projectRequestIdHeaderName(rawName.toLowerCase(), context);
+      if (name === 'vary') {
+        const value = normalizeVaryHeader(rawValue);
+
+        if (value !== undefined) {
+          result[name] = [...(result[name] ?? []), value];
+        }
+        continue;
+      }
+      if (name === 'link') {
+        result[name] = [...(result[name] ?? []), ...normalizeLinkHeader(rawValue, context)];
+        continue;
+      }
       const value: JsonValue =
         name === 'access-control-allow-origin'
           ? normalizeCorsOrigin(rawValue, context)
@@ -1044,13 +1131,11 @@ const normalizeHeadersValue = (
                     ? normalizeEntityTag(rawValue, options.body)
                     : name === asterNativeSurfaceContract.markers.requestIdHeader.candidate
                       ? normalizeCoreRequestId(rawValue)
-                      : name === 'link'
-                        ? normalizeLinkHeader(rawValue, context)
-                        : name === 'www-authenticate' || name === 'proxy-authenticate'
-                          ? normalizeAuthChallenge(rawValue, context)
-                          : isPhase1CredentialKey(name)
-                            ? '<redacted-header-value>'
-                            : rawValue;
+                      : name === 'www-authenticate' || name === 'proxy-authenticate'
+                        ? normalizeAuthChallenge(rawValue, context)
+                        : isPhase1CredentialKey(name)
+                          ? '<redacted-header-value>'
+                          : rawValue;
       result[name] = [...(result[name] ?? []), value];
     }
 
@@ -1586,4 +1671,4 @@ export const normalizeTokenResponse = (
   return normalized;
 };
 
-/* eslint-enable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

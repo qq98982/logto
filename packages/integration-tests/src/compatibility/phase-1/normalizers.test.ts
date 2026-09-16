@@ -119,6 +119,22 @@ describe('phase 1 field-specific normalizers', () => {
         '<{target.admin-origin}/console>; rel="admin"',
       ],
     });
+    expect(
+      normalizeHeaders(
+        [
+          [
+            'link',
+            '<https://oracle.example.com/users?page=1>; rel="first", <https://oracle.example.com/users?page=2>; rel="next"',
+          ],
+        ],
+        context()
+      )
+    ).toEqual({
+      link: [
+        '<{target.core-origin}/users?page=1>; rel="first"',
+        '<{target.core-origin}/users?page=2>; rel="next"',
+      ],
+    });
     for (const invalid of [
       '</api/users?page=1>; rel="first"',
       '<https://foreign.example/api/users?page=1>; rel="first"',
@@ -130,6 +146,26 @@ describe('phase 1 field-specific normalizers', () => {
       'rel="first"',
     ]) {
       expect(() => normalizeHeaders([['link', invalid]], context())).toThrow(
+        'Invalid phase 1 headers'
+      );
+    }
+  });
+
+  it('removes only transport encoding variance while preserving semantic Vary tokens', () => {
+    expect(
+      normalizeHeaders(
+        [
+          ['Vary', 'Accept-Encoding'],
+          ['vary', 'Accept-Encoding, Origin'],
+          ['vary', 'Origin, Access-Control-Request-Method'],
+        ],
+        context()
+      )
+    ).toEqual({
+      vary: ['Origin', 'Origin, Access-Control-Request-Method'],
+    });
+    for (const invalid of ['', ',', 'Origin,,Accept', 'Origin, bad token']) {
+      expect(() => normalizeHeaders([['vary', invalid]], context())).toThrow(
         'Invalid phase 1 headers'
       );
     }

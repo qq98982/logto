@@ -30,6 +30,7 @@ import {
 import { phase1DifferentialScenarios } from '../scenarios/index.js';
 import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
+import { projectPhase1HttpCompatibility } from './http-compatibility.js';
 import {
   createReferenceScenarioStateProjector,
   type ReferenceScenarioStateProjector,
@@ -321,15 +322,20 @@ const executePhase1DifferentialRuntime = async (
     const scenarios: Phase1DifferentialEvidenceScenario[] = [];
 
     for (const scenario of phase1DifferentialScenarios) {
-      const oracle = keyedProjection(
+      const rawOracle = keyedProjection(
         scenario.id,
         await dependencies.runScenario(scenario, oracleRuntime)
       );
-      const candidate = keyedProjection(
+      const rawCandidate = keyedProjection(
         scenario.id,
         await dependencies.runScenario(scenario, candidateRuntime)
       );
-      assertCandidateNativeSurfaceArtifact(candidate);
+      assertCandidateNativeSurfaceArtifact(rawCandidate);
+      const { oracle, candidate } = projectPhase1HttpCompatibility(
+        scenario.id,
+        rawOracle,
+        rawCandidate
+      );
       scenarios.push(
         snapshotPhase1EvidencePreservingVerifiedTokens<Phase1DifferentialEvidenceScenario>({
           id: scenario.id,

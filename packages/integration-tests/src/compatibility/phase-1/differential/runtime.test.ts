@@ -232,6 +232,64 @@ describe('Phase 1 differential runtime', () => {
     ]);
   });
 
+  it('applies only the registered one-way HTTP compatibility projection', async () => {
+    const approved = await runPhase1DifferentialRuntimeForTesting(
+      context('runtime-candidate'),
+      dependencies((scenarioId, steps) =>
+        scenarioId === 'account.admin-operator-read'
+          ? steps.map((step) =>
+              step.stepId === 'account'
+                ? {
+                    ...step,
+                    value: {
+                      ...step.value,
+                      headers: { ...step.value.headers, 'cache-control': ['no-store'] },
+                    },
+                  }
+                : step
+            )
+          : steps
+      )
+    );
+    const account = approved.scenarios.find(({ id }) => id === 'account.admin-operator-read');
+
+    expect(account?.differences).toEqual([]);
+    expect(account?.candidate.value).not.toHaveProperty([
+      'steps',
+      'account',
+      'value',
+      'headers',
+      'cache-control',
+    ]);
+
+    const rejected = await runPhase1DifferentialRuntimeForTesting(
+      context('runtime-candidate'),
+      dependencies((scenarioId, steps) =>
+        scenarioId === 'account.admin-operator-read'
+          ? steps.map((step) =>
+              step.stepId === 'account'
+                ? {
+                    ...step,
+                    value: {
+                      ...step.value,
+                      headers: { ...step.value.headers, 'cache-control': ['private'] },
+                    },
+                  }
+                : step
+            )
+          : steps
+      )
+    );
+    expect(
+      rejected.scenarios.find(({ id }) => id === 'account.admin-operator-read')?.differences
+    ).toEqual([
+      {
+        path: '/steps/account/value/headers/cache-control',
+        candidate: ['private'],
+      },
+    ]);
+  });
+
   it('preserves verified non-empty token provenance through keyed projection cloning', async () => {
     const runtimeContext = context('mirror-control');
     const verified = createVerifiedTokenObservations(
