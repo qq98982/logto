@@ -4,7 +4,10 @@ import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
 import type { RawProtocolResponse } from '../clients/oidc.js';
 import type { Phase1ScenarioRun } from '../model.js';
-import { createPhase1NormalizationContext } from '../native-surface-profile.js';
+import {
+  createPhase1NormalizationContext,
+  phase1ImplementationForProfile,
+} from '../native-surface-profile.js';
 import { projectDiscoveryObservation } from '../projections/discovery.js';
 
 const jsonMediaTypes = new Set(['application/json', 'application/jwk-set+json']);
@@ -72,7 +75,7 @@ const endpoint = (targetCoreUrl: string, path: string) => new URL(path, targetCo
 const assertProfileSelectedDiscovery = (
   document: JsonObject,
   context: Parameters<Phase1ScenarioRun>[0]
-): void => {
+): JsonObject => {
   const { oidc } = context.profile;
   const exactFields: Readonly<Record<string, JsonValue>> = {
     issuer: endpoint(context.target.coreUrl, oidc.issuerPath),
@@ -107,6 +110,23 @@ const assertProfileSelectedDiscovery = (
   for (const [field, expected] of selectedArrays) {
     assertContainsSelection(document[field], expected, field);
   }
+  const selected: unknown = Object.fromEntries([
+    ...Object.entries(exactFields),
+    ...selectedArrays.map(([field, expected]) => [field, [...expected]]),
+  ]);
+
+  if (!isJsonObject(selected)) {
+    throw new Error('Phase 1 discovery projection is invalid');
+  }
+
+  if (
+    phase1ImplementationForProfile(context.profile) === 'candidate' &&
+    !isDeepStrictEqual(document, selected)
+  ) {
+    throw new Error('Phase 1 candidate discovery contains unapproved metadata');
+  }
+
+  return selected;
 };
 
 const assertAndSelectJwks = (
@@ -166,7 +186,7 @@ export const runDiscoveryConfig: Phase1ScenarioRun = async (context) => {
     { includeCookies: false }
   );
   const openid = requireJsonResponse(openidResponse, 'discovery');
-  assertProfileSelectedDiscovery(openid, context);
+  const selectedOpenid = assertProfileSelectedDiscovery(openid, context);
 
   const oauthResponse = await context.protocol.publicOidc.request(
     'discovery-oauth-authorization-server',
@@ -174,7 +194,7 @@ export const runDiscoveryConfig: Phase1ScenarioRun = async (context) => {
     { includeCookies: false }
   );
   const oauth = requireJsonResponse(oauthResponse, 'discovery');
-  assertProfileSelectedDiscovery(oauth, context);
+  const selectedOauth = assertProfileSelectedDiscovery(oauth, context);
 
   if (!isDeepStrictEqual(openid, oauth)) {
     throw new Error('Phase 1 discovery endpoints are not equivalent');
@@ -202,14 +222,14 @@ export const runDiscoveryConfig: Phase1ScenarioRun = async (context) => {
     Object.freeze({
       stepId: 'oidc-discovery',
       value: projectDiscoveryObservation(
-        rawObservation(openidResponse, openid, after),
+        rawObservation(openidResponse, selectedOpenid, after),
         normalizationContext
       ),
     }),
     Object.freeze({
       stepId: 'oauth-discovery',
       value: projectDiscoveryObservation(
-        rawObservation(oauthResponse, oauth, after),
+        rawObservation(oauthResponse, selectedOauth, after),
         normalizationContext
       ),
     }),

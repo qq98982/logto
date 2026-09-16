@@ -8,11 +8,11 @@ import { runPhase1ScenarioForTarget } from '../scenario-runtime.js';
 import { runDiscoveryConfig } from './discovery-config.js';
 import { phase1DifferentialScenarios } from './index.js';
 
-const target = {
-  label: 'oracle' as const,
+const target = (label: 'oracle' | 'candidate') => ({
+  label,
   coreUrl: 'https://oracle.example/',
   adminUrl: 'https://oracle-admin.example/',
-};
+});
 
 const profile = {
   fixtures: {
@@ -69,6 +69,28 @@ const discovery = {
   backchannel_logout_supported: true,
 };
 
+const selectedDiscovery = {
+  issuer: discovery.issuer,
+  authorization_endpoint: discovery.authorization_endpoint,
+  token_endpoint: discovery.token_endpoint,
+  userinfo_endpoint: discovery.userinfo_endpoint,
+  jwks_uri: discovery.jwks_uri,
+  claims_parameter_supported: profile.oidc.claimsParameterSupported,
+  authorization_response_iss_parameter_supported:
+    profile.oidc.authorizationResponseIssParameterSupported,
+  request_uri_parameter_supported: profile.oidc.requestUriParameterSupported,
+  grant_types_supported: profile.oidc.grants,
+  response_types_supported: profile.oidc.responseTypes,
+  response_modes_supported: profile.oidc.responseModes,
+  code_challenge_methods_supported: profile.oidc.pkceCodeChallengeMethods,
+  token_endpoint_auth_methods_supported: profile.oidc.tokenEndpointAuthMethods,
+  scopes_supported: profile.oidc.scopesSupported,
+  claims_supported: profile.oidc.claimsSupported,
+  subject_types_supported: profile.oidc.subjectTypesSupported,
+  id_token_signing_alg_values_supported: profile.oidc.idTokenSigningAlgorithmsSupported,
+  claim_types_supported: profile.oidc.claimTypesSupported,
+};
+
 const jwks = {
   keys: [
     {
@@ -89,7 +111,10 @@ const response = (body: unknown, mediaType = 'application/json') => ({
   body: JSON.stringify(body),
 });
 
-const context = (documents: readonly unknown[]): Phase1ScenarioRunContext => {
+const context = (
+  documents: readonly unknown[],
+  implementation: 'oracle' | 'candidate' = 'oracle'
+): Phase1ScenarioRunContext => {
   const request = import.meta.jest.fn();
 
   for (const [index, document] of documents.entries()) {
@@ -99,8 +124,20 @@ const context = (documents: readonly unknown[]): Phase1ScenarioRunContext => {
   }
 
   return {
-    profile: profile as never,
-    target,
+    profile: {
+      ...profile,
+      fixtures: {
+        dataTenant: {
+          browserClientConfiguration: {
+            localStorageKey:
+              implementation === 'oracle'
+                ? 'logto:demo-app:dev:config'
+                : 'aster:demo-app:dev:config',
+          },
+        },
+      },
+    } as never,
+    target: target(implementation),
     fixture: { public: { schemaVersion: 1, recipe: 'none', allocations: [] } } as never,
     signal: new AbortController().signal,
     protocol: {
@@ -119,7 +156,7 @@ const context = (documents: readonly unknown[]): Phase1ScenarioRunContext => {
 };
 
 describe('discovery.config', () => {
-  it('compares the complete selected discovery document and rejects extra metadata', async () => {
+  it('projects approved oracle fields and rejects candidate extra metadata', async () => {
     const baseline = await runDiscoveryConfig(context([discovery, discovery, jwks]));
     const extra = { ...discovery, aster_extra_field: true };
     const changed = await runDiscoveryConfig(context([extra, extra, jwks]));
@@ -131,9 +168,12 @@ describe('discovery.config', () => {
     ]);
     expect(baseline[0]?.value).toMatchObject({
       status: 200,
-      body: { backchannel_logout_supported: true },
+      body: {
+        grant_types_supported: ['authorization_code', 'refresh_token'],
+      },
       sideEffects: { fixtureMutation: false },
     });
+    expect(baseline[0]?.value.body).not.toHaveProperty('backchannel_logout_supported');
     expect(baseline[2]?.value).toMatchObject({
       body: {
         keys: [
@@ -148,9 +188,19 @@ describe('discovery.config', () => {
         ],
       },
     });
-    expect(compareJson(baseline[0]?.value, changed[0]?.value)).toEqual([
-      { path: '/body/aster_extra_field', candidate: true },
-    ]);
+    expect(compareJson(baseline[0]?.value, changed[0]?.value)).toEqual([]);
+
+    await expect(
+      runDiscoveryConfig(
+        context(
+          [{ ...selectedDiscovery, aster_extra_field: true }, selectedDiscovery, jwks],
+          'candidate'
+        )
+      )
+    ).rejects.toThrow('Phase 1 candidate discovery contains unapproved metadata');
+    await expect(
+      runDiscoveryConfig(context([selectedDiscovery, selectedDiscovery, jwks], 'candidate'))
+    ).resolves.toBeDefined();
 
     await expect(runDiscoveryConfig(context([discovery, extra, jwks]))).rejects.toThrow(
       'Phase 1 discovery endpoints are not equivalent'
@@ -194,7 +244,7 @@ describe('discovery.config', () => {
     await expect(
       runPhase1ScenarioForTarget(scenario, {
         profile: profile as never,
-        target,
+        target: target('oracle'),
         provisioner,
         createProtocolSession: () => direct.protocol,
         projectScenarioState: async () => {
