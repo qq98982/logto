@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -323,6 +323,129 @@ SQL
   [[ "$admin_observation" == '42501|42501' ]] || fail
 
   terminal="$(run_fixture_sql project-admin-binding)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_fixture || fail
+  cleanup_required=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'tenant.admin-operation-status-matrix' ]]; then
+  cleanup_action=cleanup-admin-matrix
+  cleanup_required=true
+  trap cleanup_on_exit EXIT
+
+  run_fixture_sql setup-admin-matrix >/dev/null || fail
+
+  probe_matrix_mint() {
+    local tenant=$1 operation=$2 seed=$3 error='' status=0
+    [[ "$tenant" =~ ^phase1-invariant-matrix-[a-z-]+$ ]] || fail
+    case "$operation" in
+      provision|key_lifecycle|rewrap|key_audit) ;;
+      *) fail ;;
+    esac
+    [[ "$seed" =~ ^[0-9a-f]{2}$ ]] || fail
+    refresh_maintenance || fail
+    error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+      --username aster_admin --dbname "$database" \
+      --command "BEGIN; SELECT * FROM aster_runtime.mint_admin_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('$seed', 32), 'hex')), '$tenant', '$operation'); ROLLBACK" \
+      2>&1 >/dev/null)" || status=$?
+    if ((status == 0)); then
+      printf '%s' true
+      return
+    fi
+    [[ "$error" =~ ERROR:[[:space:]]+42501: ]] || fail
+    printf '%s' false
+  }
+
+  inactive_provision="$(probe_matrix_mint phase1-invariant-matrix-inactive provision 61)"
+  inactive_key_lifecycle="$(probe_matrix_mint phase1-invariant-matrix-inactive key_lifecycle 62)"
+  inactive_rewrap="$(probe_matrix_mint phase1-invariant-matrix-inactive rewrap 63)"
+  inactive_key_audit="$(probe_matrix_mint phase1-invariant-matrix-inactive key_audit 64)"
+  active_provision="$(probe_matrix_mint phase1-invariant-matrix-active provision 65)"
+  active_key_lifecycle="$(probe_matrix_mint phase1-invariant-matrix-active key_lifecycle 66)"
+  active_rewrap="$(probe_matrix_mint phase1-invariant-matrix-active rewrap 67)"
+  active_key_audit="$(probe_matrix_mint phase1-invariant-matrix-active key_audit 68)"
+  suspended_provision="$(probe_matrix_mint phase1-invariant-matrix-suspended provision 69)"
+  suspended_key_lifecycle="$(probe_matrix_mint phase1-invariant-matrix-suspended key_lifecycle 6a)"
+  suspended_rewrap="$(probe_matrix_mint phase1-invariant-matrix-suspended rewrap 6b)"
+  suspended_key_audit="$(probe_matrix_mint phase1-invariant-matrix-suspended key_audit 6c)"
+  deleted_provision="$(probe_matrix_mint phase1-invariant-matrix-deleted provision 6d)"
+  deleted_key_lifecycle="$(probe_matrix_mint phase1-invariant-matrix-deleted key_lifecycle 6e)"
+  deleted_rewrap="$(probe_matrix_mint phase1-invariant-matrix-deleted rewrap 6f)"
+  deleted_key_audit="$(probe_matrix_mint phase1-invariant-matrix-deleted key_audit 70)"
+
+  [[ "$inactive_provision" == true && "$inactive_key_lifecycle" == false && \
+     "$inactive_rewrap" == true && "$inactive_key_audit" == true && \
+     "$active_provision" == false && "$active_key_lifecycle" == true && \
+     "$active_rewrap" == true && "$active_key_audit" == true && \
+     "$suspended_provision" == false && "$suspended_key_lifecycle" == true && \
+     "$suspended_rewrap" == true && "$suspended_key_audit" == true && \
+     "$deleted_provision" == false && "$deleted_key_lifecycle" == false && \
+     "$deleted_rewrap" == false && "$deleted_key_audit" == false ]] || fail
+
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_admin_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('71', 32), 'hex')), 'phase1-invariant-matrix-inactive', 'provision')" \
+    >/dev/null 2>&1 || fail
+  narrowing_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('71', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.probe_admin_provision_write('matrix-function-narrowing') \g /dev/null
+SAVEPOINT operation_class_mismatch;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.probe_admin_rewrap_write('forbidden-matrix-rewrap') \g /dev/null
+\set operation_state :SQLSTATE
+ROLLBACK TO SAVEPOINT operation_class_mismatch;
+\set ON_ERROR_STOP on
+\echo :operation_state
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$narrowing_observation" == '42501' ]] || fail
+
+  mint_epoch_binding() {
+    local tenant=$1 operation=$2 seed=$3
+    refresh_maintenance || fail
+    "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username aster_admin --dbname "$database" \
+      --command "SELECT * FROM aster_runtime.mint_admin_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('$seed', 32), 'hex')), '$tenant', '$operation')" \
+      >/dev/null 2>&1
+  }
+  mint_epoch_binding phase1-invariant-matrix-epoch-provision provision 72 || fail
+  mint_epoch_binding phase1-invariant-matrix-epoch-key-lifecycle key_lifecycle 73 || fail
+  mint_epoch_binding phase1-invariant-matrix-epoch-rewrap rewrap 74 || fail
+  mint_epoch_binding phase1-invariant-matrix-epoch-key-audit key_audit 75 || fail
+  run_fixture_sql advance-admin-matrix-epochs >/dev/null || fail
+
+  stale_admin_binding_rejected() {
+    local seed=$1 error='' status=0
+    error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+      --username aster_admin --dbname "$database" \
+      --command "SELECT * FROM aster_runtime.activate_tenant_binding(pg_catalog.decode(pg_catalog.repeat('$seed', 32), 'hex'))" \
+      2>&1 >/dev/null)" || status=$?
+    ((status != 0)) || return 1
+    [[ "$error" =~ ERROR:[[:space:]]+42501: ]]
+  }
+  stale_admin_binding_rejected 72 || fail
+  stale_admin_binding_rejected 73 || fail
+  stale_admin_binding_rejected 74 || fail
+  stale_admin_binding_rejected 75 || fail
+
+  terminal="$(run_fixture_sql project-admin-matrix)" || fail
   [[ -n "$terminal" ]] || fail
   cleanup_fixture || fail
   cleanup_required=false

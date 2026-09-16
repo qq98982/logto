@@ -17,6 +17,9 @@ WHERE (
       'phase1-invariant-admin-b-forbidden'
     )
     AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
+  ) OR (
+    tenant_id LIKE 'phase1-invariant-matrix-%'
+    AND :'action' IN ('setup-admin-matrix', 'cleanup-admin-matrix')
   );
 
 DELETE FROM aster_control.tenant_bindings
@@ -33,6 +36,9 @@ WHERE (
       'phase1-invariant-admin-b-forbidden'
     )
     AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
+  ) OR (
+    tenant_id LIKE 'phase1-invariant-matrix-%'
+    AND :'action' IN ('setup-admin-matrix', 'cleanup-admin-matrix')
   );
 
 DELETE FROM aster_control.tenants
@@ -49,6 +55,9 @@ WHERE (
       'phase1-invariant-admin-b-forbidden'
     )
     AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
+  ) OR (
+    tenant_id LIKE 'phase1-invariant-matrix-%'
+    AND :'action' IN ('setup-admin-matrix', 'cleanup-admin-matrix')
   );
 
 INSERT INTO aster_control.tenants (
@@ -87,6 +96,33 @@ FROM (
     ('phase1-invariant-admin-b'::text)
 ) AS fixture(tenant_id)
 WHERE :'action' = 'setup-admin-binding';
+
+INSERT INTO aster_control.tenants (
+  tenant_id,
+  status,
+  status_epoch,
+  provisioning_verified
+)
+SELECT fixture.tenant_id, fixture.status, fixture.status_epoch, fixture.provisioning_verified
+FROM (
+  VALUES
+    ('phase1-invariant-matrix-inactive'::text, 'inactive'::text, 1::bigint, false),
+    ('phase1-invariant-matrix-active'::text, 'active'::text, 1::bigint, true),
+    ('phase1-invariant-matrix-suspended'::text, 'suspended'::text, 1::bigint, true),
+    ('phase1-invariant-matrix-deleted'::text, 'deleted'::text, 1::bigint, true),
+    ('phase1-invariant-matrix-epoch-provision'::text, 'inactive'::text, 7::bigint, false),
+    ('phase1-invariant-matrix-epoch-key-lifecycle'::text, 'active'::text, 7::bigint, true),
+    ('phase1-invariant-matrix-epoch-rewrap'::text, 'active'::text, 7::bigint, true),
+    ('phase1-invariant-matrix-epoch-key-audit'::text, 'active'::text, 7::bigint, true)
+) AS fixture(tenant_id, status, status_epoch, provisioning_verified)
+WHERE :'action' = 'setup-admin-matrix';
+
+UPDATE aster_control.tenants
+SET status_epoch = 8,
+    updated_at = pg_catalog.clock_timestamp()
+WHERE :'action' = 'advance-admin-matrix-epochs'
+  AND tenant_id LIKE 'phase1-invariant-matrix-epoch-%'
+  AND status_epoch = 7;
 
 SELECT pg_catalog.jsonb_build_object(
   'schemaVersion', 1,
@@ -243,5 +279,112 @@ WHERE :'action' = 'project-admin-binding'
       AND binding.activated_backend_pid IS NOT NULL
       AND binding.activated_xid IS NOT NULL
   ) = 1;
+
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'tenant.admin-operation-status-matrix',
+  'projection', pg_catalog.jsonb_build_object(
+    'matrix', pg_catalog.jsonb_build_object(
+      'inactive', pg_catalog.jsonb_build_object(
+        'provision', true,
+        'keyLifecycle', false,
+        'rewrap', true,
+        'keyAudit', true
+      ),
+      'active', pg_catalog.jsonb_build_object(
+        'provision', false,
+        'keyLifecycle', true,
+        'rewrap', true,
+        'keyAudit', true
+      ),
+      'suspended', pg_catalog.jsonb_build_object(
+        'provision', false,
+        'keyLifecycle', true,
+        'rewrap', true,
+        'keyAudit', true
+      ),
+      'deleted', pg_catalog.jsonb_build_object(
+        'provision', false,
+        'keyLifecycle', false,
+        'rewrap', false,
+        'keyAudit', false
+      ),
+      'epochChanged', pg_catalog.jsonb_build_object(
+        'provision', false,
+        'keyLifecycle', false,
+        'rewrap', false,
+        'keyAudit', false
+      )
+    ),
+    'invalidPairRowDeltas', 0,
+    'functionNarrowing', 'enforced'
+  )
+)::text
+FROM aster_control.tenants AS inactive
+JOIN aster_control.tenants AS active
+  ON active.tenant_id = 'phase1-invariant-matrix-active'
+JOIN aster_control.tenants AS suspended
+  ON suspended.tenant_id = 'phase1-invariant-matrix-suspended'
+JOIN aster_control.tenants AS deleted
+  ON deleted.tenant_id = 'phase1-invariant-matrix-deleted'
+JOIN aster_control.tenants AS epoch_provision
+  ON epoch_provision.tenant_id = 'phase1-invariant-matrix-epoch-provision'
+JOIN aster_control.tenants AS epoch_key_lifecycle
+  ON epoch_key_lifecycle.tenant_id = 'phase1-invariant-matrix-epoch-key-lifecycle'
+JOIN aster_control.tenants AS epoch_rewrap
+  ON epoch_rewrap.tenant_id = 'phase1-invariant-matrix-epoch-rewrap'
+JOIN aster_control.tenants AS epoch_key_audit
+  ON epoch_key_audit.tenant_id = 'phase1-invariant-matrix-epoch-key-audit'
+WHERE :'action' = 'project-admin-matrix'
+  AND inactive.tenant_id = 'phase1-invariant-matrix-inactive'
+  AND inactive.status = 'inactive'
+  AND inactive.status_epoch = 1
+  AND active.status = 'active'
+  AND active.status_epoch = 1
+  AND suspended.status = 'suspended'
+  AND suspended.status_epoch = 1
+  AND deleted.status = 'deleted'
+  AND deleted.status_epoch = 1
+  AND epoch_provision.status = 'inactive'
+  AND epoch_provision.status_epoch = 8
+  AND epoch_key_lifecycle.status = 'active'
+  AND epoch_key_lifecycle.status_epoch = 8
+  AND epoch_rewrap.status = 'active'
+  AND epoch_rewrap.status_epoch = 8
+  AND epoch_key_audit.status = 'active'
+  AND epoch_key_audit.status_epoch = 8
+  AND NOT EXISTS (
+    SELECT 1
+    FROM aster_tenant.rls_sentinel AS sentinel
+    WHERE sentinel.tenant_id LIKE 'phase1-invariant-matrix-%'
+  )
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_control.tenant_bindings AS binding
+    WHERE binding.tenant_id LIKE 'phase1-invariant-matrix-%'
+  ) = 5
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_control.tenant_bindings AS binding
+    WHERE binding.tenant_id = 'phase1-invariant-matrix-inactive'
+      AND binding.status_epoch = 1
+      AND binding.audience = 'admin'
+      AND binding.admin_operation = 'provision'
+      AND binding.activated_at IS NULL
+      AND binding.issued_at <= pg_catalog.clock_timestamp()
+      AND binding.expires_at > pg_catalog.clock_timestamp()
+  ) = 1
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_control.tenant_bindings AS binding
+    WHERE binding.tenant_id LIKE 'phase1-invariant-matrix-epoch-%'
+      AND binding.status_epoch = 7
+      AND binding.audience = 'admin'
+      AND binding.admin_operation IN ('provision', 'key_lifecycle', 'rewrap', 'key_audit')
+      AND binding.activated_at IS NULL
+      AND binding.issued_at <= pg_catalog.clock_timestamp()
+      AND binding.expires_at > pg_catalog.clock_timestamp()
+  ) = 4;
 
 COMMIT;
