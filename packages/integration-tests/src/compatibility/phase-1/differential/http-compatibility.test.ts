@@ -40,6 +40,23 @@ describe('Phase 1 HTTP compatibility projection', () => {
         oracle: ['timeout=6'],
       },
     ]);
+
+    const partialCandidateHeaders: readonly JsonObject[] = [
+      { connection: ['keep-alive'] },
+      { 'keep-alive': ['timeout=5'] },
+    ];
+
+    for (const candidateHeaders of partialCandidateHeaders) {
+      const partial = projectPhase1HttpCompatibility(
+        'token.authorization-code',
+        keyed('token', {
+          headers: { connection: ['keep-alive'], 'keep-alive': ['timeout=5'] },
+        }),
+        keyed('token', { headers: candidateHeaders })
+      );
+
+      expect(compareJson(partial.oracle, partial.candidate)).toHaveLength(1);
+    }
   });
 
   it('projects only registered exact candidate cache hardening additions', () => {
@@ -58,6 +75,19 @@ describe('Phase 1 HTTP compatibility projection', () => {
       })
     );
     expect(compareJson(discovery.oracle, discovery.candidate)).toEqual([]);
+
+    for (const [scenarioId, stepId] of [
+      ['authorization.password-pkce-consent', 'consent-get'],
+      ['interaction.consent-session-boundary', 'get-valid-b'],
+    ] as const) {
+      const consent = projectPhase1HttpCompatibility(
+        scenarioId,
+        keyed(stepId, { headers: {} }),
+        keyed(stepId, { headers: { 'cache-control': ['no-store'] } })
+      );
+
+      expect(compareJson(consent.oracle, consent.candidate)).toEqual([]);
+    }
 
     const unlisted = projectPhase1HttpCompatibility(
       'token.authorization-code',
@@ -80,9 +110,18 @@ describe('Phase 1 HTTP compatibility projection', () => {
       keyed('account', {
         headers: { etag: [{ weak: false, normalizedBodySha256: hash }] },
       }),
-      keyed('account', { headers: {} })
+      keyed('account', { headers: { 'cache-control': ['no-store'] } })
     );
     expect(compareJson(omitted.oracle, omitted.candidate)).toEqual([]);
+
+    const missingCacheClosure = projectPhase1HttpCompatibility(
+      'account.admin-operator-read',
+      keyed('account', {
+        headers: { etag: [{ weak: false, normalizedBodySha256: hash }] },
+      }),
+      keyed('account', { headers: {} })
+    );
+    expect(compareJson(missingCacheClosure.oracle, missingCacheClosure.candidate)).toHaveLength(1);
 
     const weakened = projectPhase1HttpCompatibility(
       'management.application-read',
@@ -127,7 +166,10 @@ describe('Phase 1 HTTP compatibility projection', () => {
         {
           authority: 'accepted',
           response: {
-            headers: { etag: [{ weak: false, normalizedBodySha256: hash }] },
+            headers: {
+              'cache-control': ['no-store'],
+              etag: [{ weak: false, normalizedBodySha256: hash }],
+            },
             status: 303,
           },
         },
@@ -135,7 +177,12 @@ describe('Phase 1 HTTP compatibility projection', () => {
     });
     const candidate = keyed('submit', {
       headers: {},
-      outcomes: [{ authority: 'accepted', response: { headers: {}, status: 303 } }],
+      outcomes: [
+        {
+          authority: 'accepted',
+          response: { headers: { 'cache-control': ['no-store'] }, status: 303 },
+        },
+      ],
     });
     const projected = projectPhase1HttpCompatibility(
       'authorization.password-pkce-consent',

@@ -30,6 +30,11 @@ const cacheRules = Object.freeze([
     value: noStore,
   },
   {
+    scenarioId: 'authorization.password-pkce-consent',
+    pointer: headerPointer('consent-get', 'cache-control'),
+    value: noStore,
+  },
+  {
     scenarioId: 'cookie.localhost-port-interleaving',
     pointer: headerPointer('admin-finish-reverse', 'cache-control'),
     value: noStore,
@@ -77,6 +82,11 @@ const cacheRules = Object.freeze([
     pointer: headerPointer(stepId, 'cache-control'),
     value: noStore,
   })),
+  {
+    scenarioId: 'interaction.consent-session-boundary',
+    pointer: headerPointer('get-valid-b', 'cache-control'),
+    value: noStore,
+  },
   ...['first-party', 'saml', 'third-party'].map((stepId) => ({
     scenarioId: 'management.application-read' as const,
     pointer: headerPointer(stepId, 'cache-control'),
@@ -271,16 +281,14 @@ const projectTransportHeaders = (
   oracle: Readonly<Record<string, unknown>>;
   candidate: Readonly<Record<string, unknown>>;
 }> => {
-  let projectedOracle = oracle;
-
-  for (const [name, expected] of [
-    ['connection', ['keep-alive']],
-    ['keep-alive', ['timeout=5']],
-  ] as const) {
-    if (isDeepStrictEqual(projectedOracle[name], expected) && !Object.hasOwn(candidate, name)) {
-      projectedOracle = withoutHeader(projectedOracle, name);
-    }
-  }
+  const projectPair =
+    isDeepStrictEqual(oracle.connection, ['keep-alive']) &&
+    isDeepStrictEqual(oracle['keep-alive'], ['timeout=5']) &&
+    !Object.hasOwn(candidate, 'connection') &&
+    !Object.hasOwn(candidate, 'keep-alive');
+  const projectedOracle = projectPair
+    ? withoutHeader(withoutHeader(oracle, 'connection'), 'keep-alive')
+    : oracle;
 
   return Object.freeze({ oracle: projectedOracle, candidate });
 };
@@ -364,6 +372,9 @@ const weakEtag = (
   typeof value[0].normalizedBodySha256 === 'string' &&
   digestPattern.test(value[0].normalizedBodySha256);
 
+const cacheClosed = (value: unknown): boolean =>
+  isDeepStrictEqual(value, noStore) || isDeepStrictEqual(value, noCache);
+
 export const projectPhase1HttpCompatibility = (
   scenarioId: Phase1DifferentialScenarioId,
   oracleInput: Readonly<JsonObject>,
@@ -386,7 +397,8 @@ export const projectPhase1HttpCompatibility = (
     if (
       rule.scenarioId === scenarioId &&
       strongEtag(valueAt(oracle, rule.pointer)) &&
-      valueAt(candidate, rule.pointer) === missing
+      valueAt(candidate, rule.pointer) === missing &&
+      cacheClosed(valueAt(candidateInput, rule.pointer.replace(/\/etag$/u, '/cache-control')))
     ) {
       oracle = deleteAt(oracle, pointerSegments(rule.pointer)) as Readonly<JsonObject>;
     }

@@ -135,6 +135,22 @@ describe('phase 1 field-specific normalizers', () => {
         '<{target.core-origin}/users?page=2>; rel="next"',
       ],
     });
+    expect(
+      normalizeHeaders(
+        [
+          [
+            'link',
+            '<https://oracle.example.com/users?page=1>; rel="first"; title="first, page", <https://oracle.example.com/users?page=2>; rel="next"',
+          ],
+        ],
+        context()
+      )
+    ).toEqual({
+      link: [
+        '<{target.core-origin}/users?page=1>; rel="first"; title="first, page"',
+        '<{target.core-origin}/users?page=2>; rel="next"',
+      ],
+    });
     for (const invalid of [
       '</api/users?page=1>; rel="first"',
       '<https://foreign.example/api/users?page=1>; rel="first"',
@@ -143,6 +159,10 @@ describe('phase 1 field-specific normalizers', () => {
       '<https://oracle.example.com/api/users#state=private>; rel="first"',
       '<https://oracle.example.com:443/api/users>; rel="first"',
       '<ftp://oracle.example.com/api/users>; rel="first"',
+      '<https://oracle.example.com/users>; rel="first",',
+      ', <https://oracle.example.com/users>; rel="first"',
+      '<https://oracle.example.com/users>; title="unterminated',
+      '<<https://oracle.example.com/users>>; rel="first"',
       'rel="first"',
     ]) {
       expect(() => normalizeHeaders([['link', invalid]], context())).toThrow(
