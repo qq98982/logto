@@ -51,7 +51,10 @@ while (($# > 0)); do
   esac
 done
 
-[[ "$invariant_id" == 'database.owner-role-membership-boundary' ]] || fail
+case "$invariant_id" in
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected) ;;
+  *) fail ;;
+esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
 [[ "$primary_container_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
 [[ "$foreign_container_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
@@ -65,6 +68,94 @@ foreign_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.doc
 [[ "$foreign_labels" == "candidate-foreign-postgres|$project_name" ]] || fail
 
 database='aster_phase1_candidate_primary'
+
+if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
+  driver_directory="$(dirname -- "$(realpath -e -- "${BASH_SOURCE[0]}")")"
+  sql_file="${driver_directory}/phase1-candidate-invariants.sql"
+  [[ -f "$sql_file" && ! -L "$sql_file" ]] || fail
+
+  run_fixture_sql() {
+    local action=$1
+    "$DOCKER_BIN" exec --interactive --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --set="action=$action" --username postgres --dbname "$database" \
+      <"$sql_file"
+  }
+
+  cleanup_required=true
+  cleanup_suspended_epoch() {
+    run_fixture_sql cleanup-suspended-epoch >/dev/null 2>&1
+  }
+  # Invoked indirectly by the EXIT trap.
+  # shellcheck disable=SC2329
+  cleanup_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if [[ "$cleanup_required" == true ]] && ! cleanup_suspended_epoch; then
+      if ((exit_code == 0)); then
+        printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+        exit_code=1
+      fi
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_on_exit EXIT
+
+  run_fixture_sql setup-suspended-epoch >/dev/null || fail
+  deployment_id="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command 'SELECT deployment_id::text FROM aster_control.deployment_state WHERE singleton' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail
+
+  refresh_maintenance() {
+    "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username aster_maintainer --dbname "$database" \
+      --command "SELECT * FROM aster_runtime.run_tenant_maintenance('$deployment_id')" \
+      >/dev/null 2>&1
+  }
+
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_control_resolver --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('a3', 32), 'hex')), 'phase1-invariant-suspended-epoch', 'request')" \
+    >/dev/null 2>&1 || fail
+
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_admin_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('b4', 32), 'hex')), 'phase1-invariant-suspended-epoch', 'key_lifecycle')" \
+    >/dev/null 2>&1 || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" \
+    --command "BEGIN; SELECT * FROM aster_runtime.activate_tenant_binding(pg_catalog.decode(pg_catalog.repeat('b4', 32), 'hex')); SELECT aster_runtime.suspend_tenant(7); COMMIT" \
+    >/dev/null 2>&1 || fail
+
+  stale_error=''
+  stale_status=0
+  stale_error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+    --username aster_request --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.activate_tenant_binding(pg_catalog.decode(pg_catalog.repeat('a3', 32), 'hex'))" \
+    2>&1 >/dev/null)" || stale_status=$?
+  ((stale_status != 0)) || fail
+  [[ "$stale_error" =~ ERROR:[[:space:]]+42501:[[:space:]]+Aster\ tenant\ binding\ rejected ]] || fail
+
+  terminal="$(run_fixture_sql project-suspended-epoch)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_suspended_epoch || fail
+  cleanup_required=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
 
 can_set_owner_role() {
   local role=$1

@@ -15,20 +15,27 @@ const roots = new Set<string>();
 const projectName = 'aster-phase1-0123456789abcdef';
 const primaryContainerId = '1'.repeat(64);
 const foreignContainerId = '2'.repeat(64);
-const invariantId = 'database.owner-role-membership-boundary';
-const projection = candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
-  .expectedProjection;
+const ownerRoleInvariantId = 'database.owner-role-membership-boundary';
+const suspendedEpochInvariantId = 'tenant.suspended-epoch-rejected';
+const projection = (invariantId: string) =>
+  candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
+    .expectedProjection;
+const ownerRoleProjection = projection(ownerRoleInvariantId);
+const suspendedEpochProjection = projection(suspendedEpochInvariantId);
 
-if (!projection) {
-  throw new Error('missing owner-role invariant projection');
+if (!ownerRoleProjection || !suspendedEpochProjection) {
+  throw new Error('missing candidate invariant projection');
 }
 
-const output = JSON.stringify({
-  schemaVersion: 1,
-  kind: 'phase1-candidate-invariant-terminal',
-  invariantId,
-  projection,
-});
+const output = (invariantId: string, expectedProjection: unknown) =>
+  JSON.stringify({
+    schemaVersion: 1,
+    kind: 'phase1-candidate-invariant-terminal',
+    invariantId,
+    projection: expectedProjection,
+  });
+const ownerRoleOutput = output(ownerRoleInvariantId, ownerRoleProjection);
+const suspendedEpochOutput = output(suspendedEpochInvariantId, suspendedEpochProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -56,11 +63,30 @@ if [[ "$1" == inspect ]]; then
   exit 1
 fi
 if [[ "$1" == exec ]]; then
-  if [[ "$*" == *'--username aster_migrator'* ]]; then exit 0; fi
-  if [[ "$*" == *'--username aster_'* && "$*" != *'--username postgres'* ]]; then exit 1; fi
-  cat >"$STDIN"
+  if [[ "$*" == *'SET ROLE aster_owner'* ]]; then
+    if [[ "$*" == *'--username aster_migrator'* ]]; then exit 0; fi
+    exit 1
+  fi
+  if [[ "$*" == *'--set=action=setup-suspended-epoch'* ]]; then cat >>"$STDIN"; exit 0; fi
+  if [[ "$*" == *'--set=action=cleanup-suspended-epoch'* ]]; then cat >>"$STDIN"; exit "${'$'}{CLEANUP_STATUS:-0}"; fi
+  if [[ "$*" == *'--set=action=project-suspended-epoch'* ]]; then
+    cat >>"$STDIN"
+    printf '%s' "$SUSPENDED_OUTPUT"
+    exit 0
+  fi
+  if [[ "$*" == *'SELECT deployment_id::text FROM aster_control.deployment_state'* ]]; then
+    printf '%s' '01234567-89ab-cdef-0123-456789abcdef'
+    exit 0
+  fi
+  if [[ "$*" == *'--username aster_request'* ]]; then
+    if [[ "${'$'}{STALE_ACTIVATION_ACCEPTED:-0}" == 1 ]]; then exit 0; fi
+    printf '%s\n' 'ERROR:  42501: Aster tenant binding rejected' >&2
+    exit 1
+  fi
+  if [[ "$*" == *'--username aster_maintainer'* || "$*" == *'--username aster_control_resolver'* || "$*" == *'--username aster_admin'* ]]; then exit 0; fi
+  cat >>"$STDIN"
   [[ "${'$'}{FINAL_STATUS:-0}" == 0 ]] || exit "$FINAL_STATUS"
-  printf '%s' "$OUTPUT"
+  printf '%s' "$OWNER_OUTPUT"
   exit 0
 fi
 exit 1
@@ -81,12 +107,13 @@ exit 1
       PRIMARY_SERVICE: primaryService,
       FOREIGN_SERVICE: foreignService,
       PROJECT: project,
-      OUTPUT: output,
+      OWNER_OUTPUT: ownerRoleOutput,
+      SUSPENDED_OUTPUT: suspendedEpochOutput,
     },
   };
 };
 
-const args = (id = invariantId) => [
+const args = (id = ownerRoleInvariantId) => [
   '--invariant-id',
   id,
   '--project-name',
@@ -103,7 +130,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
     const { stdout, stderr } = await executeFile(driver, args(), { env: fake.env });
 
     expect(stderr).toBe('');
-    expect(JSON.parse(stdout)).toEqual(JSON.parse(output));
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(ownerRoleOutput));
     const calls = await readFile(fake.calls, 'utf8');
     const sql = await readFile(fake.stdin, 'utf8');
 
@@ -127,8 +154,62 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
   });
 
+  it('rejects a stale request capability after an actual admin suspension and epoch change', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(suspendedEpochInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(suspendedEpochOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    for (const role of [
+      'aster_maintainer',
+      'aster_control_resolver',
+      'aster_admin',
+      'aster_request',
+    ]) {
+      expect(calls).toContain(`--username ${role}`);
+    }
+    expect(calls).toContain('aster_runtime.run_tenant_maintenance');
+    expect(calls).toContain('aster_runtime.mint_tenant_binding');
+    expect(calls).toContain('aster_runtime.mint_admin_tenant_binding');
+    expect(calls).toContain('aster_runtime.suspend_tenant(7)');
+    expect(calls).toContain('aster_runtime.activate_tenant_binding');
+    expect(sql).toContain("'phase1-invariant-suspended-epoch'");
+    expect(sql).toContain("'project-suspended-epoch'");
+    expect(sql).toContain("'cleanup-suspended-epoch'");
+    expect(sql).toContain('request_binding.expires_at > pg_catalog.clock_timestamp()');
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed and cleans the epoch fixture when stale activation is accepted', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(suspendedEpochInvariantId), {
+        env: { ...fake.env, STALE_ACTIVATION_ACCEPTED: '1' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain('--set=action=cleanup-suspended-epoch');
+  });
+
+  it('fails the invariant when reverse cleanup fails', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(suspendedEpochInvariantId), {
+        env: { ...fake.env, CLEANUP_STATUS: '1' },
+      })
+    ).rejects.toThrow();
+  });
+
   it.each([
-    ['unknown invariant', args('tenant.cross-tenant-read-rejected')],
+    ['unknown invariant', args('tenant.unknown-invariant')],
     ['extra argument', [...args(), '--extra']],
     ['wrong project', args().map((value) => (value === projectName ? 'wrong' : value))],
   ] as const)('rejects %s before docker exec', async (_name, invocation) => {
