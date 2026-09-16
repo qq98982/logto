@@ -19,8 +19,7 @@ readonly SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator
-  candidate-phase0-postgres candidate-phase0-init candidate-phase0-core
-  candidate-phase0-fixture-coordinator
+  candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441)
 readonly LOOPBACK_PROXY_BINDINGS=(
@@ -208,24 +207,20 @@ BROWSER_TMP="${RUN_DIR}/browser-tmp"
 XDG_RUNTIME="${RUN_DIR}/xdg-runtime"
 PRIMARY_KEYRING_DIRECTORY="${RUN_DIR}/candidate-primary-keys"
 FOREIGN_KEYRING_DIRECTORY="${RUN_DIR}/candidate-foreign-keys"
-PHASE0_KEYRING_DIRECTORY="${RUN_DIR}/candidate-phase0-keys"
 FIXTURE_DIRECTORY="${RUN_DIR}/fx"
-PHASE0_FIXTURE_DIRECTORY="${RUN_DIR}/p0"
 PRIMARY_CONFIG_FILE="${RUN_DIR}/candidate-primary.conf"
 FOREIGN_CONFIG_FILE="${RUN_DIR}/candidate-foreign.conf"
-PHASE0_CONFIG_FILE="${RUN_DIR}/candidate-phase0.conf"
 FIXTURE_SOCKET="${FIXTURE_DIRECTORY}/aster-fixture.sock"
-PHASE0_FIXTURE_SOCKET="${PHASE0_FIXTURE_DIRECTORY}/aster-fixture.sock"
 REVIEW_PROFILE="${RUN_DIR}/review-profile.json"
-[[ "${#FIXTURE_SOCKET}" -le 107 && "${#PHASE0_FIXTURE_SOCKET}" -le 107 ]] || fail
+[[ "${#FIXTURE_SOCKET}" -le 107 ]] || fail
 /usr/bin/mkdir -m 700 -- "${PRIVATE_HOME}" "${BROWSER_TMP}" "${XDG_RUNTIME}" \
   "${PRIMARY_KEYRING_DIRECTORY}" "${FOREIGN_KEYRING_DIRECTORY}" \
-  "${PHASE0_KEYRING_DIRECTORY}" "${FIXTURE_DIRECTORY}" "${PHASE0_FIXTURE_DIRECTORY}"
+  "${FIXTURE_DIRECTORY}"
 assert_build_root_identity
 readonly COMPOSE_ENV PRIVATE_HOME BROWSER_TMP XDG_RUNTIME
-readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY PHASE0_KEYRING_DIRECTORY
-readonly FIXTURE_DIRECTORY PHASE0_FIXTURE_DIRECTORY PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE
-readonly PHASE0_CONFIG_FILE FIXTURE_SOCKET PHASE0_FIXTURE_SOCKET REVIEW_PROFILE
+readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY
+readonly FIXTURE_DIRECTORY PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE
+readonly FIXTURE_SOCKET REVIEW_PROFILE
 CLOSED_NODE_ENV=(
   env -i
   PATH='/usr/bin:/bin'
@@ -535,16 +530,13 @@ random_uuid() {
 
 primary_deployment_id="$(random_uuid)"
 foreign_deployment_id="$(random_uuid)"
-phase0_deployment_id="$(random_uuid)"
 primary_sentinel="$(random_hex 32)"
 foreign_sentinel="$(random_hex 32)"
-phase0_sentinel="$(random_hex 32)"
-[[ "$(printf '%s\n' "${primary_deployment_id}" "${foreign_deployment_id}" "${phase0_deployment_id}" | /usr/bin/sort -u | /usr/bin/wc -l)" == 3 ]] || fail
-[[ "$(printf '%s\n' "${primary_sentinel}" "${foreign_sentinel}" "${phase0_sentinel}" | /usr/bin/sort -u | /usr/bin/wc -l)" == 3 ]] || fail
+[[ "${primary_deployment_id}" != "${foreign_deployment_id}" ]] || fail
+[[ "${primary_sentinel}" != "${foreign_sentinel}" ]] || fail
 printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "${primary_deployment_id}" "${primary_sentinel}" >"${PRIMARY_CONFIG_FILE}"
 printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "${foreign_deployment_id}" "${foreign_sentinel}" >"${FOREIGN_CONFIG_FILE}"
-printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "${phase0_deployment_id}" "${phase0_sentinel}" >"${PHASE0_CONFIG_FILE}"
-/usr/bin/chmod 0400 "${PRIMARY_CONFIG_FILE}" "${FOREIGN_CONFIG_FILE}" "${PHASE0_CONFIG_FILE}"
+/usr/bin/chmod 0400 "${PRIMARY_CONFIG_FILE}" "${FOREIGN_CONFIG_FILE}"
 
 failure_stage=build
 "${CLOSED_BUILD_ENV[@]}" "${PNPM_BIN}" --dir "${REPO_ROOT}/packages/integration-tests" build >/dev/null || fail
@@ -565,6 +557,7 @@ ASTER_PHASE1_POSTGRES_IMAGE=${POSTGRES_IMAGE}
 ASTER_PHASE1_REDIS_IMAGE=${REDIS_IMAGE}
 ASTER_PHASE1_ORACLE_IMAGE=${ORACLE_IMAGE}
 ASTER_PHASE1_CANDIDATE_IMAGE=${CANDIDATE_IMAGE}
+ASTER_PHASE1_PHASE0_CONTROL_IMAGE=${ORACLE_IMAGE}
 ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY=$(random_hex 32)
@@ -577,18 +570,16 @@ ASTER_PHASE1_ORACLE_PHASE0_STATUS_API_KEY=$(random_hex 32)
 ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_CANDIDATE_PHASE0_POSTGRES_PASSWORD=$(random_hex 32)
+ASTER_PHASE1_CANDIDATE_PHASE0_SECRET_VAULT_KEK=$(random_hex 32)
+ASTER_PHASE1_CANDIDATE_PHASE0_STATUS_API_KEY=$(random_hex 32)
 ASTER_PHASE1_RUNTIME_UID=$(id -u)
 ASTER_PHASE1_RUNTIME_GID=$(id -g)
 ASTER_PHASE1_PRIMARY_CONFIG_FILE=${PRIMARY_CONFIG_FILE}
 ASTER_PHASE1_FOREIGN_CONFIG_FILE=${FOREIGN_CONFIG_FILE}
-ASTER_PHASE1_PHASE0_CONFIG_FILE=${PHASE0_CONFIG_FILE}
 ASTER_PHASE1_PRIMARY_KEYRING_DIRECTORY=${PRIMARY_KEYRING_DIRECTORY}
 ASTER_PHASE1_FOREIGN_KEYRING_DIRECTORY=${FOREIGN_KEYRING_DIRECTORY}
-ASTER_PHASE1_PHASE0_KEYRING_DIRECTORY=${PHASE0_KEYRING_DIRECTORY}
 ASTER_PHASE1_FIXTURE_DIRECTORY=${FIXTURE_DIRECTORY}
 ASTER_PHASE1_FIXTURE_SOCKET=${FIXTURE_SOCKET}
-ASTER_PHASE1_PHASE0_FIXTURE_DIRECTORY=${PHASE0_FIXTURE_DIRECTORY}
-ASTER_PHASE1_PHASE0_FIXTURE_SOCKET=${PHASE0_FIXTURE_SOCKET}
 EOF
 /usr/bin/chmod 0600 "${COMPOSE_ENV}"
 
@@ -606,7 +597,7 @@ while ((SECONDS < deadline)); do
     [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { ready=0; break; }
     state="$(docker_cli inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}")"
     case "${service}" in
-      candidate-primary-init|candidate-foreign-init|candidate-phase0-init)
+      candidate-primary-init|candidate-foreign-init)
         [[ "${state}" == 'exited|0|' ]] || ready=0
         ;;
       *)
@@ -653,7 +644,7 @@ http_ready() {
 for port in "${PORTS[@]}"; do
   http_ready "${port}" '/oidc/.well-known/openid-configuration' 'issuer' || fail
 done
-[[ -S "${FIXTURE_SOCKET}" && -S "${PHASE0_FIXTURE_SOCKET}" && "${FIXTURE_SOCKET}" != "${PHASE0_FIXTURE_SOCKET}" ]] || fail
+[[ -S "${FIXTURE_SOCKET}" ]] || fail
 
 key_set_sha256() {
   local container_id=$1 tenant_id=$2 config_key=$3 result
@@ -709,7 +700,9 @@ PUBLIC_ENV=(
   env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${BROWSER_TMP}" XDG_RUNTIME_DIR="${XDG_RUNTIME}"
   ASTER_PHASE1_MODE='runtime-candidate' ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}"
   ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}" ASTER_PHASE1_ORACLE_IMAGE_DIGEST="${ORACLE_IMAGE}"
-  ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE}" ASTER_PHASE1_TOPOLOGY_ID="${project_name}"
+  ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE}"
+  ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST="${ORACLE_IMAGE}"
+  ASTER_PHASE1_TOPOLOGY_ID="${project_name}"
   ASTER_PHASE1_CONFORMANCE_ROOT="${CONFORMANCE_ROOT}" ASTER_PHASE1_ORACLE_SNAPSHOT_PATH="${ORACLE_SNAPSHOT_PATH}"
   ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_CONTAINER_ID="${ORACLE_PRIMARY_POSTGRES_CONTAINER_ID}"
   ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_CONTAINER_ID="${ORACLE_FOREIGN_POSTGRES_CONTAINER_ID}"
@@ -733,9 +726,10 @@ PUBLIC_ENV=(
   ASTER_PHASE1_CANDIDATE_FOREIGN_URL='http://localhost:3322' ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL='http://localhost:3422'
   ASTER_PHASE1_PHASE0_ORACLE_URL='http://localhost:3331' ASTER_PHASE1_PHASE0_ORACLE_ADMIN_URL='http://localhost:3431'
   ASTER_PHASE1_PHASE0_CANDIDATE_URL='http://localhost:3341' ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL='http://localhost:3441'
-  ASTER_FIXTURE_SOCKET="${FIXTURE_SOCKET}" ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET="${PHASE0_FIXTURE_SOCKET}"
+  ASTER_FIXTURE_SOCKET="${FIXTURE_SOCKET}"
   ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"
 )
+failure_stage=differential
 ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}" "${SETSID_BIN}" "${PUBLIC_ENV[@]}" \
   "${NODE_BIN}" "${PHASE1_CLI}" run-differential --mode runtime-candidate \
   --profile "${REVIEW_PROFILE}" --schema "${SCHEMA_SOURCE}" \

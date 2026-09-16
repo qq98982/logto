@@ -96,7 +96,6 @@ export type Phase0EvidenceReproductionRequest = Readonly<{
   commit: typeof phase0HarnessCommit;
   lifecyclePath: '.scripts/compatibility/run.sh';
   files: readonly ['discovery.json', 'negative-control.json', 'password-code.json', 'run.json'];
-  fixtureProfile: Pick<Phase1Profile, 'fixtures'>;
 }>;
 export type Phase0EvidenceReproduction = Readonly<{
   commit: typeof phase0HarnessCommit;
@@ -1143,7 +1142,6 @@ const assertPhase0Evidence = async (
       files: Object.freeze([
         ...expectedNames,
       ]) as unknown as Phase0EvidenceReproductionRequest['files'],
-      fixtureProfile: Object.freeze({ fixtures: profile.fixtures }),
     })
   );
 

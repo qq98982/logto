@@ -46,9 +46,8 @@ const measuredCandidateServices = [
 ] as const;
 const phase0CandidateServices = [
   'candidate-phase0-postgres',
-  'candidate-phase0-init',
+  'candidate-phase0-redis',
   'candidate-phase0-core',
-  'candidate-phase0-fixture-coordinator',
 ] as const;
 
 describe('runtime-candidate differential topology', () => {
@@ -70,58 +69,42 @@ describe('runtime-candidate differential topology', () => {
     }
   });
 
-  it('defines one primary-only Aster Phase 0 stack with exact isolated authority', async () => {
+  it('defines one isolated reference-mirror Phase 0 candidate stack', async () => {
     const document = await readCompose(topologyPath);
     const postgres = document.services['candidate-phase0-postgres'];
-    const init = document.services['candidate-phase0-init'];
+    const redis = document.services['candidate-phase0-redis'];
     const core = document.services['candidate-phase0-core'];
-    const coordinator = document.services['candidate-phase0-fixture-coordinator'];
 
     expect(document.networks['candidate-phase0']).toEqual({
       internal: true,
       ipam: { config: [{ subnet: '172.30.243.0/24' }] },
     });
     expect(postgres).toMatchObject({
+      image: ['$', '{ASTER_PHASE1_POSTGRES_IMAGE:?required}'].join(''),
       environment: {
-        POSTGRES_USER: 'postgres',
-        POSTGRES_DB: 'postgres',
-        ASTER_PHASE1_INIT_CIDR: '172.30.243.11/32',
-        ASTER_PHASE1_CORE_CIDR: '172.30.243.12/32',
-        ASTER_PHASE1_COORDINATOR_CIDR: '172.30.243.13/32',
+        POSTGRES_USER: 'aster',
+        POSTGRES_DB: 'aster',
       },
       networks: { 'candidate-phase0': { ipv4_address: '172.30.243.10' } },
+      volumes: ['candidate-phase0-postgres:/var/lib/postgresql/data'],
     });
-    expect(init).toMatchObject({
-      command: ['init', 'phase0'],
+    expect(redis).toMatchObject({
+      image: ['$', '{ASTER_PHASE1_REDIS_IMAGE:?required}'].join(''),
+      command: ['redis-server', '--appendonly', 'yes'],
       networks: { 'candidate-phase0': { ipv4_address: '172.30.243.11' } },
-      environment: {
-        ASTER_PHASE1_PHASE0_CONFIG_FILE: ['$', '{ASTER_PHASE1_PHASE0_CONFIG_FILE:?required}'].join(
-          ''
-        ),
-        ASTER_PHASE1_PHASE0_MASTER_KEY_FILE: '/var/lib/aster/phase0/aster-master-key.json',
-      },
+      volumes: ['candidate-phase0-redis:/data'],
     });
     expect(core).toMatchObject({
-      command: ['core', 'phase0'],
+      image: ['$', '{ASTER_PHASE1_PHASE0_CONTROL_IMAGE:?required}'].join(''),
       networks: { 'candidate-phase0': { ipv4_address: '172.30.243.12' } },
       environment: {
-        ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3341/oidc',
-        ASTER_PHASE1_ADMIN_ISSUER: 'http://localhost:3441/oidc',
-        ASTER_PHASE1_ADMIN_ORIGIN: 'http://localhost:3441',
+        ENDPOINT: 'http://localhost:3341',
+        ADMIN_ENDPOINT: 'http://localhost:3441',
+        ADMIN_PORT: '3441',
       },
     });
-    expect(coordinator).toMatchObject({
-      command: ['fixture-coordinator', 'phase0'],
-      networks: { 'candidate-phase0': { ipv4_address: '172.30.243.13' } },
-      environment: {
-        ASTER_FIXTURE_SOCKET: ['$', '{ASTER_PHASE1_PHASE0_FIXTURE_SOCKET:?required}'].join(''),
-      },
-    });
-    expect(init?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0');
-    expect(core?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0:ro');
-    expect(coordinator?.volumes).toContain('candidate-phase0-keyring:/var/lib/aster/phase0:ro');
-    expect(JSON.stringify(core)).not.toMatch(/DB_URL|DATABASE_URL|POSTGRES|PASSWORD|SENTINEL/iu);
-    expect(JSON.stringify(coordinator)).not.toMatch(/FOREIGN/iu);
+    expect(JSON.stringify(core)).not.toContain('ASTER_PHASE1_CANDIDATE_IMAGE');
+    expect(JSON.stringify(document.services)).not.toContain('fixture-coordinator phase0');
   });
 
   it('uses exact closed networks volumes and rootless service policy', async () => {
@@ -153,7 +136,7 @@ describe('runtime-candidate differential topology', () => {
         'candidate-phase0-postgres',
         'candidate-primary-keyring',
         'candidate-foreign-keyring',
-        'candidate-phase0-keyring',
+        'candidate-phase0-redis',
       ].toSorted()
     );
     for (const service of Object.values(document.services)) {
@@ -165,9 +148,7 @@ describe('runtime-candidate differential topology', () => {
     }
     expect(source).not.toMatch(/\b(?:anchors|extends|include|profiles):/u);
     expect(source).not.toContain('/dev/shm');
-    expect(
-      Object.keys(document.services).some((name) => name.includes('candidate-phase0-redis'))
-    ).toBe(false);
+    expect(Object.keys(document.services)).toContain('candidate-phase0-redis');
   });
 
   it('runs only the non-publishable differential gate with owned cleanup', async () => {
@@ -181,16 +162,9 @@ describe('runtime-candidate differential topology', () => {
       'run-differential',
       "ASTER_PHASE1_MODE='runtime-candidate'",
       ['FIXTURE_DIRECTORY="', '$', '{RUN_DIR}/fx"'].join(''),
-      ['PHASE0_FIXTURE_DIRECTORY="', '$', '{RUN_DIR}/p0"'].join(''),
-      [
-        '[[ "',
-        '$',
-        '{#FIXTURE_SOCKET}" -le 107 && "',
-        '$',
-        '{#PHASE0_FIXTURE_SOCKET}" -le 107 ]] || fail',
-      ].join(''),
+      ['[[ "', '$', '{#FIXTURE_SOCKET}" -le 107 ]] || fail'].join(''),
       'ASTER_FIXTURE_SOCKET=',
-      'ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET=',
+      'ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST=',
       'phase-1-differential.json',
       'value.scenarios.length !== 22',
       'scenario.differences.length !== 0',
@@ -212,6 +186,7 @@ describe('runtime-candidate differential topology', () => {
       'phase-1-conformance.json',
       'docker.sock',
       '/dev/shm',
+      'ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET=',
     ]) {
       expect(source).not.toContain(forbidden);
     }

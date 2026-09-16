@@ -647,7 +647,6 @@ describe('Phase 1 source and acceptance provenance', () => {
         commit: phase0Commit,
         lifecyclePath: '.scripts/compatibility/run.sh',
         files: ['discovery.json', 'negative-control.json', 'password-code.json', 'run.json'],
-        fixtureProfile: phase0FixtureProfile,
       },
     ]);
     for (const path of profilePaths) {

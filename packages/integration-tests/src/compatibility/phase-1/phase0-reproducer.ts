@@ -3,15 +3,12 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/pro
 import path from 'node:path';
 
 import { runCompatibilityCli } from '../cli.js';
-import { createCompatibilityScenarios } from '../scenarios/index.js';
-import { managementPasswordCodeFixtureLifecycle } from '../scenarios/password-code.js';
 
 import {
   type AsterPhase1BuildRootEnvironment,
   withTrustedAsterPhase1BuildDirectory,
 } from './build-root.js';
 import { phase0HarnessCommit, snapshotClosedDataGraph } from './model.js';
-import { createCandidatePhase0FixtureLifecycle } from './phase0-candidate-fixture.js';
 import {
   type Phase0EvidenceFileName,
   type Phase0EvidenceReproducer,
@@ -51,9 +48,7 @@ const assertRequest = (
   const snapshot = snapshotClosedDataGraph<Phase0EvidenceReproductionRequest>(request) ?? fail();
 
   if (
-    Object.keys(snapshot).toSorted().join(',') !==
-      'commit,files,fixtureProfile,lifecyclePath,repository' ||
-    Object.keys(snapshot.fixtureProfile).join(',') !== 'fixtures' ||
+    Object.keys(snapshot).toSorted().join(',') !== 'commit,files,lifecyclePath,repository' ||
     snapshot.commit !== phase0HarnessCommit ||
     snapshot.lifecyclePath !== '.scripts/compatibility/run.sh' ||
     snapshot.repository !== 'https://github.com/qq98982/logto.git' ||
@@ -98,23 +93,6 @@ const canonicalLocalHttpOrigin = (value: string): string => {
   } catch {
     return fail();
   }
-};
-
-const canonicalAbsolutePath = (value: string): string => {
-  if (
-    !path.isAbsolute(value) ||
-    path.resolve(value) !== value ||
-    value.includes('\0') ||
-    Array.from(value).some((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-
-      return codePoint <= 31 || codePoint === 127;
-    })
-  ) {
-    return fail();
-  }
-
-  return value;
 };
 
 const loadDedicatedTargets = (environment: RuntimeEnvironment) => {
@@ -178,7 +156,7 @@ const reproduce = async (
   environment: RuntimeEnvironment,
   dependencies: Phase0ReproducerDependencies
 ): Promise<Phase0EvidenceReproduction> => {
-  const validatedRequest = assertRequest(request);
+  assertRequest(request);
   const root = requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT');
 
   try {
@@ -204,38 +182,24 @@ const reproduce = async (
           environment,
           'ASTER_PHASE1_ORACLE_IMAGE_DIGEST'
         );
-        const candidateImageDigest = requiredEnvironmentValue(
+        const runtimeCandidateImageDigest = requiredEnvironmentValue(
           environment,
           'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST'
         );
-
-        if (!digestPattern.test(oracleImageDigest) || !digestPattern.test(candidateImageDigest)) {
-          return fail();
-        }
-        const targets = loadDedicatedTargets(environment);
-        const fixtureSocket = canonicalAbsolutePath(
-          requiredEnvironmentValue(environment, 'ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET')
+        const candidateImageDigest = requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST'
         );
-        const measuredFixtureSocket = environment.ASTER_FIXTURE_SOCKET;
 
         if (
-          measuredFixtureSocket !== undefined &&
-          canonicalAbsolutePath(measuredFixtureSocket) === fixtureSocket
+          !digestPattern.test(oracleImageDigest) ||
+          !digestPattern.test(runtimeCandidateImageDigest) ||
+          !digestPattern.test(candidateImageDigest) ||
+          candidateImageDigest !== oracleImageDigest
         ) {
           return fail();
         }
-        const candidateTarget = Object.freeze({
-          label: 'candidate' as const,
-          coreUrl: `${targets.candidateUrl}/`,
-          adminUrl: `${targets.candidateAdminUrl}/`,
-        });
-        const passwordCodeLifecycle = createCandidatePhase0FixtureLifecycle({
-          profile: validatedRequest.fixtureProfile,
-          target: candidateTarget,
-          fixtureSocket,
-          managementLifecycle: managementPasswordCodeFixtureLifecycle,
-        });
-        const scenarios = createCompatibilityScenarios({ passwordCodeLifecycle });
+        const targets = loadDedicatedTargets(environment);
         const cliEnvironment = Object.freeze({
           ASTER_ORACLE_URL: targets.oracleUrl,
           ASTER_ORACLE_ADMIN_URL: targets.oracleAdminUrl,
@@ -247,8 +211,7 @@ const reproduce = async (
           ASTER_CANDIDATE_MESSAGE_DIR: visibleCandidateMessages,
           ASTER_EVIDENCE_DIR: visibleEvidenceDirectory,
         });
-        const cliDependencies = Object.freeze({
-          scenarios,
+        const quiet = Object.freeze({
           stdout: async (_message: string) => {
             await Promise.resolve();
           },
@@ -256,16 +219,16 @@ const reproduce = async (
             await Promise.resolve();
           },
         });
-        const positive = await dependencies.runCli([], cliEnvironment, cliDependencies);
+        const positive = await dependencies.runCli([], cliEnvironment, quiet);
         const negative = await dependencies.runCli(
           ['--fault-injection', 'discovery-issuer'],
           cliEnvironment,
-          cliDependencies
+          quiet
         );
         const finalized = await dependencies.runCli(
           ['--finalize-run', '--negative-control-path', '/observations/0/value/issuer'],
           cliEnvironment,
-          cliDependencies
+          quiet
         );
 
         if (positive !== 0 || negative !== 2 || finalized !== 0) {
