@@ -133,6 +133,7 @@ describe('Phase 1 candidate state driver', () => {
     expect(source).toContain('encode(token.refresh_digest');
     expect(source).toContain("'phase1-family:'||family.grant_id");
     expect(source).not.toContain("'phase1-family:'||family.family_id");
+    expect(source).toContain("nullif(authorization_entry.value->>'grant_id','') is not null");
   });
 
   it('rejects wrong services, projects, steps, and extra flags before docker exec', async () => {
