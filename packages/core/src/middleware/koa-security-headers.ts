@@ -93,6 +93,7 @@ const createSecurityHeaderSettings = (tenantId: string): SecurityHeaderSettings 
     'https://*.captcha-open.aliyuncs.com/',
     'https://*.captcha-open-b.aliyuncs.com/',
     'https://cloudauth-device.aliyuncs.com',
+    'https://cloudauth-device-dualstack.cn-shanghai.aliyuncs.com',
     'https://cn-shanghai.device.saf.aliyuncs.com',
   ];
   const aliyunCaptchaImageOrigins = [

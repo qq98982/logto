@@ -77,6 +77,7 @@ describe('koaSecurityHeaders() middleware — experience CSP', () => {
         'https://*.captcha-open.aliyuncs.com/',
         'https://*.captcha-open-b.aliyuncs.com/',
         'https://cloudauth-device.aliyuncs.com',
+        'https://cloudauth-device-dualstack.cn-shanghai.aliyuncs.com',
         'https://cn-shanghai.device.saf.aliyuncs.com',
       ])
     );
@@ -111,6 +112,7 @@ describe('koaSecurityHeaders() middleware — experience CSP', () => {
       expect(cspHeader).not.toContain('captcha-open.aliyuncs.com');
       expect(cspHeader).not.toContain('captcha-open-b.aliyuncs.com');
       expect(cspHeader).not.toContain('cloudauth-device.aliyuncs.com');
+      expect(cspHeader).not.toContain('cloudauth-device-dualstack.cn-shanghai.aliyuncs.com');
       expect(cspHeader).not.toContain('cn-shanghai.device.saf.aliyuncs.com');
       expect(cspHeader).not.toContain('static-captcha.aliyuncs.com');
     }
