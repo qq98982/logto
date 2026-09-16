@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -69,7 +69,7 @@ foreign_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.doc
 
 database='aster_phase1_candidate_primary'
 
-if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
+if [[ "$invariant_id" == tenant.* ]]; then
   driver_directory="$(dirname -- "$(realpath -e -- "${BASH_SOURCE[0]}")")"
   sql_file="${driver_directory}/phase1-candidate-invariants.sql"
   [[ -f "$sql_file" && ! -L "$sql_file" ]] || fail
@@ -82,16 +82,18 @@ if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
       <"$sql_file"
   }
 
-  cleanup_required=true
-  cleanup_suspended_epoch() {
-    run_fixture_sql cleanup-suspended-epoch >/dev/null 2>&1
+  cleanup_required=false
+  cleanup_action=''
+  cleanup_fixture() {
+    [[ -n "$cleanup_action" ]] || return 1
+    run_fixture_sql "$cleanup_action" >/dev/null 2>&1
   }
   # Invoked indirectly by the EXIT trap.
   # shellcheck disable=SC2329
   cleanup_on_exit() {
     local exit_code=$?
     trap - EXIT
-    if [[ "$cleanup_required" == true ]] && ! cleanup_suspended_epoch; then
+    if [[ "$cleanup_required" == true ]] && ! cleanup_fixture; then
       if ((exit_code == 0)); then
         printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
         exit_code=1
@@ -99,9 +101,6 @@ if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
     fi
     exit "$exit_code"
   }
-  trap cleanup_on_exit EXIT
-
-  run_fixture_sql setup-suspended-epoch >/dev/null || fail
   deployment_id="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
     psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
     --username postgres --dbname "$database" \
@@ -116,6 +115,14 @@ if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
       --command "SELECT * FROM aster_runtime.run_tenant_maintenance('$deployment_id')" \
       >/dev/null 2>&1
   }
+fi
+
+if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
+  cleanup_action=cleanup-suspended-epoch
+  cleanup_required=true
+  trap cleanup_on_exit EXIT
+
+  run_fixture_sql setup-suspended-epoch >/dev/null || fail
 
   refresh_maintenance || fail
   "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
@@ -148,7 +155,122 @@ if [[ "$invariant_id" == 'tenant.suspended-epoch-rejected' ]]; then
 
   terminal="$(run_fixture_sql project-suspended-epoch)" || fail
   [[ -n "$terminal" ]] || fail
-  cleanup_suspended_epoch || fail
+  cleanup_fixture || fail
+  cleanup_required=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'tenant.cross-tenant-read-rejected' ]]; then
+  cleanup_action=cleanup-cross-tenant
+  cleanup_required=true
+  trap cleanup_on_exit EXIT
+
+  run_fixture_sql setup-cross-tenant >/dev/null || fail
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_control_resolver --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('d1', 32), 'hex')), 'phase1-invariant-cross-a', 'request')" \
+    >/dev/null 2>&1 || fail
+  "$DOCKER_BIN" exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_request --dbname "$database" >/dev/null 2>&1 <<'SQL' || fail
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('d1', 32), 'hex')
+) \g /dev/null
+INSERT INTO aster_tenant.rls_sentinel (item_id, test_value)
+VALUES ('00000000-0000-4000-8000-0000000000a1', 'sentinel-a');
+COMMIT;
+SQL
+
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_control_resolver --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('d2', 32), 'hex')), 'phase1-invariant-cross-b', 'worker')" \
+    >/dev/null 2>&1 || fail
+  "$DOCKER_BIN" exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_worker --dbname "$database" >/dev/null 2>&1 <<'SQL' || fail
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('d2', 32), 'hex')
+) \g /dev/null
+INSERT INTO aster_tenant.rls_sentinel (item_id, test_value)
+VALUES ('00000000-0000-4000-8000-0000000000b1', 'sentinel-b');
+COMMIT;
+SQL
+
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_control_resolver --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('c5', 32), 'hex')), 'phase1-invariant-cross-a', 'request')" \
+    >/dev/null 2>&1 || fail
+
+  relationship_error=''
+  relationship_status=0
+  relationship_error="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+    --username aster_request --dbname "$database" 2>&1 >/dev/null <<'SQL'
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c5', 32), 'hex')
+) \g /dev/null
+INSERT INTO aster_tenant.rls_sentinel (parent_item_id, test_value)
+VALUES (
+  '00000000-0000-4000-8000-0000000000b1',
+  'forbidden-cross-tenant-parent'
+);
+COMMIT;
+SQL
+)" || relationship_status=$?
+  ((relationship_status != 0)) || fail
+  [[ "$relationship_error" =~ ERROR:[[:space:]]+23503: ]] || fail
+
+  cross_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username aster_request --dbname "$database" <<'SQL'
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c5', 32), 'hex')
+) \g /dev/null
+WITH visible AS (
+  SELECT COALESCE(
+    pg_catalog.string_agg(test_value, ',' ORDER BY test_value),
+    ''
+  ) AS labels
+  FROM aster_tenant.rls_sentinel
+), cross_rows AS (
+  SELECT pg_catalog.count(*) AS row_count
+  FROM aster_tenant.rls_sentinel
+  WHERE tenant_id = 'phase1-invariant-cross-b'
+)
+SELECT CASE
+  WHEN aster_runtime.bound_tenant_id(NULL) = 'phase1-invariant-cross-a'
+   AND visible.labels = 'sentinel-a'
+   AND cross_rows.row_count = 0
+  THEN 'tenant-a|sentinel-a|0'
+  ELSE 'invalid'
+END
+FROM visible, cross_rows;
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$cross_observation" == 'tenant-a|sentinel-a|0' ]] || fail
+
+  terminal="$(run_fixture_sql project-cross-tenant)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_fixture || fail
   cleanup_required=false
   trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"

@@ -17,13 +17,15 @@ const primaryContainerId = '1'.repeat(64);
 const foreignContainerId = '2'.repeat(64);
 const ownerRoleInvariantId = 'database.owner-role-membership-boundary';
 const suspendedEpochInvariantId = 'tenant.suspended-epoch-rejected';
+const crossTenantInvariantId = 'tenant.cross-tenant-read-rejected';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
 const ownerRoleProjection = projection(ownerRoleInvariantId);
 const suspendedEpochProjection = projection(suspendedEpochInvariantId);
+const crossTenantProjection = projection(crossTenantInvariantId);
 
-if (!ownerRoleProjection || !suspendedEpochProjection) {
+if (!ownerRoleProjection || !suspendedEpochProjection || !crossTenantProjection) {
   throw new Error('missing candidate invariant projection');
 }
 
@@ -36,6 +38,7 @@ const output = (invariantId: string, expectedProjection: unknown) =>
   });
 const ownerRoleOutput = output(ownerRoleInvariantId, ownerRoleProjection);
 const suspendedEpochOutput = output(suspendedEpochInvariantId, suspendedEpochProjection);
+const crossTenantOutput = output(crossTenantInvariantId, crossTenantProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -74,14 +77,36 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$SUSPENDED_OUTPUT"
     exit 0
   fi
+  if [[ "$*" == *'--set=action=setup-cross-tenant'* ]]; then cat >>"$STDIN"; exit 0; fi
+  if [[ "$*" == *'--set=action=cleanup-cross-tenant'* ]]; then cat >>"$STDIN"; exit "${'$'}{CLEANUP_STATUS:-0}"; fi
+  if [[ "$*" == *'--set=action=project-cross-tenant'* ]]; then
+    cat >>"$STDIN"
+    printf '%s' "$CROSS_TENANT_OUTPUT"
+    exit 0
+  fi
   if [[ "$*" == *'SELECT deployment_id::text FROM aster_control.deployment_state'* ]]; then
     printf '%s' '01234567-89ab-cdef-0123-456789abcdef'
     exit 0
   fi
   if [[ "$*" == *'--username aster_request'* ]]; then
+    if [[ "$*" == *'--interactive'* ]]; then
+      input="$(cat)"
+      printf '%s' "$input" >>"$STDIN"
+      if [[ "$input" == *'INSERT INTO aster_tenant.rls_sentinel'* && "$input" == *"'sentinel-a'"* ]]; then exit 0; fi
+      if [[ "$input" == *'forbidden-cross-tenant-parent'* ]]; then
+        printf '%s\n' 'ERROR:  23503: relationship rejected' >&2
+        exit 1
+      fi
+      printf '%s' "${'$'}{CROSS_PROBE_OUTPUT:-tenant-a|sentinel-a|0}"
+      exit "${'$'}{CROSS_PROBE_STATUS:-0}"
+    fi
     if [[ "${'$'}{STALE_ACTIVATION_ACCEPTED:-0}" == 1 ]]; then exit 0; fi
     printf '%s\n' 'ERROR:  42501: Aster tenant binding rejected' >&2
     exit 1
+  fi
+  if [[ "$*" == *'--username aster_worker'* && "$*" == *'--interactive'* ]]; then
+    cat >>"$STDIN"
+    exit 0
   fi
   if [[ "$*" == *'--username aster_maintainer'* || "$*" == *'--username aster_control_resolver'* || "$*" == *'--username aster_admin'* ]]; then exit 0; fi
   cat >>"$STDIN"
@@ -109,6 +134,7 @@ exit 1
       PROJECT: project,
       OWNER_OUTPUT: ownerRoleOutput,
       SUSPENDED_OUTPUT: suspendedEpochOutput,
+      CROSS_TENANT_OUTPUT: crossTenantOutput,
     },
   };
 };
@@ -206,6 +232,52 @@ describe('Phase 1 candidate invariant shell driver', () => {
         env: { ...fake.env, CLEANUP_STATUS: '1' },
       })
     ).rejects.toThrow();
+  });
+
+  it('projects only the bound tenant after actual RLS and relationship denials', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(crossTenantInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(crossTenantOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    for (const role of [
+      'aster_maintainer',
+      'aster_control_resolver',
+      'aster_request',
+      'aster_worker',
+    ]) {
+      expect(calls).toContain(`--username ${role}`);
+    }
+    expect(calls).toContain('aster_runtime.run_tenant_maintenance');
+    expect(calls).toContain('aster_runtime.mint_tenant_binding');
+    expect(sql).toContain("'phase1-invariant-cross-a'");
+    expect(sql).toContain("'phase1-invariant-cross-b'");
+    expect(sql).toContain("'sentinel-a'");
+    expect(sql).toContain("'sentinel-b'");
+    expect(sql).toContain('forbidden-cross-tenant-parent');
+    expect(sql).toContain('parent_item_id');
+    expect(sql).toContain('aster_runtime.bound_tenant_id(NULL)');
+    expect(sql).toContain("'project-cross-tenant'");
+    expect(sql).toContain("'cleanup-cross-tenant'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed and cleans when a cross-tenant row becomes visible', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(crossTenantInvariantId), {
+        env: { ...fake.env, CROSS_PROBE_OUTPUT: 'tenant-a|sentinel-a|1' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain('--set=action=cleanup-cross-tenant');
   });
 
   it.each([
