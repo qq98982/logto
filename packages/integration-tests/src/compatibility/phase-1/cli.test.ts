@@ -112,6 +112,25 @@ const designProfileFixture = (): Phase1Profile => {
   };
 };
 
+const lockedProfileFixture = (): Phase1Profile => {
+  const profile = structuredClone(profileFixture()) as Phase1Profile;
+
+  return {
+    ...profile,
+    profileSchema: {
+      ...profile.profileSchema,
+      sourceCommit: phase1ProfileSchemaLock.sourceCommit,
+      sha256: phase1ProfileSchemaLock.sha256,
+      lockState: 'locked; sourceCommit and sha256 pin the sole canonical Phase 1 profile schema',
+    },
+    phase1Harness: {
+      ...profile.phase1Harness,
+      commit: 'b'.repeat(40),
+      lockState: 'locked; commit pins the reviewed Phase 1 harness descendant',
+    },
+  };
+};
+
 const bundleFor = (
   profile: Phase1Profile,
   profileBytes = Buffer.from(`${JSON.stringify(profile)}\n`),
@@ -468,7 +487,7 @@ describe('Phase 1 CLI grammar', () => {
 });
 
 describe('preparePhase1ReviewProfile', () => {
-  const createPreparationHarness = async () => {
+  const createPreparationHarness = async (sourceProfile = designProfileFixture()) => {
     const asterRoot = await createRoot('phase1-cli-aster');
     const logtoRoot = await createRoot('phase1-cli-logto');
     const outputRoot = await createRoot('phase1-cli-output');
@@ -480,7 +499,7 @@ describe('preparePhase1ReviewProfile', () => {
       writeFile(schemaPath, '{}\n', { mode: 0o600 }),
       writeFile(path.join(logtoRoot, 'package.json'), '{}\n', { mode: 0o600 }),
     ]);
-    const source = bundleFor(designProfileFixture());
+    const source = bundleFor(sourceProfile);
     const harnessCommit = 'a'.repeat(40);
     let publishedProfile: Phase1Profile | undefined;
     let validatedProfile: Phase1Profile | undefined;
@@ -587,6 +606,43 @@ describe('preparePhase1ReviewProfile', () => {
       },
     });
     expect(harness.wasRolledBack()).toBe(false);
+  });
+
+  it('repins an exactly locked canonical source to the current harness commit', async () => {
+    const harness = await createPreparationHarness(lockedProfileFixture());
+
+    await expect(
+      preparePhase1ReviewProfileForTesting(harness.command, harness.dependencies)
+    ).resolves.toBeUndefined();
+    expect(harness.getPublishedProfile()).toMatchObject({
+      profileSchema: {
+        sourceCommit: phase1ProfileSchemaLock.sourceCommit,
+        sha256: phase1ProfileSchemaLock.sha256,
+        lockState: 'locked; sourceCommit and sha256 pin the sole canonical Phase 1 profile schema',
+      },
+      phase1Harness: {
+        commit: harness.command.harnessCommit,
+        lockState: 'locked; commit pins the reviewed Phase 1 harness descendant',
+      },
+    });
+  });
+
+  it.each([
+    ['schema source commit', { sourceCommit: 'c'.repeat(40) }],
+    ['schema digest', { sha256: 'd'.repeat(64) }],
+    ['schema lock state', { lockState: 'private-invalid-lock-state' }],
+  ] as const)('rejects a locked source with a mismatched %s', async (_name, profileSchema) => {
+    const locked = lockedProfileFixture();
+    const source = {
+      ...locked,
+      profileSchema: { ...locked.profileSchema, ...profileSchema },
+    } as unknown as Phase1Profile;
+    const harness = await createPreparationHarness(source);
+
+    await expect(
+      preparePhase1ReviewProfileForTesting(harness.command, harness.dependencies)
+    ).rejects.toThrow('Phase 1 review profile preparation failed.');
+    expect(harness.getPublishedProfile()).toBeUndefined();
   });
 
   it('rejects repository and clean-HEAD boundary violations with one fixed diagnostic', async () => {

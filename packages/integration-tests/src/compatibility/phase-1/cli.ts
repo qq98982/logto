@@ -423,19 +423,29 @@ const pathIsInside = (root: string, candidate: string) => {
 };
 
 const assertReviewSource = (profile: Readonly<Phase1Profile>): void => {
+  const designSource =
+    profile.profileSchema.sourceCommit === null &&
+    profile.profileSchema.sha256 === null &&
+    profile.profileSchema.lockState === designSchemaLockState &&
+    profile.phase1Harness.commit === null &&
+    profile.phase1Harness.lockState === designHarnessLockState;
+  const lockedSource =
+    profile.profileSchema.sourceCommit === phase1ProfileSchemaLock.sourceCommit &&
+    profile.profileSchema.sha256 === phase1ProfileSchemaLock.sha256 &&
+    profile.profileSchema.lockState === profileSchemaLockState &&
+    typeof profile.phase1Harness.commit === 'string' &&
+    commitPattern.test(profile.phase1Harness.commit) &&
+    profile.phase1Harness.lockState === harnessLockState;
+
   if (
     profile.schemaVersion !== 2 ||
     profile.profileId !== 'aster.phase-1.password-pkce' ||
     profile.reference.oracleCommit !== oracleCommit ||
     profile.profileSchema.repository !== 'aster' ||
     profile.profileSchema.path !== sourceSchemaRelativePath ||
-    profile.profileSchema.sourceCommit !== null ||
-    profile.profileSchema.sha256 !== null ||
-    profile.profileSchema.lockState !== designSchemaLockState ||
     profile.phase1Harness.repository !== profile.reference.oracleRepository ||
     profile.phase1Harness.baseCommit !== profile.reference.phase0HarnessCommit ||
-    profile.phase1Harness.commit !== null ||
-    profile.phase1Harness.lockState !== designHarnessLockState
+    (!designSource && !lockedSource)
   ) {
     throw new Error(preparationFailureDiagnostic);
   }
