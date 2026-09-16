@@ -7,8 +7,17 @@ SET LOCAL idle_in_transaction_session_timeout = '20s';
 SET LOCAL search_path = pg_catalog;
 
 DELETE FROM aster_tenant.rls_sentinel
-WHERE tenant_id IN ('phase1-invariant-cross-a', 'phase1-invariant-cross-b')
-  AND :'action' IN ('setup-cross-tenant', 'cleanup-cross-tenant');
+WHERE (
+    tenant_id IN ('phase1-invariant-cross-a', 'phase1-invariant-cross-b')
+    AND :'action' IN ('setup-cross-tenant', 'cleanup-cross-tenant')
+  ) OR (
+    tenant_id IN (
+      'phase1-invariant-admin-a',
+      'phase1-invariant-admin-b',
+      'phase1-invariant-admin-b-forbidden'
+    )
+    AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
+  );
 
 DELETE FROM aster_control.tenant_bindings
 WHERE (
@@ -17,6 +26,13 @@ WHERE (
   ) OR (
     tenant_id IN ('phase1-invariant-cross-a', 'phase1-invariant-cross-b')
     AND :'action' IN ('setup-cross-tenant', 'cleanup-cross-tenant')
+  ) OR (
+    tenant_id IN (
+      'phase1-invariant-admin-a',
+      'phase1-invariant-admin-b',
+      'phase1-invariant-admin-b-forbidden'
+    )
+    AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
   );
 
 DELETE FROM aster_control.tenants
@@ -26,6 +42,13 @@ WHERE (
   ) OR (
     tenant_id IN ('phase1-invariant-cross-a', 'phase1-invariant-cross-b')
     AND :'action' IN ('setup-cross-tenant', 'cleanup-cross-tenant')
+  ) OR (
+    tenant_id IN (
+      'phase1-invariant-admin-a',
+      'phase1-invariant-admin-b',
+      'phase1-invariant-admin-b-forbidden'
+    )
+    AND :'action' IN ('setup-admin-binding', 'cleanup-admin-binding')
   );
 
 INSERT INTO aster_control.tenants (
@@ -50,6 +73,20 @@ FROM (
     ('phase1-invariant-cross-b'::text)
 ) AS fixture(tenant_id)
 WHERE :'action' = 'setup-cross-tenant';
+
+INSERT INTO aster_control.tenants (
+  tenant_id,
+  status,
+  status_epoch,
+  provisioning_verified
+)
+SELECT fixture.tenant_id, 'inactive', 1, false
+FROM (
+  VALUES
+    ('phase1-invariant-admin-a'::text),
+    ('phase1-invariant-admin-b'::text)
+) AS fixture(tenant_id)
+WHERE :'action' = 'setup-admin-binding';
 
 SELECT pg_catalog.jsonb_build_object(
   'schemaVersion', 1,
@@ -142,6 +179,69 @@ WHERE :'action' = 'project-cross-tenant'
       AND binding.activated_at IS NULL
       AND binding.activated_backend_pid IS NULL
       AND binding.activated_xid IS NULL
+  ) = 1;
+
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'tenant.admin-operation-binding',
+  'projection', pg_catalog.jsonb_build_object(
+    'capability', pg_catalog.jsonb_build_object(
+      'tenantId', 'tenant-a',
+      'operationClass', 'provision'
+    ),
+    'mutations', pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('tenantId', 'tenant-a', 'operationClass', 'provision'),
+      pg_catalog.jsonb_build_object('tenantId', NULL, 'operationClass', 'provision')
+    ),
+    'denials', pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('reasonClass', 'tenant-mismatch'),
+      pg_catalog.jsonb_build_object('reasonClass', 'operation-class-mismatch')
+    )
+  )
+)::text
+FROM aster_control.tenants AS tenant_a
+JOIN aster_control.tenants AS tenant_b
+  ON tenant_b.tenant_id = 'phase1-invariant-admin-b'
+WHERE :'action' = 'project-admin-binding'
+  AND tenant_a.tenant_id = 'phase1-invariant-admin-a'
+  AND tenant_a.status = 'inactive'
+  AND tenant_a.status_epoch = 1
+  AND tenant_b.status = 'inactive'
+  AND tenant_b.status_epoch = 1
+  AND NOT EXISTS (
+    SELECT 1
+    FROM aster_control.tenants AS forbidden
+    WHERE forbidden.tenant_id = 'phase1-invariant-admin-b-forbidden'
+  )
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_tenant.rls_sentinel AS sentinel
+    WHERE sentinel.tenant_id IN (
+      'phase1-invariant-admin-a',
+      'phase1-invariant-admin-b',
+      'phase1-invariant-admin-b-forbidden'
+    )
+  ) = 1
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_tenant.rls_sentinel AS sentinel
+    WHERE sentinel.tenant_id = 'phase1-invariant-admin-a'
+      AND sentinel.parent_item_id IS NULL
+      AND sentinel.test_value = 'admin-binding-provision'
+  ) = 1
+  AND (
+    SELECT pg_catalog.count(*)
+    FROM aster_control.tenant_bindings AS binding
+    WHERE binding.tenant_id = 'phase1-invariant-admin-a'
+      AND binding.status_epoch = 1
+      AND binding.audience = 'admin'
+      AND binding.admin_operation = 'provision'
+      AND binding.issued_at <= pg_catalog.clock_timestamp()
+      AND binding.expires_at > pg_catalog.clock_timestamp()
+      AND binding.activated_at IS NOT NULL
+      AND binding.activated_backend_pid IS NOT NULL
+      AND binding.activated_xid IS NOT NULL
   ) = 1;
 
 COMMIT;

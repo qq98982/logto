@@ -18,14 +18,21 @@ const foreignContainerId = '2'.repeat(64);
 const ownerRoleInvariantId = 'database.owner-role-membership-boundary';
 const suspendedEpochInvariantId = 'tenant.suspended-epoch-rejected';
 const crossTenantInvariantId = 'tenant.cross-tenant-read-rejected';
+const adminBindingInvariantId = 'tenant.admin-operation-binding';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
 const ownerRoleProjection = projection(ownerRoleInvariantId);
 const suspendedEpochProjection = projection(suspendedEpochInvariantId);
 const crossTenantProjection = projection(crossTenantInvariantId);
+const adminBindingProjection = projection(adminBindingInvariantId);
 
-if (!ownerRoleProjection || !suspendedEpochProjection || !crossTenantProjection) {
+if (
+  !ownerRoleProjection ||
+  !suspendedEpochProjection ||
+  !crossTenantProjection ||
+  !adminBindingProjection
+) {
   throw new Error('missing candidate invariant projection');
 }
 
@@ -39,6 +46,7 @@ const output = (invariantId: string, expectedProjection: unknown) =>
 const ownerRoleOutput = output(ownerRoleInvariantId, ownerRoleProjection);
 const suspendedEpochOutput = output(suspendedEpochInvariantId, suspendedEpochProjection);
 const crossTenantOutput = output(crossTenantInvariantId, crossTenantProjection);
+const adminBindingOutput = output(adminBindingInvariantId, adminBindingProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -84,6 +92,13 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$CROSS_TENANT_OUTPUT"
     exit 0
   fi
+  if [[ "$*" == *'--set=action=setup-admin-binding'* ]]; then cat >>"$STDIN"; exit 0; fi
+  if [[ "$*" == *'--set=action=cleanup-admin-binding'* ]]; then cat >>"$STDIN"; exit "${'$'}{CLEANUP_STATUS:-0}"; fi
+  if [[ "$*" == *'--set=action=project-admin-binding'* ]]; then
+    cat >>"$STDIN"
+    printf '%s' "$ADMIN_BINDING_OUTPUT"
+    exit 0
+  fi
   if [[ "$*" == *'SELECT deployment_id::text FROM aster_control.deployment_state'* ]]; then
     printf '%s' '01234567-89ab-cdef-0123-456789abcdef'
     exit 0
@@ -107,6 +122,11 @@ if [[ "$1" == exec ]]; then
   if [[ "$*" == *'--username aster_worker'* && "$*" == *'--interactive'* ]]; then
     cat >>"$STDIN"
     exit 0
+  fi
+  if [[ "$*" == *'--username aster_admin'* && "$*" == *'--interactive'* ]]; then
+    cat >>"$STDIN"
+    printf '%s' "${'$'}{ADMIN_PROBE_OUTPUT:-42501|42501}"
+    exit "${'$'}{ADMIN_PROBE_STATUS:-0}"
   fi
   if [[ "$*" == *'--username aster_maintainer'* || "$*" == *'--username aster_control_resolver'* || "$*" == *'--username aster_admin'* ]]; then exit 0; fi
   cat >>"$STDIN"
@@ -135,6 +155,7 @@ exit 1
       OWNER_OUTPUT: ownerRoleOutput,
       SUSPENDED_OUTPUT: suspendedEpochOutput,
       CROSS_TENANT_OUTPUT: crossTenantOutput,
+      ADMIN_BINDING_OUTPUT: adminBindingOutput,
     },
   };
 };
@@ -278,6 +299,44 @@ describe('Phase 1 candidate invariant shell driver', () => {
     const calls = await readFile(fake.calls, 'utf8');
 
     expect(calls).toContain('--set=action=cleanup-cross-tenant');
+  });
+
+  it('binds one admin capability to one tenant and operation class', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(adminBindingInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(adminBindingOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    for (const role of ['aster_maintainer', 'aster_admin']) {
+      expect(calls).toContain(`--username ${role}`);
+    }
+    expect(calls).toContain('aster_runtime.run_tenant_maintenance');
+    expect(calls).toContain('aster_runtime.mint_admin_tenant_binding');
+    expect(sql).toContain('aster_runtime.probe_admin_provision_write');
+    expect(sql).toContain('aster_runtime.create_inactive_tenant');
+    expect(sql).toContain('aster_runtime.probe_admin_rewrap_write');
+    expect(sql).toContain('ROLLBACK TO SAVEPOINT');
+    expect(sql).toContain("'project-admin-binding'");
+    expect(sql).toContain("'cleanup-admin-binding'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed and cleans when an admin denial is broadened', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(adminBindingInvariantId), {
+        env: { ...fake.env, ADMIN_PROBE_OUTPUT: '00000|42501' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain('--set=action=cleanup-admin-binding');
   });
 
   it.each([

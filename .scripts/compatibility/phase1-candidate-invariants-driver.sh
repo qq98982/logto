@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -269,6 +269,60 @@ SQL
   [[ "$cross_observation" == 'tenant-a|sentinel-a|0' ]] || fail
 
   terminal="$(run_fixture_sql project-cross-tenant)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_fixture || fail
+  cleanup_required=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'tenant.admin-operation-binding' ]]; then
+  cleanup_action=cleanup-admin-binding
+  cleanup_required=true
+  trap cleanup_on_exit EXIT
+
+  run_fixture_sql setup-admin-binding >/dev/null || fail
+  refresh_maintenance || fail
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT * FROM aster_runtime.mint_admin_tenant_binding(pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('e1', 32), 'hex')), 'phase1-invariant-admin-a', 'provision')" \
+    >/dev/null 2>&1 || fail
+
+  admin_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT *
+FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('e1', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.probe_admin_provision_write('admin-binding-provision') \g /dev/null
+
+SAVEPOINT tenant_mismatch;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.create_inactive_tenant('phase1-invariant-admin-b-forbidden') \g /dev/null
+\set tenant_state :SQLSTATE
+ROLLBACK TO SAVEPOINT tenant_mismatch;
+\set ON_ERROR_STOP on
+
+SAVEPOINT operation_class_mismatch;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.probe_admin_rewrap_write('forbidden-admin-rewrap') \g /dev/null
+\set operation_state :SQLSTATE
+ROLLBACK TO SAVEPOINT operation_class_mismatch;
+\set ON_ERROR_STOP on
+
+\echo :tenant_state|:operation_state
+COMMIT;
+SQL
+)" || fail
+  [[ "$admin_observation" == '42501|42501' ]] || fail
+
+  terminal="$(run_fixture_sql project-admin-binding)" || fail
   [[ -n "$terminal" ]] || fail
   cleanup_fixture || fail
   cleanup_required=false
