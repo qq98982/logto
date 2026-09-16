@@ -146,6 +146,20 @@ type ExperienceClientBoundary = Pick<
   | 'clearAccessToken'
 >;
 
+export type PasswordCodeFixtureSession = Readonly<{
+  username: string;
+  password: string;
+  applicationId: string;
+  createdUser: unknown;
+  readUser(): Promise<unknown>;
+  cleanup(): Promise<void>;
+}>;
+
+export type PasswordCodeFixtureLifecycle = <Result>(
+  context: ScenarioContext,
+  use: (fixture: PasswordCodeFixtureSession) => Promise<Result>
+) => Promise<Result>;
+
 export type PasswordCodeScenarioDependencies = {
   createExperienceClient: (
     config: { endpoint: string; appId: string; persistAccessToken: false },
@@ -156,6 +170,7 @@ export type PasswordCodeScenarioDependencies = {
     username: string,
     password: string
   ) => Promise<unknown>;
+  fixtureLifecycle?: PasswordCodeFixtureLifecycle;
 };
 
 const defaultDependencies: PasswordCodeScenarioDependencies = {
@@ -290,6 +305,35 @@ const requireNonemptyString = (value: unknown, message: string): string => {
   }
 
   return value;
+};
+
+const requireCreatedUserId = (value: unknown): string => {
+  if (!isJsonObject(value)) {
+    throw new Error('Create user failed');
+  }
+
+  return requireNonemptyString(value.id, 'Create user failed');
+};
+
+const defaultFixtureLifecycle: PasswordCodeFixtureLifecycle = async (context, use) => {
+  await fixedOperation('Set sign-in experience failed', async () =>
+    context.client.setUsernamePasswordExperience()
+  );
+  const createdUser = await fixedOperation('Create user failed', async () =>
+    context.client.createUser(fixture)
+  );
+  const userId = requireNonemptyString(createdUser.id, 'Create user failed');
+
+  return use({
+    username: fixture.username,
+    password: fixture.password,
+    applicationId: demoAppApplicationId,
+    createdUser,
+    readUser: async () =>
+      fixedOperation('Read user failed', async () => context.client.getUser(userId)),
+    cleanup: async () =>
+      fixedOperation('Delete user failed', async () => context.client.deleteUser(userId)),
+  });
 };
 
 const bindJwtIdentifiers = (
@@ -780,214 +824,221 @@ const classifyAccessToken = (
 
 const runPasswordCode = async (
   context: ScenarioContext,
-  dependencies: PasswordCodeScenarioDependencies
-) => {
-  const targetOrigin = new URL(context.target.coreUrl).origin;
-  const sensitiveTracker: SensitiveValueTracker = {
-    values: new Set([fixture.password]),
-    observedValues: [],
-  };
-  await fixedOperation('Set sign-in experience failed', async () =>
-    context.client.setUsernamePasswordExperience()
-  );
-  const createdUser = await fixedOperation('Create user failed', async () =>
-    context.client.createUser(fixture)
-  );
-  const userId = requireNonemptyString(createdUser.id, 'Create user failed');
-  context.symbols.bind('user.primary', userId);
-  observeSafely(
-    context,
-    sensitiveTracker,
-    {
-      stepId: 'management.user.created',
-      kind: 'semantic-state',
-      value: projectUserForObservation(createdUser, sensitiveTracker.values),
-    },
-    'Invalid management user projection'
-  );
-
-  const experienceClient = await fixedOperation('Start interaction failed', async () =>
-    dependencies.createExperienceClient(
+  dependencies: PasswordCodeScenarioDependencies &
+    Readonly<{ fixtureLifecycle: PasswordCodeFixtureLifecycle }>
+) =>
+  dependencies.fixtureLifecycle(context, async (fixtureSession) => {
+    const targetOrigin = new URL(context.target.coreUrl).origin;
+    const sensitiveTracker: SensitiveValueTracker = {
+      values: new Set([fixtureSession.password]),
+      observedValues: [],
+    };
+    const { createdUser } = fixtureSession;
+    const userId = requireCreatedUserId(createdUser);
+    context.symbols.bind('application.phase0', fixtureSession.applicationId);
+    context.symbols.bind('user.primary', userId);
+    observeSafely(
+      context,
+      sensitiveTracker,
       {
-        endpoint: targetOrigin,
-        appId: demoAppApplicationId,
-        persistAccessToken: false,
+        stepId: 'management.user.created',
+        kind: 'semantic-state',
+        value: projectUserForObservation(createdUser, sensitiveTracker.values),
       },
-      context.client.experience
-    )
-  );
-  await fixedOperation('Start interaction failed', async () => {
-    await experienceClient.initSession(`${targetOrigin}/demo-app`);
-    await experienceClient.initInteraction({ interactionEvent: InteractionEvent.SignIn });
+      'Invalid management user projection'
+    );
+
+    const experienceClient = await fixedOperation('Start interaction failed', async () =>
+      dependencies.createExperienceClient(
+        {
+          endpoint: targetOrigin,
+          appId: fixtureSession.applicationId,
+          persistAccessToken: false,
+        },
+        context.client.experience
+      )
+    );
+    await fixedOperation('Start interaction failed', async () => {
+      await experienceClient.initSession(`${targetOrigin}/demo-app`);
+      await experienceClient.initInteraction({ interactionEvent: InteractionEvent.SignIn });
+    });
+    registerCookieValues(
+      experienceClient.rawCookies,
+      sensitiveTracker,
+      'Cookie normalization failed'
+    );
+    const cookieMetadata = await fixedOperation('Cookie normalization failed', async () =>
+      normalizeSetCookies(redactSetCookieValues(experienceClient.rawCookies))
+    );
+    observeSafely(
+      context,
+      sensitiveTracker,
+      {
+        stepId: 'interaction.cookies',
+        kind: 'cookie-metadata',
+        value: cookieMetadata,
+      },
+      'Cookie normalization failed'
+    );
+    const identificationResult = await fixedOperation('Identify user failed', async () =>
+      dependencies.identifyUserWithUsernamePassword(
+        experienceClient,
+        fixtureSession.username,
+        fixtureSession.password
+      )
+    );
+
+    if (!isJsonValue(identificationResult)) {
+      throw new Error('Identify user failed');
+    }
+
+    collectExtractedSensitiveValues(identificationResult, sensitiveTracker, 'Identify user failed');
+    const { redirectTo } = await fixedOperation('Submit interaction failed', async () =>
+      experienceClient.submitInteraction()
+    );
+    registerCookieValues(
+      experienceClient.rawCookies,
+      sensitiveTracker,
+      'Submit interaction failed'
+    );
+    registerRedirectSensitiveValues(redirectTo, sensitiveTracker, 'Process session failed');
+    await fixedOperation('Process session failed', async () =>
+      experienceClient.processSession(redirectTo)
+    );
+    registerCookieValues(experienceClient.rawCookies, sensitiveTracker, 'Process session failed');
+
+    const idToken = requireNonemptyString(
+      await fixedOperation('ID token read failed', async () => experienceClient.getIdToken()),
+      'ID token read failed'
+    );
+    registerSensitiveValue(sensitiveTracker, idToken, 'ID token normalization failed');
+    const normalizedIdToken = await fixedOperation('ID token normalization failed', async () =>
+      normalizeJwtForSingleRunnerPass(idToken, context, 'id-token', sensitiveTracker)
+    );
+    observeSafely(
+      context,
+      sensitiveTracker,
+      { stepId: 'id-token.header', kind: 'jwt-header', value: normalizedIdToken.header },
+      'ID token normalization failed'
+    );
+    observeSafely(
+      context,
+      sensitiveTracker,
+      { stepId: 'id-token.claims', kind: 'jwt-claims', value: normalizedIdToken.claims },
+      'ID token normalization failed'
+    );
+
+    const accessToken = requireNonemptyString(
+      await fixedOperation('Access token read failed', async () =>
+        experienceClient.getAccessToken()
+      ),
+      'Access token read failed'
+    );
+    registerSensitiveValue(sensitiveTracker, accessToken, 'Access token normalization failed');
+    const classifiedAccessToken = await fixedOperation(
+      'Access token normalization failed',
+      async () => classifyAccessToken(accessToken, context, sensitiveTracker)
+    );
+    if (classifiedAccessToken.format === 'jwt') {
+      observeSafely(
+        context,
+        sensitiveTracker,
+        classifiedAccessToken.headerObservation,
+        'Access token normalization failed'
+      );
+      observeSafely(
+        context,
+        sensitiveTracker,
+        classifiedAccessToken.claimsObservation,
+        'Access token normalization failed'
+      );
+    } else {
+      observeSafely(
+        context,
+        sensitiveTracker,
+        classifiedAccessToken.observation,
+        'Access token normalization failed'
+      );
+    }
+
+    const userInfo = projectUserInfoForObservation(
+      await fixedOperation('Userinfo read failed', async () =>
+        context.client.getUserInfo(accessToken)
+      ),
+      context,
+      sensitiveTracker
+    );
+    observeSafely(
+      context,
+      sensitiveTracker,
+      { stepId: 'userinfo', kind: 'semantic-state', value: userInfo },
+      'Userinfo read failed'
+    );
+    await fixedOperation('Access token cache clear failed', async () =>
+      experienceClient.clearAccessToken()
+    );
+    const refreshedAccessToken = requireNonemptyString(
+      await fixedOperation('Access token refresh failed', async () =>
+        experienceClient.getAccessToken()
+      ),
+      'Access token refresh failed'
+    );
+
+    if (refreshedAccessToken === accessToken) {
+      throw new Error('Access token refresh failed');
+    }
+
+    registerSensitiveValue(sensitiveTracker, refreshedAccessToken, 'Access token refresh failed');
+    const refreshedTokenContext = {
+      target: context.target,
+      symbols: new SymbolTable(),
+    } satisfies NormalizationContext;
+    const classifiedRefreshedAccessToken = await fixedOperation(
+      'Access token refresh failed',
+      async () => classifyAccessToken(refreshedAccessToken, refreshedTokenContext, sensitiveTracker)
+    );
+    observeSafely(
+      context,
+      sensitiveTracker,
+      {
+        stepId: 'access-token-refresh',
+        kind: 'semantic-state',
+        value: { obtainedAfterCacheClear: true, format: classifiedRefreshedAccessToken.format },
+      },
+      'Access token refresh failed'
+    );
+
+    const finalUser = await fixtureSession.readUser();
+    observeSafely(
+      context,
+      sensitiveTracker,
+      {
+        stepId: 'management.user.final',
+        kind: 'semantic-state',
+        value: projectUserForObservation(finalUser, sensitiveTracker.values),
+      },
+      'Invalid management user projection'
+    );
+    await fixtureSession.cleanup();
+    observeSafely(
+      context,
+      sensitiveTracker,
+      { stepId: 'management.user.deleted', kind: 'semantic-state', value: { deleted: true } },
+      'Delete user failed'
+    );
   });
-  registerCookieValues(
-    experienceClient.rawCookies,
-    sensitiveTracker,
-    'Cookie normalization failed'
-  );
-  const cookieMetadata = await fixedOperation('Cookie normalization failed', async () =>
-    normalizeSetCookies(redactSetCookieValues(experienceClient.rawCookies))
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    {
-      stepId: 'interaction.cookies',
-      kind: 'cookie-metadata',
-      value: cookieMetadata,
-    },
-    'Cookie normalization failed'
-  );
-  const identificationResult = await fixedOperation('Identify user failed', async () =>
-    dependencies.identifyUserWithUsernamePassword(
-      experienceClient,
-      fixture.username,
-      fixture.password
-    )
-  );
-
-  if (!isJsonValue(identificationResult)) {
-    throw new Error('Identify user failed');
-  }
-
-  collectExtractedSensitiveValues(identificationResult, sensitiveTracker, 'Identify user failed');
-  const { redirectTo } = await fixedOperation('Submit interaction failed', async () =>
-    experienceClient.submitInteraction()
-  );
-  registerCookieValues(experienceClient.rawCookies, sensitiveTracker, 'Submit interaction failed');
-  registerRedirectSensitiveValues(redirectTo, sensitiveTracker, 'Process session failed');
-  await fixedOperation('Process session failed', async () =>
-    experienceClient.processSession(redirectTo)
-  );
-  registerCookieValues(experienceClient.rawCookies, sensitiveTracker, 'Process session failed');
-
-  const idToken = requireNonemptyString(
-    await fixedOperation('ID token read failed', async () => experienceClient.getIdToken()),
-    'ID token read failed'
-  );
-  registerSensitiveValue(sensitiveTracker, idToken, 'ID token normalization failed');
-  const normalizedIdToken = await fixedOperation('ID token normalization failed', async () =>
-    normalizeJwtForSingleRunnerPass(idToken, context, 'id-token', sensitiveTracker)
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    { stepId: 'id-token.header', kind: 'jwt-header', value: normalizedIdToken.header },
-    'ID token normalization failed'
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    { stepId: 'id-token.claims', kind: 'jwt-claims', value: normalizedIdToken.claims },
-    'ID token normalization failed'
-  );
-
-  const accessToken = requireNonemptyString(
-    await fixedOperation('Access token read failed', async () => experienceClient.getAccessToken()),
-    'Access token read failed'
-  );
-  registerSensitiveValue(sensitiveTracker, accessToken, 'Access token normalization failed');
-  const classifiedAccessToken = await fixedOperation(
-    'Access token normalization failed',
-    async () => classifyAccessToken(accessToken, context, sensitiveTracker)
-  );
-  if (classifiedAccessToken.format === 'jwt') {
-    observeSafely(
-      context,
-      sensitiveTracker,
-      classifiedAccessToken.headerObservation,
-      'Access token normalization failed'
-    );
-    observeSafely(
-      context,
-      sensitiveTracker,
-      classifiedAccessToken.claimsObservation,
-      'Access token normalization failed'
-    );
-  } else {
-    observeSafely(
-      context,
-      sensitiveTracker,
-      classifiedAccessToken.observation,
-      'Access token normalization failed'
-    );
-  }
-
-  const userInfo = projectUserInfoForObservation(
-    await fixedOperation('Userinfo read failed', async () =>
-      context.client.getUserInfo(accessToken)
-    ),
-    context,
-    sensitiveTracker
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    { stepId: 'userinfo', kind: 'semantic-state', value: userInfo },
-    'Userinfo read failed'
-  );
-  await fixedOperation('Access token cache clear failed', async () =>
-    experienceClient.clearAccessToken()
-  );
-  const refreshedAccessToken = requireNonemptyString(
-    await fixedOperation('Access token refresh failed', async () =>
-      experienceClient.getAccessToken()
-    ),
-    'Access token refresh failed'
-  );
-
-  if (refreshedAccessToken === accessToken) {
-    throw new Error('Access token refresh failed');
-  }
-
-  registerSensitiveValue(sensitiveTracker, refreshedAccessToken, 'Access token refresh failed');
-  const refreshedTokenContext = {
-    target: context.target,
-    symbols: new SymbolTable(),
-  } satisfies NormalizationContext;
-  const classifiedRefreshedAccessToken = await fixedOperation(
-    'Access token refresh failed',
-    async () => classifyAccessToken(refreshedAccessToken, refreshedTokenContext, sensitiveTracker)
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    {
-      stepId: 'access-token-refresh',
-      kind: 'semantic-state',
-      value: { obtainedAfterCacheClear: true, format: classifiedRefreshedAccessToken.format },
-    },
-    'Access token refresh failed'
-  );
-
-  const finalUser = await fixedOperation('Read user failed', async () =>
-    context.client.getUser(userId)
-  );
-  observeSafely(
-    context,
-    sensitiveTracker,
-    {
-      stepId: 'management.user.final',
-      kind: 'semantic-state',
-      value: projectUserForObservation(finalUser, sensitiveTracker.values),
-    },
-    'Invalid management user projection'
-  );
-  await fixedOperation('Delete user failed', async () => context.client.deleteUser(userId));
-  observeSafely(
-    context,
-    sensitiveTracker,
-    { stepId: 'management.user.deleted', kind: 'semantic-state', value: { deleted: true } },
-    'Delete user failed'
-  );
-};
 
 export const createPasswordCodeScenario = (
   dependencies: Partial<PasswordCodeScenarioDependencies> = {}
 ) =>
   ({
     id: 'password-code',
-    run: async (context) => runPasswordCode(context, { ...defaultDependencies, ...dependencies }),
+    run: async (context) =>
+      runPasswordCode(context, {
+        ...defaultDependencies,
+        ...dependencies,
+        fixtureLifecycle: dependencies.fixtureLifecycle ?? defaultFixtureLifecycle,
+      }),
   }) satisfies CompatibilityScenario;
 
 export default createPasswordCodeScenario();

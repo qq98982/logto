@@ -12,6 +12,7 @@ import { TargetClient } from '../target-client.js';
 import {
   createPasswordCodeScenario,
   projectUserForObservation,
+  type PasswordCodeFixtureLifecycle,
   type PasswordCodeScenarioDependencies,
 } from './password-code.js';
 
@@ -130,6 +131,9 @@ type HarnessOptions = {
   echoIdTokenInUserInfo?: boolean;
   userInfoCookieEcho?: 'init-json' | 'resume' | 'resume-signature' | 'submit' | 'process';
   initCookieHeaders?: string[];
+  expectedFixtureUsername?: string;
+  expectedFixturePassword?: string;
+  expectedApplicationId?: string;
 };
 
 class FakeTargetClient extends TargetClient {
@@ -300,7 +304,10 @@ class FakeTargetClient extends TargetClient {
 }
 
 // eslint-disable-next-line complexity -- Token variants are a closed test-fixture matrix.
-const createHarness = (options: HarnessOptions = {}) => {
+const createHarness = (
+  options: HarnessOptions = {},
+  dependencyOverrides: Partial<PasswordCodeScenarioDependencies> = {}
+) => {
   const runTarget = target(options.label ?? 'oracle');
   const events: string[] = [];
   const client = new FakeTargetClient(runTarget, events, options);
@@ -313,7 +320,7 @@ const createHarness = (options: HarnessOptions = {}) => {
     {
       iss: `${runTarget.coreUrl}/oidc`,
       sub: client.userId,
-      aud: 'demo-app',
+      aud: options.expectedApplicationId ?? 'demo-app',
       iat: timeSeconds,
       exp: timeSeconds + 3600,
       name: null,
@@ -499,20 +506,21 @@ const createHarness = (options: HarnessOptions = {}) => {
     createExperienceClient: (config, api) => {
       expect(config).toEqual({
         endpoint: new URL(client.target.coreUrl).origin,
-        appId: 'demo-app',
+        appId: options.expectedApplicationId ?? 'demo-app',
         persistAccessToken: false,
       });
       expect(api).toBe(client.experience);
       return experience;
     },
     identifyUserWithUsernamePassword: async (_experience, username, suppliedPassword) => {
-      expect(username).toBe('aster_phase0_password_user');
-      expect(suppliedPassword).toBe(password);
+      expect(username).toBe(options.expectedFixtureUsername ?? 'aster_phase0_password_user');
+      expect(suppliedPassword).toBe(options.expectedFixturePassword ?? password);
       expect(interactionInitialized).toBe(true);
       client.check('verify-password');
       client.check('identify-user');
       return { verificationId: verificationSecret };
     },
+    ...dependencyOverrides,
   };
 
   return {
@@ -627,7 +635,7 @@ describe('password authorization-code compatibility scenario', () => {
     expect(evidence.observations[3]?.value).toMatchObject({
       iss: '<target.core-url>/oidc',
       sub: '<user.primary>',
-      aud: 'demo-app',
+      aud: '<application.phase0>',
       iat: { $timestamp: timestamp, $toleranceSeconds: 60 },
       exp: { $timestamp: timestamp + 3600, $toleranceSeconds: 60 },
       name: null,
@@ -696,6 +704,99 @@ describe('password authorization-code compatibility scenario', () => {
     expect(JSON.stringify(evidence.observations[3]?.value)).not.toMatch(
       /"(?:nonce|code|state|verification_id|unknown_claim)":/u
     );
+  });
+
+  it('uses lifecycle-provided username password and application ID', async () => {
+    const runtimePassword = 'candidate-runtime-password';
+    const lifecycle: PasswordCodeFixtureLifecycle = async (context, use) => {
+      const runtimeUser = {
+        id: 'candidate-runtime-user-id',
+        username: 'candidate_runtime_user',
+        hasPassword: true,
+        passwordAlgorithm: 'Argon2id',
+        isSuspended: false,
+        profile: {},
+        customData: {},
+        identities: {},
+        createdAt: timestamp * 1000,
+        updatedAt: (timestamp + 1) * 1000,
+        lastSignInAt: null,
+      };
+
+      return use({
+        username: 'candidate_runtime_user',
+        password: runtimePassword,
+        applicationId: 'candidate-runtime-app',
+        createdUser: runtimeUser,
+        readUser: async () => runtimeUser,
+        cleanup: async () => {
+          await Promise.resolve();
+        },
+      });
+    };
+    const harness = createHarness(
+      {
+        expectedFixtureUsername: 'candidate_runtime_user',
+        expectedFixturePassword: runtimePassword,
+        expectedApplicationId: 'candidate-runtime-app',
+      },
+      { fixtureLifecycle: lifecycle }
+    );
+    const evidence = await harness.run();
+
+    expect(harness.events).not.toContain('set-sign-in-experience');
+    expect(harness.events).not.toContain('create-user');
+    expect(harness.events).not.toContain('delete-user');
+    expect(JSON.stringify(evidence)).not.toContain(runtimePassword);
+  });
+
+  it('cleans the lifecycle after a protocol failure without publishing deletion evidence', async () => {
+    const lifecycleEvents: string[] = [];
+    const lifecycle: PasswordCodeFixtureLifecycle = async (_context, use) => {
+      const runtimeUser = {
+        id: 'candidate-runtime-user-id',
+        username: 'candidate_runtime_user',
+        hasPassword: true,
+        passwordAlgorithm: 'Argon2id',
+        isSuspended: false,
+        profile: {},
+        customData: {},
+        identities: {},
+        createdAt: timestamp * 1000,
+        updatedAt: (timestamp + 1) * 1000,
+        lastSignInAt: null,
+      };
+
+      try {
+        return await use({
+          username: 'candidate_runtime_user',
+          password: 'candidate-runtime-password',
+          applicationId: 'candidate-runtime-app',
+          createdUser: runtimeUser,
+          readUser: async () => runtimeUser,
+          cleanup: async () => {
+            lifecycleEvents.push('fixture-cleanup');
+          },
+        });
+      } finally {
+        if (!lifecycleEvents.includes('fixture-cleanup')) {
+          lifecycleEvents.push('fixture-cleanup');
+        }
+      }
+    };
+    const harness = createHarness(
+      {
+        failAt: 'start-interaction',
+        expectedFixtureUsername: 'candidate_runtime_user',
+        expectedFixturePassword: 'candidate-runtime-password',
+        expectedApplicationId: 'candidate-runtime-app',
+      },
+      { fixtureLifecycle: lifecycle }
+    );
+
+    await expect(harness.run()).rejects.toThrow('Start interaction failed');
+    expect(lifecycleEvents).toEqual(['fixture-cleanup']);
+    expect(harness.events).not.toContain('delete-user');
   });
 
   it('uses the same deterministic fixture independently for both targets', async () => {
