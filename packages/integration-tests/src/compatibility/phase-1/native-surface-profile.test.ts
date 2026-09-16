@@ -69,7 +69,6 @@ const profileFixture = (): Phase1Profile => {
         'openid',
         markers.organizationScope.candidate,
         markers.organizationRoleScope.candidate,
-        markers.sessionScope.candidate,
       ],
     },
     consoleReadRequests: [
@@ -142,7 +141,6 @@ describe('Aster target-specific profile projection', () => {
       'openid',
       'urn:logto:scope:organizations',
       'urn:logto:scope:organization_roles',
-      'urn:logto:scope:sessions',
     ]);
     expect(oracle.consoleOrganizationTokenRequest.requiredAccessTokenProjection.aud).toBe(
       'urn:logto:organization:t-default'

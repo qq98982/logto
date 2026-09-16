@@ -155,11 +155,7 @@ const assertCandidateFixtureValues = (profile: Phase1Profile): void => {
   );
   assertExactStrings(
     profile.oidc.scopesSupported.filter((scope) => scope.startsWith('urn:')),
-    [
-      markers.organizationScope.candidate,
-      markers.organizationRoleScope.candidate,
-      markers.sessionScope.candidate,
-    ],
+    [markers.organizationScope.candidate, markers.organizationRoleScope.candidate],
     '/oidc/scopesSupported'
   );
   assertCandidateAt(

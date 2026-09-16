@@ -84,7 +84,6 @@ const profileFixture = () => {
         'openid',
         markers.organizationScope?.candidate,
         markers.organizationRoleScope?.candidate,
-        markers.sessionScope?.candidate,
       ],
     },
     consoleReadRequests: Array.from({ length: 4 }, () => ({
@@ -160,7 +159,10 @@ describe('Phase 1 native-surface semantics', () => {
     [
       '/oidc/scopesSupported/2',
       (profile: ReturnType<typeof profileFixture>) => {
-        profile.oidc.scopesSupported[3] = 'urn:logto:scope:sessions';
+        profile.oidc.scopesSupported = [
+          ...profile.oidc.scopesSupported,
+          'urn:logto:scope:sessions',
+        ];
       },
     ],
     [
