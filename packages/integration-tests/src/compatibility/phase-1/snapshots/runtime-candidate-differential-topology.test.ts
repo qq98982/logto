@@ -16,6 +16,10 @@ const topologyPath = path.join(
 );
 const formalPath = path.join(repositoryRoot, 'docker-compose.phase1-compatibility.yml');
 const candidatePath = path.join(repositoryRoot, 'docker-compose.phase1-aster-candidate.yml');
+const liveGatePath = path.join(
+  repositoryRoot,
+  '.scripts/compatibility/test-runtime-candidate-differential.sh'
+);
 
 const readCompose = async (filePath: string): Promise<ComposeDocument> =>
   JSON.parse(await readFile(filePath, 'utf8')) as ComposeDocument;
@@ -161,6 +165,41 @@ describe('runtime-candidate differential topology', () => {
     expect(
       Object.keys(document.services).some((name) => name.includes('candidate-phase0-redis'))
     ).toBe(false);
+  });
+
+  it('runs only the non-publishable differential gate with owned cleanup', async () => {
+    const source = await readFile(liveGatePath, 'utf8');
+
+    expect(source.startsWith('#!/usr/bin/env bash\nset -euo pipefail\numask 077\n')).toBe(true);
+    for (const required of [
+      '/var/tmp/henry-build',
+      'docker-compose.phase1-runtime-candidate-differential.yml',
+      'prepare-review-profile',
+      'run-differential',
+      "ASTER_PHASE1_MODE='runtime-candidate'",
+      'ASTER_FIXTURE_SOCKET=',
+      'ASTER_PHASE1_PHASE0_CANDIDATE_FIXTURE_SOCKET=',
+      'phase-1-differential.json',
+      'value.scenarios.length !== 22',
+      'scenario.differences.length !== 0',
+      'terminate_owned_process_group',
+      'label=com.docker.compose.project=',
+      ['rm -rf -- "', '$', '{RUN_DIR}"'].join(''),
+    ]) {
+      expect(source).toContain(required);
+    }
+    for (const forbidden of [
+      '--record-oracle',
+      'evidence-manifest.json',
+      'harness-result.json',
+      'phase-1-browser.json',
+      'phase-1-candidate-invariants.json',
+      'phase-1-conformance.json',
+      'docker.sock',
+      '/dev/shm',
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
   });
 });
 
