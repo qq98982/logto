@@ -44,7 +44,10 @@ import {
   writeSecureJsonArtifact,
   type SecureJsonPublication,
 } from './secure-evidence-sink.js';
-import { executeAuthorizedPhase1Run } from './snapshots/execution-coordinator.js';
+import {
+  executeAuthorizedPhase1DifferentialGate,
+  executeAuthorizedPhase1Run,
+} from './snapshots/execution-coordinator.js';
 
 export { assertAuthorizedPhase1Run, authorizePhase1RunForTesting } from './run-authorization.js';
 export type {
@@ -54,7 +57,7 @@ export type {
 } from './run-authorization.js';
 
 export type Phase1RunCommand = Readonly<{
-  command: 'run';
+  command: 'run' | 'run-differential';
   mode: Phase1RunMode;
   profilePath: string;
   schemaPath: string;
@@ -85,7 +88,12 @@ export type Phase1CliDependencies = Readonly<{
     bundle: Phase1ProfileBundle,
     baselineCapabilityIds: ReadonlySet<string>
   ) => Promise<Phase1ProvenanceResult>;
+  authorizeProtectedExecution: typeof authorizePhase1ProtectedExecution;
   executeRun: (authorization: Phase1RunAuthorization, command: Phase1RunCommand) => Promise<void>;
+  executeDifferential: (
+    authorization: Phase1RunAuthorization,
+    command: Phase1RunCommand
+  ) => Promise<void>;
   prepareReviewProfile: (command: Phase1PrepareReviewProfileCommand) => Promise<void>;
   stdout: OutputWriter;
   stderr: OutputWriter;
@@ -229,7 +237,7 @@ const parseFlagMap = (
 export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCommand => {
   const [subcommand, ...rest] = arguments_;
 
-  if (subcommand === 'run') {
+  if (subcommand === 'run' || subcommand === 'run-differential') {
     const { values, booleans } = parseFlagMap(
       rest,
       new Set(['--mode', '--profile', '--schema']),
@@ -249,13 +257,19 @@ export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCo
       (mode !== 'review-candidate' && mode !== 'mirror-control' && mode !== 'runtime-candidate') ||
       !profilePath ||
       !schemaPath ||
-      (booleans.has('--record-oracle') && mode !== 'review-candidate')
+      (booleans.has('--record-oracle') && mode !== 'review-candidate') ||
+      (subcommand === 'run-differential' &&
+        (mode !== 'runtime-candidate' ||
+          booleans.has('--record-oracle') ||
+          !booleans.has('--observation-controls') ||
+          !booleans.has('--discovery-extra-control') ||
+          !booleans.has('--candidate-invariant-controls')))
     ) {
       throw new TypeError(invalidArgumentsDiagnostic);
     }
 
     return Object.freeze({
-      command: 'run',
+      command: subcommand,
       mode,
       profilePath,
       schemaPath,
@@ -788,8 +802,12 @@ const verifyRunProvenance = async (
 const defaultDependencies: Phase1CliDependencies = {
   loadRunBundle,
   verifyRunProvenance,
+  authorizeProtectedExecution: authorizePhase1ProtectedExecution,
   executeRun: async (authorization) => {
     await executeAuthorizedPhase1Run(authorization, defaultLogtoRoot);
+  },
+  executeDifferential: async (authorization) => {
+    await executeAuthorizedPhase1DifferentialGate(authorization, defaultLogtoRoot);
   },
   prepareReviewProfile: preparePhase1ReviewProfile,
   stdout: (message) => {
@@ -842,7 +860,7 @@ export const runPhase1Cli = async (
     const protectedExecution =
       command.mode === 'review-candidate'
         ? undefined
-        : authorizePhase1ProtectedExecution(command.mode, closedProvenance);
+        : dependencies.authorizeProtectedExecution(command.mode, closedProvenance);
     const authorization = mintPhase1RunAuthorization(
       Object.freeze({
         mode: command.mode,
@@ -854,8 +872,13 @@ export const runPhase1Cli = async (
         controls: command.controls,
       } satisfies Phase1RunAuthorization)
     );
-    await dependencies.executeRun(authorization, command);
-    await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');
+    if (command.command === 'run-differential') {
+      await dependencies.executeDifferential(authorization, command);
+      await writeStatus(dependencies.stdout, 'Phase 1 differential gate authorized.');
+    } else {
+      await dependencies.executeRun(authorization, command);
+      await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');
+    }
     return 0;
   } catch {
     await writeStatus(dependencies.stderr, runFailureDiagnostic);

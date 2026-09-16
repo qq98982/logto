@@ -132,10 +132,12 @@ const createCliHarness = (
   stdout: string[];
   stderr: string[];
   authorizations: Phase1RunAuthorization[];
+  differentialAuthorizations: Phase1RunAuthorization[];
 }> => {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const authorizations: Phase1RunAuthorization[] = [];
+  const differentialAuthorizations: Phase1RunAuthorization[] = [];
   const profile = profileFixture();
   const dependencies: Phase1CliDependencies = {
     loadRunBundle: async () => ({
@@ -147,8 +149,14 @@ const createCliHarness = (
       harnessCommit: 'a'.repeat(40),
       publishable: false,
     }),
+    authorizeProtectedExecution: () => {
+      throw new Error('unbranded accepted provenance');
+    },
     executeRun: async (authorization) => {
       authorizations.push(authorization);
+    },
+    executeDifferential: async (authorization) => {
+      differentialAuthorizations.push(authorization);
     },
     prepareReviewProfile: async () => {
       await Promise.resolve();
@@ -162,7 +170,7 @@ const createCliHarness = (
     ...overrides,
   };
 
-  return { dependencies, stdout, stderr, authorizations };
+  return { dependencies, stdout, stderr, authorizations, differentialAuthorizations };
 };
 
 describe('Phase 1 CLI grammar', () => {
@@ -238,6 +246,93 @@ describe('Phase 1 CLI grammar', () => {
     });
     expect(Object.isFrozen(command)).toBe(true);
     expect(Object.isFrozen(command.command === 'run' ? command.controls : null)).toBe(true);
+  });
+
+  it('parses only the closed runtime-candidate differential gate command', () => {
+    const command = parsePhase1Arguments([
+      'run-differential',
+      '--mode',
+      'runtime-candidate',
+      '--profile',
+      '/private/profile.json',
+      '--schema',
+      '/private/schema.json',
+      '--observation-controls',
+      '--discovery-extra-control',
+      '--candidate-invariant-controls',
+    ]);
+
+    expect(command).toEqual({
+      command: 'run-differential',
+      mode: 'runtime-candidate',
+      profilePath: '/private/profile.json',
+      schemaPath: '/private/schema.json',
+      controls: {
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      },
+    });
+    for (const invalid of [
+      ['run-differential', '--mode', 'mirror-control'],
+      ['run-differential', '--mode', 'review-candidate'],
+      ['run-differential', '--mode', 'runtime-candidate', '--record-oracle'],
+      ['run-differential', '--mode', 'runtime-candidate', '--observation-controls'],
+    ]) {
+      expect(() =>
+        parsePhase1Arguments([
+          ...invalid,
+          '--profile',
+          '/private/profile.json',
+          '--schema',
+          '/private/schema.json',
+        ])
+      ).toThrow('Invalid Phase 1 arguments.');
+    }
+  });
+
+  it('authorizes the differential gate without invoking the complete run port', async () => {
+    const harness = createCliHarness({
+      verifyRunProvenance: async () => ({
+        kind: 'accepted-harness',
+        harnessCommit: 'a'.repeat(40),
+        protectedBranch: 'aster-phase1-harness',
+        pullRequestNumber: 1,
+        publishable: true,
+      }),
+      authorizeProtectedExecution: () => Object.freeze({}) as never,
+    });
+
+    await expect(
+      runPhase1Cli(
+        [
+          'run-differential',
+          '--mode',
+          'runtime-candidate',
+          '--profile',
+          '/private/profile.json',
+          '--schema',
+          '/private/schema.json',
+          '--observation-controls',
+          '--discovery-extra-control',
+          '--candidate-invariant-controls',
+        ],
+        harness.dependencies
+      )
+    ).resolves.toBe(0);
+    expect(harness.authorizations).toEqual([]);
+    expect(harness.differentialAuthorizations).toHaveLength(1);
+    expect(harness.differentialAuthorizations[0]).toMatchObject({
+      mode: 'runtime-candidate',
+      controls: {
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      },
+    });
+    expect(harness.stdout).toEqual(['Phase 1 differential gate authorized.']);
   });
 
   it('accepts one pnpm script delimiter only before an exact subcommand', async () => {

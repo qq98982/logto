@@ -680,6 +680,72 @@ const executeEvidence = async (
   }
 };
 
+const differentialEvidenceName = 'phase-1-differential.json';
+
+const executeDifferentialGate = async (
+  context: Phase1EvidenceRuntimeContext,
+  differential: Phase1EvidenceExecutionPorts['differential'],
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  try {
+    assertValidatedPhase1EvidenceRuntimeContext(context);
+    await assertPrivateEmptyDirectory(context.evidenceDirectory);
+    const result = validateDifferential(await differential(context), context);
+    const serialized = Buffer.from(canonicalPhase1ArtifactBytes(result)).toString('utf8');
+    const trustedInputs = new WeakSet<Record<string, unknown>>([result as Record<string, unknown>]);
+    const authority: SecureEvidenceInputAuthority = Object.freeze({
+      consume: ({ name, source, snapshot, serialized: candidate }) => {
+        if (
+          name !== differentialEvidenceName ||
+          source !== result ||
+          candidate !== serialized ||
+          !isDeepStrictEqual(snapshot, result) ||
+          Buffer.from(canonicalPhase1ArtifactBytes(snapshot)).toString('utf8') !== serialized ||
+          typeof source !== 'object' ||
+          source === null ||
+          !trustedInputs.delete(source as Record<string, unknown>)
+        ) {
+          throw new TypeError(diagnostic);
+        }
+      },
+    });
+    const sink = await dependencies.createSink(
+      context.evidenceDirectory,
+      Object.freeze([differentialEvidenceName]),
+      authority
+    );
+    let published = false;
+
+    try {
+      const publication = await sink.write(differentialEvidenceName, result);
+      published = true;
+      const verified = await sink.scan();
+      const expected = [path.join(context.evidenceDirectory, differentialEvidenceName)];
+
+      if (
+        trustedInputs.has(result as Record<string, unknown>) ||
+        JSON.stringify(verified) !== JSON.stringify(expected)
+      ) {
+        throw new TypeError(diagnostic);
+      }
+
+      return Object.freeze([publication]);
+    } catch {
+      if (published) {
+        await sink.rollback(differentialEvidenceName).catch(() => false);
+      }
+      const remaining = await readdir(context.evidenceDirectory).catch(() => ['unreadable']);
+
+      if (remaining.length > 0) {
+        throw new TypeError(diagnostic);
+      }
+      throw new TypeError(diagnostic);
+    }
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
 export const executePhase1EvidenceForTesting = async (
   context: Phase1EvidenceRuntimeContext,
   ports: Phase1EvidenceExecutionPorts,
@@ -690,6 +756,18 @@ export const executePhase1EvidenceForTesting = async (
   }
 
   return executeEvidence(context, ports, dependencies);
+};
+
+export const executePhase1DifferentialGateForTesting = async (
+  context: Phase1EvidenceRuntimeContext,
+  differential: Phase1EvidenceExecutionPorts['differential'],
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return executeDifferentialGate(context, differential, dependencies);
 };
 
 const runtimePorts: Phase1EvidenceExecutionPorts = Object.freeze({
@@ -775,6 +853,54 @@ export const executeAuthorizedPhase1Run = async (
     );
 
     return await executeEvidence(context, runtimePorts, {
+      createSink: async (root, allowlist, authority) =>
+        createSecureEvidenceSink(root, allowlist, {}, authority),
+    });
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
+export const executeAuthorizedPhase1DifferentialGate = async (
+  authorization: Phase1RunAuthorization,
+  repositoryRoot: string,
+  environment: RuntimeEnvironment = process.env
+): Promise<readonly string[]> => {
+  try {
+    if (
+      authorization.mode !== 'runtime-candidate' ||
+      authorization.controls.recordOracle ||
+      !authorization.controls.observationControls ||
+      !authorization.controls.discoveryExtraControl ||
+      !authorization.controls.candidateInvariantControls ||
+      requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode
+    ) {
+      return fail();
+    }
+    const context = createPhase1EvidenceRuntimeContext(
+      {
+        authorization,
+        oracleImageDigest: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_ORACLE_IMAGE_DIGEST'
+        ),
+        candidateImageDigest: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST'
+        ),
+        evidenceDirectory: requiredEnvironmentValue(environment, 'ASTER_PHASE1_EVIDENCE_DIR'),
+        oracleSnapshotPath: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_ORACLE_SNAPSHOT_PATH'
+        ),
+        repositoryRoot,
+        conformanceRoot: requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT'),
+        isolationAttestations: loadPhase1RuntimeIsolationAttestations(environment),
+      },
+      environment
+    );
+
+    return await executeDifferentialGate(context, runPhase1DifferentialRuntime, {
       createSink: async (root, allowlist, authority) =>
         createSecureEvidenceSink(root, allowlist, {}, authority),
     });

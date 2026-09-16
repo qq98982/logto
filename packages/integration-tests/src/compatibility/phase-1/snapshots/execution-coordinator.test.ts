@@ -19,7 +19,9 @@ import { phase1ScenarioContracts } from '../scenario-contracts.js';
 import { createSecureEvidenceSink } from '../secure-evidence-sink.js';
 
 import {
+  executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
+  executePhase1DifferentialGateForTesting,
   executePhase1EvidenceForTesting,
   loadPhase1RuntimeIsolationAttestations,
   runPhase1ExecutionCoordinatorCli,
@@ -272,6 +274,45 @@ const executeForTesting = async (
   });
 
 describe('Phase 1 evidence execution coordinator', () => {
+  it('publishes only one validated differential gate artifact', async () => {
+    const root = await createRoot();
+    const runtime = context(root);
+    const published = await executePhase1DifferentialGateForTesting(
+      runtime,
+      async (candidate) => differential(candidate),
+      {
+        createSink: async (directory, names, authority) =>
+          createSecureEvidenceSink(directory, names, {}, authority),
+      }
+    );
+
+    expect(published).toEqual([path.join(root, 'phase-1-differential.json')]);
+    expect(await readdir(root)).toEqual(['phase-1-differential.json']);
+    await expect(
+      executePhase1DifferentialGateForTesting(
+        runtime,
+        async (candidate) => differential(candidate),
+        {
+          createSink: async (directory, names, authority) =>
+            createSecureEvidenceSink(directory, names, {}, authority),
+        }
+      )
+    ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+  });
+
+  it('rejects non-runtime authorization before the differential live port', async () => {
+    const root = await createRoot();
+    const runtime = context(root);
+
+    await expect(
+      executeAuthorizedPhase1DifferentialGate(runtime.authorization, '/home/henry/repo/logto', {
+        ...runtimeEnvironment,
+        ASTER_PHASE1_MODE: 'review-candidate',
+      })
+    ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+    await expect(readdir(root)).resolves.toEqual([]);
+  });
+
   it('publishes exactly four complete validated results only after every port succeeds', async () => {
     const root = await createRoot();
     const runtime = context(root);
