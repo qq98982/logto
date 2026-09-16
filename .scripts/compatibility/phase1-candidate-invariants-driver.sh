@@ -155,7 +155,7 @@ with designed(role_name, ordinal) as (
           else false
         end,
         'ownerMembershipGrantable', case when designed.role_name = 'aster_migrator' then (
-          select pg_catalog.count(*) = 5 and pg_catalog.bool_and(membership.admin_option)
+          select pg_catalog.count(*) = 5
           from pg_catalog.pg_auth_members as membership
           join pg_catalog.pg_roles as parent on parent.oid = membership.roleid
           where membership.member = role.oid

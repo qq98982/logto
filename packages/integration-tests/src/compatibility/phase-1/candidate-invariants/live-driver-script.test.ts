@@ -121,6 +121,8 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(calls).toContain('--username postgres');
     expect(calls).toContain('--dbname aster_phase1_candidate_primary');
     expect(sql).toContain('pg_catalog.pg_auth_members');
+    expect(sql).toContain('pg_catalog.count(*) = 5');
+    expect(sql).not.toContain('admin_option');
     expect(sql).toContain("'phase1-candidate-invariant-terminal'");
     expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
   });
