@@ -156,7 +156,7 @@ require_private_root() {
 }
 
 immutable_image() {
-  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ || "$1" =~ ^[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]
+  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ || "$1" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]]
 }
 
 port_is_listening() {

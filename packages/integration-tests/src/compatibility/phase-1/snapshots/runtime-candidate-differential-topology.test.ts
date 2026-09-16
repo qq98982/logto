@@ -184,6 +184,7 @@ describe('runtime-candidate differential topology', () => {
       'scenario.differences.length !== 0',
       'terminate_owned_process_group',
       'label=com.docker.compose.project=',
+      '^[A-Za-z0-9._/:-]+@sha256:',
       ['rm -rf -- "', '$', '{RUN_DIR}"'].join(''),
     ]) {
       expect(source).toContain(required);
