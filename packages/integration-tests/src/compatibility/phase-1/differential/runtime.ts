@@ -1,8 +1,12 @@
-/* eslint-disable no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods -- Differential scenarios deliberately run serially, and the private runtime factory keeps its five closed authorities explicit. */
+/* eslint-disable no-await-in-loop, max-params, max-lines, @silverhand/fp/no-mutating-methods -- Differential scenarios deliberately run serially, and the private runtime factories keep their closed authorities explicit. */
 import { compareJson } from '../../compare.js';
 import type { Difference } from '../../model.js';
 import type { JsonObject } from '../../normalize.js';
 import { assertPhase1PublicArtifactValue, bytewiseCompare } from '../artifact-contract.js';
+import {
+  createCommandPhase1FixtureProvisioner,
+  runPhase1FixtureCommand,
+} from '../clients/command-provisioner.js';
 import { createReferencePhase1FixtureProvisioner } from '../clients/reference-provisioner.js';
 import {
   createPhase1EvidenceProvenance,
@@ -59,6 +63,7 @@ export type Phase1DifferentialEvidenceArtifact = Readonly<{
 export type Phase1DifferentialRuntimeDependencies = Readonly<{
   projectProfile: typeof projectPhase1ProfileForImplementation;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
+  createCandidateProvisioner: typeof createCommandPhase1FixtureProvisioner;
   createSessionBinding: typeof createPhase1ProtocolSessionBinding;
   createReferenceProjector: typeof createReferenceScenarioStateProjector;
   loadContainerGraph: () => Phase1ReferenceContainerGraph;
@@ -109,6 +114,7 @@ export const loadPhase1ReferenceContainerGraph = (
 const defaultDependencies: Phase1DifferentialRuntimeDependencies = Object.freeze({
   projectProfile: projectPhase1ProfileForImplementation,
   createReferenceProvisioner: createReferencePhase1FixtureProvisioner,
+  createCandidateProvisioner: createCommandPhase1FixtureProvisioner,
   createSessionBinding: createPhase1ProtocolSessionBinding,
   createReferenceProjector: createReferenceScenarioStateProjector,
   loadContainerGraph: loadPhase1ReferenceContainerGraph,
@@ -149,6 +155,64 @@ const createMirrorControlRuntime = (
         projectName,
         primaryService: `${implementation}-primary-postgres`,
         foreignService: `${implementation}-foreign-postgres`,
+        symbols: binding.symbols,
+        driverPath,
+        environment: { PATH: process.env.PATH },
+      });
+      projectors.set(input.fixture, projector);
+
+      return binding.session;
+    },
+    projectScenarioState: async (input) => {
+      const projector = projectors.get(input.fixture);
+
+      return projector ? projector(input) : fail();
+    },
+  });
+};
+
+const createCandidateRuntime = (
+  context: Phase1EvidenceRuntimeContext,
+  containers: Phase1ReferenceContainerGraph['candidate'],
+  projectName: string,
+  dependencies: Phase1DifferentialRuntimeDependencies
+): Phase1TargetRuntime => {
+  const target = context.targets.candidate.primary;
+  const foreignTarget = context.targets.candidate.foreign;
+  const profile = dependencies.projectProfile(context.authorization.profile, 'candidate');
+  const fixtureSocket = process.env.ASTER_FIXTURE_SOCKET;
+  const fixturePath = process.env.PATH ?? '/usr/bin:/bin';
+  const provisioner = dependencies.createCandidateProvisioner({
+    profile,
+    target,
+    foreignTarget,
+    environment: { PATH: fixturePath, ASTER_FIXTURE_SOCKET: fixtureSocket },
+    runner: async (request) =>
+      runPhase1FixtureCommand({
+        ...request,
+        env: Object.freeze({
+          PATH: fixturePath,
+          ...(fixtureSocket && { ASTER_FIXTURE_SOCKET: fixtureSocket }),
+        }),
+      }),
+  });
+  const projectors = new WeakMap<ProvisionedPhase1Fixture, ReferenceScenarioStateProjector>();
+  const driverPath = `${context.repositoryRoot}/.scripts/compatibility/phase1-candidate-state-driver.sh`;
+
+  return Object.freeze({
+    profile,
+    target,
+    provisioner,
+    timeoutMs: scenarioTimeoutMs,
+    createProtocolSession: (input) => {
+      const binding: Phase1ProtocolSessionBinding = dependencies.createSessionBinding(input);
+      const projector = dependencies.createReferenceProjector({
+        profile,
+        primaryContainerId: containers.primary,
+        foreignContainerId: containers.foreign,
+        projectName,
+        primaryService: 'candidate-primary-postgres',
+        foreignService: 'candidate-foreign-postgres',
         symbols: binding.symbols,
         driverPath,
         environment: { PATH: process.env.PATH },
@@ -212,7 +276,7 @@ const executePhase1DifferentialRuntime = async (
   dependencies: Phase1DifferentialRuntimeDependencies
 ): Promise<Phase1DifferentialEvidenceArtifact> => {
   if (
-    context.authorization.mode === 'runtime-candidate' ||
+    context.authorization.mode !== 'runtime-candidate' &&
     context.oracleImageDigest !== context.candidateImageDigest
   ) {
     throw new TypeError(candidateAdapterUnavailable);
@@ -237,13 +301,21 @@ const executePhase1DifferentialRuntime = async (
       containers.projectName,
       dependencies
     );
-    const candidateRuntime = createMirrorControlRuntime(
-      context,
-      'candidate',
-      containers.candidate,
-      containers.projectName,
-      dependencies
-    );
+    const candidateRuntime =
+      context.authorization.mode === 'runtime-candidate'
+        ? createCandidateRuntime(
+            context,
+            containers.candidate,
+            containers.projectName,
+            dependencies
+          )
+        : createMirrorControlRuntime(
+            context,
+            'candidate',
+            containers.candidate,
+            containers.projectName,
+            dependencies
+          );
     const scenarios: Phase1DifferentialEvidenceScenario[] = [];
 
     for (const scenario of phase1DifferentialScenarios) {
@@ -300,4 +372,4 @@ export const runPhase1DifferentialRuntimeForTesting = async (
   return executePhase1DifferentialRuntime(context, dependencies);
 };
 
-/* eslint-enable no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods */
+/* eslint-enable no-await-in-loop, max-params, max-lines, @silverhand/fp/no-mutating-methods */

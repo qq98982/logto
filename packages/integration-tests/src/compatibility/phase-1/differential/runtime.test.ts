@@ -114,6 +114,7 @@ const dependencies = (
 ): Phase1DifferentialRuntimeDependencies => ({
   projectProfile: (profile) => profile,
   createReferenceProvisioner: () => provisioner,
+  createCandidateProvisioner: () => provisioner,
   createSessionBinding: () => {
     throw new Error('the injected scenario runner does not create protocol sessions');
   },
@@ -254,16 +255,49 @@ describe('Phase 1 differential runtime', () => {
     }).not.toThrow();
   });
 
-  it('refuses runtime-candidate and a non-mirror review image before invoking adapters', async () => {
+  it('composes runtime-candidate from one oracle adapter and one candidate command adapter', async () => {
+    const base = dependencies();
+    const projectProfile = import.meta.jest.fn((profile) => profile);
+    const createReferenceProvisioner = import.meta.jest.fn(() => provisioner);
+    const createCandidateProvisioner = import.meta.jest.fn(() => provisioner);
+    const runtimeContext = context('runtime-candidate');
+    const result = await runPhase1DifferentialRuntimeForTesting(runtimeContext, {
+      ...base,
+      projectProfile,
+      createReferenceProvisioner,
+      createCandidateProvisioner,
+    });
+
+    expect(result.mode).toBe('runtime-candidate');
+    expect(result.scenarios).toHaveLength(22);
+    expect(result.scenarios.every(({ differences }) => differences.length === 0)).toBe(true);
+    expect(projectProfile).toHaveBeenNthCalledWith(
+      1,
+      runtimeContext.authorization.profile,
+      'oracle'
+    );
+    expect(projectProfile).toHaveBeenNthCalledWith(
+      2,
+      runtimeContext.authorization.profile,
+      'candidate'
+    );
+    expect(createReferenceProvisioner).toHaveBeenCalledTimes(1);
+    expect(createCandidateProvisioner).toHaveBeenCalledTimes(1);
+    expect(createCandidateProvisioner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: runtimeContext.targets.candidate.primary,
+        foreignTarget: runtimeContext.targets.candidate.foreign,
+      })
+    );
+  });
+
+  it('refuses a non-mirror review image before invoking adapters', async () => {
     const createReferenceProvisioner = import.meta.jest.fn(() => provisioner);
     const blocked = {
       ...dependencies(),
       createReferenceProvisioner,
     };
 
-    await expect(
-      runPhase1DifferentialRuntimeForTesting(context('runtime-candidate'), blocked)
-    ).rejects.toThrow(/^Phase 1 candidate differential adapter is unavailable$/u);
     await expect(
       runPhase1DifferentialRuntimeForTesting(
         {
