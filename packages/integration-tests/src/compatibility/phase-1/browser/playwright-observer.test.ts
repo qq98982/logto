@@ -72,6 +72,8 @@ describe('phase 1 Playwright observer', () => {
   });
 
   it('launches with all recording and debug channels disabled', async () => {
+    const originalBrowserPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+    process.env.PLAYWRIGHT_BROWSERS_PATH = '/var/tmp/henry-build/aster-playwright-browsers';
     let closeCalls = 0;
     let launchOptions: Record<string, unknown> | undefined;
     let contextOptions: Record<string, unknown> | undefined;
@@ -91,9 +93,20 @@ describe('phase 1 Playwright observer', () => {
       browserType: { launch } as never,
     });
 
-    await observer.withContext('step', async () => {});
+    try {
+      await observer.withContext('step', async () => {});
+    } finally {
+      if (originalBrowserPath === undefined) {
+        Reflect.deleteProperty(process.env, 'PLAYWRIGHT_BROWSERS_PATH');
+      } else {
+        process.env.PLAYWRIGHT_BROWSERS_PATH = originalBrowserPath;
+      }
+    }
 
     expect(launchOptions).toMatchObject({ headless: true });
+    expect(
+      (launchOptions?.env as Record<string, unknown> | undefined)?.PLAYWRIGHT_BROWSERS_PATH
+    ).toBe('/var/tmp/henry-build/aster-playwright-browsers');
     expect((launchOptions?.env as Record<string, unknown> | undefined)?.DEBUG).toBeUndefined();
     expect((launchOptions?.env as Record<string, unknown> | undefined)?.PWDEBUG).toBeUndefined();
     expect(contextOptions).toEqual({

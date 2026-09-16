@@ -46,6 +46,7 @@ const launchEnvironmentKeys = Object.freeze([
   'HOME',
   'LANG',
   'PATH',
+  'PLAYWRIGHT_BROWSERS_PATH',
   'TMPDIR',
   'XDG_RUNTIME_DIR',
 ] as const);
