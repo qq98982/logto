@@ -17,6 +17,7 @@ const phase0Commit = '40135e37201f36ac05ece1eff82e37bb6d9649f1';
 const packagePath = 'packages/integration-tests/package.json';
 const rootManifestPath = path.join(repositoryRoot, 'package.json');
 const lockfilePath = path.join(repositoryRoot, 'pnpm-lock.yaml');
+const asterClientPatchPath = path.join(repositoryRoot, 'patches/@logto__js@5.1.0.patch');
 const oidcProviderPatchPath = path.join(repositoryRoot, 'patches/oidc-provider@9.9.1.patch');
 const encoder = new TextEncoder();
 
@@ -209,10 +210,11 @@ describe('Phase 1 integration package authority', () => {
 });
 
 describe('Phase 1 integration lockfile authority', () => {
-  it('pins the Aster application header patch for the exact provider dependency', async () => {
-    const [manifestBytes, lockfile, patch] = await Promise.all([
+  it('pins the exact Aster browser and provider dependency patches', async () => {
+    const [manifestBytes, lockfile, clientPatch, providerPatch] = await Promise.all([
       readFile(rootManifestPath),
       readFile(lockfilePath, 'utf8'),
+      readFile(asterClientPatchPath, 'utf8'),
       readFile(oidcProviderPatchPath, 'utf8'),
     ]);
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as {
@@ -220,14 +222,25 @@ describe('Phase 1 integration lockfile authority', () => {
     };
 
     expect(manifest.pnpm?.patchedDependencies).toEqual({
+      '@logto/js@5.1.0': 'patches/@logto__js@5.1.0.patch',
       'oidc-provider@9.9.1': 'patches/oidc-provider@9.9.1.patch',
     });
+    expect(lockfile).toContain("'@logto/js@5.1.0':");
+    expect(lockfile).toContain('path: patches/@logto__js@5.1.0.patch');
+    expect(lockfile).toContain(
+      'hash: ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb'
+    );
     expect(lockfile).toContain('oidc-provider@9.9.1:');
     expect(lockfile).toContain('path: patches/oidc-provider@9.9.1.patch');
-    expect(patch).toContain("+    const clientId = ctx.headers['aster-app-id'] ||");
-    expect(patch).toContain("-    const clientId = ctx.headers['logto-app-id'] ||");
-    expect(patch.match(/^\+.*aster-app-id/gmu)).toHaveLength(1);
-    expect(patch.match(/^\+.*logto-app-id/gmu)).toBeNull();
+    expect(clientPatch).toContain('+    Organization = "urn:aster:resource:organizations"');
+    expect(clientPatch).toContain('+    Organizations = "urn:aster:scope:organizations",');
+    expect(clientPatch).toContain('+    OrganizationRoles = "urn:aster:scope:organization_roles"');
+    expect(clientPatch).toContain("+const organizationUrnPrefix = 'urn:aster:organization:';");
+    expect(clientPatch.match(/^\+.*urn:logto:/gmu)).toBeNull();
+    expect(providerPatch).toContain("+    const clientId = ctx.headers['aster-app-id'] ||");
+    expect(providerPatch).toContain("-    const clientId = ctx.headers['logto-app-id'] ||");
+    expect(providerPatch.match(/^\+.*aster-app-id/gmu)).toHaveLength(1);
+    expect(providerPatch.match(/^\+.*logto-app-id/gmu)).toBeNull();
   });
 
   it('accepts the exact current pnpm lockfile bytes', async () => {

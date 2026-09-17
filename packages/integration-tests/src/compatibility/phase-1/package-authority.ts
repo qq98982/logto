@@ -26,7 +26,7 @@ const isAuthorityArray = (value: AuthorityJsonValue): value is readonly Authorit
 const diagnostic = 'Invalid Phase 1 package authority';
 const maximumManifestBytes = 1024 * 1024;
 const integrationLockfileSha256 =
-  'ce03b9f238c4059461223d15c9fc0dee79421b948f02984e552bf2a1b23bcf2c';
+  '60d591f8436896c6507bcee546ba6804ec2819f83e04ae9006cdec18ce6b1f46';
 const dangerousKeys = new Set(['__proto__', 'constructor', 'prototype']);
 const scriptAdditions = Object.freeze({
   'compatibility:phase1': 'node ./lib/compatibility/phase-1/cli.js',
