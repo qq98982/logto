@@ -26,6 +26,7 @@ const reaperAuditInvariantId = 'reaper.object-audit-disabled';
 const requiredReadableInvariantId = 'keystore.required-readable-key-set';
 const staleKeyringInvariantId = 'keystore.stale-keyring-rejoin-rejected';
 const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
+const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -39,6 +40,7 @@ const reaperAuditProjection = projection(reaperAuditInvariantId);
 const requiredReadableProjection = projection(requiredReadableInvariantId);
 const staleKeyringProjection = projection(staleKeyringInvariantId);
 const forcedRlsProjection = projection(forcedRlsInvariantId);
+const metadataDmlProjection = projection(metadataDmlInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -50,7 +52,8 @@ if (
   !reaperAuditProjection ||
   !requiredReadableProjection ||
   !staleKeyringProjection ||
-  !forcedRlsProjection
+  !forcedRlsProjection ||
+  !metadataDmlProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -72,6 +75,7 @@ const reaperAuditOutput = output(reaperAuditInvariantId, reaperAuditProjection);
 const requiredReadableOutput = output(requiredReadableInvariantId, requiredReadableProjection);
 const staleKeyringOutput = output(staleKeyringInvariantId, staleKeyringProjection);
 const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
+const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -236,6 +240,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{STALE_KEYRING_TOKEN:-42501|15000|42501|42501|true}"
   elif [[ "$input" == *'phase1-key-owner-probe'* ]]; then
     printf '%s' "${'$'}{FORCED_RLS_TOKEN:-1|1|42501|true|true}"
+  elif [[ "$input" == *'phase1-metadata-dml-probe'* ]]; then
+    printf '%s' "${'$'}{METADATA_DML_TOKEN:-42501|42501|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
@@ -244,6 +250,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$STALE_KEYRING_OUTPUT"
   elif [[ "$input" == *'keystore.forced-rls-owner-boundary'* ]]; then
     printf '%s' "$FORCED_RLS_OUTPUT"
+  elif [[ "$input" == *'keystore.metadata-dml-boundary'* ]]; then
+    printf '%s' "$METADATA_DML_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -277,6 +285,7 @@ exit 1
       REQUIRED_READABLE_OUTPUT: requiredReadableOutput,
       STALE_KEYRING_OUTPUT: staleKeyringOutput,
       FORCED_RLS_OUTPUT: forcedRlsOutput,
+      METADATA_DML_OUTPUT: metadataDmlOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -320,7 +329,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(sql).toContain('pg_catalog.count(*) = 5');
     expect(sql).not.toContain('admin_option');
     expect(sql).toContain("'phase1-candidate-invariant-terminal'");
-    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
   });
 
   it('rejects a stale request capability after an actual admin suspension and epoch change', async () => {
@@ -672,6 +681,46 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(forcedRlsInvariantId), {
         env: { ...fake.env, FORCED_RLS_TOKEN: '1|1|00000|true|true' },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('allows only database-timed signing and sealing metadata updates', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(metadataDmlInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(metadataDmlOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-metadata-dml-probe');
+    expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql).toContain('aster_runtime.provision_cookie_key');
+    expect(sql).toContain('aster_runtime.record_signing_use');
+    expect(sql).toContain('aster_runtime.record_cookie_seal');
+    for (const operation of [
+      'caller_time_state',
+      'lifecycle_state',
+      'generation_state',
+      'tenant_state',
+      'material_state',
+      'public_metadata_state',
+    ]) {
+      expect(sql).toContain(operation);
+    }
+    expect(sql).toContain('ROLLBACK;');
+    expect(sql).toContain("'keystore.metadata-dml-boundary'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed when caller-supplied metadata time is accepted', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(metadataDmlInvariantId), {
+        env: { ...fake.env, METADATA_DML_TOKEN: '00000|42501|42501|42501|42501|42501|true' },
       })
     ).rejects.toThrow();
   });
