@@ -22,6 +22,7 @@ const crossTenantInvariantId = 'tenant.cross-tenant-read-rejected';
 const adminBindingInvariantId = 'tenant.admin-operation-binding';
 const adminMatrixInvariantId = 'tenant.admin-operation-status-matrix';
 const reaperActivityInvariantId = 'reaper.activity-visibility-redaction';
+const reaperAuditInvariantId = 'reaper.object-audit-disabled';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -31,6 +32,7 @@ const crossTenantProjection = projection(crossTenantInvariantId);
 const adminBindingProjection = projection(adminBindingInvariantId);
 const adminMatrixProjection = projection(adminMatrixInvariantId);
 const reaperActivityProjection = projection(reaperActivityInvariantId);
+const reaperAuditProjection = projection(reaperAuditInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -38,7 +40,8 @@ if (
   !crossTenantProjection ||
   !adminBindingProjection ||
   !adminMatrixProjection ||
-  !reaperActivityProjection
+  !reaperActivityProjection ||
+  !reaperAuditProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -56,6 +59,7 @@ const crossTenantOutput = output(crossTenantInvariantId, crossTenantProjection);
 const adminBindingOutput = output(adminBindingInvariantId, adminBindingProjection);
 const adminMatrixOutput = output(adminMatrixInvariantId, adminMatrixProjection);
 const reaperActivityOutput = output(reaperActivityInvariantId, reaperActivityProjection);
+const reaperAuditOutput = output(reaperAuditInvariantId, reaperAuditProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -77,12 +81,29 @@ const fakeDocker = async (
     `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$CALLS"
+if [[ "$1" == ps ]]; then
+  if [[ "$*" == *'com.docker.compose.service=candidate-primary-core'* ]]; then printf '%s' "$CORE_ID"; fi
+  exit 0
+fi
 if [[ "$1" == inspect ]]; then
   if [[ "${'$'}{*: -1}" == "$PRIMARY_ID" ]]; then printf '%s|%s' "$PRIMARY_SERVICE" "$PROJECT"; exit 0; fi
   if [[ "${'$'}{*: -1}" == "$FOREIGN_ID" ]]; then printf '%s|%s' "$FOREIGN_SERVICE" "$PROJECT"; exit 0; fi
+  if [[ "${'$'}{*: -1}" == "$CORE_ID" ]]; then
+    if [[ "$*" == *'.State.Status'* ]]; then printf '%s' 'running|healthy'; else printf '%s|%s' 'candidate-primary-core' "$PROJECT"; fi
+    exit 0
+  fi
   exit 1
 fi
+if [[ "$1" == logs ]]; then
+  if [[ "${'$'}{AUDIT_LOG_SENTINEL:-0}" == 1 ]]; then printf '%s' 'phase1-audit-request-sentinel'; else printf '%s' 'closed-log-artifact'; fi
+  exit 0
+fi
 if [[ "$1" == exec ]]; then
+  if [[ "$*" == *'PGAPPNAME=phase1-invariant-audit-'* ]]; then
+    cat >>"$STDIN"
+    sleep "${'$'}{AUDIT_CLIENT_SLEEP:-1}"
+    exit 0
+  fi
   if [[ "$*" == *'PGAPPNAME=phase1-invariant-reaper-'* ]]; then
     cat >>"$STDIN"
     sleep "${'$'}{REAPER_CLIENT_SLEEP:-1}"
@@ -126,6 +147,18 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$*" == *'pg_stat_activity'* && "$*" == *'phase1-invariant-reaper-'* ]]; then
+    printf '%s' 'true'
+    exit 0
+  fi
+  if [[ "$*" == *'pg_stat_activity'* && "$*" == *'phase1-invariant-audit-'* ]]; then
+    printf '%s' 'true'
+    exit 0
+  fi
+  if [[ "$*" == *'logStatement'* || "$*" == *"current_setting('log_statement')"* ]]; then
+    printf '%s' 'true'
+    exit 0
+  fi
+  if [[ "$*" == *'pg_db_role_setting'* && "$*" == *'pgaudit.role'* ]]; then
     printf '%s' 'true'
     exit 0
   fi
@@ -185,6 +218,8 @@ if [[ "$1" == exec ]]; then
   [[ "${'$'}{FINAL_STATUS:-0}" == 0 ]] || exit "$FINAL_STATUS"
   if [[ "$input" == *'reaper.activity-visibility-redaction'* ]]; then
     printf '%s' "$REAPER_ACTIVITY_OUTPUT"
+  elif [[ "$input" == *'reaper.object-audit-disabled'* ]]; then
+    printf '%s' "$REAPER_AUDIT_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -214,6 +249,8 @@ exit 1
       ADMIN_BINDING_OUTPUT: adminBindingOutput,
       ADMIN_MATRIX_OUTPUT: adminMatrixOutput,
       REAPER_ACTIVITY_OUTPUT: reaperActivityOutput,
+      REAPER_AUDIT_OUTPUT: reaperAuditOutput,
+      CORE_ID: '3'.repeat(64),
     },
   };
 };
@@ -468,6 +505,47 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(reaperActivityInvariantId), {
         env: { ...fake.env, REAPER_RESULT: '1|0' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain('pg_terminate_backend');
+  });
+
+  it('proves request and worker object audit is disabled across every configured sink', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(reaperAuditInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(reaperAuditOutput));
+    expect(stdout).not.toMatch(/phase1-audit-(?:request|worker)-sentinel/u);
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(calls).toContain('com.docker.compose.service=candidate-primary-core');
+    expect(calls).toContain('candidate-primary-core');
+    expect(calls).toContain('logs');
+    for (const role of ['aster_request', 'aster_worker']) {
+      expect(calls).toContain(`--username ${role}`);
+    }
+    expect(calls).toContain('PGAPPNAME=phase1-invariant-audit-request');
+    expect(calls).toContain('PGAPPNAME=phase1-invariant-audit-worker');
+    expect(calls).toContain('pg_db_role_setting');
+    expect(calls).toContain('pg_terminate_backend');
+    expect(sql).toContain('phase1-audit-request-sentinel');
+    expect(sql).toContain('phase1-audit-worker-sentinel');
+    expect(sql).toContain("'reaper.object-audit-disabled'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed and cleans when a complete log artifact contains a sentinel', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(reaperAuditInvariantId), {
+        env: { ...fake.env, AUDIT_LOG_SENTINEL: '1' },
       })
     ).rejects.toThrow();
     const calls = await readFile(fake.calls, 'utf8');

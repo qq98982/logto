@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -618,6 +618,224 @@ SQL
   [[ "$terminal" != *'phase1-reaper-request-sentinel'* && \
      "$terminal" != *'phase1-reaper-worker-sentinel'* ]] || fail
   cleanup_reaper_clients || fail
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'reaper.object-audit-disabled' ]]; then
+  SHA256_BIN="$(trusted_binary sha256sum)"
+  readonly SHA256_BIN
+  primary_core_id="$($DOCKER_BIN ps -aq \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --filter 'label=com.docker.compose.service=candidate-primary-core' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$primary_core_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
+  core_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$core_labels" == "candidate-primary-core|$project_name" ]] || fail
+  core_state="$($DOCKER_BIN inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$core_state" == 'running|healthy' ]] || fail
+  managed_export_ids="$($DOCKER_BIN ps -aq \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --filter 'label=com.docker.compose.service=candidate-managed-export' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ -z "$managed_export_ids" ]] || fail
+
+  audit_settings_closed() {
+    local role=$1 result
+    case "$role" in
+      aster_request|aster_worker) ;;
+      *) fail ;;
+    esac
+    result="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username "$role" --dbname "$database" \
+      --command "SELECT CASE WHEN pg_catalog.current_setting('log_statement') = 'none' AND pg_catalog.current_setting('log_min_error_statement') = 'panic' AND pg_catalog.current_setting('log_duration') = 'off' AND pg_catalog.current_setting('log_min_duration_statement') = '-1' AND pg_catalog.current_setting('log_min_duration_sample') = '-1' AND pg_catalog.current_setting('log_statement_sample_rate') = '0' AND pg_catalog.current_setting('log_parameter_max_length') = '0' AND pg_catalog.current_setting('log_parameter_max_length_on_error') = '0' AND pg_catalog.current_setting('auto_explain.log_min_duration', true) = '-1' AND pg_catalog.current_setting('auto_explain.log_parameter_max_length', true) = '0' AND pg_catalog.current_setting('pgaudit.log', true) = 'none' AND pg_catalog.current_setting('pgaudit.log_statement', true) = 'off' AND pg_catalog.current_setting('pgaudit.log_parameter', true) = 'off' AND pg_catalog.current_setting('pgaudit.role', true) = '' THEN 'true' ELSE 'false' END" \
+      2>/dev/null | tr -d '[:space:]')" || fail
+    [[ "$result" == true ]]
+  }
+  audit_settings_closed aster_request || fail
+  audit_settings_closed aster_worker || fail
+
+  audit_catalog_closed="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS member_role ON member_role.oid = membership.member WHERE member_role.rolname IN ('aster_request', 'aster_worker')) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_db_role_setting AS role_setting JOIN pg_catalog.pg_roles AS configured_role ON configured_role.oid = role_setting.setrole CROSS JOIN LATERAL pg_catalog.unnest(role_setting.setconfig) AS configured_value WHERE role_setting.setdatabase = (SELECT database_catalog.oid FROM pg_catalog.pg_database AS database_catalog WHERE database_catalog.datname = pg_catalog.current_database()) AND configured_role.rolname IN ('aster_request', 'aster_worker') AND configured_value LIKE 'pgaudit.role=%' AND configured_value <> 'pgaudit.role=') THEN 'true' ELSE 'false' END" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$audit_catalog_closed" == true ]] || fail
+
+  request_audit_pid=''
+  worker_audit_pid=''
+  cleanup_audit_clients() {
+    local cleanup_failed=0 client_pid
+    "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "SELECT pg_catalog.pg_terminate_backend(activity.pid, 2000) FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.usename IN ('aster_request', 'aster_worker') AND activity.application_name IN ('phase1-invariant-audit-request', 'phase1-invariant-audit-worker') AND activity.backend_type = 'client backend' AND activity.pid <> pg_catalog.pg_backend_pid()" \
+      >/dev/null 2>&1 || cleanup_failed=1
+    for client_pid in "$request_audit_pid" "$worker_audit_pid"; do
+      [[ -n "$client_pid" ]] || continue
+      if kill -0 "$client_pid" 2>/dev/null; then
+        kill -TERM "$client_pid" 2>/dev/null || cleanup_failed=1
+      fi
+      wait "$client_pid" 2>/dev/null || true
+    done
+    request_audit_pid=''
+    worker_audit_pid=''
+    return "$cleanup_failed"
+  }
+
+  # Invoked indirectly by the EXIT trap.
+  # shellcheck disable=SC2329
+  cleanup_audit_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if ! cleanup_audit_clients && ((exit_code == 0)); then
+      printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+      exit_code=1
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_audit_on_exit EXIT
+
+  start_audit_client() {
+    local role=$1 application_name=$2 sentinel=$3 byte_seed=$4
+    case "$role" in
+      aster_request|aster_worker) ;;
+      *) fail ;;
+    esac
+    [[ "$application_name" =~ ^phase1-invariant-audit-(request|worker)$ ]] || fail
+    [[ "$sentinel" =~ ^phase1-audit-(request|worker)-sentinel$ ]] || fail
+    [[ "$byte_seed" =~ ^[0-9a-f]{2}$ ]] || fail
+    "$DOCKER_BIN" exec --interactive --user postgres \
+      --env "PGAPPNAME=$application_name" "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username "$role" --dbname "$database" >/dev/null 2>&1 <<SQL &
+BEGIN;
+SET LOCAL transaction_timeout = '0';
+SET LOCAL statement_timeout = '0';
+SET LOCAL idle_in_transaction_session_timeout = '0';
+SELECT pg_catalog.pg_sleep(30), '$sentinel'::text,
+       pg_catalog.decode(pg_catalog.repeat('$byte_seed', 32), 'hex');
+COMMIT;
+SQL
+    started_audit_pid=$!
+  }
+
+  started_audit_pid=''
+  start_audit_client \
+    aster_request phase1-invariant-audit-request phase1-audit-request-sentinel a7
+  request_audit_pid=$started_audit_pid
+  start_audit_client \
+    aster_worker phase1-invariant-audit-worker phase1-audit-worker-sentinel b8
+  worker_audit_pid=$started_audit_pid
+  [[ "$request_audit_pid" =~ ^[1-9][0-9]*$ && "$worker_audit_pid" =~ ^[1-9][0-9]*$ ]] || fail
+
+  audit_backends_ready=false
+  for _ in {1..100}; do
+    if ! kill -0 "$request_audit_pid" 2>/dev/null || ! kill -0 "$worker_audit_pid" 2>/dev/null; then
+      break
+    fi
+    readiness="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "SELECT CASE WHEN pg_catalog.count(*) = 2 AND pg_catalog.bool_and((activity.application_name = 'phase1-invariant-audit-request' AND activity.usename = 'aster_request' AND activity.query LIKE '%phase1-audit-request-sentinel%') OR (activity.application_name = 'phase1-invariant-audit-worker' AND activity.usename = 'aster_worker' AND activity.query LIKE '%phase1-audit-worker-sentinel%')) AND pg_catalog.bool_and(activity.backend_type = 'client backend' AND activity.state = 'active' AND activity.xact_start IS NOT NULL) THEN 'true' ELSE 'false' END FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.application_name IN ('phase1-invariant-audit-request', 'phase1-invariant-audit-worker')" \
+      2>/dev/null | tr -d '[:space:]')" || fail
+    if [[ "$readiness" == true ]]; then
+      audit_backends_ready=true
+      break
+    fi
+    sleep 0.1
+  done
+  [[ "$audit_backends_ready" == true ]] || fail
+  cleanup_audit_clients || fail
+  gone="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.application_name IN ('phase1-invariant-audit-request', 'phase1-invariant-audit-worker')) THEN 'true' ELSE 'false' END" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$gone" == true ]] || fail
+
+  postgres_logs="$($DOCKER_BIN logs "$primary_container_id" 2>&1)" || fail
+  application_logs="$($DOCKER_BIN logs "$primary_core_id" 2>&1)" || fail
+  managed_export_logs=''
+  for artifact in "$postgres_logs" "$managed_export_logs" "$application_logs"; do
+    artifact_bytes="$(printf '%s' "$artifact" | wc -c | tr -d '[:space:]')"
+    [[ "$artifact_bytes" =~ ^[0-9]+$ && "$artifact_bytes" -le 1048576 ]] || fail
+    [[ "$artifact" != *'phase1-audit-request-sentinel'* && \
+       "$artifact" != *'phase1-audit-worker-sentinel'* ]] || fail
+    artifact_hash="$(printf '%s' "$artifact" | "$SHA256_BIN")"
+    artifact_hash=${artifact_hash%% *}
+    [[ "$artifact_hash" =~ ^[0-9a-f]{64}$ ]] || fail
+  done
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'reaper.object-audit-disabled',
+  'projection', pg_catalog.jsonb_build_object(
+    'settings', pg_catalog.jsonb_build_object(
+      'logStatement', 'none',
+      'minimumErrorStatement', 'panic',
+      'logDuration', false,
+      'minimumDuration', 'disabled',
+      'minimumSampleDuration', 'disabled',
+      'statementSampleRate', 0,
+      'parameterLogging', false,
+      'parameterMaximumLength', 0,
+      'errorParameterMaximumLength', 0,
+      'autoExplain', pg_catalog.jsonb_build_object(
+        'minimumDuration', 'disabled',
+        'parameterMaximumLength', 0
+      ),
+      'pgauditLog', 'none',
+      'pgauditStatement', false,
+      'pgauditParameter', false,
+      'pgauditRole', 'empty',
+      'objectAudit', pg_catalog.jsonb_build_object(
+        'membershipClosure', 'clear',
+        'reachableAsterRelations', 0
+      ),
+      'managedAuditPolicy', pg_catalog.jsonb_build_object(
+        'requestWorkerRolesExcluded', true,
+        'statementCapture', false,
+        'parameterCapture', false
+      )
+    ),
+    'artifacts', pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object(
+        'sink', 'postgres',
+        'sha256', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'matches', pg_catalog.jsonb_build_array()
+      ),
+      pg_catalog.jsonb_build_object(
+        'sink', 'managed-export',
+        'sha256', 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        'matches', pg_catalog.jsonb_build_array()
+      ),
+      pg_catalog.jsonb_build_object(
+        'sink', 'application',
+        'sha256', 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        'matches', pg_catalog.jsonb_build_array()
+      )
+    ),
+    'allClear', true
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  [[ "$terminal" != *'phase1-audit-request-sentinel'* && \
+     "$terminal" != *'phase1-audit-worker-sentinel'* ]] || fail
+  cleanup_audit_clients || fail
   trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
