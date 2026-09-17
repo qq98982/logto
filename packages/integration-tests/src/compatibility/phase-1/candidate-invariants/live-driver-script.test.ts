@@ -28,6 +28,7 @@ const staleKeyringInvariantId = 'keystore.stale-keyring-rejoin-rejected';
 const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
+const liveLedgerInvariantId = 'keystore.live-ledger-limit-and-tombstone';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -43,6 +44,7 @@ const staleKeyringProjection = projection(staleKeyringInvariantId);
 const forcedRlsProjection = projection(forcedRlsInvariantId);
 const metadataDmlProjection = projection(metadataDmlInvariantId);
 const referenceLedgerProjection = projection(referenceLedgerInvariantId);
+const liveLedgerProjection = projection(liveLedgerInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -56,7 +58,8 @@ if (
   !staleKeyringProjection ||
   !forcedRlsProjection ||
   !metadataDmlProjection ||
-  !referenceLedgerProjection
+  !referenceLedgerProjection ||
+  !liveLedgerProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -80,6 +83,7 @@ const staleKeyringOutput = output(staleKeyringInvariantId, staleKeyringProjectio
 const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
+const liveLedgerOutput = output(liveLedgerInvariantId, liveLedgerProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -166,6 +170,14 @@ if [[ "$1" == exec ]]; then
     printf '%s' '01234567-89ab-cdef-0123-456789abcdef'
     exit 0
   fi
+  if [[ "$*" == *'wrapping_key_runtime_state'* && "$*" == *'writer_generation'* && "$*" == *'active_key_id'* ]]; then
+    printf '%s' 'aster-mk-9999999999999999|1'
+    exit 0
+  fi
+  if [[ "$*" == *'generate_series(1, 31)'* ]]; then printf '%s' 'true'; exit 0; fi
+  if [[ "$*" == *"key_id LIKE 'aster-mk-4%'"* ]]; then printf '%s' 'true'; exit 0; fi
+  if [[ "$*" == *'aster-mk-4000000000000002'* && "$*" == *'--username postgres'* && "$*" == *'DELETE FROM'* ]]; then printf '%s' '1'; exit 0; fi
+  if [[ "$*" == *'tombstone_count'* && "$*" == *'aster-mk-400000000000ff02'* ]]; then printf '%s' 'true'; exit 0; fi
   if [[ "$*" == *'pg_stat_activity'* && "$*" == *'phase1-invariant-reaper-'* ]]; then
     printf '%s' 'true'
     exit 0
@@ -232,6 +244,22 @@ if [[ "$1" == exec ]]; then
     printf '%s\n' 'ERROR:  42501: stale matrix binding rejected' >&2
     exit 1
   fi
+  if [[ "$*" == *'--username aster_admin'* && "$*" == *'aster_runtime.stage_wrapping_key'* ]]; then
+    if [[ "$*" == *'aster-mk-400000000000ff01'* ]]; then
+      if [[ "${'$'}{LIVE_LEDGER_ROW33_ALLOWED:-0}" == 1 ]]; then exit 0; fi
+      printf '%s\n' 'ERROR:  55000: live ledger full' >&2
+      exit 1
+    fi
+    if [[ "$*" == *'aster-mk-4000000000000002'* ]]; then
+      printf '%s\n' 'ERROR:  55000: historical key id rejected' >&2
+      exit 1
+    fi
+    exit 0
+  fi
+  if [[ "$*" == *'--username aster_admin'* && "$*" == *'DELETE FROM aster_control.wrapping_key_registry'* ]]; then
+    printf '%s\n' 'ERROR:  42501: direct delete rejected' >&2
+    exit 1
+  fi
   if [[ "$*" == *'--username aster_maintainer'* || "$*" == *'--username aster_control_resolver'* || "$*" == *'--username aster_admin'* ]]; then exit 0; fi
   input="$(cat)"
   printf '%s' "$input" >>"$STDIN"
@@ -260,6 +288,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$METADATA_DML_OUTPUT"
   elif [[ "$input" == *'keystore.reference-count-ledger'* ]]; then
     printf '%s' "$REFERENCE_LEDGER_OUTPUT"
+  elif [[ "$input" == *'keystore.live-ledger-limit-and-tombstone'* ]]; then
+    printf '%s' "$LIVE_LEDGER_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -295,6 +325,7 @@ exit 1
       FORCED_RLS_OUTPUT: forcedRlsOutput,
       METADATA_DML_OUTPUT: metadataDmlOutput,
       REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
+      LIVE_LEDGER_OUTPUT: liveLedgerOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -764,6 +795,41 @@ describe('Phase 1 candidate invariant shell driver', () => {
         env: { ...fake.env, REFERENCE_LEDGER_TOKEN: 'false|1|true' },
       })
     ).rejects.toThrow();
+  });
+
+  it('enforces the 32-row live ledger and immutable key-id tombstones', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(liveLedgerInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(liveLedgerOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(calls).toContain('aster_runtime.stage_wrapping_key');
+    expect(calls).toContain('aster-mk-400000000000ff01');
+    expect(calls).toContain('aster-mk-400000000000ff02');
+    expect(calls).toContain('aster-mk-4000000000000002');
+    expect(calls).toContain('DELETE FROM aster_control.wrapping_key_registry');
+    expect(calls).toContain('generate_series(1, 31)');
+    expect(calls).toContain('wrapping_key_history');
+    expect(sql).toContain("'keystore.live-ledger-limit-and-tombstone'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed and cleans when row 33 enters the live registry', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(liveLedgerInvariantId), {
+        env: { ...fake.env, LIVE_LEDGER_ROW33_ALLOWED: '1' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain("key_id LIKE 'aster-mk-4%'");
   });
 
   it.each([

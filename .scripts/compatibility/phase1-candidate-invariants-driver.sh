@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.live-ledger-limit-and-tombstone) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -2086,6 +2086,147 @@ SELECT pg_catalog.jsonb_build_object(
 SQL
 )" || fail
   [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.live-ledger-limit-and-tombstone' ]]; then
+  deployment_id="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command 'SELECT deployment_id::text FROM aster_control.deployment_state WHERE singleton' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail
+  active_state="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "SELECT state.active_key_id || '|' || registry.writer_generation::text FROM aster_control.wrapping_key_runtime_state AS state JOIN aster_control.wrapping_key_registry AS registry ON registry.key_id = state.active_key_id WHERE state.singleton" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$active_state" =~ ^(aster-mk-[0-9a-f]{16,48})\|([1-9][0-9]*)$ ]] || fail
+  active_key_id=${BASH_REMATCH[1]}
+  active_generation=${BASH_REMATCH[2]}
+
+  cleanup_live_ledger() {
+    local result
+    result="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "DELETE FROM aster_control.wrapping_key_registry WHERE key_id LIKE 'aster-mk-4%'; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM aster_control.wrapping_key_registry WHERE key_id LIKE 'aster-mk-4%') THEN 'true' ELSE 'false' END" \
+      2>/dev/null | tail -n 1 | tr -d '[:space:]')" || return 1
+    [[ "$result" == true ]]
+  }
+  # Invoked indirectly by the EXIT trap.
+  # shellcheck disable=SC2329
+  cleanup_live_ledger_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if ! cleanup_live_ledger && ((exit_code == 0)); then
+      printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+      exit_code=1
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_live_ledger_on_exit EXIT
+
+  setup_result="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "INSERT INTO aster_control.wrapping_key_registry (key_id, writer_generation, lifecycle_state, required_readable, reference_count) SELECT 'aster-mk-4' || pg_catalog.lpad(pg_catalog.to_hex(item), 15, '0'), item + 1, CASE WHEN item <= 2 THEN 'removable' ELSE 'staged' END, false, CASE WHEN item = 1 THEN 1 ELSE 0 END FROM pg_catalog.generate_series(1, 31) AS fixture(item) WHERE (SELECT pg_catalog.count(*) FROM aster_control.wrapping_key_registry) = 1; SELECT CASE WHEN (SELECT pg_catalog.count(*) FROM aster_control.wrapping_key_registry) = 32 AND (SELECT pg_catalog.count(*) FROM aster_control.wrapping_key_registry WHERE key_id LIKE 'aster-mk-4%') = 31 THEN 'true' ELSE 'false' END" \
+    2>/dev/null | tail -n 1 | tr -d '[:space:]')" || fail
+  [[ "$setup_result" == true ]] || fail
+
+  row33_error=''
+  row33_status=0
+  row33_error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT aster_runtime.stage_wrapping_key('$deployment_id', '$active_key_id', $active_generation, 'aster-mk-400000000000ff01', 33)" \
+    2>&1 >/dev/null)" || row33_status=$?
+  ((row33_status != 0)) || fail
+  [[ "$row33_error" =~ ERROR:[[:space:]]+55000: ]] || fail
+
+  referenced_error=''
+  referenced_status=0
+  referenced_error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+    --username aster_admin --dbname "$database" \
+    --command "DELETE FROM aster_control.wrapping_key_registry WHERE key_id = 'aster-mk-4000000000000001'" \
+    2>&1 >/dev/null)" || referenced_status=$?
+  ((referenced_status != 0)) || fail
+  [[ "$referenced_error" =~ ERROR:[[:space:]]+42501: ]] || fail
+
+  removed_rows="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "WITH removed AS (DELETE FROM aster_control.wrapping_key_registry WHERE key_id = 'aster-mk-4000000000000002' AND lifecycle_state = 'removable' AND reference_count = 0 RETURNING 1) SELECT pg_catalog.count(*)::text FROM removed" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$removed_rows" == 1 ]] || fail
+
+  "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT aster_runtime.stage_wrapping_key('$deployment_id', '$active_key_id', $active_generation, 'aster-mk-400000000000ff02', 33)" \
+    >/dev/null 2>&1 || fail
+
+  reuse_error=''
+  reuse_status=0
+  reuse_error="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --set=VERBOSITY=verbose \
+    --username aster_admin --dbname "$database" \
+    --command "SELECT aster_runtime.stage_wrapping_key('$deployment_id', '$active_key_id', $active_generation, 'aster-mk-4000000000000002', 34)" \
+    2>&1 >/dev/null)" || reuse_status=$?
+  ((reuse_status != 0)) || fail
+  [[ "$reuse_error" =~ ERROR:[[:space:]]+55000: ]] || fail
+
+  ledger_state="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "WITH fixture_history AS (SELECT history.key_id FROM aster_control.wrapping_key_history AS history WHERE history.key_id LIKE 'aster-mk-4%'), tombstones AS (SELECT history.key_id FROM fixture_history AS history WHERE NOT EXISTS (SELECT 1 FROM aster_control.wrapping_key_registry AS registry WHERE registry.key_id = history.key_id)) SELECT CASE WHEN (SELECT pg_catalog.count(*) FROM aster_control.wrapping_key_registry) = 32 AND (SELECT pg_catalog.count(*) FROM tombstones) = 1 AND (SELECT pg_catalog.min(key_id) FROM tombstones) = 'aster-mk-4000000000000002' AND EXISTS (SELECT 1 FROM aster_control.wrapping_key_registry WHERE key_id = 'aster-mk-400000000000ff02' AND writer_generation = 33) AND EXISTS (SELECT 1 FROM aster_control.wrapping_key_registry WHERE key_id = 'aster-mk-4000000000000001' AND reference_count = 1) AND NOT EXISTS (SELECT 1 FROM aster_control.wrapping_key_registry WHERE key_id = 'aster-mk-400000000000ff01') THEN 'true' ELSE 'false' END AS tombstone_count" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$ledger_state" == true ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.live-ledger-limit-and-tombstone',
+  'projection', pg_catalog.jsonb_build_object(
+    'liveLedger', pg_catalog.jsonb_build_object(
+      'alertAt', 28,
+      'liveCount', 32,
+      'liveIds', pg_catalog.jsonb_build_array(
+        '<wrapping-key.01>', '<wrapping-key.02>', '<wrapping-key.03>', '<wrapping-key.04>',
+        '<wrapping-key.05>', '<wrapping-key.06>', '<wrapping-key.07>', '<wrapping-key.08>',
+        '<wrapping-key.09>', '<wrapping-key.10>', '<wrapping-key.11>', '<wrapping-key.12>',
+        '<wrapping-key.13>', '<wrapping-key.14>', '<wrapping-key.15>', '<wrapping-key.16>',
+        '<wrapping-key.17>', '<wrapping-key.18>', '<wrapping-key.19>', '<wrapping-key.20>',
+        '<wrapping-key.21>', '<wrapping-key.22>', '<wrapping-key.23>', '<wrapping-key.24>',
+        '<wrapping-key.25>', '<wrapping-key.26>', '<wrapping-key.27>', '<wrapping-key.28>',
+        '<wrapping-key.29>', '<wrapping-key.30>', '<wrapping-key.31>', '<wrapping-key.32>'
+      ),
+      'limit', 32,
+      'row33Denied', true,
+      'referencedRemovalDenied', true,
+      'removableZeroCountTombstoned', true,
+      'tombstoneCount', 1,
+      'tombstoneIds', pg_catalog.jsonb_build_array('<wrapping-key.old>'),
+      'tombstonesConsumeLiveCapacity', false,
+      'reusedTombstoneId', NULL
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_live_ledger || fail
+  trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
   printf '%s' "$terminal"
