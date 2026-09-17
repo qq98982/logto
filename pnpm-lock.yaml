@@ -65,6 +65,9 @@ overrides:
   yaml@>=2.0.0 <2.8.3: ^2.8.3
 
 patchedDependencies:
+  '@logto/js@5.1.0':
+    hash: ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb
+    path: patches/@logto__js@5.1.0.patch
   oidc-provider@9.9.1:
     hash: a03d56c1ac087d550f863e5f1c51bdd5b2b01ab83127bbbc883b12c70ab6d1be
     path: patches/oidc-provider@9.9.1.patch
@@ -4223,7 +4226,7 @@ importers:
         version: link:../experience
       '@logto/js':
         specifier: ^5.1.0
-        version: 5.1.0
+        version: 5.1.0(patch_hash=ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb)
       '@logto/language-kit':
         specifier: workspace:^
         version: link:../toolkit/language-kit
@@ -5006,7 +5009,7 @@ importers:
         version: link:../toolkit/core-kit
       '@logto/js':
         specifier: ^5.1.0
-        version: 5.1.0
+        version: 5.1.0(patch_hash=ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb)
       '@logto/node':
         specifier: ^3.1.3
         version: 3.1.3
@@ -16978,7 +16981,7 @@ snapshots:
 
   '@logto/client@3.1.1':
     dependencies:
-      '@logto/js': 5.1.0
+      '@logto/js': 5.1.0(patch_hash=ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb)
       '@silverhand/essentials': 2.9.3
       camelcase-keys: 9.1.3
       jose: 5.9.6
@@ -16997,7 +17000,7 @@ snapshots:
     transitivePeerDependencies:
       - zod
 
-  '@logto/js@5.1.0':
+  '@logto/js@5.1.0(patch_hash=ef6e280d284b1d4570b7801650a509a61036de084d892443250487c34d79dfcb)':
     dependencies:
       '@silverhand/essentials': 2.9.3
       camelcase-keys: 9.1.3

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -18,6 +19,44 @@ const consoleTextFiles = walk(sourceRoot).filter(
 );
 
 describe('Aster self-hosted Console surface', () => {
+  it('uses only Aster organization markers through the pinned browser client', () => {
+    const output = execFileSync(
+      'node',
+      [
+        '--input-type=module',
+        '--eval',
+        `import { ReservedResource, UserScope, buildOrganizationUrn, organizationUrnPrefix } from '@logto/react';
+process.stdout.write(JSON.stringify({
+  organizationResource: ReservedResource.Organization,
+  organizationScope: UserScope.Organizations,
+  organizationRoleScope: UserScope.OrganizationRoles,
+  organizationUrnPrefix,
+  organizationUrn: buildOrganizationUrn('t-default'),
+  reservedResources: Object.values(ReservedResource),
+  userScopes: Object.values(UserScope),
+}));`,
+      ],
+      { cwd: path.resolve(sourceRoot, '..'), encoding: 'utf8' }
+    );
+    const markers = JSON.parse(output) as {
+      organizationResource: string;
+      organizationScope: string;
+      organizationRoleScope: string;
+      organizationUrnPrefix: string;
+      organizationUrn: string;
+      reservedResources: string[];
+      userScopes: string[];
+    };
+
+    expect(markers.organizationResource).toBe('urn:aster:resource:organizations');
+    expect(markers.organizationScope).toBe('urn:aster:scope:organizations');
+    expect(markers.organizationRoleScope).toBe('urn:aster:scope:organization_roles');
+    expect(markers.organizationUrnPrefix).toBe('urn:aster:organization:');
+    expect(markers.organizationUrn).toBe('urn:aster:organization:t-default');
+    expect(markers.reservedResources).not.toContain('urn:logto:resource:organizations');
+    expect(markers.userScopes).not.toContain('urn:logto:scope:organizations');
+  });
+
   it('does not retain unsupported upstream service authorities or browser markers', () => {
     const source = consoleTextFiles.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 

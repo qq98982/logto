@@ -11,6 +11,7 @@ import { useConsoleRoutes } from '@/hooks/use-console-routes';
 import type { AppContentOutletContext } from '../AppContent/types';
 
 import { Skeleton } from './Sidebar';
+import useTenantScopeListener from './hooks';
 import styles from './index.module.scss';
 
 const Sidebar = safeLazy(async () => import('./Sidebar'));
@@ -19,6 +20,8 @@ function ConsoleContent() {
   const { scrollableContent } = useOutletContext<AppContentOutletContext>();
   const routeObjects = useConsoleRoutes();
   const routes = useRoutes(routeObjects);
+
+  useTenantScopeListener();
 
   return (
     <div className={styles.content}>

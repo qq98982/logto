@@ -111,7 +111,8 @@
       }
     },
     "patchedDependencies": {
-      "oidc-provider@9.9.1": "patches/oidc-provider@9.9.1.patch"
+      "oidc-provider@9.9.1": "patches/oidc-provider@9.9.1.patch",
+      "@logto/js@5.1.0": "patches/@logto__js@5.1.0.patch"
     }
   },
   "dependencies": {
