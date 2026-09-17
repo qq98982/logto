@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -1267,6 +1267,276 @@ SELECT pg_catalog.jsonb_build_object(
       'writerResumed', false,
       'tombstonedIdAccepted', false,
       'nonLiveIdAccepted', false
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.forced-rls-owner-boundary' ]]; then
+  forced_rls_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT state.active_key_id AS active_key_id,
+       registry.writer_generation AS writer_generation
+FROM aster_control.wrapping_key_runtime_state AS state
+JOIN aster_control.wrapping_key_registry AS registry
+  ON registry.key_id = state.active_key_id
+WHERE state.singleton \gset
+
+INSERT INTO aster_control.tenants (
+  tenant_id, status, status_epoch, provisioning_verified
+) VALUES
+  ('phase1-key-tenant-a', 'inactive', 1, false),
+  ('phase1-key-tenant-b', 'inactive', 1, false);
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat(seed, 32), 'hex')),
+       tenant_id, 1, :'deployment_id'::uuid, 'admin', 'provision',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM (
+  VALUES
+    ('a1'::text, 'phase1-key-tenant-a'::text),
+    ('a2'::text, 'phase1-key-tenant-b'::text)
+) AS fixture(seed, tenant_id)
+CROSS JOIN LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('a1', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.provision_signing_key(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1',
+  1,
+  '{}',
+  pg_catalog.decode(pg_catalog.repeat('11', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('21', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('31', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
+SELECT aster_runtime.provision_cookie_key(
+  'ccccccccccccccccccccccccccccccc1',
+  'ddddddddddddddddddddddddddddddd1',
+  1,
+  pg_catalog.decode(pg_catalog.repeat('12', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('22', 48), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('32', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
+SELECT aster_runtime.complete_bound_tenant_key_provisioning(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
+  'ccccccccccccccccccccccccccccccc1'
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+RESET aster.binding_digest;
+DELETE FROM aster_control.tenant_bindings
+WHERE tenant_id = 'phase1-key-tenant-a';
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('a2', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.provision_signing_key(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2',
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2',
+  1,
+  '{}',
+  pg_catalog.decode(pg_catalog.repeat('13', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('23', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('33', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
+SELECT aster_runtime.provision_cookie_key(
+  'ccccccccccccccccccccccccccccccc2',
+  'ddddddddddddddddddddddddddddddd2',
+  1,
+  pg_catalog.decode(pg_catalog.repeat('14', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('24', 48), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('34', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
+SELECT aster_runtime.complete_bound_tenant_key_provisioning(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2',
+  'ccccccccccccccccccccccccccccccc2'
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+RESET aster.binding_digest;
+DELETE FROM aster_control.tenant_bindings
+WHERE tenant_id = 'phase1-key-tenant-b';
+
+UPDATE aster_control.tenants
+SET status = 'active', status_epoch = 2
+WHERE tenant_id IN ('phase1-key-tenant-a', 'phase1-key-tenant-b');
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('a3', 32), 'hex')),
+       'phase1-key-tenant-a', 2, :'deployment_id'::uuid, 'admin', 'key_lifecycle',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+-- phase1-key-owner-probe
+CREATE FUNCTION aster_runtime.phase1_key_owner_probe(target_tenant text, mutate boolean)
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+PARALLEL UNSAFE
+SET search_path = pg_catalog, pg_temp
+AS $phase1_probe$
+DECLARE
+  bound_tenant text := aster_runtime.bound_tenant_id('key_lifecycle');
+  affected bigint;
+BEGIN
+  IF bound_tenant IS NULL OR target_tenant IS NULL OR mutate IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = '42501';
+  END IF;
+  IF NOT mutate THEN
+    SELECT pg_catalog.count(*) INTO affected
+    FROM aster_tenant.signing_key_metadata
+    WHERE tenant_id = bound_tenant;
+    RETURN affected;
+  END IF;
+  DELETE FROM aster_tenant.signing_key_material
+  WHERE tenant_id = target_tenant;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected;
+END
+$phase1_probe$;
+REVOKE ALL ON FUNCTION aster_runtime.phase1_key_owner_probe(text, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION aster_runtime.phase1_key_owner_probe(text, boolean) TO aster_admin;
+
+SELECT CASE WHEN pg_catalog.count(*) = 4
+  AND pg_catalog.bool_and(relation.relrowsecurity AND relation.relforcerowsecurity)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_policy AS policy
+    WHERE policy.polrelid IN (
+      'aster_tenant.signing_key_metadata'::pg_catalog.regclass,
+      'aster_tenant.signing_key_material'::pg_catalog.regclass,
+      'aster_tenant.cookie_key_metadata'::pg_catalog.regclass,
+      'aster_tenant.cookie_key_material'::pg_catalog.regclass
+    )
+      AND (
+        pg_catalog.pg_get_expr(policy.polqual, policy.polrelid) = 'true'
+        OR pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid) = 'true'
+      )
+  )
+THEN 'true' ELSE 'false' END AS catalog_ok
+FROM pg_catalog.pg_class AS relation
+WHERE relation.oid IN (
+  'aster_tenant.signing_key_metadata'::pg_catalog.regclass,
+  'aster_tenant.signing_key_material'::pg_catalog.regclass,
+  'aster_tenant.cookie_key_metadata'::pg_catalog.regclass,
+  'aster_tenant.cookie_key_material'::pg_catalog.regclass
+) \gset
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('a3', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.phase1_key_owner_probe(
+  'phase1-key-tenant-a', false
+) AS visible_count \gset
+SELECT aster_runtime.phase1_key_owner_probe(
+  'phase1-key-tenant-a', true
+) AS mutation_count \gset
+SAVEPOINT cross_tenant_mutation;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.phase1_key_owner_probe(
+  'phase1-key-tenant-b', true
+) \g /dev/null
+\set cross_state :SQLSTATE
+ROLLBACK TO SAVEPOINT cross_tenant_mutation;
+\set ON_ERROR_STOP on
+RESET SESSION AUTHORIZATION;
+
+SELECT CASE WHEN
+  (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_material
+    WHERE tenant_id = 'phase1-key-tenant-a') = 0
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_material
+    WHERE tenant_id = 'phase1-key-tenant-b') = 1
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_metadata
+    WHERE tenant_id = 'phase1-key-tenant-a') = 1
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_metadata
+    WHERE tenant_id = 'phase1-key-tenant-b') = 1
+THEN 'true' ELSE 'false' END AS state_ok \gset
+
+\echo :visible_count|:mutation_count|:cross_state|:catalog_ok|:state_ok
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$forced_rls_observation" == '1|1|42501|true|true' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.forced-rls-owner-boundary',
+  'projection', pg_catalog.jsonb_build_object(
+    'policy', pg_catalog.jsonb_build_object('forceRls', true, 'usingTrue', false),
+    'binding', pg_catalog.jsonb_build_object(
+      'tenantId', 'tenant-a', 'operationClass', 'key-lifecycle'
+    ),
+    'semanticState', pg_catalog.jsonb_build_object(
+      'visibleRows', pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object('tenantId', 'tenant-a', 'count', 1)
+      ),
+      'crossTenantRows', pg_catalog.jsonb_build_array(),
+      'mutations', pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object('tenantId', 'tenant-a', 'count', 1)
+      ),
+      'crossTenantMutations', 0
     )
   )
 )::text;

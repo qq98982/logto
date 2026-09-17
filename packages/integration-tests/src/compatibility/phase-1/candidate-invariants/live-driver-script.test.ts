@@ -25,6 +25,7 @@ const reaperActivityInvariantId = 'reaper.activity-visibility-redaction';
 const reaperAuditInvariantId = 'reaper.object-audit-disabled';
 const requiredReadableInvariantId = 'keystore.required-readable-key-set';
 const staleKeyringInvariantId = 'keystore.stale-keyring-rejoin-rejected';
+const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -37,6 +38,7 @@ const reaperActivityProjection = projection(reaperActivityInvariantId);
 const reaperAuditProjection = projection(reaperAuditInvariantId);
 const requiredReadableProjection = projection(requiredReadableInvariantId);
 const staleKeyringProjection = projection(staleKeyringInvariantId);
+const forcedRlsProjection = projection(forcedRlsInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -47,7 +49,8 @@ if (
   !reaperActivityProjection ||
   !reaperAuditProjection ||
   !requiredReadableProjection ||
-  !staleKeyringProjection
+  !staleKeyringProjection ||
+  !forcedRlsProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -68,6 +71,7 @@ const reaperActivityOutput = output(reaperActivityInvariantId, reaperActivityPro
 const reaperAuditOutput = output(reaperAuditInvariantId, reaperAuditProjection);
 const requiredReadableOutput = output(requiredReadableInvariantId, requiredReadableProjection);
 const staleKeyringOutput = output(staleKeyringInvariantId, staleKeyringProjection);
+const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -230,12 +234,16 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$REAPER_AUDIT_OUTPUT"
   elif [[ "$input" == *'phase1-stale-keyring-pre-reload'* ]]; then
     printf '%s' "${'$'}{STALE_KEYRING_TOKEN:-42501|15000|42501|42501|true}"
+  elif [[ "$input" == *'phase1-key-owner-probe'* ]]; then
+    printf '%s' "${'$'}{FORCED_RLS_TOKEN:-1|1|42501|true|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
     printf '%s' "$REQUIRED_READABLE_OUTPUT"
   elif [[ "$input" == *'keystore.stale-keyring-rejoin-rejected'* ]]; then
     printf '%s' "$STALE_KEYRING_OUTPUT"
+  elif [[ "$input" == *'keystore.forced-rls-owner-boundary'* ]]; then
+    printf '%s' "$FORCED_RLS_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -268,6 +276,7 @@ exit 1
       REAPER_AUDIT_OUTPUT: reaperAuditOutput,
       REQUIRED_READABLE_OUTPUT: requiredReadableOutput,
       STALE_KEYRING_OUTPUT: staleKeyringOutput,
+      FORCED_RLS_OUTPUT: forcedRlsOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -631,6 +640,38 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(staleKeyringInvariantId), {
         env: { ...fake.env, STALE_KEYRING_TOKEN: '15000|15000|42501|42501|true' },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('keeps owner-definer key access capability-bound under forced RLS', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(forcedRlsInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(forcedRlsOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-key-owner-probe');
+    expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql).toContain('aster_runtime.provision_cookie_key');
+    expect(sql).toContain('aster_runtime.activate_tenant_binding');
+    expect(sql).toContain('aster_runtime.phase1_key_owner_probe');
+    expect(sql).toContain('relforcerowsecurity');
+    expect(sql).toContain('pg_catalog.pg_policy');
+    expect(sql).toContain('ROLLBACK;');
+    expect(sql).toContain("'keystore.forced-rls-owner-boundary'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed when owner-definer key mutation crosses tenants', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(forcedRlsInvariantId), {
+        env: { ...fake.env, FORCED_RLS_TOKEN: '1|1|00000|true|true' },
       })
     ).rejects.toThrow();
   });
