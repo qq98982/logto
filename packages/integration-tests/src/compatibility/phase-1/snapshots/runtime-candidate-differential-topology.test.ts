@@ -16,7 +16,11 @@ const topologyPath = path.join(
 );
 const formalPath = path.join(repositoryRoot, 'docker-compose.phase1-compatibility.yml');
 const candidatePath = path.join(repositoryRoot, 'docker-compose.phase1-aster-candidate.yml');
-const liveGatePath = path.join(
+const runtimeRunnerPath = path.join(
+  repositoryRoot,
+  '.scripts/compatibility/run-phase1-runtime-candidate.sh'
+);
+const differentialWrapperPath = path.join(
   repositoryRoot,
   '.scripts/compatibility/test-runtime-candidate-differential.sh'
 );
@@ -157,8 +161,11 @@ describe('runtime-candidate differential topology', () => {
     expect(Object.keys(document.services)).toContain('candidate-phase0-redis');
   });
 
-  it('runs only the non-publishable differential gate with owned cleanup', async () => {
-    const source = await readFile(liveGatePath, 'utf8');
+  it('runs only explicit non-publishable runtime gates with owned cleanup', async () => {
+    const [source, wrapper] = await Promise.all([
+      readFile(runtimeRunnerPath, 'utf8'),
+      readFile(differentialWrapperPath, 'utf8'),
+    ]);
 
     expect(source.startsWith('#!/usr/bin/env bash\nset -euo pipefail\numask 077\n')).toBe(true);
     for (const required of [
@@ -166,6 +173,7 @@ describe('runtime-candidate differential topology', () => {
       'docker-compose.phase1-runtime-candidate-differential.yml',
       'prepare-review-profile',
       'run-differential',
+      'run-candidate-invariants',
       "ASTER_PHASE1_MODE='runtime-candidate'",
       ['HOST_BIN_DIRECTORY="', '$', '{RUN_DIR}/host-bin"'].join(''),
       'docker_cli cp',
@@ -179,8 +187,12 @@ describe('runtime-candidate differential topology', () => {
       'ASTER_FIXTURE_SOCKET=',
       'ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST=',
       'phase-1-differential.json',
+      'phase-1-candidate-invariants.json',
       'value.scenarios.length !== 22',
       'scenario.differences.length !== 0',
+      'value.outcomes.length !== 18',
+      'value.observationNegativeControls.length !== 6',
+      'aster-phase1-candidate-invariant-evidence',
       'terminate_owned_process_group',
       ['container_id="$(compose ps --all -q "', '$', '{service}" 2>/dev/null || true)"'].join(''),
       ['container_id="$(compose ps --all -q "', '$', '{service}")"'].join(''),
@@ -195,7 +207,6 @@ describe('runtime-candidate differential topology', () => {
       'evidence-manifest.json',
       'harness-result.json',
       'phase-1-browser.json',
-      'phase-1-candidate-invariants.json',
       'phase-1-conformance.json',
       'docker.sock',
       '/dev/shm',
@@ -203,6 +214,11 @@ describe('runtime-candidate differential topology', () => {
     ]) {
       expect(source).not.toContain(forbidden);
     }
+    expect(wrapper).toContain("export ASTER_PHASE1_RUNTIME_GATE='differential'");
+    expect(wrapper).toContain(
+      ['exec "', '$', '{SCRIPT_DIR}/run-phase1-runtime-candidate.sh"'].join('')
+    );
+    expect(wrapper).not.toContain('run-candidate-invariants');
   });
 });
 

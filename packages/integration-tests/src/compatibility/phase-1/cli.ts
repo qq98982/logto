@@ -45,6 +45,7 @@ import {
   type SecureJsonPublication,
 } from './secure-evidence-sink.js';
 import {
+  executeAuthorizedPhase1CandidateInvariantGate,
   executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
 } from './snapshots/execution-coordinator.js';
@@ -57,7 +58,7 @@ export type {
 } from './run-authorization.js';
 
 export type Phase1RunCommand = Readonly<{
-  command: 'run' | 'run-differential';
+  command: 'run' | 'run-differential' | 'run-candidate-invariants';
   mode: Phase1RunMode;
   profilePath: string;
   schemaPath: string;
@@ -91,6 +92,10 @@ export type Phase1CliDependencies = Readonly<{
   authorizeProtectedExecution: typeof authorizePhase1ProtectedExecution;
   executeRun: (authorization: Phase1RunAuthorization, command: Phase1RunCommand) => Promise<void>;
   executeDifferential: (
+    authorization: Phase1RunAuthorization,
+    command: Phase1RunCommand
+  ) => Promise<void>;
+  executeCandidateInvariants: (
     authorization: Phase1RunAuthorization,
     command: Phase1RunCommand
   ) => Promise<void>;
@@ -237,7 +242,11 @@ const parseFlagMap = (
 export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCommand => {
   const [subcommand, ...rest] = arguments_;
 
-  if (subcommand === 'run' || subcommand === 'run-differential') {
+  if (
+    subcommand === 'run' ||
+    subcommand === 'run-differential' ||
+    subcommand === 'run-candidate-invariants'
+  ) {
     const { values, booleans } = parseFlagMap(
       rest,
       new Set(['--mode', '--profile', '--schema']),
@@ -258,7 +267,7 @@ export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCo
       !profilePath ||
       !schemaPath ||
       (booleans.has('--record-oracle') && mode !== 'review-candidate') ||
-      (subcommand === 'run-differential' &&
+      (subcommand !== 'run' &&
         (mode !== 'runtime-candidate' ||
           booleans.has('--record-oracle') ||
           !booleans.has('--observation-controls') ||
@@ -797,7 +806,7 @@ const verifyRunProvenance = async (
 
   return verifyPhase1ProfileProvenance(bundle.profile, {
     mode:
-      command.command === 'run-differential' || command.mode === 'review-candidate'
+      command.command !== 'run' || command.mode === 'review-candidate'
         ? 'review-candidate'
         : 'accepted-harness',
     schemaBytes: bundle.readSchemaBytes(),
@@ -821,6 +830,9 @@ const defaultDependencies: Phase1CliDependencies = {
   },
   executeDifferential: async (authorization) => {
     await executeAuthorizedPhase1DifferentialGate(authorization, defaultLogtoRoot);
+  },
+  executeCandidateInvariants: async (authorization) => {
+    await executeAuthorizedPhase1CandidateInvariantGate(authorization, defaultLogtoRoot);
   },
   prepareReviewProfile: preparePhase1ReviewProfile,
   stdout: (message) => {
@@ -867,11 +879,11 @@ export const runPhase1Cli = async (
       baselineCapabilityIds
     );
     const closedProvenance =
-      command.command === 'run-differential' || command.mode === 'review-candidate'
+      command.command !== 'run' || command.mode === 'review-candidate'
         ? closeReviewProvenance(provenance, bundle.profile.phase1Harness.commit ?? undefined)
         : provenance;
     const protectedExecution =
-      command.command === 'run-differential' || command.mode === 'review-candidate'
+      command.command !== 'run' || command.mode === 'review-candidate'
         ? undefined
         : dependencies.authorizeProtectedExecution(command.mode, closedProvenance);
     const authorization = mintPhase1RunAuthorization(
@@ -884,11 +896,17 @@ export const runPhase1Cli = async (
         protectedExecution,
         controls: command.controls,
         ...(command.command === 'run-differential' && { differentialGate: true as const }),
+        ...(command.command === 'run-candidate-invariants' && {
+          candidateInvariantGate: true as const,
+        }),
       } satisfies Phase1RunAuthorization)
     );
     if (command.command === 'run-differential') {
       await dependencies.executeDifferential(authorization, command);
       await writeStatus(dependencies.stdout, 'Phase 1 differential gate authorized.');
+    } else if (command.command === 'run-candidate-invariants') {
+      await dependencies.executeCandidateInvariants(authorization, command);
+      await writeStatus(dependencies.stdout, 'Phase 1 candidate invariant gate authorized.');
     } else {
       await dependencies.executeRun(authorization, command);
       await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');

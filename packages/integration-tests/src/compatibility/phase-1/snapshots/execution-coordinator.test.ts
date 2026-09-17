@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { JsonValue } from '../../normalize.js';
 import { canonicalPhase1ArtifactBytes } from '../artifact-contract.js';
 import { phase1BrowserFlowIds } from '../browser/contracts.js';
+import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
 import { authorizePhase1RunForTesting } from '../cli.js';
 import { createPhase1ProjectionEnvelope, hashCanonicalPhase1Json } from '../evidence-envelope.js';
@@ -21,6 +22,7 @@ import { createSecureEvidenceSink } from '../secure-evidence-sink.js';
 import {
   executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
+  executePhase1CandidateInvariantGateForTesting,
   executePhase1DifferentialGateForTesting,
   executePhase1EvidenceForTesting,
   loadPhase1RuntimeIsolationAttestations,
@@ -56,6 +58,7 @@ afterEach(async () => {
 
 const harnessCommit = '1'.repeat(40);
 const digest = `sha256:${'2'.repeat(64)}`;
+const candidateDigest = `sha256:${'6'.repeat(64)}`;
 const runtimeEnvironment = Object.freeze({
   ASTER_PHASE1_ORACLE_URL: 'http://localhost:3311',
   ASTER_PHASE1_ORACLE_ADMIN_URL: 'http://localhost:3411',
@@ -122,6 +125,44 @@ const context = (directory: string, recordOracle = true): Phase1EvidenceRuntimeC
       authorization,
       oracleImageDigest: digest,
       candidateImageDigest: digest,
+      evidenceDirectory: directory,
+      oracleSnapshotPath: path.join(path.dirname(directory), 'snapshots', 'oracle-snapshots.json'),
+      repositoryRoot: '/home/henry/repo/logto',
+      conformanceRoot: '/var/tmp/henry-build/phase1-conformance',
+      isolationAttestations: loadPhase1RuntimeIsolationAttestations(runtimeEnvironment),
+    },
+    runtimeEnvironment
+  );
+};
+
+const candidateGateContext = (directory: string): Phase1EvidenceRuntimeContext => {
+  const authorization = authorizePhase1RunForTesting(
+    Object.freeze({
+      mode: 'runtime-candidate',
+      profile,
+      profileSha256: '3'.repeat(64),
+      schemaSha256: '4'.repeat(64),
+      provenance: Object.freeze({
+        kind: 'review-candidate',
+        harnessCommit,
+        publishable: false,
+      }),
+      protectedExecution: undefined,
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+      candidateInvariantGate: true,
+    })
+  );
+
+  return createPhase1EvidenceRuntimeContext(
+    {
+      authorization,
+      oracleImageDigest: digest,
+      candidateImageDigest: candidateDigest,
       evidenceDirectory: directory,
       oracleSnapshotPath: path.join(path.dirname(directory), 'snapshots', 'oracle-snapshots.json'),
       repositoryRoot: '/home/henry/repo/logto',
@@ -264,6 +305,19 @@ const ports = (): Phase1EvidenceExecutionPorts => ({
   conformance: async (runtime) => conformance(runtime),
 });
 
+const runtimeCandidateControls = async (candidate: Phase1EvidenceRuntimeContext) =>
+  runPhase1CandidateControlRuntime(candidate, {
+    runLiveInvariant: async (id) => {
+      const contract = candidateInvariantContracts.find((value) => value.id === id);
+
+      if (!contract) {
+        throw new TypeError('missing candidate invariant contract');
+      }
+
+      return { id, projection: contract.positiveControl.expectedProjection };
+    },
+  });
+
 const executeForTesting = async (
   runtime: Phase1EvidenceRuntimeContext,
   executionPorts: Phase1EvidenceExecutionPorts
@@ -298,6 +352,35 @@ describe('Phase 1 evidence execution coordinator', () => {
         }
       )
     ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+  });
+
+  it('publishes one candidate-bound artifact with eighteen live outcomes and seven controls', async () => {
+    const root = await createRoot();
+    const runtime = candidateGateContext(root);
+    const published = await executePhase1CandidateInvariantGateForTesting(
+      runtime,
+      runtimeCandidateControls,
+      {
+        createSink: async (directory, names, authority) =>
+          createSecureEvidenceSink(directory, names, {}, authority),
+      }
+    );
+
+    expect(published).toEqual([path.join(root, 'phase-1-candidate-invariants.json')]);
+    expect(await readdir(root)).toEqual(['phase-1-candidate-invariants.json']);
+    const artifact = JSON.parse(
+      await readFile(path.join(root, 'phase-1-candidate-invariants.json'), 'utf8')
+    ) as {
+      provenance: { imageDigest: string };
+      outcomes: unknown[];
+      observationNegativeControls: unknown[];
+      discoveryExtraControl: unknown;
+    };
+
+    expect(artifact.provenance.imageDigest).toBe(candidateDigest);
+    expect(artifact.outcomes).toHaveLength(18);
+    expect(artifact.observationNegativeControls).toHaveLength(6);
+    expect(artifact.discoveryExtraControl).toBeDefined();
   });
 
   it('rejects non-runtime authorization before the differential live port', async () => {

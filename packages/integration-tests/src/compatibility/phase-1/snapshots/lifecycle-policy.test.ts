@@ -195,6 +195,8 @@ describe('Phase 1 lifecycle source policy', () => {
       "'v22.23.2'",
       "'10.15.1'",
       'compose.env',
+      "export ASTER_PHASE1_RUNTIME_GATE='candidate-invariants'",
+      'run-phase1-runtime-candidate.sh',
     ]) {
       expect(source).toContain(required);
     }

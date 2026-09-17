@@ -4,7 +4,7 @@ set -euo pipefail
 umask 077
 export LC_ALL=C
 
-readonly FORMAL_RUNNER_SHA256='06485beb3b05dff60221c5b3acf12ac58b2db102c29898588bd6dba9e7f46436'
+readonly FORMAL_RUNNER_SHA256='35a053b137e5f3a06dccc548f9fb75973fe395ddacfb395460f116d31663f3f1'
 readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
 readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 readonly HOST_FIXTURE_IMAGE='docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'

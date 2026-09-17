@@ -152,11 +152,13 @@ const createCliHarness = (
   stderr: string[];
   authorizations: Phase1RunAuthorization[];
   differentialAuthorizations: Phase1RunAuthorization[];
+  candidateInvariantAuthorizations: Phase1RunAuthorization[];
 }> => {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const authorizations: Phase1RunAuthorization[] = [];
   const differentialAuthorizations: Phase1RunAuthorization[] = [];
+  const candidateInvariantAuthorizations: Phase1RunAuthorization[] = [];
   const profile = profileFixture();
   const dependencies: Phase1CliDependencies = {
     loadRunBundle: async () => ({
@@ -177,6 +179,9 @@ const createCliHarness = (
     executeDifferential: async (authorization) => {
       differentialAuthorizations.push(authorization);
     },
+    executeCandidateInvariants: async (authorization) => {
+      candidateInvariantAuthorizations.push(authorization);
+    },
     prepareReviewProfile: async () => {
       await Promise.resolve();
     },
@@ -189,7 +194,14 @@ const createCliHarness = (
     ...overrides,
   };
 
-  return { dependencies, stdout, stderr, authorizations, differentialAuthorizations };
+  return {
+    dependencies,
+    stdout,
+    stderr,
+    authorizations,
+    differentialAuthorizations,
+    candidateInvariantAuthorizations,
+  };
 };
 
 describe('Phase 1 CLI grammar', () => {
@@ -346,6 +358,55 @@ describe('Phase 1 CLI grammar', () => {
       },
     });
     expect(harness.stdout).toEqual(['Phase 1 differential gate authorized.']);
+  });
+
+  it('authorizes only the closed runtime candidate invariant gate command', async () => {
+    const arguments_ = [
+      'run-candidate-invariants',
+      '--mode',
+      'runtime-candidate',
+      '--profile',
+      '/private/profile.json',
+      '--schema',
+      '/private/schema.json',
+      '--observation-controls',
+      '--discovery-extra-control',
+      '--candidate-invariant-controls',
+    ] as const;
+    expect(parsePhase1Arguments(arguments_)).toMatchObject({
+      command: 'run-candidate-invariants',
+      mode: 'runtime-candidate',
+    });
+    const harness = createCliHarness();
+
+    await expect(runPhase1Cli(arguments_, harness.dependencies)).resolves.toBe(0);
+    expect(harness.authorizations).toEqual([]);
+    expect(harness.differentialAuthorizations).toEqual([]);
+    expect(harness.candidateInvariantAuthorizations).toHaveLength(1);
+    expect(harness.candidateInvariantAuthorizations[0]).toMatchObject({
+      mode: 'runtime-candidate',
+      candidateInvariantGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
+    });
+    expect(harness.stdout).toEqual(['Phase 1 candidate invariant gate authorized.']);
+
+    for (const invalid of [
+      ['run-candidate-invariants', '--mode', 'mirror-control'],
+      ['run-candidate-invariants', '--mode', 'review-candidate'],
+      ['run-candidate-invariants', '--mode', 'runtime-candidate', '--record-oracle'],
+      ['run-candidate-invariants', '--mode', 'runtime-candidate', '--observation-controls'],
+    ]) {
+      expect(() =>
+        parsePhase1Arguments([
+          ...invalid,
+          '--profile',
+          '/private/profile.json',
+          '--schema',
+          '/private/schema.json',
+        ])
+      ).toThrow('Invalid Phase 1 arguments.');
+    }
   });
 
   it('accepts one pnpm script delimiter only before an exact subcommand', async () => {

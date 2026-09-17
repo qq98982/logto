@@ -18,6 +18,7 @@ import {
 import { runPhase1BrowserRuntime } from '../browser/runtime.js';
 import { assertCandidateInvariantProjectionIsSanitized } from '../candidate-invariants/evidence.js';
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
+import { createPhase1LiveCandidateInvariantExecutor } from '../candidate-invariants/live-driver.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
 import { phase1ConformanceAdapterControlIds } from '../conformance/runner.js';
 import { runPhase1ConformanceRuntime } from '../conformance/runtime.js';
@@ -104,7 +105,8 @@ const exactArray = (value: unknown): readonly unknown[] => (Array.isArray(value)
 const requireCommonArtifact = (
   value: unknown,
   context: Phase1EvidenceRuntimeContext,
-  detailKeys: readonly string[]
+  detailKeys: readonly string[],
+  expectedImageDigest = context.oracleImageDigest
 ) => {
   assertPhase1PublicArtifactValue(value);
   const root = exactRecord(value, [
@@ -130,7 +132,7 @@ const requireCommonArtifact = (
     provenance.harnessCommit !== harnessCommit ||
     provenance.profileSha256 !== context.authorization.profileSha256 ||
     provenance.schemaSha256 !== context.authorization.schemaSha256 ||
-    provenance.imageDigest !== context.oracleImageDigest
+    provenance.imageDigest !== expectedImageDigest
   ) {
     return fail();
   }
@@ -305,11 +307,14 @@ const validateCandidateControls = (
   value: unknown,
   context: Phase1EvidenceRuntimeContext
 ): JsonValue => {
-  const root = requireCommonArtifact(value, context, [
-    'outcomes',
-    'observationNegativeControls',
-    'discoveryExtraControl',
-  ]);
+  const root = requireCommonArtifact(
+    value,
+    context,
+    ['outcomes', 'observationNegativeControls', 'discoveryExtraControl'],
+    context.authorization.mode === 'runtime-candidate'
+      ? context.candidateImageDigest
+      : context.oracleImageDigest
+  );
   const outcomes = exactArray(root.outcomes);
   const expectedIds = [...context.authorization.profile.candidateInvariantScenarios].toSorted(
     bytewiseCompare
@@ -681,6 +686,7 @@ const executeEvidence = async (
 };
 
 const differentialEvidenceName = 'phase-1-differential.json';
+const candidateInvariantEvidenceName = 'phase-1-candidate-invariants.json';
 
 const executeDifferentialGate = async (
   context: Phase1EvidenceRuntimeContext,
@@ -746,6 +752,70 @@ const executeDifferentialGate = async (
   }
 };
 
+const executeCandidateInvariantGate = async (
+  context: Phase1EvidenceRuntimeContext,
+  candidateControls: Phase1EvidenceExecutionPorts['candidateControls'],
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  try {
+    assertValidatedPhase1EvidenceRuntimeContext(context);
+    await assertPrivateEmptyDirectory(context.evidenceDirectory);
+    const result = validateCandidateControls(await candidateControls(context), context);
+    const serialized = Buffer.from(canonicalPhase1ArtifactBytes(result)).toString('utf8');
+    const trustedInputs = new WeakSet<Record<string, unknown>>([result as Record<string, unknown>]);
+    const authority: SecureEvidenceInputAuthority = Object.freeze({
+      consume: ({ name, source, snapshot, serialized: candidate }) => {
+        if (
+          name !== candidateInvariantEvidenceName ||
+          source !== result ||
+          candidate !== serialized ||
+          !isDeepStrictEqual(snapshot, result) ||
+          Buffer.from(canonicalPhase1ArtifactBytes(snapshot)).toString('utf8') !== serialized ||
+          typeof source !== 'object' ||
+          source === null ||
+          !trustedInputs.delete(source as Record<string, unknown>)
+        ) {
+          throw new TypeError(diagnostic);
+        }
+      },
+    });
+    const sink = await dependencies.createSink(
+      context.evidenceDirectory,
+      Object.freeze([candidateInvariantEvidenceName]),
+      authority
+    );
+    let published = false;
+
+    try {
+      const publication = await sink.write(candidateInvariantEvidenceName, result);
+      published = true;
+      const verified = await sink.scan();
+      const expected = [path.join(context.evidenceDirectory, candidateInvariantEvidenceName)];
+
+      if (
+        trustedInputs.has(result as Record<string, unknown>) ||
+        JSON.stringify(verified) !== JSON.stringify(expected)
+      ) {
+        throw new TypeError(diagnostic);
+      }
+
+      return Object.freeze([publication]);
+    } catch {
+      if (published) {
+        await sink.rollback(candidateInvariantEvidenceName).catch(() => false);
+      }
+      const remaining = await readdir(context.evidenceDirectory).catch(() => ['unreadable']);
+
+      if (remaining.length > 0) {
+        throw new TypeError(diagnostic);
+      }
+      throw new TypeError(diagnostic);
+    }
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
 export const executePhase1EvidenceForTesting = async (
   context: Phase1EvidenceRuntimeContext,
   ports: Phase1EvidenceExecutionPorts,
@@ -768,6 +838,18 @@ export const executePhase1DifferentialGateForTesting = async (
   }
 
   return executeDifferentialGate(context, differential, dependencies);
+};
+
+export const executePhase1CandidateInvariantGateForTesting = async (
+  context: Phase1EvidenceRuntimeContext,
+  candidateControls: Phase1EvidenceExecutionPorts['candidateControls'],
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return executeCandidateInvariantGate(context, candidateControls, dependencies);
 };
 
 const runtimePorts: Phase1EvidenceExecutionPorts = Object.freeze({
@@ -828,6 +910,7 @@ export const executeAuthorizedPhase1Run = async (
   try {
     if (
       authorization.differentialGate === true ||
+      authorization.candidateInvariantGate === true ||
       requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode
     ) {
       return fail();
@@ -905,6 +988,63 @@ export const executeAuthorizedPhase1DifferentialGate = async (
     );
 
     return await executeDifferentialGate(context, runPhase1DifferentialRuntime, {
+      createSink: async (root, allowlist, authority) =>
+        createSecureEvidenceSink(root, allowlist, {}, authority),
+    });
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
+export const executeAuthorizedPhase1CandidateInvariantGate = async (
+  authorization: Phase1RunAuthorization,
+  repositoryRoot: string,
+  environment: RuntimeEnvironment = process.env
+): Promise<readonly string[]> => {
+  try {
+    if (
+      authorization.mode !== 'runtime-candidate' ||
+      authorization.candidateInvariantGate !== true ||
+      authorization.differentialGate === true ||
+      authorization.controls.recordOracle ||
+      !authorization.controls.observationControls ||
+      !authorization.controls.discoveryExtraControl ||
+      !authorization.controls.candidateInvariantControls ||
+      requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode
+    ) {
+      return fail();
+    }
+    const context = createPhase1EvidenceRuntimeContext(
+      {
+        authorization,
+        oracleImageDigest: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_ORACLE_IMAGE_DIGEST'
+        ),
+        candidateImageDigest: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST'
+        ),
+        evidenceDirectory: requiredEnvironmentValue(environment, 'ASTER_PHASE1_EVIDENCE_DIR'),
+        oracleSnapshotPath: requiredEnvironmentValue(
+          environment,
+          'ASTER_PHASE1_ORACLE_SNAPSHOT_PATH'
+        ),
+        repositoryRoot,
+        conformanceRoot: requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT'),
+        isolationAttestations: loadPhase1RuntimeIsolationAttestations(environment),
+      },
+      environment
+    );
+    const candidateControls = async (runtime: Phase1EvidenceRuntimeContext) =>
+      runPhase1CandidateControlRuntime(runtime, {
+        runLiveInvariant: createPhase1LiveCandidateInvariantExecutor({
+          repositoryRoot,
+          environment,
+        }),
+      });
+
+    return await executeCandidateInvariantGate(context, candidateControls, {
       createSink: async (root, allowlist, authority) =>
         createSecureEvidenceSink(root, allowlist, {}, authority),
     });

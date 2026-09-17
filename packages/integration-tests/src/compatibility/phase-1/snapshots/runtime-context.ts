@@ -293,9 +293,14 @@ const assertAcceptedAuthorization = (
 ): void => {
   dependencies.assertRunAuthorization(value);
   const differentialGate = Object.hasOwn(value, 'differentialGate');
+  const candidateInvariantGate = Object.hasOwn(value, 'candidateInvariantGate');
+  const runtimeGate = differentialGate || candidateInvariantGate;
+  if (differentialGate && candidateInvariantGate) {
+    return fail();
+  }
   const authorization = exactRecord(
     value,
-    differentialGate
+    runtimeGate
       ? [
           'mode',
           'profile',
@@ -304,7 +309,7 @@ const assertAcceptedAuthorization = (
           'provenance',
           'protectedExecution',
           'controls',
-          'differentialGate',
+          differentialGate ? 'differentialGate' : 'candidateInvariantGate',
         ]
       : [
           'mode',
@@ -346,9 +351,10 @@ const assertAcceptedAuthorization = (
   ) {
     return fail();
   }
-  if (differentialGate) {
+  if (runtimeGate) {
     if (
-      ownValue(authorization, 'differentialGate') !== true ||
+      ownValue(authorization, differentialGate ? 'differentialGate' : 'candidateInvariantGate') !==
+        true ||
       mode !== 'runtime-candidate' ||
       protectedExecution !== undefined ||
       Reflect.get(provenance, 'kind') !== 'review-candidate' ||

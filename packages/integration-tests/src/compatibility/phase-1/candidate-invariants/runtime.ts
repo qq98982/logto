@@ -174,6 +174,8 @@ const requireAuthorization = (
 ): 'review-candidate' | 'mirror-control' | 'runtime-candidate' => {
   const { authorization } = context;
   const { mode, profile, provenance, protectedExecution, controls } = authorization;
+  const reviewRuntimeGate =
+    mode === 'runtime-candidate' && authorization.candidateInvariantGate === true;
 
   if (
     !allowedModes.has(mode) ||
@@ -186,7 +188,7 @@ const requireAuthorization = (
     !imageDigestPattern.test(context.candidateImageDigest) ||
     (mode === 'mirror-control' && context.oracleImageDigest !== context.candidateImageDigest) ||
     (mode === 'runtime-candidate' && context.oracleImageDigest === context.candidateImageDigest) ||
-    (mode === 'review-candidate'
+    (mode === 'review-candidate' || reviewRuntimeGate
       ? provenance.kind !== 'review-candidate' || protectedExecution !== undefined
       : provenance.kind !== 'accepted-harness' ||
         protectedExecution?.mode !== mode ||
@@ -414,8 +416,10 @@ const executeCandidateControlRuntime = async (
 };
 
 export const runPhase1CandidateControlRuntime = async (
-  context: Phase1EvidenceRuntimeContext
-): Promise<Phase1CandidateControlsEvidence> => executeCandidateControlRuntime(context);
+  context: Phase1EvidenceRuntimeContext,
+  dependencies?: Phase1CandidateInvariantRuntimeDependencies
+): Promise<Phase1CandidateControlsEvidence> =>
+  executeCandidateControlRuntime(context, dependencies);
 
 export const runPhase1CandidateControlRuntimeForTesting = async (
   context: Phase1EvidenceRuntimeContext,

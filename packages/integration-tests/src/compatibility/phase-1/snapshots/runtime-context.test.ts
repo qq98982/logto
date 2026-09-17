@@ -143,6 +143,26 @@ const differentialGateInput = () => {
   return { ...contextInput('runtime-candidate'), authorization: gateAuthorization };
 };
 
+const candidateInvariantGateInput = () => {
+  const base = differentialGateInput();
+  const { mode, profile, profileSha256, schemaSha256, provenance, protectedExecution, controls } =
+    base.authorization;
+  const authorization = authorizePhase1RunForTesting(
+    Object.freeze({
+      mode,
+      profile,
+      profileSha256,
+      schemaSha256,
+      provenance,
+      protectedExecution,
+      controls,
+      candidateInvariantGate: true as const,
+    })
+  );
+
+  return { ...base, authorization };
+};
+
 describe('Phase 1 evidence runtime context', () => {
   it('loads the exact separated primary and foreign target graph', () => {
     const targets = loadPhase1RuntimeTargetGraph(environment);
@@ -224,6 +244,29 @@ describe('Phase 1 evidence runtime context', () => {
 
     expect(() =>
       createPhase1EvidenceRuntimeContext({ ...input, authorization: withoutMarker }, environment)
+    ).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
+  });
+
+  it('accepts review provenance only for an explicit runtime candidate invariant gate', () => {
+    const input = candidateInvariantGateInput();
+    const context = createPhase1EvidenceRuntimeContext(input, environment);
+
+    expect(context.authorization).toBe(input.authorization);
+    expect(context.authorization).toMatchObject({
+      mode: 'runtime-candidate',
+      candidateInvariantGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
+    });
+    const bothMarkers = authorizePhase1RunForTesting(
+      Object.freeze({
+        ...input.authorization,
+        differentialGate: true,
+      }) as Phase1RunAuthorization
+    );
+
+    expect(() =>
+      createPhase1EvidenceRuntimeContext({ ...input, authorization: bothMarkers }, environment)
     ).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
   });
 
