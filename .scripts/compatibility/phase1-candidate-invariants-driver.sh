@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -1061,6 +1061,212 @@ SELECT pg_catalog.jsonb_build_object(
         )
       ),
       'readiness', 'ready'
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.stale-keyring-rejoin-rejected' ]]; then
+  stale_keyring_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT active_key_id AS old_active_key_id
+FROM aster_control.wrapping_key_runtime_state
+WHERE singleton \gset
+
+-- phase1-stale-keyring-pre-reload
+UPDATE aster_control.wrapping_key_registry
+SET lifecycle_state = 'retained', required_readable = true
+WHERE key_id = :'old_active_key_id';
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id,
+  writer_generation,
+  lifecycle_state,
+  required_readable,
+  reference_count
+) VALUES ('aster-mk-2000000000000001', 2, 'active', true, 0);
+UPDATE aster_control.wrapping_key_runtime_state
+SET active_key_id = 'aster-mk-2000000000000001',
+    minimum_keyring_generation = 2
+WHERE singleton;
+INSERT INTO aster_control.wrapping_key_history (key_id, writer_generation)
+VALUES ('aster-mk-20000000000000aa', 2);
+
+SET SESSION AUTHORIZATION aster_key_runtime;
+SAVEPOINT stale_generation;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id',
+  pg_catalog.decode(pg_catalog.repeat('91', 32), 'hex'),
+  1,
+  ARRAY[:'old_active_key_id']::text[]
+) \g /dev/null
+\set stale_state :SQLSTATE
+ROLLBACK TO SAVEPOINT stale_generation;
+\set ON_ERROR_STOP on
+
+-- phase1-stale-keyring-post-reload
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id',
+  pg_catalog.decode(pg_catalog.repeat('92', 32), 'hex'),
+  2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'old_active_key_id',
+      'aster-mk-2000000000000001'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) AS reload_lease_ms \gset
+
+SAVEPOINT tombstoned_key;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id',
+  pg_catalog.decode(pg_catalog.repeat('93', 32), 'hex'),
+  2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'old_active_key_id',
+      'aster-mk-2000000000000001',
+      'aster-mk-20000000000000aa'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) \g /dev/null
+\set tombstoned_state :SQLSTATE
+ROLLBACK TO SAVEPOINT tombstoned_key;
+\set ON_ERROR_STOP on
+
+SAVEPOINT non_live_key;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id',
+  pg_catalog.decode(pg_catalog.repeat('94', 32), 'hex'),
+  2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'old_active_key_id',
+      'aster-mk-2000000000000001',
+      'aster-mk-20000000000000bb'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) \g /dev/null
+\set non_live_state :SQLSTATE
+ROLLBACK TO SAVEPOINT non_live_key;
+\set ON_ERROR_STOP on
+
+SELECT CASE WHEN state.active_key_id = 'aster-mk-2000000000000001'
+  AND state.writer_generation = 2
+  AND state.minimum_keyring_generation = 2
+  AND state.live_key_ids = ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'old_active_key_id',
+      'aster-mk-2000000000000001'
+    ]::text[]) AS live(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+  AND state.required_readable_key_ids = ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'old_active_key_id',
+      'aster-mk-2000000000000001'
+    ]::text[]) AS required(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+  AND state.active_writer_lease_count = 1
+THEN 'true' ELSE 'false' END AS state_ok
+FROM aster_runtime.read_key_runtime_state(:'deployment_id') AS state \gset
+
+\echo :stale_state|:reload_lease_ms|:tombstoned_state|:non_live_state|:state_ok
+RESET SESSION AUTHORIZATION;
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$stale_keyring_observation" == '42501|15000|42501|42501|true' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.stale-keyring-rejoin-rejected',
+  'projection', pg_catalog.jsonb_build_object(
+    'replica', pg_catalog.jsonb_build_object(
+      'loadedGeneration', 1,
+      'minimumGeneration', 2,
+      'loadedSetFingerprint',
+        'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'allowedSetFingerprint',
+        'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      'requiredSetFingerprint',
+        'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      'preReload', pg_catalog.jsonb_build_object(
+        'heartbeat', 'rejected',
+        'readiness', 'not-ready',
+        'reasonClass', 'stale-generation'
+      ),
+      'postReload', pg_catalog.jsonb_build_object(
+        'loadedGeneration', 2,
+        'heartbeat', 'accepted',
+        'readiness', 'ready',
+        'reasonClass', 'current-generation'
+      ),
+      'heartbeat', 'rejected',
+      'readiness', 'not-ready',
+      'reasonClass', 'stale-generation',
+      'fullReloadRequired', true,
+      'writerResumed', false,
+      'tombstonedIdAccepted', false,
+      'nonLiveIdAccepted', false
     )
   )
 )::text;
