@@ -157,12 +157,7 @@
         "timeout": "3s",
         "retries": 80
       },
-      "networks": [
-        "candidate-primary",
-        "candidate-connector-boundary",
-        "candidate-saml-boundary",
-        "candidate-script-boundary"
-      ]
+      "networks": ["candidate-primary"]
     },
     "candidate-foreign-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
@@ -326,45 +321,45 @@
     "candidate-connector-host": {
       "profiles": ["candidate-connectors"],
       "image": "${ASTER_PHASE1_CANDIDATE_CONNECTOR_IMAGE:-candidate-connector-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
-      "entrypoint": ["/bin/sh", "-c"],
-      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
+      "entrypoint": ["node", "-e"],
+      "command": ["const net=require('node:net');let calls=0;const kind=process.env.ASTER_HOST_KIND;const peer=process.env.ASTER_HOST_PEER_ID;const fault=process.env.ASTER_HOST_FAULT;const server=net.createServer((socket)=>{let input='';socket.setTimeout(2000,()=>socket.destroy());socket.on('data',(chunk)=>{input+=chunk;if(Buffer.byteLength(input)>64){socket.destroy();return;}if(!input.endsWith('\\n'))return;if(input!=='ASTER-HOST/1 HEALTH\\n'){socket.destroy();return;}calls+=1;let outputPeer=peer;let outputVersion=1;if(calls>1&&fault==='peer')outputPeer='spiffe://aster.test/connector';if(calls>1&&fault==='version')outputVersion=2;socket.end(JSON.stringify({schemaVersion:1,kind,peerIdentity:outputPeer,protocolVersion:outputVersion})+'\\n');});});server.maxConnections=16;server.listen(4317,'0.0.0.0');const stop=()=>server.close(()=>process.exit(0));process.on('SIGTERM',stop);process.on('SIGINT',stop);"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
       "environment": {
         "ASTER_HOST_KIND": "connector",
         "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
-        "ASTER_HOST_PROTOCOL_VERSION": "1"
+        "ASTER_HOST_FAULT": "none"
       },
       "networks": ["candidate-connector-boundary"]
     },
     "candidate-saml-host": {
       "profiles": ["candidate-saml"],
       "image": "${ASTER_PHASE1_CANDIDATE_SAML_IMAGE:-candidate-saml-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
-      "entrypoint": ["/bin/sh", "-c"],
-      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
+      "entrypoint": ["node", "-e"],
+      "command": ["const net=require('node:net');let calls=0;const kind=process.env.ASTER_HOST_KIND;const peer=process.env.ASTER_HOST_PEER_ID;const fault=process.env.ASTER_HOST_FAULT;const server=net.createServer((socket)=>{let input='';socket.setTimeout(2000,()=>socket.destroy());socket.on('data',(chunk)=>{input+=chunk;if(Buffer.byteLength(input)>64){socket.destroy();return;}if(!input.endsWith('\\n'))return;if(input!=='ASTER-HOST/1 HEALTH\\n'){socket.destroy();return;}calls+=1;let outputPeer=peer;let outputVersion=1;if(calls>1&&fault==='peer')outputPeer='spiffe://aster.test/connector';if(calls>1&&fault==='version')outputVersion=2;socket.end(JSON.stringify({schemaVersion:1,kind,peerIdentity:outputPeer,protocolVersion:outputVersion})+'\\n');});});server.maxConnections=16;server.listen(4317,'0.0.0.0');const stop=()=>server.close(()=>process.exit(0));process.on('SIGTERM',stop);process.on('SIGINT',stop);"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
       "environment": {
         "ASTER_HOST_KIND": "saml",
-        "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
-        "ASTER_HOST_PROTOCOL_VERSION": "1"
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/saml",
+        "ASTER_HOST_FAULT": "peer"
       },
       "networks": ["candidate-saml-boundary"]
     },
     "candidate-script-host": {
       "profiles": ["candidate-scripts"],
       "image": "${ASTER_PHASE1_CANDIDATE_SCRIPT_IMAGE:-candidate-script-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
-      "entrypoint": ["/bin/sh", "-c"],
-      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
+      "entrypoint": ["node", "-e"],
+      "command": ["const net=require('node:net');let calls=0;const kind=process.env.ASTER_HOST_KIND;const peer=process.env.ASTER_HOST_PEER_ID;const fault=process.env.ASTER_HOST_FAULT;const server=net.createServer((socket)=>{let input='';socket.setTimeout(2000,()=>socket.destroy());socket.on('data',(chunk)=>{input+=chunk;if(Buffer.byteLength(input)>64){socket.destroy();return;}if(!input.endsWith('\\n'))return;if(input!=='ASTER-HOST/1 HEALTH\\n'){socket.destroy();return;}calls+=1;let outputPeer=peer;let outputVersion=1;if(calls>1&&fault==='peer')outputPeer='spiffe://aster.test/connector';if(calls>1&&fault==='version')outputVersion=2;socket.end(JSON.stringify({schemaVersion:1,kind,peerIdentity:outputPeer,protocolVersion:outputVersion})+'\\n');});});server.maxConnections=16;server.listen(4317,'0.0.0.0');const stop=()=>server.close(()=>process.exit(0));process.on('SIGTERM',stop);process.on('SIGINT',stop);"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
       "environment": {
         "ASTER_HOST_KIND": "script",
         "ASTER_HOST_PEER_ID": "spiffe://aster.test/script",
-        "ASTER_HOST_PROTOCOL_VERSION": "2"
+        "ASTER_HOST_FAULT": "version"
       },
       "networks": ["candidate-script-boundary"]
     }

@@ -81,9 +81,7 @@ describe('Phase 1 lifecycle source policy', () => {
       expect(adminProcessPort).toBeDefined();
       expect(postgres?.networks).toEqual([stack]);
       expect(redis?.networks).toEqual([stack]);
-      expect(core?.networks).toEqual(
-        stack === 'candidate-primary' ? [stack, ...hostBoundaryNetworks] : [stack]
-      );
+      expect(core?.networks).toEqual([stack]);
       expect(postgres).not.toHaveProperty('ports');
       expect(redis).not.toHaveProperty('ports');
       expect(core).not.toHaveProperty('ports');
@@ -105,6 +103,8 @@ describe('Phase 1 lifecycle source policy', () => {
       expect(host?.networks).toEqual([hostBoundaryNetworks[index]]);
       expect(host).not.toHaveProperty('ports');
       expect(host).not.toHaveProperty('volumes');
+      expect(host?.entrypoint).toEqual(['node', '-e']);
+      expect(JSON.stringify(host?.command ?? [])).toContain('ASTER-HOST/1 HEALTH');
       expect(JSON.stringify(host)).not.toMatch(/DB_URL|REDIS_URL|COOKIE|SIGNING|SECRET_VAULT/iu);
     }
     expect(document.services['oracle-phase0-core']?.image).toBe(

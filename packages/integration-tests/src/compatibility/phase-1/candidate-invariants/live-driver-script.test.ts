@@ -139,11 +139,38 @@ if [[ "$1" == stop ]]; then
   touch "$HOST_STATES/${'$'}{*: -1}"
   exit 0
 fi
+if [[ "$1" == run ]]; then
+  kind=''
+  for candidate in connector saml script; do
+    if [[ "$*" == *"--kind $candidate"* ]]; then kind=$candidate; fi
+  done
+  [[ -n "$kind" ]] || exit 1
+  mkdir -p "$HOST_STATES"
+  count_file="$HOST_STATES/$kind.probes"
+  count=0
+  [[ -f "$count_file" ]] && read -r count <"$count_file"
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$count_file"
+  if [[ "$kind" == connector && -f "$HOST_STATES/$CONNECTOR_ID" ]]; then
+    printf '%s' 'host-unavailable'
+  elif [[ "$count" == 1 ]]; then
+    printf '%s' 'available'
+  elif [[ "$kind" == saml ]]; then
+    printf '%s' 'peer-identity-invalid'
+  elif [[ "$kind" == script ]]; then
+    printf '%s' 'protocol-version-invalid'
+  else
+    printf '%s' 'available'
+  fi
+  exit 0
+fi
 if [[ "$1" == inspect ]]; then
   if [[ "${'$'}{*: -1}" == "$PRIMARY_ID" ]]; then printf '%s|%s' "$PRIMARY_SERVICE" "$PROJECT"; exit 0; fi
   if [[ "${'$'}{*: -1}" == "$FOREIGN_ID" ]]; then printf '%s|%s' "$FOREIGN_SERVICE" "$PROJECT"; exit 0; fi
   if [[ "${'$'}{*: -1}" == "$CORE_ID" ]]; then
-    if [[ "$*" == *'.State.Status'* ]]; then printf '%s' 'running|healthy'; else printf '%s|%s' 'candidate-primary-core' "$PROJECT"; fi
+    if [[ "$*" == *'.State.Status'* ]]; then printf '%s' 'running|healthy';
+    elif [[ "$*" == *'.Image'* ]]; then printf 'sha256:%s' "${'7'.repeat(64)}";
+    else printf '%s|%s' 'candidate-primary-core' "$PROJECT"; fi
     exit 0
   fi
   for host in "$CONNECTOR_ID" "$SAML_ID" "$SCRIPT_ID"; do
@@ -151,13 +178,13 @@ if [[ "$1" == inspect ]]; then
       state=running
       [[ -f "$HOST_STATES/$host" ]] && state=exited
       if [[ "$*" == *'.State.Status'* ]]; then printf '%s' "$state"; exit 0; fi
-      kind=connector; peer='spiffe://aster.test/connector'; version=1; network='candidate-connector-boundary'
-      if [[ "$host" == "$SAML_ID" ]]; then kind=saml; network='candidate-saml-boundary'; fi
-      if [[ "$host" == "$SCRIPT_ID" ]]; then kind=script; peer='spiffe://aster.test/script'; version=2; network='candidate-script-boundary'; fi
+      kind=connector; peer='spiffe://aster.test/connector'; fault=none; network='candidate-connector-boundary'
+      if [[ "$host" == "$SAML_ID" ]]; then kind=saml; peer='spiffe://aster.test/saml'; fault=peer; network='candidate-saml-boundary'; fi
+      if [[ "$host" == "$SCRIPT_ID" ]]; then kind=script; peer='spiffe://aster.test/script'; fault=version; network='candidate-script-boundary'; fi
       service="candidate-${'$'}{kind}-host"
       if [[ "$*" == *'com.docker.compose.service'* ]]; then printf '%s|%s' "$service" "$PROJECT"; exit 0; fi
       if [[ "$*" == *'.Config.Env'* ]]; then
-        printf 'ASTER_HOST_KIND=%s\nASTER_HOST_PEER_ID=%s\nASTER_HOST_PROTOCOL_VERSION=%s\n' "$kind" "$peer" "$version"
+        printf 'ASTER_HOST_KIND=%s\nASTER_HOST_PEER_ID=%s\nASTER_HOST_FAULT=%s\n' "$kind" "$peer" "$fault"
         exit 0
       fi
       if [[ "$*" == *'.Mounts'* ]]; then printf '%s' '[]'; exit 0; fi
@@ -1011,6 +1038,8 @@ describe('Phase 1 candidate invariant shell driver', () => {
       expect(calls).toContain(`com.docker.compose.service=${service}`);
     }
     expect(calls.match(/stop --time 10/gu)).toHaveLength(3);
+    expect(calls.match(/compatibility-host probe/gu)).toHaveLength(6);
+    expect(calls).toContain('--network aster-phase1-0123456789abcdef_candidate-saml-boundary');
     expect(sql).toContain('phase1-host-setup');
     expect(sql).toContain('GET /oidc/auth?');
     expect(sql).toContain('POST /oidc/token HTTP/1.1');

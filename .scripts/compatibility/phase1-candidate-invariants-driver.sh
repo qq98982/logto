@@ -2691,6 +2691,8 @@ if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
   [[ "$primary_core_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
   core_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$primary_core_id" 2>/dev/null || true)"
   [[ "$core_labels" == "candidate-primary-core|$project_name" ]] || fail
+  probe_image="$($DOCKER_BIN inspect --format '{{.Image}}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$probe_image" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
 
   connector_id="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=$project_name" --filter 'label=com.docker.compose.service=candidate-connector-host' | tr -d '[:space:]')" || fail
   saml_id="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=$project_name" --filter 'label=com.docker.compose.service=candidate-saml-host' | tr -d '[:space:]')" || fail
@@ -2701,7 +2703,7 @@ if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
   [[ "$connector_id" != "$saml_id" && "$connector_id" != "$script_id" && "$saml_id" != "$script_id" ]] || fail
 
   inspect_host() {
-    local host_id=$1 service=$2 boundary=$3 expected_kind=$4 expected_peer=$5 expected_version=$6
+    local host_id=$1 service=$2 boundary=$3 expected_kind=$4 expected_peer=$5 expected_fault=$6
     local labels state environment mounts ports networks
     labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$host_id" 2>/dev/null || true)"
     [[ "$labels" == "$service|$project_name" ]] || return 1
@@ -2710,7 +2712,7 @@ if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
     environment="$($DOCKER_BIN inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$host_id" 2>/dev/null || true)"
     [[ "$environment" == *"ASTER_HOST_KIND=$expected_kind"* && \
        "$environment" == *"ASTER_HOST_PEER_ID=$expected_peer"* && \
-       "$environment" == *"ASTER_HOST_PROTOCOL_VERSION=$expected_version"* ]] || return 1
+       "$environment" == *"ASTER_HOST_FAULT=$expected_fault"* ]] || return 1
     [[ ! "$environment" =~ (DB_URL|POSTGRES|PASSWORD|SECRET|TOKEN|COOKIE|SIGNING|MASTER_KEY) ]] || return 1
     mounts="$($DOCKER_BIN inspect --format '{{json .Mounts}}' "$host_id" 2>/dev/null || true)"
     ports="$($DOCKER_BIN inspect --format '{{json .HostConfig.PortBindings}}' "$host_id" 2>/dev/null || true)"
@@ -2719,9 +2721,32 @@ if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
     [[ "$networks" == *"$boundary"* && "$networks" != *'candidate-primary'* ]] || return 1
   }
 
-  inspect_host "$connector_id" candidate-connector-host candidate-connector-boundary connector spiffe://aster.test/connector 1 || fail
-  inspect_host "$saml_id" candidate-saml-host candidate-saml-boundary saml spiffe://aster.test/connector 1 || fail
-  inspect_host "$script_id" candidate-script-host candidate-script-boundary script spiffe://aster.test/script 2 || fail
+  inspect_host "$connector_id" candidate-connector-host candidate-connector-boundary connector spiffe://aster.test/connector none || fail
+  inspect_host "$saml_id" candidate-saml-host candidate-saml-boundary saml spiffe://aster.test/saml peer || fail
+  inspect_host "$script_id" candidate-script-host candidate-script-boundary script spiffe://aster.test/script version || fail
+
+  probe_host() {
+    local kind=$1 boundary=$2 result probe_name
+    case "$kind|$boundary" in
+      connector\|candidate-connector-boundary|saml\|candidate-saml-boundary|script\|candidate-script-boundary) ;;
+      *) return 1 ;;
+    esac
+    probe_name="${project_name}-host-probe-${kind}"
+    result="$($DOCKER_BIN run --rm --name "$probe_name" \
+      --label "com.docker.compose.project=$project_name" \
+      --label 'com.docker.compose.service=candidate-host-probe' \
+      --network "${project_name}_${boundary}" \
+      --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+      --user "$(id -u):$(id -g)" --security-opt no-new-privileges:true \
+      --entrypoint /usr/bin/env "$probe_image" \
+      -i PATH=/usr/bin:/bin /usr/local/bin/aster-admin compatibility-host probe \
+      --kind "$kind" --endpoint "candidate-${kind}-host:4317" 2>/dev/null)" || return 1
+    printf '%s' "$result"
+  }
+
+  [[ "$(probe_host connector candidate-connector-boundary)" == available ]] || fail
+  [[ "$(probe_host saml candidate-saml-boundary)" == available ]] || fail
+  [[ "$(probe_host script candidate-script-boundary)" == available ]] || fail
 
   fixture_created=false
   cleanup_host_fixture() {
@@ -2794,7 +2819,15 @@ SQL
   [[ "$setup_state" == true ]] || fail
   fixture_created=true
 
-  for host_id in "$connector_id" "$saml_id" "$script_id"; do
+  $DOCKER_BIN stop --time 10 "$connector_id" >/dev/null 2>&1 || fail
+  [[ "$($DOCKER_BIN inspect --format '{{.State.Status}}' "$connector_id" 2>/dev/null || true)" == exited ]] || fail
+  connector_outcome="$(probe_host connector candidate-connector-boundary)" || fail
+  saml_outcome="$(probe_host saml candidate-saml-boundary)" || fail
+  script_outcome="$(probe_host script candidate-script-boundary)" || fail
+  [[ "$connector_outcome" == host-unavailable && \
+     "$saml_outcome" == peer-identity-invalid && \
+     "$script_outcome" == protocol-version-invalid ]] || fail
+  for host_id in "$saml_id" "$script_id"; do
     $DOCKER_BIN stop --time 10 "$host_id" >/dev/null 2>&1 || fail
     [[ "$($DOCKER_BIN inspect --format '{{.State.Status}}' "$host_id" 2>/dev/null || true)" == exited ]] || fail
   done
