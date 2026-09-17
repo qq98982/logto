@@ -199,6 +199,8 @@ describe('runtime-candidate differential topology', () => {
       'label=com.docker.compose.project=',
       '^[A-Za-z0-9._/:-]+@sha256:',
       ['rm -rf -- "', '$', '{RUN_DIR}"'].join(''),
+      ['"', '$', '{exit_code}" != 0 || "', '$', '{cleanup_failed}" != 0'].join(''),
+      ['rm -rf -- "', '$', '{RESULT_DIR}"'].join(''),
     ]) {
       expect(source).toContain(required);
     }

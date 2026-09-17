@@ -510,7 +510,8 @@ cleanup() {
     [[ -z "${remaining}" ]] || cleanup_failed=1
   fi
   rm -f -- "${COMPOSE_ENV}"
-  if [[ "${exit_code}" != 0 && -n "${RESULT_DIR}" && -d "${RESULT_DIR}" && ! -L "${RESULT_DIR}" ]]; then
+  if [[ ( "${exit_code}" != 0 || "${cleanup_failed}" != 0 ) &&
+    -n "${RESULT_DIR}" && -d "${RESULT_DIR}" && ! -L "${RESULT_DIR}" ]]; then
     rm -rf -- "${RESULT_DIR}" || cleanup_failed=1
   fi
   if [[ "${cleanup_failed}" == 0 && -d "${RUN_DIR}" && ! -L "${RUN_DIR}" ]]; then
