@@ -821,6 +821,10 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(sql).toContain('aster_runtime.upsert_own_writer_lease');
     expect(sql).toContain('minimum_keyring_generation = 2');
     expect(sql).toContain('SET SESSION AUTHORIZATION aster_key_runtime');
+    expect(sql).toContain('state.active_writer_lease_count >= 1');
+    expect(sql).toContain("pg_catalog.repeat('92', 32)");
+    expect(sql).toContain('lease.loaded_key_set_sha256');
+    expect(sql).not.toContain('state.active_writer_lease_count = 1');
     expect(sql).toContain('ROLLBACK;');
     expect(sql).toContain("'keystore.stale-keyring-rejoin-rejected'");
     expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
