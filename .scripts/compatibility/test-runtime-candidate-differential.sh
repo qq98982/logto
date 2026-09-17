@@ -636,6 +636,9 @@ while ((SECONDS < deadline)); do
       candidate-primary-init|candidate-foreign-init)
         [[ "${state}" == 'exited|0|' ]] || ready=0
         ;;
+      candidate-connector-host|candidate-saml-host|candidate-script-host)
+        [[ "${state}" == 'running|0|' ]] || ready=0
+        ;;
       *)
         [[ "${state}" == 'running|0|healthy' ]] || ready=0
         ;;
