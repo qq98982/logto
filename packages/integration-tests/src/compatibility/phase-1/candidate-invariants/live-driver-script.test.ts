@@ -21,6 +21,7 @@ const suspendedEpochInvariantId = 'tenant.suspended-epoch-rejected';
 const crossTenantInvariantId = 'tenant.cross-tenant-read-rejected';
 const adminBindingInvariantId = 'tenant.admin-operation-binding';
 const adminMatrixInvariantId = 'tenant.admin-operation-status-matrix';
+const reaperActivityInvariantId = 'reaper.activity-visibility-redaction';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -29,13 +30,15 @@ const suspendedEpochProjection = projection(suspendedEpochInvariantId);
 const crossTenantProjection = projection(crossTenantInvariantId);
 const adminBindingProjection = projection(adminBindingInvariantId);
 const adminMatrixProjection = projection(adminMatrixInvariantId);
+const reaperActivityProjection = projection(reaperActivityInvariantId);
 
 if (
   !ownerRoleProjection ||
   !suspendedEpochProjection ||
   !crossTenantProjection ||
   !adminBindingProjection ||
-  !adminMatrixProjection
+  !adminMatrixProjection ||
+  !reaperActivityProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -52,6 +55,7 @@ const suspendedEpochOutput = output(suspendedEpochInvariantId, suspendedEpochPro
 const crossTenantOutput = output(crossTenantInvariantId, crossTenantProjection);
 const adminBindingOutput = output(adminBindingInvariantId, adminBindingProjection);
 const adminMatrixOutput = output(adminMatrixInvariantId, adminMatrixProjection);
+const reaperActivityOutput = output(reaperActivityInvariantId, reaperActivityProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -79,6 +83,11 @@ if [[ "$1" == inspect ]]; then
   exit 1
 fi
 if [[ "$1" == exec ]]; then
+  if [[ "$*" == *'PGAPPNAME=phase1-invariant-reaper-'* ]]; then
+    cat >>"$STDIN"
+    sleep "${'$'}{REAPER_CLIENT_SLEEP:-1}"
+    exit 0
+  fi
   if [[ "$*" == *'SET ROLE aster_owner'* ]]; then
     if [[ "$*" == *'--username aster_migrator'* ]]; then exit 0; fi
     exit 1
@@ -114,6 +123,14 @@ if [[ "$1" == exec ]]; then
   fi
   if [[ "$*" == *'SELECT deployment_id::text FROM aster_control.deployment_state'* ]]; then
     printf '%s' '01234567-89ab-cdef-0123-456789abcdef'
+    exit 0
+  fi
+  if [[ "$*" == *'pg_stat_activity'* && "$*" == *'phase1-invariant-reaper-'* ]]; then
+    printf '%s' 'true'
+    exit 0
+  fi
+  if [[ "$*" == *'aster_runtime.run_tenant_maintenance'* && "$*" == *'terminated_count::text'* ]]; then
+    printf '%s' "${'$'}{REAPER_RESULT:-2|0}"
     exit 0
   fi
   if [[ "$*" == *'--username aster_request'* ]]; then
@@ -163,9 +180,14 @@ if [[ "$1" == exec ]]; then
     exit 1
   fi
   if [[ "$*" == *'--username aster_maintainer'* || "$*" == *'--username aster_control_resolver'* || "$*" == *'--username aster_admin'* ]]; then exit 0; fi
-  cat >>"$STDIN"
+  input="$(cat)"
+  printf '%s' "$input" >>"$STDIN"
   [[ "${'$'}{FINAL_STATUS:-0}" == 0 ]] || exit "$FINAL_STATUS"
-  printf '%s' "$OWNER_OUTPUT"
+  if [[ "$input" == *'reaper.activity-visibility-redaction'* ]]; then
+    printf '%s' "$REAPER_ACTIVITY_OUTPUT"
+  else
+    printf '%s' "$OWNER_OUTPUT"
+  fi
   exit 0
 fi
 exit 1
@@ -191,6 +213,7 @@ exit 1
       CROSS_TENANT_OUTPUT: crossTenantOutput,
       ADMIN_BINDING_OUTPUT: adminBindingOutput,
       ADMIN_MATRIX_OUTPUT: adminMatrixOutput,
+      REAPER_ACTIVITY_OUTPUT: reaperActivityOutput,
     },
   };
 };
@@ -412,6 +435,44 @@ describe('Phase 1 candidate invariant shell driver', () => {
     const calls = await readFile(fake.calls, 'utf8');
 
     expect(calls).toContain('--set=action=cleanup-admin-matrix');
+  });
+
+  it('reaps overdue request and worker transactions without projecting sentinels', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(reaperActivityInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(reaperActivityOutput));
+    expect(stdout).not.toMatch(/phase1-reaper-(?:request|worker)-sentinel/u);
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    for (const role of ['aster_request', 'aster_worker', 'aster_maintainer']) {
+      expect(calls).toContain(`--username ${role}`);
+    }
+    expect(calls).toContain('PGAPPNAME=phase1-invariant-reaper-request');
+    expect(calls).toContain('PGAPPNAME=phase1-invariant-reaper-worker');
+    expect(calls).toContain('aster_runtime.run_tenant_maintenance');
+    expect(calls).toContain('pg_stat_activity');
+    expect(sql).toContain('phase1-reaper-request-sentinel');
+    expect(sql).toContain('phase1-reaper-worker-sentinel');
+    expect(sql).toContain("'reaper.activity-visibility-redaction'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed and reaps fixture processes when the maintainer misses one backend', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(reaperActivityInvariantId), {
+        env: { ...fake.env, REAPER_RESULT: '1|0' },
+      })
+    ).rejects.toThrow();
+    const calls = await readFile(fake.calls, 'utf8');
+
+    expect(calls).toContain('pg_terminate_backend');
   });
 
   it.each([

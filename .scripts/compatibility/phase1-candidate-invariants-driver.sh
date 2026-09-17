@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -449,6 +449,175 @@ SQL
   [[ -n "$terminal" ]] || fail
   cleanup_fixture || fail
   cleanup_required=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'reaper.activity-visibility-redaction' ]]; then
+  request_client_pid=''
+  worker_client_pid=''
+
+  cleanup_reaper_clients() {
+    local cleanup_failed=0 client_pid
+    "$DOCKER_BIN" exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "SELECT pg_catalog.pg_terminate_backend(activity.pid, 2000) FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.usename IN ('aster_request', 'aster_worker') AND activity.application_name IN ('phase1-invariant-reaper-request', 'phase1-invariant-reaper-worker') AND activity.backend_type = 'client backend' AND activity.pid <> pg_catalog.pg_backend_pid()" \
+      >/dev/null 2>&1 || cleanup_failed=1
+    for client_pid in "$request_client_pid" "$worker_client_pid"; do
+      [[ -n "$client_pid" ]] || continue
+      if kill -0 "$client_pid" 2>/dev/null; then
+        kill -TERM "$client_pid" 2>/dev/null || cleanup_failed=1
+      fi
+      wait "$client_pid" 2>/dev/null || true
+    done
+    request_client_pid=''
+    worker_client_pid=''
+    return "$cleanup_failed"
+  }
+
+  # Invoked indirectly by the EXIT trap.
+  # shellcheck disable=SC2329
+  cleanup_reaper_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if ! cleanup_reaper_clients && ((exit_code == 0)); then
+      printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+      exit_code=1
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_reaper_on_exit EXIT
+
+  start_reaper_client() {
+    local role=$1 application_name=$2 sentinel=$3
+    case "$role" in
+      aster_request|aster_worker) ;;
+      *) fail ;;
+    esac
+    [[ "$application_name" =~ ^phase1-invariant-reaper-(request|worker)$ ]] || fail
+    [[ "$sentinel" =~ ^phase1-reaper-(request|worker)-sentinel$ ]] || fail
+    "$DOCKER_BIN" exec --interactive --user postgres \
+      --env "PGAPPNAME=$application_name" "$primary_container_id" \
+      psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+      --username "$role" --dbname "$database" >/dev/null 2>&1 <<SQL &
+BEGIN;
+SET LOCAL transaction_timeout = '0';
+SET LOCAL statement_timeout = '0';
+SET LOCAL idle_in_transaction_session_timeout = '0';
+SELECT pg_catalog.pg_sleep(90), '$sentinel'::text;
+COMMIT;
+SQL
+    started_client_pid=$!
+  }
+
+  started_client_pid=''
+  start_reaper_client \
+    aster_request phase1-invariant-reaper-request phase1-reaper-request-sentinel
+  request_client_pid=$started_client_pid
+  start_reaper_client \
+    aster_worker phase1-invariant-reaper-worker phase1-reaper-worker-sentinel
+  worker_client_pid=$started_client_pid
+  [[ "$request_client_pid" =~ ^[1-9][0-9]*$ && "$worker_client_pid" =~ ^[1-9][0-9]*$ ]] || fail
+
+  backends_ready=false
+  for _ in {1..100}; do
+    if ! kill -0 "$request_client_pid" 2>/dev/null || ! kill -0 "$worker_client_pid" 2>/dev/null; then
+      break
+    fi
+    readiness="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "SELECT CASE WHEN pg_catalog.count(*) = 2 AND pg_catalog.bool_and((activity.application_name = 'phase1-invariant-reaper-request' AND activity.usename = 'aster_request' AND activity.query LIKE '%phase1-reaper-request-sentinel%') OR (activity.application_name = 'phase1-invariant-reaper-worker' AND activity.usename = 'aster_worker' AND activity.query LIKE '%phase1-reaper-worker-sentinel%')) AND pg_catalog.bool_and(activity.backend_type = 'client backend' AND activity.state = 'active' AND activity.xact_start IS NOT NULL) THEN 'true' ELSE 'false' END FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.application_name IN ('phase1-invariant-reaper-request', 'phase1-invariant-reaper-worker')" \
+      2>/dev/null | tr -d '[:space:]')" || fail
+    if [[ "$readiness" == true ]]; then
+      backends_ready=true
+      break
+    fi
+    sleep 0.1
+  done
+  [[ "$backends_ready" == true ]] || fail
+
+  backends_overdue=false
+  for _ in {1..300}; do
+    overdue="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" \
+      --command "SELECT CASE WHEN pg_catalog.count(*) = 2 AND pg_catalog.bool_and(activity.xact_start <= pg_catalog.clock_timestamp() - interval '20 seconds') THEN 'true' ELSE 'false' END FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.application_name IN ('phase1-invariant-reaper-request', 'phase1-invariant-reaper-worker') AND activity.usename IN ('aster_request', 'aster_worker') AND activity.backend_type = 'client backend'" \
+      2>/dev/null | tr -d '[:space:]')" || fail
+    if [[ "$overdue" == true ]]; then
+      backends_overdue=true
+      break
+    fi
+    sleep 0.1
+  done
+  [[ "$backends_overdue" == true ]] || fail
+
+  deployment_id="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command 'SELECT deployment_id::text FROM aster_control.deployment_state WHERE singleton' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$deployment_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail
+  reaper_result="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username aster_maintainer --dbname "$database" \
+    --command "SELECT terminated_count::text || '|' || deleted_count::text FROM aster_runtime.run_tenant_maintenance('$deployment_id')" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$reaper_result" =~ ^2\|([0-9]+)$ ]] || fail
+  ((BASH_REMATCH[1] <= 2000)) || fail
+
+  wait "$request_client_pid" 2>/dev/null || true
+  wait "$worker_client_pid" 2>/dev/null || true
+  request_client_pid=''
+  worker_client_pid=''
+  gone="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity WHERE activity.datname = pg_catalog.current_database() AND activity.application_name IN ('phase1-invariant-reaper-request', 'phase1-invariant-reaper-worker')) THEN 'true' ELSE 'false' END" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$gone" == true ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'reaper.activity-visibility-redaction',
+  'projection', pg_catalog.jsonb_build_object(
+    'observations', pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object(
+        'roleClass', 'request',
+        'backendClass', 'client',
+        'stateClass', 'in-transaction',
+        'timingClass', 'overdue',
+        'terminated', true
+      ),
+      pg_catalog.jsonb_build_object(
+        'roleClass', 'worker',
+        'backendClass', 'client',
+        'stateClass', 'in-transaction',
+        'timingClass', 'overdue',
+        'terminated', true
+      )
+    ),
+    'summary', pg_catalog.jsonb_build_object('eligible', 2, 'terminated', 2, 'missed', 0),
+    'sentinelMatches', 0
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  [[ "$terminal" != *'phase1-reaper-request-sentinel'* && \
+     "$terminal" != *'phase1-reaper-worker-sentinel'* ]] || fail
+  cleanup_reaper_clients || fail
   trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
