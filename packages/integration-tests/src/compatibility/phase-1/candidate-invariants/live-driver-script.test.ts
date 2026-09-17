@@ -29,6 +29,7 @@ const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
 const referenceVerifierInvariantId = 'keystore.reference-ledger-verifier-boundary';
+const unwrapFailureInvariantId = 'keystore.unwrap-failure-rolls-back-code';
 const liveLedgerInvariantId = 'keystore.live-ledger-limit-and-tombstone';
 const wrappingFenceInvariantId = 'keystore.wrapping-fence-late-commit';
 const signSealInvariantId = 'keystore.sign-seal-during-rewrap';
@@ -48,6 +49,7 @@ const forcedRlsProjection = projection(forcedRlsInvariantId);
 const metadataDmlProjection = projection(metadataDmlInvariantId);
 const referenceLedgerProjection = projection(referenceLedgerInvariantId);
 const referenceVerifierProjection = projection(referenceVerifierInvariantId);
+const unwrapFailureProjection = projection(unwrapFailureInvariantId);
 const liveLedgerProjection = projection(liveLedgerInvariantId);
 const wrappingFenceProjection = projection(wrappingFenceInvariantId);
 const signSealProjection = projection(signSealInvariantId);
@@ -66,6 +68,7 @@ if (
   !metadataDmlProjection ||
   !referenceLedgerProjection ||
   !referenceVerifierProjection ||
+  !unwrapFailureProjection ||
   !liveLedgerProjection ||
   !wrappingFenceProjection ||
   !signSealProjection
@@ -93,6 +96,7 @@ const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
 const referenceVerifierOutput = output(referenceVerifierInvariantId, referenceVerifierProjection);
+const unwrapFailureOutput = output(unwrapFailureInvariantId, unwrapFailureProjection);
 const liveLedgerOutput = output(liveLedgerInvariantId, liveLedgerProjection);
 const wrappingFenceOutput = output(wrappingFenceInvariantId, wrappingFenceProjection);
 const signSealOutput = output(signSealInvariantId, signSealProjection);
@@ -112,6 +116,7 @@ const fakeDocker = async (
   const binary = path.join(root, 'docker');
   const calls = path.join(root, 'calls');
   const stdin = path.join(root, 'stdin.sql');
+  const httpCalls = path.join(root, 'http-calls');
   await writeFile(
     binary,
     `#!/usr/bin/env bash
@@ -135,6 +140,20 @@ if [[ "$1" == logs ]]; then
   exit 0
 fi
 if [[ "$1" == exec ]]; then
+  if [[ "$*" == *"$CORE_ID"* && "$*" == *'nc -w 15 127.0.0.1 3001'* ]]; then
+    input="$(cat)"
+    printf '%s' "$input" >>"$STDIN"
+    count=0
+    if [[ -f "$HTTP_CALLS" ]]; then read -r count <"$HTTP_CALLS"; fi
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$HTTP_CALLS"
+    if [[ "$count" == 1 && "${'$'}{UNWRAP_FAILURE_ACCEPTED:-0}" != 1 ]]; then
+      printf '%s' $'HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{"error":"temporarily_unavailable","error_description":"token service unavailable"}'
+    else
+      printf '%s' $'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{"access_token":"fixture-access","id_token":"fixture.id.token","refresh_token":"fixture-refresh"}'
+    fi
+    exit 0
+  fi
   if [[ "$*" == *'PGAPPNAME=phase1-invariant-audit-'* ]]; then
     cat >>"$STDIN"
     sleep "${'$'}{AUDIT_CLIENT_SLEEP:-1}"
@@ -290,6 +309,16 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{REFERENCE_LEDGER_TOKEN:-true|1|true}"
   elif [[ "$input" == *'phase1-reference-verifier-probe'* ]]; then
     printf '%s' "${'$'}{REFERENCE_VERIFIER_TOKEN:-true|true|true|2|0|42501|42501|42501|42501|0}"
+  elif [[ "$input" == *'phase1-unwrap-setup'* ]]; then
+    printf '%s' 'true'
+  elif [[ "$input" == *'phase1-unwrap-toggle'* ]]; then
+    printf '%s' '1'
+  elif [[ "$input" == *'phase1-unwrap-failure-state'* ]]; then
+    printf '%s' "${'$'}{UNWRAP_FAILURE_STATE:-false|0|0}"
+  elif [[ "$input" == *'phase1-unwrap-retry-state'* ]]; then
+    printf '%s' "${'$'}{UNWRAP_RETRY_STATE:-true|1|1}"
+  elif [[ "$input" == *'phase1-unwrap-cleanup'* ]]; then
+    printf '%s' '0|0|0|0|0|0'
   elif [[ "$input" == *'phase1-wrapping-fence-late-probe'* ]]; then
     printf '%s' "${'$'}{WRAPPING_FENCE_TOKEN:-55000|true}"
   elif [[ "$input" == *'phase1-sign-seal-rewrap-probe'* ]]; then
@@ -308,6 +337,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$REFERENCE_LEDGER_OUTPUT"
   elif [[ "$input" == *'keystore.reference-ledger-verifier-boundary'* ]]; then
     printf '%s' "$REFERENCE_VERIFIER_OUTPUT"
+  elif [[ "$input" == *'keystore.unwrap-failure-rolls-back-code'* ]]; then
+    printf '%s' "$UNWRAP_FAILURE_OUTPUT"
   elif [[ "$input" == *'keystore.live-ledger-limit-and-tombstone'* ]]; then
     printf '%s' "$LIVE_LEDGER_OUTPUT"
   elif [[ "$input" == *'keystore.wrapping-fence-late-commit'* ]]; then
@@ -350,10 +381,12 @@ exit 1
       METADATA_DML_OUTPUT: metadataDmlOutput,
       REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
       REFERENCE_VERIFIER_OUTPUT: referenceVerifierOutput,
+      UNWRAP_FAILURE_OUTPUT: unwrapFailureOutput,
       LIVE_LEDGER_OUTPUT: liveLedgerOutput,
       WRAPPING_FENCE_OUTPUT: wrappingFenceOutput,
       SIGN_SEAL_OUTPUT: signSealOutput,
       CORE_ID: '3'.repeat(64),
+      HTTP_CALLS: httpCalls,
     },
   };
 };
@@ -859,6 +892,45 @@ describe('Phase 1 candidate invariant shell driver', () => {
         },
       })
     ).rejects.toThrow();
+  });
+
+  it('rolls back code consumption when signing material unwrap fails and permits one retry', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(unwrapFailureInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(unwrapFailureOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(calls).toContain('com.docker.compose.service=candidate-primary-core');
+    expect(calls).toContain('nc -w 15 127.0.0.1 3001');
+    expect(sql).toContain('phase1-unwrap-setup');
+    expect(sql).toContain('phase1-unwrap-toggle');
+    expect(sql).toContain('session_replication_role = replica');
+    expect(sql).toContain('set_byte(ciphertext, 0, get_byte(ciphertext, 0) # 1)');
+    expect(sql).toContain('phase1-unwrap-failure-state');
+    expect(sql).toContain('phase1-unwrap-retry-state');
+    expect(sql).toContain('phase1-unwrap-cleanup');
+    expect(sql).toContain('POST /oidc/token HTTP/1.1');
+    expect(sql).toContain("'keystore.unwrap-failure-rolls-back-code'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed and restores the signing ciphertext when unwrap failure is not observed', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(unwrapFailureInvariantId), {
+        env: { ...fake.env, UNWRAP_FAILURE_ACCEPTED: '1' },
+      })
+    ).rejects.toThrow();
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql.match(/phase1-unwrap-toggle/gu)).toHaveLength(2);
+    expect(sql).toContain('phase1-unwrap-cleanup');
   });
 
   it('enforces the 32-row live ledger and immutable key-id tombstones', async () => {

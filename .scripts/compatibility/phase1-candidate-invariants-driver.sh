@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.reference-ledger-verifier-boundary|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.reference-ledger-verifier-boundary|keystore.unwrap-failure-rolls-back-code|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -2324,6 +2324,290 @@ SELECT pg_catalog.jsonb_build_object(
 SQL
 )" || fail
   [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.unwrap-failure-rolls-back-code' ]]; then
+  primary_core_id="$($DOCKER_BIN ps -aq \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --filter 'label=com.docker.compose.service=candidate-primary-core' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$primary_core_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
+  core_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$core_labels" == "candidate-primary-core|$project_name" ]] || fail
+  core_state="$($DOCKER_BIN inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$core_state" == 'running|healthy' ]] || fail
+
+  ciphertext_flipped=false
+  fixture_created=false
+
+  toggle_signing_ciphertext() {
+    local changed
+    changed="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SET LOCAL session_replication_role = replica;
+-- phase1-unwrap-toggle
+WITH changed AS (
+  UPDATE aster_tenant.signing_key_material AS material
+  SET ciphertext = set_byte(ciphertext, 0, get_byte(ciphertext, 0) # 1)
+  FROM aster_tenant.signing_key_metadata AS metadata
+  WHERE material.tenant_id = 'default'
+    AND metadata.tenant_id = material.tenant_id
+    AND metadata.material_id = material.material_id
+    AND metadata.key_version_id = material.key_version_id
+    AND metadata.lifecycle_state = 'active'
+  RETURNING 1
+)
+SELECT pg_catalog.count(*)::text FROM changed;
+COMMIT;
+SQL
+)" || return 1
+    [[ "$changed" == 1 ]]
+  }
+
+  cleanup_unwrap_fixture() {
+    local cleanup_state
+    if [[ "$ciphertext_flipped" == true ]]; then
+      toggle_signing_ciphertext || return 1
+      ciphertext_flipped=false
+    fi
+    cleanup_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+-- phase1-unwrap-cleanup
+DELETE FROM aster_tenant.grants
+WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant';
+DELETE FROM aster_tenant.users
+WHERE tenant_id = 'default' AND user_id = 'unwrap-user';
+DELETE FROM aster_tenant.oidc_clients
+WHERE tenant_id = 'default' AND client_id = 'unwrap-client';
+SELECT
+  (SELECT pg_catalog.count(*) FROM aster_tenant.grants
+   WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.authorization_codes
+   WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.token_families
+   WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*)
+   FROM aster_tenant.refresh_tokens AS token
+   JOIN aster_tenant.token_families AS family
+     ON family.tenant_id = token.tenant_id AND family.family_id = token.family_id
+   WHERE family.tenant_id = 'default' AND family.grant_id = 'phase1-unwrap-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.users
+   WHERE tenant_id = 'default' AND user_id = 'unwrap-user')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.oidc_clients
+   WHERE tenant_id = 'default' AND client_id = 'unwrap-client')::text;
+COMMIT;
+SQL
+)" || return 1
+    [[ "$cleanup_state" == '0|0|0|0|0|0' ]]
+  }
+
+  # Invoked indirectly by the EXIT trap.
+  # shellcheck disable=SC2329
+  cleanup_unwrap_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if [[ "$fixture_created" == true || "$ciphertext_flipped" == true ]]; then
+      if ! cleanup_unwrap_fixture && ((exit_code == 0)); then
+        printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+        exit_code=1
+      fi
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_unwrap_on_exit EXIT
+
+  setup_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+-- phase1-unwrap-setup
+DELETE FROM aster_tenant.grants
+WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant';
+DELETE FROM aster_tenant.users
+WHERE tenant_id = 'default' AND user_id = 'unwrap-user';
+DELETE FROM aster_tenant.oidc_clients
+WHERE tenant_id = 'default' AND client_id = 'unwrap-client';
+
+INSERT INTO aster_tenant.oidc_clients (
+  tenant_id, client_id, name, redirect_uris, authentication_method, is_third_party
+) VALUES (
+  'default', 'unwrap-client', 'Unwrap invariant client',
+  ARRAY['http://localhost/callback']::text[], 'none', false
+);
+INSERT INTO aster_tenant.users (
+  tenant_id, user_id, username, is_suspended,
+  name, avatar, primary_email, primary_phone, first_consent_client_id
+) VALUES (
+  'default', 'unwrap-user', 'unwrap-user', false,
+  'Unwrap User', NULL, NULL, NULL, NULL
+);
+INSERT INTO aster_tenant.user_token_claims (
+  tenant_id, user_id, primary_email_verified, primary_phone_verified,
+  address, created_at_ms, updated_at_ms
+) VALUES ('default', 'unwrap-user', false, false, NULL, 1000, 1000);
+
+WITH observed AS (
+  SELECT extract(epoch FROM pg_catalog.clock_timestamp())::bigint AS now
+)
+INSERT INTO aster_tenant.grants (
+  tenant_id, grant_id, account_id, client_id, expires_at, permission_data
+)
+SELECT 'default', 'phase1-unwrap-grant', 'unwrap-user', 'unwrap-client', now + 3600,
+       '{"approved":{"scope":"openid offline_access profile","claims":[],"resources":{}},"rejected":null}'::jsonb
+FROM observed;
+
+WITH observed AS (
+  SELECT extract(epoch FROM pg_catalog.clock_timestamp())::bigint AS now
+)
+INSERT INTO aster_tenant.authorization_codes (
+  tenant_id, code_digest, grant_id, account_id, client_id, redirect_uri,
+  issued_at, expires_at, pkce_challenge, code_context, consumed
+)
+SELECT 'default', pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.repeat('u', 43), 'UTF8')),
+       'phase1-unwrap-grant', 'unwrap-user', 'unwrap-client',
+       'http://localhost/callback', now, now + 300,
+       pg_catalog.convert_to('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', 'UTF8'),
+       pg_catalog.jsonb_build_object(
+         'auth_time', now,
+         'acr', NULL,
+         'amr', NULL,
+         'nonce', NULL,
+         'scope', 'openid offline_access profile',
+         'resources', pg_catalog.jsonb_build_array(),
+         'requested_claims', NULL,
+         'sid', NULL,
+         'session_uid', NULL,
+         'expires_with_session', false
+       ),
+       false
+FROM observed;
+
+SELECT CASE WHEN
+  (SELECT pg_catalog.count(*) FROM aster_tenant.authorization_codes
+   WHERE tenant_id = 'default' AND grant_id = 'phase1-unwrap-grant' AND NOT consumed) = 1
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_metadata
+       WHERE tenant_id = 'default' AND lifecycle_state = 'active') = 1
+  AND (SELECT pg_catalog.count(*)
+       FROM aster_tenant.signing_key_material AS material
+       JOIN aster_tenant.signing_key_metadata AS metadata
+         ON metadata.tenant_id = material.tenant_id
+        AND metadata.material_id = material.material_id
+        AND metadata.key_version_id = material.key_version_id
+       WHERE metadata.tenant_id = 'default' AND metadata.lifecycle_state = 'active') = 1
+THEN 'true' ELSE 'false' END;
+COMMIT;
+SQL
+)" || fail
+  [[ "$setup_state" == true ]] || fail
+  fixture_created=true
+
+  raw_code="$(printf 'u%.0s' {1..43})"
+  request_body="grant_type=authorization_code&client_id=unwrap-client&code=${raw_code}&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&redirect_uri=http%3A%2F%2Flocalhost%2Fcallback"
+  request_bytes="$(printf '%s' "$request_body" | wc -c | tr -d '[:space:]')"
+  [[ "$request_bytes" =~ ^[0-9]+$ && "$request_bytes" -le 4096 ]] || fail
+
+  send_unwrap_token_request() {
+    printf 'POST /oidc/token HTTP/1.1\r\nHost: localhost:3321\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' \
+      "$request_bytes" "$request_body" |
+      "$DOCKER_BIN" exec --interactive "$primary_core_id" \
+        nc -w 15 127.0.0.1 3001
+  }
+
+  toggle_signing_ciphertext || fail
+  ciphertext_flipped=true
+  failure_response="$(send_unwrap_token_request)" || fail
+  response_bytes="$(printf '%s' "$failure_response" | wc -c | tr -d '[:space:]')"
+  [[ "$response_bytes" =~ ^[0-9]+$ && "$response_bytes" -le 65536 ]] || fail
+  [[ "$failure_response" == $'HTTP/1.1 503 Service Unavailable\r\n'* ]] || fail
+  [[ "$failure_response" == *'"error":"temporarily_unavailable"'* ]] || fail
+  [[ "$failure_response" != *'"access_token"'* && \
+     "$failure_response" != *'"id_token"'* && \
+     "$failure_response" != *'"refresh_token"'* ]] || fail
+  unset failure_response
+
+  failure_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+-- phase1-unwrap-failure-state
+SELECT code.consumed::text || '|' ||
+       (SELECT pg_catalog.count(*) FROM aster_tenant.token_families AS family
+        WHERE family.tenant_id = code.tenant_id AND family.grant_id = code.grant_id)::text || '|' ||
+       (SELECT pg_catalog.count(*)
+        FROM aster_tenant.refresh_tokens AS token
+        JOIN aster_tenant.token_families AS family
+          ON family.tenant_id = token.tenant_id AND family.family_id = token.family_id
+        WHERE family.tenant_id = code.tenant_id AND family.grant_id = code.grant_id)::text
+FROM aster_tenant.authorization_codes AS code
+WHERE code.tenant_id = 'default' AND code.grant_id = 'phase1-unwrap-grant';
+SQL
+)" || fail
+  [[ "$failure_state" == 'false|0|0' ]] || fail
+
+  toggle_signing_ciphertext || fail
+  ciphertext_flipped=false
+  retry_response="$(send_unwrap_token_request)" || fail
+  response_bytes="$(printf '%s' "$retry_response" | wc -c | tr -d '[:space:]')"
+  [[ "$response_bytes" =~ ^[0-9]+$ && "$response_bytes" -le 65536 ]] || fail
+  [[ "$retry_response" == $'HTTP/1.1 200 OK\r\n'* ]] || fail
+  [[ "$retry_response" == *'"access_token"'* && \
+     "$retry_response" == *'"id_token"'* && \
+     "$retry_response" == *'"refresh_token"'* ]] || fail
+  unset retry_response raw_code request_body
+
+  retry_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+-- phase1-unwrap-retry-state
+SELECT code.consumed::text || '|' ||
+       (SELECT pg_catalog.count(*) FROM aster_tenant.token_families AS family
+        WHERE family.tenant_id = code.tenant_id AND family.grant_id = code.grant_id)::text || '|' ||
+       (SELECT pg_catalog.count(*)
+        FROM aster_tenant.refresh_tokens AS token
+        JOIN aster_tenant.token_families AS family
+          ON family.tenant_id = token.tenant_id AND family.family_id = token.family_id
+        WHERE family.tenant_id = code.tenant_id AND family.grant_id = code.grant_id)::text
+FROM aster_tenant.authorization_codes AS code
+WHERE code.tenant_id = 'default' AND code.grant_id = 'phase1-unwrap-grant';
+SQL
+)" || fail
+  [[ "$retry_state" == 'true|1|1' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.unwrap-failure-rolls-back-code',
+  'projection', pg_catalog.jsonb_build_object(
+    'publicOutcome', pg_catalog.jsonb_build_object(
+      'errorClass', 'key-unwrap-failed',
+      'retryable', true
+    ),
+    'semanticState', pg_catalog.jsonb_build_object(
+      'code', pg_catalog.jsonb_build_object('consumed', false),
+      'rows', pg_catalog.jsonb_build_object('familyRows', 0, 'materialRows', 0)
+    ),
+    'retryProbe', pg_catalog.jsonb_build_object('succeeded', true)
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  cleanup_unwrap_fixture || fail
+  fixture_created=false
+  trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
   printf '%s' "$terminal"
