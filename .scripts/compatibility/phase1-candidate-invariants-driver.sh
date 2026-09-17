@@ -2341,26 +2341,30 @@ if [[ "$invariant_id" == 'keystore.unwrap-failure-rolls-back-code' ]]; then
   core_state="$($DOCKER_BIN inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$primary_core_id" 2>/dev/null || true)"
   [[ "$core_state" == 'running|healthy' ]] || fail
 
-  ciphertext_flipped=false
+  unwrap_baseline_captured=false
+  unwrap_material_id=''
+  unwrap_original_sha256=''
+  unwrap_flipped_sha256=''
+  unwrap_last_signed_epoch=''
+  unwrap_last_signed_null=''
   fixture_created=false
 
   toggle_signing_ciphertext() {
     local changed
     changed="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
       psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --set="material_id=$unwrap_material_id" \
+      --set="original_sha256=$unwrap_original_sha256" \
       --username postgres --dbname "$database" 2>/dev/null <<'SQL'
 BEGIN;
 SET LOCAL session_replication_role = replica;
 -- phase1-unwrap-toggle
 WITH changed AS (
-  UPDATE aster_tenant.signing_key_material AS material
+  UPDATE aster_tenant.signing_key_material
   SET ciphertext = set_byte(ciphertext, 0, get_byte(ciphertext, 0) # 1)
-  FROM aster_tenant.signing_key_metadata AS metadata
-  WHERE material.tenant_id = 'default'
-    AND metadata.tenant_id = material.tenant_id
-    AND metadata.material_id = material.material_id
-    AND metadata.key_version_id = material.key_version_id
-    AND metadata.lifecycle_state = 'active'
+  WHERE tenant_id = 'default'
+    AND material_id = :'material_id'
+    AND pg_catalog.encode(pg_catalog.sha256(ciphertext), 'hex') = :'original_sha256'
   RETURNING 1
 )
 SELECT pg_catalog.count(*)::text FROM changed;
@@ -2370,12 +2374,59 @@ SQL
     [[ "$changed" == 1 ]]
   }
 
+  restore_unwrap_key_state() {
+    local restored
+    [[ "$unwrap_baseline_captured" == true ]] || return 0
+    restored="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --set="material_id=$unwrap_material_id" \
+      --set="original_sha256=$unwrap_original_sha256" \
+      --set="flipped_sha256=$unwrap_flipped_sha256" \
+      --set="last_signed_epoch=$unwrap_last_signed_epoch" \
+      --set="last_signed_null=$unwrap_last_signed_null" \
+      --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SET LOCAL session_replication_role = replica;
+-- phase1-unwrap-restore
+UPDATE aster_tenant.signing_key_material
+SET ciphertext = set_byte(ciphertext, 0, get_byte(ciphertext, 0) # 1)
+WHERE tenant_id = 'default'
+  AND material_id = :'material_id'
+  AND pg_catalog.encode(pg_catalog.sha256(ciphertext), 'hex') = :'flipped_sha256';
+UPDATE aster_tenant.signing_key_metadata AS metadata
+SET last_signed_at = CASE
+  WHEN :'last_signed_null'::boolean THEN NULL
+  ELSE pg_catalog.to_timestamp(:'last_signed_epoch'::numeric)
+END
+WHERE metadata.tenant_id = 'default'
+  AND metadata.material_id = :'material_id'
+  AND EXISTS (
+    SELECT 1
+    FROM aster_tenant.signing_key_material AS material
+    WHERE material.tenant_id = metadata.tenant_id
+      AND material.material_id = metadata.material_id
+      AND pg_catalog.encode(pg_catalog.sha256(material.ciphertext), 'hex') = :'original_sha256'
+  );
+SELECT CASE WHEN
+  (SELECT pg_catalog.encode(pg_catalog.sha256(ciphertext), 'hex')
+   FROM aster_tenant.signing_key_material
+   WHERE tenant_id = 'default' AND material_id = :'material_id') = :'original_sha256'
+  AND (SELECT last_signed_at IS NOT DISTINCT FROM CASE
+         WHEN :'last_signed_null'::boolean THEN NULL
+         ELSE pg_catalog.to_timestamp(:'last_signed_epoch'::numeric)
+       END
+       FROM aster_tenant.signing_key_metadata
+       WHERE tenant_id = 'default' AND material_id = :'material_id')
+THEN 'true' ELSE 'false' END;
+COMMIT;
+SQL
+)" || return 1
+    [[ "$restored" == true ]]
+  }
+
   cleanup_unwrap_fixture() {
     local cleanup_state
-    if [[ "$ciphertext_flipped" == true ]]; then
-      toggle_signing_ciphertext || return 1
-      ciphertext_flipped=false
-    fi
+    restore_unwrap_key_state || return 1
     cleanup_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
       psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
       --username postgres --dbname "$database" 2>/dev/null <<'SQL'
@@ -2414,7 +2465,7 @@ SQL
   cleanup_unwrap_on_exit() {
     local exit_code=$?
     trap - EXIT
-    if [[ "$fixture_created" == true || "$ciphertext_flipped" == true ]]; then
+    if [[ "$fixture_created" == true || "$unwrap_baseline_captured" == true ]]; then
       if ! cleanup_unwrap_fixture && ((exit_code == 0)); then
         printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
         exit_code=1
@@ -2509,6 +2560,26 @@ SQL
   [[ "$setup_state" == true ]] || fail
   fixture_created=true
 
+  unwrap_baseline="$($DOCKER_BIN exec --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" \
+    --command "SELECT material.material_id || '|' || pg_catalog.encode(pg_catalog.sha256(material.ciphertext), 'hex') || '|' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.set_byte(material.ciphertext, 0, pg_catalog.get_byte(material.ciphertext, 0) # 1)), 'hex') || '|' || COALESCE(extract(epoch FROM metadata.last_signed_at)::text, 'null') FROM aster_tenant.signing_key_material AS material JOIN aster_tenant.signing_key_metadata AS metadata ON metadata.tenant_id=material.tenant_id AND metadata.material_id=material.material_id AND metadata.key_version_id=material.key_version_id WHERE metadata.tenant_id='default' AND metadata.lifecycle_state='active'" \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  IFS='|' read -r unwrap_material_id unwrap_original_sha256 unwrap_flipped_sha256 unwrap_last_signed_epoch <<<"$unwrap_baseline"
+  [[ "$unwrap_material_id" =~ ^[0-9a-f]{32}$ && \
+     "$unwrap_original_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$unwrap_flipped_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$unwrap_original_sha256" != "$unwrap_flipped_sha256" ]] || fail
+  if [[ "$unwrap_last_signed_epoch" == null ]]; then
+    unwrap_last_signed_null=true
+    unwrap_last_signed_epoch=0
+  else
+    [[ "$unwrap_last_signed_epoch" =~ ^[0-9]+([.][0-9]+)?$ ]] || fail
+    unwrap_last_signed_null=false
+  fi
+  unwrap_baseline_captured=true
+  unset unwrap_baseline
+
   raw_code="$(printf 'u%.0s' {1..43})"
   request_body="grant_type=authorization_code&client_id=unwrap-client&code=${raw_code}&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&redirect_uri=http%3A%2F%2Flocalhost%2Fcallback"
   request_bytes="$(printf '%s' "$request_body" | wc -c | tr -d '[:space:]')"
@@ -2522,7 +2593,6 @@ SQL
   }
 
   toggle_signing_ciphertext || fail
-  ciphertext_flipped=true
   failure_response="$(send_unwrap_token_request)" || fail
   response_bytes="$(printf '%s' "$failure_response" | wc -c | tr -d '[:space:]')"
   [[ "$response_bytes" =~ ^[0-9]+$ && "$response_bytes" -le 65536 ]] || fail
@@ -2551,8 +2621,7 @@ SQL
 )" || fail
   [[ "$failure_state" == 'false|0|0' ]] || fail
 
-  toggle_signing_ciphertext || fail
-  ciphertext_flipped=false
+  restore_unwrap_key_state || fail
   retry_response="$(send_unwrap_token_request)" || fail
   response_bytes="$(printf '%s' "$retry_response" | wc -c | tr -d '[:space:]')"
   [[ "$response_bytes" =~ ^[0-9]+$ && "$response_bytes" -le 65536 ]] || fail

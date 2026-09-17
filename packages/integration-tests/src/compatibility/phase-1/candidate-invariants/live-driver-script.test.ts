@@ -243,6 +243,10 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$*" == *'generate_series(1, 31)'* ]]; then printf '%s' 'true'; exit 0; fi
+  if [[ "$*" == *'metadata.last_signed_at'* && "$*" == *'set_byte(material.ciphertext'* ]]; then
+    printf '%s' '11111111111111111111111111111111|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|null'
+    exit 0
+  fi
   if [[ "$*" == *"key_id LIKE 'aster-mk-4%'"* ]]; then printf '%s' 'true'; exit 0; fi
   if [[ "$*" == *'aster-mk-4000000000000002'* && "$*" == *'--username postgres'* && "$*" == *'DELETE FROM'* ]]; then printf '%s' '1'; exit 0; fi
   if [[ "$*" == *'tombstone_count'* && "$*" == *'aster-mk-400000000000ff02'* ]]; then printf '%s' 'true'; exit 0; fi
@@ -350,6 +354,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' 'true'
   elif [[ "$input" == *'phase1-unwrap-toggle'* ]]; then
     printf '%s' '1'
+  elif [[ "$input" == *'phase1-unwrap-restore'* ]]; then
+    printf '%s' 'true'
   elif [[ "$input" == *'phase1-unwrap-failure-state'* ]]; then
     printf '%s' "${'$'}{UNWRAP_FAILURE_STATE:-false|0|0}"
   elif [[ "$input" == *'phase1-unwrap-retry-state'* ]]; then
@@ -959,6 +965,8 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(calls).toContain('nc -w 15 127.0.0.1 3001');
     expect(sql).toContain('phase1-unwrap-setup');
     expect(sql).toContain('phase1-unwrap-toggle');
+    expect(sql).toContain('phase1-unwrap-restore');
+    expect(calls).toContain('metadata.last_signed_at');
     expect(sql).toContain('session_replication_role = replica');
     expect(sql).toContain('set_byte(ciphertext, 0, get_byte(ciphertext, 0) # 1)');
     expect(sql).toContain('phase1-unwrap-failure-state');
@@ -979,7 +987,8 @@ describe('Phase 1 candidate invariant shell driver', () => {
     ).rejects.toThrow();
     const sql = await readFile(fake.stdin, 'utf8');
 
-    expect(sql.match(/phase1-unwrap-toggle/gu)).toHaveLength(2);
+    expect(sql).toContain('phase1-unwrap-toggle');
+    expect(sql).toContain('phase1-unwrap-restore');
     expect(sql).toContain('phase1-unwrap-cleanup');
   });
 
