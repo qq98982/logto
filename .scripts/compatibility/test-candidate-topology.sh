@@ -8,7 +8,7 @@ readonly FORMAL_RUNNER_SHA256='d1bc2e9d191402cae9225bcf1728f8b384706ae6f88b87724
 readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
 readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 readonly HOST_FIXTURE_IMAGE='docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
-readonly FIXTURE_RECIPE_ORDER='fullPhase1 corsBoundary none dataProtocol passwordMatrix adminConsole consentBoundary'
+readonly FIXTURE_RECIPE_ORDER='none fullPhase1 corsBoundary dataProtocol passwordMatrix adminConsole consentBoundary'
 readonly SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
@@ -590,6 +590,7 @@ try {
       if (failedStage) stage = failedStage;
     }
   };
+  await lifecycle('none');
   await lifecycle('fullPhase1', async (fixture) => {
     const data = byRole(fixture, 'data');
     const admin = byRole(fixture, 'admin');
@@ -608,7 +609,7 @@ try {
     }, { driverPath: candidateDriverPath, environment: { PATH: '/usr/bin:/bin' } });
     stage = 'fullPhase1-candidate-state-driver-validate';
     const userIds = snapshot.users.map(({ tenantId, id }) => `${tenantId}:${id}`).toSorted();
-    if (snapshot.models.length !== 0 || !userIds.includes('default:phase1-user') || !userIds.includes('admin:phase1-admin')) throw new Error('candidate state snapshot mismatch');
+    if (snapshot.models.length !== 0 || !userIds.includes('default:zdata-user') || !userIds.includes('admin:phase1-admin')) throw new Error('candidate state snapshot mismatch');
   });
   await lifecycle('corsBoundary', (fixture) => {
     const data = byRole(fixture, 'data');
@@ -619,7 +620,7 @@ try {
     if (new Set([data.isolation.cookieKeyId, admin.isolation.cookieKeyId, foreign.isolation.cookieKeyId]).size !== 3) throw new Error('cookie key collision');
     if (new Set([data.isolation.signingKeyId, admin.isolation.signingKeyId, foreign.isolation.signingKeyId]).size !== 3) throw new Error('signing key collision');
   });
-  for (const recipe of recipeOrder.split(' ').slice(2)) {
+  for (const recipe of recipeOrder.split(' ').slice(3)) {
     await lifecycle(recipe);
   }
   process.stdout.write('candidate fixture lifecycles passed\n');

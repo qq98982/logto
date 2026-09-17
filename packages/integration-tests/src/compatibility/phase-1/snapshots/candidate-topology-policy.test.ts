@@ -325,13 +325,14 @@ const assertCandidateSmoke = (source: string, formalRunnerSource: string): void 
     'ASTER_ADMIN_LDD_ALLOWLIST',
     'master-key active-id',
     '/oidc/.well-known/openid-configuration',
-    'fullPhase1 corsBoundary none dataProtocol passwordMatrix adminConsole consentBoundary',
+    'none fullPhase1 corsBoundary dataProtocol passwordMatrix adminConsole consentBoundary',
     'env: { PATH: fixtureCommandPath, ASTER_FIXTURE_SOCKET: fixtureSocket }',
     'projectState',
     'phase1-candidate-state-driver.sh',
     'readReferenceStateDriver',
     "scenarioId: 'management.application-read'",
     "expectedService: 'candidate-primary-postgres'",
+    'default:zdata-user',
     'cleanup',
     'fixture_socket_device="$($STAT_BIN -c %d -- "$FIXTURE_SOCKET")"',
     'fixture_socket_inode="$($STAT_BIN -c %i -- "$FIXTURE_SOCKET")"',
@@ -342,6 +343,7 @@ const assertCandidateSmoke = (source: string, formalRunnerSource: string): void 
     expect(source).toContain(required);
   }
   expect(source).not.toContain('Aster candidate topology smoke is not implemented');
+  expect(source).not.toContain('default:phase1-user');
   expect(source).not.toContain('docker.sock');
   expect(source).not.toContain('/dev/shm');
   expect(source).not.toMatch(/docker exec|compose exec/u);

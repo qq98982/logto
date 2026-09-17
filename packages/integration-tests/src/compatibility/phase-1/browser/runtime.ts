@@ -16,6 +16,7 @@ import {
   type Phase1ProjectionEnvelope,
 } from '../evidence-envelope.js';
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
+import { runWithPhase1Fixture } from '../fixtures.js';
 import { cloneAndDeepFreeze } from '../model.js';
 import {
   assertCandidateNativeSurfaceArtifact,
@@ -181,6 +182,9 @@ const executePhase1BrowserRuntime = async (
       signal: controller.signal,
       timeoutMs: browserTimeoutMs,
     });
+    if (context.authorization.mode === 'runtime-candidate') {
+      await runWithPhase1Fixture(candidateProvisioner, 'none', async () => null);
+    }
     const candidate = await dependencies.runBrowserFlows({
       profile: candidateProfile,
       target: context.targets.candidate.primary,

@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- Narrow inert adapters and local event arrays isolate browser evidence composition from live infrastructure. */
+/* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function, max-lines -- Narrow inert adapters and local event arrays isolate browser evidence composition from live infrastructure. */
 import type { TargetConfig } from '../../model.js';
 import type { JsonObject } from '../../normalize.js';
 import {
@@ -6,6 +6,7 @@ import {
   type Phase1RunAuthorization,
   type Phase1RunMode,
 } from '../cli.js';
+import { createProvisionedPhase1Fixture } from '../fixtures.js';
 import { projectNativeSurfaceArtifact } from '../native-surface-artifact.js';
 import type { Phase1Profile } from '../profile-types.js';
 import {
@@ -218,7 +219,11 @@ const runEvidence = (
   ],
 });
 
-const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
+const dependencies = (
+  mutateCandidate = false,
+  runtimeCandidate = false,
+  failCandidateBootstrapCleanup = false
+) => {
   type ReferenceProvisionerInput = Parameters<
     Phase1BrowserRuntimeDependencies['createReferenceProvisioner']
   >[0];
@@ -230,7 +235,33 @@ const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
   const artifactImplementations: string[] = [];
   const provisionerInputs: ReferenceProvisionerInput[] = [];
   const commandProvisionerInputs: CommandProvisionerInput[] = [];
+  const runtimeOrder: string[] = [];
   const adapter = provisioner();
+  const commandAdapter: Phase1BrowserFixtureProvisioner = {
+    provision: async (recipe) => {
+      runtimeOrder.push(`candidate-bootstrap:provision:${recipe}`);
+      if (recipe !== 'none') {
+        throw new Error('unexpected injected candidate recipe');
+      }
+      return createProvisionedPhase1Fixture({
+        public: { schemaVersion: 1, recipe: 'none', allocations: [] },
+        passwords: [],
+        clientSecrets: [],
+      });
+    },
+    projectState: async () => {
+      throw new Error('not used by the injected browser runner');
+    },
+    readUserActivityState: async () => {
+      throw new Error('not used by the injected browser runner');
+    },
+    cleanup: async (fixture) => {
+      runtimeOrder.push(`candidate-bootstrap:cleanup:${fixture.public.recipe}`);
+      if (failCandidateBootstrapCleanup) {
+        throw new Error('injected candidate bootstrap cleanup failure');
+      }
+    },
+  };
   const observer: Phase1BrowserGroupObserver = {
     runInFreshContext: async () => {
       throw new Error('not used by the injected browser runner');
@@ -249,7 +280,7 @@ const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
     createObserver: () => observer,
     createCommandProvisioner: (input) => {
       commandProvisionerInputs.push(input);
-      return adapter;
+      return commandAdapter;
     },
     createReferenceProvisioner: (input) => {
       provisionerInputs.push(input);
@@ -257,6 +288,7 @@ const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
     },
     runBrowserFlows: async (input) => {
       targetOrder.push(input.target.label);
+      runtimeOrder.push(`browser:${input.target.label}`);
       return runEvidence(
         mutateCandidate && input.target.label === 'candidate',
         runtimeCandidate && input.target.label === 'candidate' ? 'candidate' : 'oracle'
@@ -271,6 +303,7 @@ const dependencies = (mutateCandidate = false, runtimeCandidate = false) => {
     artifactImplementations,
     provisionerInputs,
     commandProvisionerInputs,
+    runtimeOrder,
   };
 };
 
@@ -357,6 +390,12 @@ describe('Phase 1 browser production runtime', () => {
       signInExperienceBrandingMode: 'clear',
     });
     expect(harness.commandProvisionerInputs).toHaveLength(1);
+    expect(harness.runtimeOrder).toEqual([
+      'browser:oracle',
+      'candidate-bootstrap:provision:none',
+      'candidate-bootstrap:cleanup:none',
+      'browser:candidate',
+    ]);
     expect(harness.commandProvisionerInputs[0]).toMatchObject({
       profile: runtimeContext.authorization.profile,
       target: runtimeContext.targets.candidate.primary,
@@ -373,6 +412,19 @@ describe('Phase 1 browser production runtime', () => {
     expect(result.flows.every(({ differences }) => differences.length === 0)).toBe(true);
     expect(JSON.stringify(result)).toContain('urn:aster:resource:management');
     expect(JSON.stringify(result)).not.toContain('https://default.logto.app/api');
+  });
+
+  it('does not start the runtime candidate browser when bootstrap cleanup fails', async () => {
+    const harness = dependencies(false, true, true);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.runtimeOrder).toEqual([
+      'browser:oracle',
+      'candidate-bootstrap:provision:none',
+      'candidate-bootstrap:cleanup:none',
+    ]);
   });
 
   it('rejects a runtime-candidate browser observation difference', async () => {
@@ -420,4 +472,4 @@ describe('Phase 1 browser production runtime', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function, max-lines */
