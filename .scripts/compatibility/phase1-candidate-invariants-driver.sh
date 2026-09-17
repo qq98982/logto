@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.reference-ledger-verifier-boundary|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -2080,6 +2080,244 @@ SELECT pg_catalog.jsonb_build_object(
       'mismatches', pg_catalog.jsonb_build_array(),
       'negativeCounts', 0,
       'uncommittedDeltas', 0
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.reference-ledger-verifier-boundary' ]]; then
+  reference_verifier_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT state.active_key_id,
+       registry.writer_generation AS active_generation
+FROM aster_control.wrapping_key_runtime_state AS state
+JOIN aster_control.wrapping_key_registry AS registry
+  ON registry.key_id = state.active_key_id
+WHERE state.singleton \gset
+
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id, writer_generation, lifecycle_state, required_readable, reference_count
+)
+SELECT 'aster-mk-6000000000000001', :'active_generation'::bigint + 1,
+       'staged', false, 0
+WHERE (SELECT pg_catalog.count(*) FROM aster_control.wrapping_key_registry) = 1;
+UPDATE aster_control.wrapping_key_runtime_state
+SET write_fenced = true
+WHERE singleton;
+
+SELECT CASE WHEN state.write_fenced THEN 'true' ELSE 'false' END AS fence_ok,
+       CASE WHEN deployment.deployment_id::text = :'deployment_id'
+         THEN 'true' ELSE 'false' END AS deployment_ok
+FROM aster_control.wrapping_key_runtime_state AS state
+CROSS JOIN aster_control.deployment_state AS deployment
+WHERE state.singleton AND deployment.singleton \gset
+SELECT pg_catalog.jsonb_agg(
+         pg_catalog.jsonb_build_object(
+           'keyId', registry.key_id,
+           'generation', registry.writer_generation,
+           'count', registry.reference_count
+         )
+         ORDER BY registry.key_id COLLATE "C"
+       ) AS expected_entries,
+       pg_catalog.count(*)::text AS input_count
+FROM aster_control.wrapping_key_registry AS registry \gset
+SELECT COALESCE(
+         pg_catalog.sum(
+           stats.n_tup_ins + stats.n_tup_upd + stats.n_tup_del
+         ),
+         0
+       )::bigint AS dml_before
+FROM pg_catalog.pg_stat_xact_user_tables AS stats
+WHERE stats.schemaname IN ('aster_control', 'aster_tenant') \gset
+
+-- phase1-reference-verifier-probe
+SET SESSION AUTHORIZATION aster_admin;
+SELECT result.matched::text AS positive_matched,
+       pg_catalog.jsonb_array_length(result.mismatches)::text AS mismatch_count
+FROM aster_runtime.verify_wrapping_reference_ledger(
+  :'deployment_id', :'expected_entries'::jsonb
+) AS result \gset
+RESET SESSION AUTHORIZATION;
+
+SET SESSION AUTHORIZATION aster_request;
+SAVEPOINT non_admin_denial;
+\set ON_ERROR_STOP off
+SELECT * FROM aster_runtime.verify_wrapping_reference_ledger(
+  :'deployment_id', :'expected_entries'::jsonb
+) \g /dev/null
+\set non_admin_state :SQLSTATE
+ROLLBACK TO SAVEPOINT non_admin_denial;
+\set ON_ERROR_STOP on
+RESET SESSION AUTHORIZATION;
+
+SELECT pg_catalog.jsonb_agg(
+         pg_catalog.jsonb_build_object(
+           'keyId', 'aster-mk-' || pg_catalog.lpad(pg_catalog.to_hex(item), 16, '0'),
+           'generation', item,
+           'count', 0
+         )
+         ORDER BY item
+       ) AS oversized_entries
+FROM pg_catalog.generate_series(1, 33) AS fixture(item) \gset
+SET SESSION AUTHORIZATION aster_admin;
+SAVEPOINT oversized_denial;
+\set ON_ERROR_STOP off
+SELECT * FROM aster_runtime.verify_wrapping_reference_ledger(
+  :'deployment_id', :'oversized_entries'::jsonb
+) \g /dev/null
+\set oversized_state :SQLSTATE
+ROLLBACK TO SAVEPOINT oversized_denial;
+\set ON_ERROR_STOP on
+
+SELECT pg_catalog.jsonb_build_array(
+         pg_catalog.jsonb_build_object(
+           'keyId', :'active_key_id',
+           'generation', :'active_generation'::bigint,
+           'count', 0
+         ),
+         pg_catalog.jsonb_build_object(
+           'keyId', 'aster-mk-6000000000000001',
+           'generation', 'malformed',
+           'count', 0
+         )
+       ) AS malformed_entries \gset
+SAVEPOINT malformed_denial;
+\set ON_ERROR_STOP off
+SELECT * FROM aster_runtime.verify_wrapping_reference_ledger(
+  :'deployment_id', :'malformed_entries'::jsonb
+) \g /dev/null
+\set malformed_state :SQLSTATE
+ROLLBACK TO SAVEPOINT malformed_denial;
+\set ON_ERROR_STOP on
+RESET SESSION AUTHORIZATION;
+
+SET SESSION AUTHORIZATION aster_key_runtime;
+SAVEPOINT runtime_denial;
+\set ON_ERROR_STOP off
+SELECT * FROM aster_runtime.verify_wrapping_reference_ledger(
+  :'deployment_id', :'expected_entries'::jsonb
+) \g /dev/null
+\set runtime_denial_state :SQLSTATE
+ROLLBACK TO SAVEPOINT runtime_denial;
+\set ON_ERROR_STOP on
+RESET SESSION AUTHORIZATION;
+
+SELECT COALESCE(
+         pg_catalog.sum(
+           stats.n_tup_ins + stats.n_tup_upd + stats.n_tup_del
+         ),
+         0
+       )::bigint AS dml_after
+FROM pg_catalog.pg_stat_xact_user_tables AS stats
+WHERE stats.schemaname IN ('aster_control', 'aster_tenant') \gset
+SELECT (:'dml_after'::bigint - :'dml_before'::bigint)::text AS dml_delta \gset
+
+\echo :fence_ok|:deployment_ok|:positive_matched|:input_count|:mismatch_count|:non_admin_state|:oversized_state|:malformed_state|:runtime_denial_state|:dml_delta
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$reference_verifier_observation" == 'true|true|true|2|0|42501|42501|42501|42501|0' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.reference-ledger-verifier-boundary',
+  'projection', pg_catalog.jsonb_build_object(
+    'verifier', pg_catalog.jsonb_build_object(
+      'fenceHeld', true,
+      'deploymentMatched', true,
+      'maximumEntries', 32,
+      'cases', pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object(
+          'caseClass', 'successful-admin',
+          'callerClass', 'aster-admin',
+          'inputClass', 'sorted-unique-bounded',
+          'inputCount', 2,
+          'resultClass', 'matched',
+          'denialClass', NULL
+        ),
+        pg_catalog.jsonb_build_object(
+          'caseClass', 'non-admin-denial',
+          'callerClass', 'non-admin',
+          'inputClass', 'sorted-unique-bounded',
+          'inputCount', 2,
+          'resultClass', 'denied',
+          'denialClass', 'caller-not-admin'
+        ),
+        pg_catalog.jsonb_build_object(
+          'caseClass', 'oversized-denial',
+          'callerClass', 'aster-admin',
+          'inputClass', 'oversized',
+          'inputCount', 33,
+          'resultClass', 'denied',
+          'denialClass', 'input-too-large'
+        ),
+        pg_catalog.jsonb_build_object(
+          'caseClass', 'malformed-denial',
+          'callerClass', 'aster-admin',
+          'inputClass', 'malformed',
+          'inputCount', 2,
+          'resultClass', 'denied',
+          'denialClass', 'input-malformed'
+        ),
+        pg_catalog.jsonb_build_object(
+          'caseClass', 'runtime-role-denial',
+          'callerClass', 'aster-key-runtime',
+          'inputClass', 'sorted-unique-bounded',
+          'inputCount', 2,
+          'resultClass', 'denied',
+          'denialClass', 'runtime-role-denied'
+        )
+      ),
+      'mismatchCount', 0,
+      'disclosedTenantIds', pg_catalog.jsonb_build_array(),
+      'dmlCount', 0
     )
   )
 )::text;

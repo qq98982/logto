@@ -28,6 +28,7 @@ const staleKeyringInvariantId = 'keystore.stale-keyring-rejoin-rejected';
 const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
+const referenceVerifierInvariantId = 'keystore.reference-ledger-verifier-boundary';
 const liveLedgerInvariantId = 'keystore.live-ledger-limit-and-tombstone';
 const wrappingFenceInvariantId = 'keystore.wrapping-fence-late-commit';
 const signSealInvariantId = 'keystore.sign-seal-during-rewrap';
@@ -46,6 +47,7 @@ const staleKeyringProjection = projection(staleKeyringInvariantId);
 const forcedRlsProjection = projection(forcedRlsInvariantId);
 const metadataDmlProjection = projection(metadataDmlInvariantId);
 const referenceLedgerProjection = projection(referenceLedgerInvariantId);
+const referenceVerifierProjection = projection(referenceVerifierInvariantId);
 const liveLedgerProjection = projection(liveLedgerInvariantId);
 const wrappingFenceProjection = projection(wrappingFenceInvariantId);
 const signSealProjection = projection(signSealInvariantId);
@@ -63,6 +65,7 @@ if (
   !forcedRlsProjection ||
   !metadataDmlProjection ||
   !referenceLedgerProjection ||
+  !referenceVerifierProjection ||
   !liveLedgerProjection ||
   !wrappingFenceProjection ||
   !signSealProjection
@@ -89,6 +92,7 @@ const staleKeyringOutput = output(staleKeyringInvariantId, staleKeyringProjectio
 const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
+const referenceVerifierOutput = output(referenceVerifierInvariantId, referenceVerifierProjection);
 const liveLedgerOutput = output(liveLedgerInvariantId, liveLedgerProjection);
 const wrappingFenceOutput = output(wrappingFenceInvariantId, wrappingFenceProjection);
 const signSealOutput = output(signSealInvariantId, signSealProjection);
@@ -284,6 +288,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{METADATA_DML_TOKEN:-42501|42501|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'phase1-reference-ledger-probe'* ]]; then
     printf '%s' "${'$'}{REFERENCE_LEDGER_TOKEN:-true|1|true}"
+  elif [[ "$input" == *'phase1-reference-verifier-probe'* ]]; then
+    printf '%s' "${'$'}{REFERENCE_VERIFIER_TOKEN:-true|true|true|2|0|42501|42501|42501|42501|0}"
   elif [[ "$input" == *'phase1-wrapping-fence-late-probe'* ]]; then
     printf '%s' "${'$'}{WRAPPING_FENCE_TOKEN:-55000|true}"
   elif [[ "$input" == *'phase1-sign-seal-rewrap-probe'* ]]; then
@@ -300,6 +306,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$METADATA_DML_OUTPUT"
   elif [[ "$input" == *'keystore.reference-count-ledger'* ]]; then
     printf '%s' "$REFERENCE_LEDGER_OUTPUT"
+  elif [[ "$input" == *'keystore.reference-ledger-verifier-boundary'* ]]; then
+    printf '%s' "$REFERENCE_VERIFIER_OUTPUT"
   elif [[ "$input" == *'keystore.live-ledger-limit-and-tombstone'* ]]; then
     printf '%s' "$LIVE_LEDGER_OUTPUT"
   elif [[ "$input" == *'keystore.wrapping-fence-late-commit'* ]]; then
@@ -341,6 +349,7 @@ exit 1
       FORCED_RLS_OUTPUT: forcedRlsOutput,
       METADATA_DML_OUTPUT: metadataDmlOutput,
       REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
+      REFERENCE_VERIFIER_OUTPUT: referenceVerifierOutput,
       LIVE_LEDGER_OUTPUT: liveLedgerOutput,
       WRAPPING_FENCE_OUTPUT: wrappingFenceOutput,
       SIGN_SEAL_OUTPUT: signSealOutput,
@@ -811,6 +820,43 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(referenceLedgerInvariantId), {
         env: { ...fake.env, REFERENCE_LEDGER_TOKEN: 'false|1|true' },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('keeps the fenced reference verifier bounded, admin-only, and read-only', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(referenceVerifierInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(referenceVerifierOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-reference-verifier-probe');
+    expect(sql).toContain('aster_runtime.verify_wrapping_reference_ledger');
+    expect(sql).toContain('write_fenced = true');
+    expect(sql).toContain('SET SESSION AUTHORIZATION aster_admin');
+    expect(sql).toContain('SET SESSION AUTHORIZATION aster_request');
+    expect(sql).toContain('SET SESSION AUTHORIZATION aster_key_runtime');
+    expect(sql).toContain('pg_catalog.generate_series(1, 33)');
+    expect(sql).toContain('pg_catalog.pg_stat_xact_user_tables');
+    expect(sql).toContain('ROLLBACK TO SAVEPOINT');
+    expect(sql).toContain('ROLLBACK;');
+    expect(sql).toContain("'keystore.reference-ledger-verifier-boundary'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key|tenant_id/iu);
+  });
+
+  it('fails closed when the verifier accepts an oversized input', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(referenceVerifierInvariantId), {
+        env: {
+          ...fake.env,
+          REFERENCE_VERIFIER_TOKEN: 'true|true|true|2|0|42501|00000|42501|42501|0',
+        },
       })
     ).rejects.toThrow();
   });
