@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -837,6 +837,236 @@ SQL
      "$terminal" != *'phase1-audit-worker-sentinel'* ]] || fail
   cleanup_audit_clients || fail
   trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.required-readable-key-set' ]]; then
+  required_readable_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT active_key_id AS active_key_id
+FROM aster_control.wrapping_key_runtime_state
+WHERE singleton \gset
+
+-- phase1-required-old-referenced
+-- phase1-required-rollback-retained
+-- phase1-required-staged-optional
+-- phase1-required-removable-optional
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id,
+  writer_generation,
+  lifecycle_state,
+  required_readable,
+  reference_count
+) VALUES
+  ('aster-mk-1000000000000001', 2, 'retained', true, 1),
+  ('aster-mk-1000000000000002', 2, 'retained', true, 0),
+  ('aster-mk-1000000000000003', 2, 'staged', false, 0),
+  ('aster-mk-1000000000000004', 2, 'removable', false, 0);
+INSERT INTO aster_control.wrapping_key_history (key_id, writer_generation)
+VALUES ('aster-mk-10000000000000aa', 2);
+UPDATE aster_control.wrapping_key_runtime_state
+SET minimum_keyring_generation = 2
+WHERE singleton;
+
+SET SESSION AUTHORIZATION aster_key_runtime;
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id',
+  pg_catalog.decode(pg_catalog.repeat('81', 32), 'hex'),
+  2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000002',
+      'aster-mk-1000000000000003',
+      'aster-mk-1000000000000004'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) AS lease_ms \gset
+
+SAVEPOINT missing_required;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id', pg_catalog.decode(pg_catalog.repeat('82', 32), 'hex'), 2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000003',
+      'aster-mk-1000000000000004'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) \g /dev/null
+\set missing_state :SQLSTATE
+ROLLBACK TO SAVEPOINT missing_required;
+\set ON_ERROR_STOP on
+
+SAVEPOINT unknown_key;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id', pg_catalog.decode(pg_catalog.repeat('83', 32), 'hex'), 2,
+  ARRAY[:'active_key_id', 'not-a-wrapping-key']::text[]
+) \g /dev/null
+\set unknown_state :SQLSTATE
+ROLLBACK TO SAVEPOINT unknown_key;
+\set ON_ERROR_STOP on
+
+SAVEPOINT tombstoned_key;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id', pg_catalog.decode(pg_catalog.repeat('84', 32), 'hex'), 2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000002',
+      'aster-mk-10000000000000aa'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) \g /dev/null
+\set tombstoned_state :SQLSTATE
+ROLLBACK TO SAVEPOINT tombstoned_key;
+\set ON_ERROR_STOP on
+
+SAVEPOINT non_live_key;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.upsert_own_writer_lease(
+  :'deployment_id', pg_catalog.decode(pg_catalog.repeat('85', 32), 'hex'), 2,
+  ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000002',
+      'aster-mk-10000000000000bb'
+    ]::text[]) AS loaded(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+) \g /dev/null
+\set non_live_state :SQLSTATE
+ROLLBACK TO SAVEPOINT non_live_key;
+\set ON_ERROR_STOP on
+
+SELECT CASE WHEN state.minimum_keyring_generation = 2
+  AND state.live_key_ids = ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000002',
+      'aster-mk-1000000000000003',
+      'aster-mk-1000000000000004'
+    ]::text[]) AS live(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+  AND state.required_readable_key_ids = ARRAY(
+    SELECT key_id
+    FROM pg_catalog.unnest(ARRAY[
+      :'active_key_id',
+      'aster-mk-1000000000000001',
+      'aster-mk-1000000000000002'
+    ]::text[]) AS required(key_id)
+    ORDER BY key_id COLLATE "C"
+  )
+  AND state.active_writer_lease_count = 1
+THEN 'true' ELSE 'false' END AS state_ok
+FROM aster_runtime.read_key_runtime_state(:'deployment_id') AS state \gset
+
+\echo :lease_ms|:missing_state|:unknown_state|:tombstoned_state|:non_live_state|:state_ok
+RESET SESSION AUTHORIZATION;
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$required_readable_observation" == '15000|42501|42501|42501|42501|true' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.required-readable-key-set',
+  'projection', pg_catalog.jsonb_build_object(
+    'replica', pg_catalog.jsonb_build_object(
+      'generation', 2,
+      'requiredReadable', pg_catalog.jsonb_build_array(
+        '<key.active>', '<key.old-referenced>', '<key.rollback-retained>'
+      ),
+      'locallyLoaded', pg_catalog.jsonb_build_array(
+        '<key.active>', '<key.old-referenced>', '<key.rollback-retained>',
+        '<key.staged-optional>', '<key.removable-optional>'
+      ),
+      'live', pg_catalog.jsonb_build_array(
+        '<key.active>', '<key.old-referenced>', '<key.rollback-retained>',
+        '<key.staged-optional>', '<key.removable-optional>'
+      ),
+      'missingRequired', pg_catalog.jsonb_build_array(),
+      'optionalAccepted', pg_catalog.jsonb_build_array(
+        '<key.staged-optional>', '<key.removable-optional>'
+      ),
+      'negativeCategories', pg_catalog.jsonb_build_object(
+        'unknown', pg_catalog.jsonb_build_object(
+          'ids', pg_catalog.jsonb_build_array('<key.unknown>'), 'accepted', false
+        ),
+        'tombstoned', pg_catalog.jsonb_build_object(
+          'ids', pg_catalog.jsonb_build_array('<key.tombstoned>'), 'accepted', false
+        ),
+        'nonLive', pg_catalog.jsonb_build_object(
+          'ids', pg_catalog.jsonb_build_array('<key.non-live>'), 'accepted', false
+        )
+      ),
+      'readiness', 'ready'
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
   printf '%s' "$terminal"

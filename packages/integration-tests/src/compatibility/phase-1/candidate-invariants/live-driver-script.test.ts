@@ -23,6 +23,7 @@ const adminBindingInvariantId = 'tenant.admin-operation-binding';
 const adminMatrixInvariantId = 'tenant.admin-operation-status-matrix';
 const reaperActivityInvariantId = 'reaper.activity-visibility-redaction';
 const reaperAuditInvariantId = 'reaper.object-audit-disabled';
+const requiredReadableInvariantId = 'keystore.required-readable-key-set';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -33,6 +34,7 @@ const adminBindingProjection = projection(adminBindingInvariantId);
 const adminMatrixProjection = projection(adminMatrixInvariantId);
 const reaperActivityProjection = projection(reaperActivityInvariantId);
 const reaperAuditProjection = projection(reaperAuditInvariantId);
+const requiredReadableProjection = projection(requiredReadableInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -41,7 +43,8 @@ if (
   !adminBindingProjection ||
   !adminMatrixProjection ||
   !reaperActivityProjection ||
-  !reaperAuditProjection
+  !reaperAuditProjection ||
+  !requiredReadableProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -60,6 +63,7 @@ const adminBindingOutput = output(adminBindingInvariantId, adminBindingProjectio
 const adminMatrixOutput = output(adminMatrixInvariantId, adminMatrixProjection);
 const reaperActivityOutput = output(reaperActivityInvariantId, reaperActivityProjection);
 const reaperAuditOutput = output(reaperAuditInvariantId, reaperAuditProjection);
+const requiredReadableOutput = output(requiredReadableInvariantId, requiredReadableProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -220,6 +224,10 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$REAPER_ACTIVITY_OUTPUT"
   elif [[ "$input" == *'reaper.object-audit-disabled'* ]]; then
     printf '%s' "$REAPER_AUDIT_OUTPUT"
+  elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
+    printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
+  elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
+    printf '%s' "$REQUIRED_READABLE_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -250,6 +258,7 @@ exit 1
       ADMIN_MATRIX_OUTPUT: adminMatrixOutput,
       REAPER_ACTIVITY_OUTPUT: reaperActivityOutput,
       REAPER_AUDIT_OUTPUT: reaperAuditOutput,
+      REQUIRED_READABLE_OUTPUT: requiredReadableOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -551,6 +560,40 @@ describe('Phase 1 candidate invariant shell driver', () => {
     const calls = await readFile(fake.calls, 'utf8');
 
     expect(calls).toContain('pg_terminate_backend');
+  });
+
+  it('enforces required subset loaded subset live for key-runtime leases', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(requiredReadableInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(requiredReadableOutput));
+    const calls = await readFile(fake.calls, 'utf8');
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(calls).toContain('--username postgres');
+    expect(sql).toContain('SET SESSION AUTHORIZATION aster_key_runtime');
+    expect(sql).toContain('aster_runtime.upsert_own_writer_lease');
+    expect(sql).toContain('aster_runtime.read_key_runtime_state');
+    expect(sql).toContain('phase1-required-old-referenced');
+    expect(sql).toContain('phase1-required-rollback-retained');
+    expect(sql).toContain('phase1-required-staged-optional');
+    expect(sql).toContain('phase1-required-removable-optional');
+    expect(sql).toContain('ROLLBACK;');
+    expect(sql).toContain("'keystore.required-readable-key-set'");
+    expect(sql).not.toMatch(/password|secret|ciphertext|private_key/iu);
+  });
+
+  it('fails closed when a required-readable negative category is accepted', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(requiredReadableInvariantId), {
+        env: { ...fake.env, REQUIRED_READABLE_TOKEN: '15000|00000|42501|42501|42501|true' },
+      })
+    ).rejects.toThrow();
   });
 
   it.each([
