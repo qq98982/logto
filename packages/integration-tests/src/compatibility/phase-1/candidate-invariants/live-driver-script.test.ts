@@ -27,6 +27,7 @@ const requiredReadableInvariantId = 'keystore.required-readable-key-set';
 const staleKeyringInvariantId = 'keystore.stale-keyring-rejoin-rejected';
 const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
+const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -41,6 +42,7 @@ const requiredReadableProjection = projection(requiredReadableInvariantId);
 const staleKeyringProjection = projection(staleKeyringInvariantId);
 const forcedRlsProjection = projection(forcedRlsInvariantId);
 const metadataDmlProjection = projection(metadataDmlInvariantId);
+const referenceLedgerProjection = projection(referenceLedgerInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -53,7 +55,8 @@ if (
   !requiredReadableProjection ||
   !staleKeyringProjection ||
   !forcedRlsProjection ||
-  !metadataDmlProjection
+  !metadataDmlProjection ||
+  !referenceLedgerProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -76,6 +79,7 @@ const requiredReadableOutput = output(requiredReadableInvariantId, requiredReada
 const staleKeyringOutput = output(staleKeyringInvariantId, staleKeyringProjection);
 const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
+const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -242,6 +246,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{FORCED_RLS_TOKEN:-1|1|42501|true|true}"
   elif [[ "$input" == *'phase1-metadata-dml-probe'* ]]; then
     printf '%s' "${'$'}{METADATA_DML_TOKEN:-42501|42501|42501|42501|42501|42501|true}"
+  elif [[ "$input" == *'phase1-reference-ledger-probe'* ]]; then
+    printf '%s' "${'$'}{REFERENCE_LEDGER_TOKEN:-true|1|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
@@ -252,6 +258,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$FORCED_RLS_OUTPUT"
   elif [[ "$input" == *'keystore.metadata-dml-boundary'* ]]; then
     printf '%s' "$METADATA_DML_OUTPUT"
+  elif [[ "$input" == *'keystore.reference-count-ledger'* ]]; then
+    printf '%s' "$REFERENCE_LEDGER_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -286,6 +294,7 @@ exit 1
       STALE_KEYRING_OUTPUT: staleKeyringOutput,
       FORCED_RLS_OUTPUT: forcedRlsOutput,
       METADATA_DML_OUTPUT: metadataDmlOutput,
+      REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -721,6 +730,38 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(metadataDmlInvariantId), {
         env: { ...fake.env, METADATA_DML_TOKEN: '00000|42501|42501|42501|42501|42501|true' },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('keeps the wrapping reference ledger equal to all material rows', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(referenceLedgerInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(referenceLedgerOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-reference-ledger-probe');
+    expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql).toContain('aster_runtime.provision_cookie_key');
+    expect(sql).toContain('aster_runtime.rewrap_signing_key_material');
+    expect(sql).toContain('aster_runtime.phase1_reference_delete_probe');
+    expect(sql).toContain('reference_count');
+    expect(sql).toContain('UNION ALL');
+    expect(sql).toContain('ROLLBACK TO SAVEPOINT');
+    expect(sql).toContain("'keystore.reference-count-ledger'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed when the reference ledger does not match material population', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(referenceLedgerInvariantId), {
+        env: { ...fake.env, REFERENCE_LEDGER_TOKEN: 'false|1|true' },
       })
     ).rejects.toThrow();
   });

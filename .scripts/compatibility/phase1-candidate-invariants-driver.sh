@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -1804,6 +1804,282 @@ SELECT pg_catalog.jsonb_build_object(
         'material-change',
         'public-metadata-change'
       )
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.reference-count-ledger' ]]; then
+  reference_ledger_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT state.active_key_id AS old_key_id,
+       registry.writer_generation AS old_generation
+FROM aster_control.wrapping_key_runtime_state AS state
+JOIN aster_control.wrapping_key_registry AS registry
+  ON registry.key_id = state.active_key_id
+WHERE state.singleton \gset
+
+UPDATE aster_control.wrapping_key_registry
+SET lifecycle_state = 'retained', required_readable = true
+WHERE key_id = :'old_key_id';
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id, writer_generation, lifecycle_state, required_readable, reference_count
+) VALUES ('aster-mk-3100000000000001', 1, 'active', true, 0);
+UPDATE aster_control.wrapping_key_runtime_state
+SET active_key_id = 'aster-mk-3100000000000001',
+    minimum_keyring_generation = 1,
+    write_fenced = false
+WHERE singleton;
+\set old_key_id 'aster-mk-3100000000000001'
+\set old_generation 1
+
+INSERT INTO aster_control.tenants (
+  tenant_id, status, status_epoch, provisioning_verified
+) VALUES
+  ('phase1-ledger-tenant-a', 'inactive', 1, false),
+  ('phase1-ledger-tenant-b', 'inactive', 1, false);
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat(seed, 32), 'hex')),
+       tenant_id, 1, :'deployment_id'::uuid, 'admin', 'provision',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM (
+  VALUES
+    ('c1'::text, 'phase1-ledger-tenant-a'::text),
+    ('c2'::text, 'phase1-ledger-tenant-b'::text)
+) AS fixture(seed, tenant_id)
+CROSS JOIN LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c1', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.provision_signing_key(
+  '111111111111111111111111111111a1',
+  '222222222222222222222222222222a1', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('41', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('51', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('61', 24), 'hex'),
+  :'old_key_id', :'old_generation'::bigint
+) \g /dev/null
+SELECT aster_runtime.provision_cookie_key(
+  '333333333333333333333333333333a1',
+  '444444444444444444444444444444a1', 1,
+  pg_catalog.decode(pg_catalog.repeat('42', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('52', 48), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('62', 24), 'hex'),
+  :'old_key_id', :'old_generation'::bigint
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+RESET aster.binding_digest;
+DELETE FROM aster_control.tenant_bindings
+WHERE tenant_id = 'phase1-ledger-tenant-a';
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c2', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.provision_signing_key(
+  '111111111111111111111111111111b1',
+  '222222222222222222222222222222b1', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('43', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('53', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('63', 24), 'hex'),
+  :'old_key_id', :'old_generation'::bigint
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+RESET aster.binding_digest;
+DELETE FROM aster_control.tenant_bindings
+WHERE tenant_id = 'phase1-ledger-tenant-b';
+
+UPDATE aster_control.tenants
+SET status = 'active', status_epoch = 2
+WHERE tenant_id IN ('phase1-ledger-tenant-a', 'phase1-ledger-tenant-b');
+UPDATE aster_control.wrapping_key_registry
+SET lifecycle_state = 'retained', required_readable = true
+WHERE key_id = :'old_key_id';
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id, writer_generation, lifecycle_state, required_readable, reference_count
+) VALUES ('aster-mk-3000000000000001', 2, 'active', true, 0);
+UPDATE aster_control.wrapping_key_runtime_state
+SET active_key_id = 'aster-mk-3000000000000001',
+    minimum_keyring_generation = 2,
+    write_fenced = false
+WHERE singleton;
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('c3', 32), 'hex')),
+       'phase1-ledger-tenant-b', 2, :'deployment_id'::uuid, 'admin', 'rewrap',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c3', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.rewrap_signing_key_material(
+  '222222222222222222222222222222b1',
+  pg_catalog.decode(pg_catalog.repeat('53', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('63', 24), 'hex'),
+  :'old_key_id', :'old_generation'::bigint,
+  pg_catalog.decode(pg_catalog.repeat('54', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('64', 24), 'hex'),
+  'aster-mk-3000000000000001', 2
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+RESET aster.binding_digest;
+DELETE FROM aster_control.tenant_bindings
+WHERE tenant_id = 'phase1-ledger-tenant-b';
+
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('c4', 32), 'hex')),
+       'phase1-ledger-tenant-b', 2, :'deployment_id'::uuid, 'admin', 'key_lifecycle',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+-- phase1-reference-ledger-probe
+CREATE FUNCTION aster_runtime.phase1_reference_delete_probe(target_tenant text)
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+PARALLEL UNSAFE
+SET search_path = pg_catalog, pg_temp
+AS $phase1_probe$
+DECLARE affected bigint;
+BEGIN
+  IF aster_runtime.bound_tenant_id('key_lifecycle') IS DISTINCT FROM target_tenant THEN
+    RAISE EXCEPTION USING ERRCODE = '42501';
+  END IF;
+  DELETE FROM aster_tenant.signing_key_material
+  WHERE tenant_id = target_tenant;
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  RETURN affected;
+END
+$phase1_probe$;
+REVOKE ALL ON FUNCTION aster_runtime.phase1_reference_delete_probe(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION aster_runtime.phase1_reference_delete_probe(text) TO aster_admin;
+
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('c4', 32), 'hex')
+) \g /dev/null
+SAVEPOINT delete_rollback;
+SELECT aster_runtime.phase1_reference_delete_probe(
+  'phase1-ledger-tenant-b'
+) AS deleted_rows \gset
+ROLLBACK TO SAVEPOINT delete_rollback;
+RESET SESSION AUTHORIZATION;
+
+WITH material_counts AS (
+  SELECT wrapping_key_id, pg_catalog.count(*)::bigint AS expected
+  FROM (
+    SELECT wrapping_key_id FROM aster_tenant.signing_key_material
+    WHERE tenant_id IN ('phase1-ledger-tenant-a', 'phase1-ledger-tenant-b')
+    UNION ALL
+    SELECT wrapping_key_id FROM aster_tenant.cookie_key_material
+    WHERE tenant_id IN ('phase1-ledger-tenant-a', 'phase1-ledger-tenant-b')
+  ) AS material
+  GROUP BY wrapping_key_id
+), ledger AS (
+  SELECT registry.key_id,
+         registry.reference_count AS actual,
+         COALESCE(material_counts.expected, 0) AS expected
+  FROM aster_control.wrapping_key_registry AS registry
+  LEFT JOIN material_counts ON material_counts.wrapping_key_id = registry.key_id
+  WHERE registry.key_id IN (:'old_key_id', 'aster-mk-3000000000000001')
+)
+SELECT CASE WHEN pg_catalog.count(*) = 2
+  AND pg_catalog.bool_and(actual = expected)
+  AND pg_catalog.sum(expected) = 3
+  AND pg_catalog.sum(actual) = 3
+  AND pg_catalog.count(*) FILTER (
+    WHERE key_id = :'old_key_id' AND expected = 2 AND actual = 2
+  ) = 1
+  AND pg_catalog.count(*) FILTER (
+    WHERE key_id = 'aster-mk-3000000000000001' AND expected = 1 AND actual = 1
+  ) = 1
+THEN 'true' ELSE 'false' END AS ledger_ok
+FROM ledger \gset
+SELECT CASE WHEN NOT EXISTS (
+  SELECT 1 FROM aster_control.wrapping_key_registry WHERE reference_count < 0
+) THEN 'true' ELSE 'false' END AS nonnegative_ok \gset
+
+\echo :ledger_ok|:deleted_rows|:nonnegative_ok
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$reference_ledger_observation" == 'true|1|true' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.reference-count-ledger',
+  'projection', pg_catalog.jsonb_build_object(
+    'ledger', pg_catalog.jsonb_build_object(
+      'entries', pg_catalog.jsonb_build_array(
+        pg_catalog.jsonb_build_object(
+          'keyId', '<wrapping-key.1>', 'generation', 1, 'expected', 2, 'actual', 2
+        ),
+        pg_catalog.jsonb_build_object(
+          'keyId', '<wrapping-key.2>', 'generation', 2, 'expected', 1, 'actual', 1
+        )
+      ),
+      'mismatches', pg_catalog.jsonb_build_array(),
+      'negativeCounts', 0,
+      'uncommittedDeltas', 0
     )
   )
 )::text;
