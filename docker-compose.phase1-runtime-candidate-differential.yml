@@ -366,7 +366,10 @@
       "networks": {
         "candidate-primary": {
           "ipv4_address": "172.30.241.12"
-        }
+        },
+        "candidate-connector-boundary": {},
+        "candidate-saml-boundary": {},
+        "candidate-script-boundary": {}
       },
       "volumes": [
         "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}:ro",
@@ -592,6 +595,90 @@
       "stop_signal": "SIGTERM",
       "stop_grace_period": "20s"
     },
+    "candidate-connector-host": {
+      "image": "${ASTER_PHASE1_HOST_FIXTURE_IMAGE:?required}",
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "command": [
+        "trap 'exit 0' TERM INT; while :; do sleep 60; done"
+      ],
+      "environment": {
+        "ASTER_HOST_KIND": "connector",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
+        "ASTER_HOST_PROTOCOL_VERSION": "1"
+      },
+      "networks": [
+        "candidate-connector-boundary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
+    "candidate-saml-host": {
+      "image": "${ASTER_PHASE1_HOST_FIXTURE_IMAGE:?required}",
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "command": [
+        "trap 'exit 0' TERM INT; while :; do sleep 60; done"
+      ],
+      "environment": {
+        "ASTER_HOST_KIND": "saml",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
+        "ASTER_HOST_PROTOCOL_VERSION": "1"
+      },
+      "networks": [
+        "candidate-saml-boundary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
+    "candidate-script-host": {
+      "image": "${ASTER_PHASE1_HOST_FIXTURE_IMAGE:?required}",
+      "entrypoint": [
+        "/bin/sh",
+        "-c"
+      ],
+      "command": [
+        "trap 'exit 0' TERM INT; while :; do sleep 60; done"
+      ],
+      "environment": {
+        "ASTER_HOST_KIND": "script",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/script",
+        "ASTER_HOST_PROTOCOL_VERSION": "2"
+      },
+      "networks": [
+        "candidate-script-boundary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "restart": "no"
+    },
     "candidate-phase0-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",
       "environment": {
@@ -708,6 +795,36 @@
         "config": [
           {
             "subnet": "172.30.243.0/24"
+          }
+        ]
+      }
+    },
+    "candidate-connector-boundary": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.244.0/24"
+          }
+        ]
+      }
+    },
+    "candidate-saml-boundary": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.245.0/24"
+          }
+        ]
+      }
+    },
+    "candidate-script-boundary": {
+      "internal": true,
+      "ipam": {
+        "config": [
+          {
+            "subnet": "172.30.246.0/24"
           }
         ]
       }

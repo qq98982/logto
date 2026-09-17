@@ -20,6 +20,7 @@ readonly SERVICES=(
   oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core
   candidate-primary-postgres candidate-primary-redis candidate-primary-core
   candidate-foreign-postgres candidate-foreign-redis candidate-foreign-core
+  candidate-connector-host candidate-saml-host candidate-script-host
   oracle-phase0-postgres oracle-phase0-redis oracle-phase0-core
   candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core
 )
@@ -553,6 +554,9 @@ assert_build_root_identity
   printf 'ASTER_PHASE1_REDIS_IMAGE=%s\n' "${REDIS_IMAGE}"
   printf 'ASTER_PHASE1_ORACLE_IMAGE=%s\n' "${ORACLE_IMAGE}"
   printf 'ASTER_PHASE1_CANDIDATE_IMAGE=%s\n' "${CANDIDATE_IMAGE}"
+  printf 'ASTER_PHASE1_CANDIDATE_CONNECTOR_IMAGE=%s\n' "${CANDIDATE_IMAGE}"
+  printf 'ASTER_PHASE1_CANDIDATE_SAML_IMAGE=%s\n' "${CANDIDATE_IMAGE}"
+  printf 'ASTER_PHASE1_CANDIDATE_SCRIPT_IMAGE=%s\n' "${CANDIDATE_IMAGE}"
   for stack in \
     ORACLE_PRIMARY ORACLE_FOREIGN CANDIDATE_PRIMARY CANDIDATE_FOREIGN \
     ORACLE_PHASE0 CANDIDATE_PHASE0; do

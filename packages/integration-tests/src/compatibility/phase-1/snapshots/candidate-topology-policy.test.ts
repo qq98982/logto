@@ -25,7 +25,15 @@ const serviceNames = [
   'candidate-foreign-init',
   'candidate-foreign-core',
   'candidate-fixture-coordinator',
+  'candidate-connector-host',
+  'candidate-saml-host',
+  'candidate-script-host',
 ] as const;
+const hostBoundarySpecs = Object.freeze({
+  'candidate-connector-boundary': '172.30.244.0/24',
+  'candidate-saml-boundary': '172.30.245.0/24',
+  'candidate-script-boundary': '172.30.246.0/24',
+});
 const networkSpecs = Object.freeze({
   'candidate-primary': Object.freeze({
     subnet: '172.30.241.0/24',
@@ -88,13 +96,17 @@ type ComposeDocument = Readonly<{
   >;
 }>;
 
+// eslint-disable-next-line complexity -- One assertion keeps the complete closed topology contract visible.
 const assertCandidateTopology = (
   document: ComposeDocument,
   postgresInitSource: string,
   smokeSource: string
 ): void => {
   expect(Object.keys(document.services)).toEqual(serviceNames);
-  expect(Object.keys(document.networks)).toEqual(Object.keys(networkSpecs));
+  expect(Object.keys(document.networks)).toEqual([
+    ...Object.keys(networkSpecs),
+    ...Object.keys(hostBoundarySpecs),
+  ]);
   expect(Object.keys(document.volumes)).toEqual([
     'candidate-primary-postgres',
     'candidate-foreign-postgres',
@@ -115,6 +127,12 @@ const assertCandidateTopology = (
   expect(networkSpecs['candidate-primary'].subnet).not.toBe(
     networkSpecs['candidate-foreign'].subnet
   );
+  for (const [networkName, subnet] of Object.entries(hostBoundarySpecs)) {
+    expect(document.networks[networkName]).toEqual({
+      internal: true,
+      ipam: { config: [{ subnet }] },
+    });
+  }
 
   for (const service of Object.values(document.services)) {
     expect(service).not.toHaveProperty('ports');
@@ -122,7 +140,9 @@ const assertCandidateTopology = (
     expect(service).not.toHaveProperty('network_mode');
     expect(service).not.toHaveProperty('cap_add');
     expect(service.image).toEqual(
-      expect.stringMatching(/^\$\{ASTER_PHASE1_(?:POSTGRES|CANDIDATE)_IMAGE:\?required\}$/u)
+      expect.stringMatching(
+        /^\$\{ASTER_PHASE1_(?:POSTGRES|CANDIDATE|HOST_FIXTURE)_IMAGE:\?required\}$/u
+      )
     );
   }
 
@@ -131,6 +151,11 @@ const assertCandidateTopology = (
   const primaryCore = document.services['candidate-primary-core'];
   const foreignCore = document.services['candidate-foreign-core'];
   const coordinator = document.services['candidate-fixture-coordinator'];
+  const hosts = [
+    document.services['candidate-connector-host'],
+    document.services['candidate-saml-host'],
+    document.services['candidate-script-host'],
+  ];
 
   expect(primaryInit?.command).toEqual(['init', 'primary']);
   expect(foreignInit?.command).toEqual(['init', 'foreign']);
@@ -153,6 +178,22 @@ const assertCandidateTopology = (
     'candidate-primary',
     'candidate-foreign',
   ]);
+  expect(Object.keys(primaryCore?.networks ?? {})).toEqual([
+    'candidate-primary',
+    ...Object.keys(hostBoundarySpecs),
+  ]);
+
+  for (const [index, host] of hosts.entries()) {
+    expect(host?.image).toBe(composeRequired('ASTER_PHASE1_HOST_FIXTURE_IMAGE'));
+    expect(host?.read_only).toBe(true);
+    expect(host?.security_opt).toEqual(['no-new-privileges:true']);
+    expect(host?.volumes).toBeUndefined();
+    expect(host?.ports).toBeUndefined();
+    expect(JSON.stringify(host?.environment ?? {})).not.toMatch(
+      /DB_URL|POSTGRES|PASSWORD|SECRET|TOKEN|COOKIE|SIGNING|MASTER_KEY/iu
+    );
+    expect(host?.networks).toEqual([Object.keys(hostBoundarySpecs)[index]]);
+  }
 
   for (const service of [primaryInit, foreignInit, primaryCore, foreignCore, coordinator]) {
     expect(service?.user).toBe(
@@ -247,7 +288,7 @@ const assertCandidateTopology = (
 
 const assertCandidateSmoke = (source: string, formalRunnerSource: string): void => {
   for (const required of [
-    "readonly FORMAL_RUNNER_SHA256='1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'",
+    "readonly FORMAL_RUNNER_SHA256='2b536987d8dd80857f7b0a11477b688c27796a5afdc360567886a89a29b811a8'",
     '/var/tmp/henry-build',
     'require_private_root',
     'capture_path_identity',
@@ -311,7 +352,7 @@ const assertCandidateSmoke = (source: string, formalRunnerSource: string): void 
 
   expect(fixtureNodeSource).not.toMatch(/DATABASE_URL|POSTGRES_PASSWORD|docker/u);
   expect(createHash('sha256').update(formalRunnerSource).digest('hex')).toBe(
-    '1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'
+    '2b536987d8dd80857f7b0a11477b688c27796a5afdc360567886a89a29b811a8'
   );
 };
 
@@ -504,7 +545,7 @@ host all all ::/0 reject
       {
         name: 'formal runner digest',
         source: source.replace(
-          "readonly FORMAL_RUNNER_SHA256='1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'",
+          "readonly FORMAL_RUNNER_SHA256='2b536987d8dd80857f7b0a11477b688c27796a5afdc360567886a89a29b811a8'",
           `readonly FORMAL_RUNNER_SHA256='${'0'.repeat(64)}'`
         ),
       },

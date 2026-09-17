@@ -4,7 +4,7 @@ set -euo pipefail
 umask 077
 export LC_ALL=C
 
-readonly FORMAL_RUNNER_SHA256='1abd98577e593303ac19809b69e3c8592c479d25a7c4f9e0de179599260dfa4f'
+readonly FORMAL_RUNNER_SHA256='2b536987d8dd80857f7b0a11477b688c27796a5afdc360567886a89a29b811a8'
 readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
 readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 readonly FIXTURE_RECIPE_ORDER='fullPhase1 corsBoundary none dataProtocol passwordMatrix adminConsole consentBoundary'
@@ -12,6 +12,7 @@ readonly SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator
+  candidate-connector-host candidate-saml-host candidate-script-host
 )
 readonly LOOPBACK_PROXY_BINDINGS=(
   'candidate-primary-core|candidate-primary|172.30.241.12|3321|3001'
@@ -443,6 +444,7 @@ extract_container_id=''
 cat >"$COMPOSE_ENV" <<EOF
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE
 ASTER_PHASE1_CANDIDATE_IMAGE=$candidate_image_id
+ASTER_PHASE1_HOST_FIXTURE_IMAGE=$candidate_image_id
 ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD=$primary_password
 ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD=$foreign_password
 ASTER_PHASE1_RUNTIME_UID=$(id -u)

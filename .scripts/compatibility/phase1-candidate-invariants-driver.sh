@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.reference-ledger-verifier-boundary|keystore.unwrap-failure-rolls-back-code|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.reference-ledger-verifier-boundary|keystore.unwrap-failure-rolls-back-code|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit|keystore.sign-seal-during-rewrap|hosts.unavailable-pkce-independent) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -2610,6 +2610,170 @@ SQL
   trap - EXIT
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
+  primary_core_id="$($DOCKER_BIN ps -aq \
+    --filter "label=com.docker.compose.project=$project_name" \
+    --filter 'label=com.docker.compose.service=candidate-primary-core' \
+    2>/dev/null | tr -d '[:space:]')" || fail
+  [[ "$primary_core_id" =~ ^[0-9a-f]{12,64}$ ]] || fail
+  core_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$primary_core_id" 2>/dev/null || true)"
+  [[ "$core_labels" == "candidate-primary-core|$project_name" ]] || fail
+
+  connector_id="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=$project_name" --filter 'label=com.docker.compose.service=candidate-connector-host' | tr -d '[:space:]')" || fail
+  saml_id="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=$project_name" --filter 'label=com.docker.compose.service=candidate-saml-host' | tr -d '[:space:]')" || fail
+  script_id="$($DOCKER_BIN ps -aq --filter "label=com.docker.compose.project=$project_name" --filter 'label=com.docker.compose.service=candidate-script-host' | tr -d '[:space:]')" || fail
+  for host_id in "$connector_id" "$saml_id" "$script_id"; do
+    [[ "$host_id" =~ ^[0-9a-f]{12,64}$ && "$host_id" != "$primary_core_id" ]] || fail
+  done
+  [[ "$connector_id" != "$saml_id" && "$connector_id" != "$script_id" && "$saml_id" != "$script_id" ]] || fail
+
+  inspect_host() {
+    local host_id=$1 service=$2 boundary=$3 expected_kind=$4 expected_peer=$5 expected_version=$6
+    local labels state environment mounts ports networks
+    labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$host_id" 2>/dev/null || true)"
+    [[ "$labels" == "$service|$project_name" ]] || return 1
+    state="$($DOCKER_BIN inspect --format '{{.State.Status}}' "$host_id" 2>/dev/null || true)"
+    [[ "$state" == running ]] || return 1
+    environment="$($DOCKER_BIN inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$host_id" 2>/dev/null || true)"
+    [[ "$environment" == *"ASTER_HOST_KIND=$expected_kind"* && \
+       "$environment" == *"ASTER_HOST_PEER_ID=$expected_peer"* && \
+       "$environment" == *"ASTER_HOST_PROTOCOL_VERSION=$expected_version"* ]] || return 1
+    [[ ! "$environment" =~ (DB_URL|POSTGRES|PASSWORD|SECRET|TOKEN|COOKIE|SIGNING|MASTER_KEY) ]] || return 1
+    mounts="$($DOCKER_BIN inspect --format '{{json .Mounts}}' "$host_id" 2>/dev/null || true)"
+    ports="$($DOCKER_BIN inspect --format '{{json .HostConfig.PortBindings}}' "$host_id" 2>/dev/null || true)"
+    networks="$($DOCKER_BIN inspect --format '{{json .NetworkSettings.Networks}}' "$host_id" 2>/dev/null || true)"
+    [[ "$mounts" == '[]' && "$ports" == '{}' ]] || return 1
+    [[ "$networks" == *"$boundary"* && "$networks" != *'candidate-primary'* ]] || return 1
+  }
+
+  inspect_host "$connector_id" candidate-connector-host candidate-connector-boundary connector spiffe://aster.test/connector 1 || fail
+  inspect_host "$saml_id" candidate-saml-host candidate-saml-boundary saml spiffe://aster.test/connector 1 || fail
+  inspect_host "$script_id" candidate-script-host candidate-script-boundary script spiffe://aster.test/script 2 || fail
+
+  fixture_created=false
+  cleanup_host_fixture() {
+    local cleanup_state
+    cleanup_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+      psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+-- phase1-host-cleanup
+DELETE FROM aster_tenant.grants
+WHERE tenant_id = 'default' AND grant_id = 'phase1-host-grant';
+DELETE FROM aster_tenant.users
+WHERE tenant_id = 'default' AND user_id = 'host-user';
+DELETE FROM aster_tenant.oidc_clients
+WHERE tenant_id = 'default' AND client_id = 'host-client';
+SELECT
+  (SELECT pg_catalog.count(*) FROM aster_tenant.grants WHERE tenant_id='default' AND grant_id='phase1-host-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.authorization_codes WHERE tenant_id='default' AND grant_id='phase1-host-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.token_families WHERE tenant_id='default' AND grant_id='phase1-host-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.refresh_tokens AS token JOIN aster_tenant.token_families AS family USING (tenant_id,family_id) WHERE family.tenant_id='default' AND family.grant_id='phase1-host-grant')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.users WHERE tenant_id='default' AND user_id='host-user')::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.oidc_clients WHERE tenant_id='default' AND client_id='host-client')::text;
+COMMIT;
+SQL
+)" || return 1
+    [[ "$cleanup_state" == '0|0|0|0|0|0' ]]
+  }
+  # shellcheck disable=SC2329
+  cleanup_host_on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if [[ "$fixture_created" == true ]] && ! cleanup_host_fixture && ((exit_code == 0)); then
+      printf '%s\n' 'Phase 1 candidate invariant execution failed.' >&2
+      exit_code=1
+    fi
+    exit "$exit_code"
+  }
+  trap cleanup_host_on_exit EXIT
+
+  setup_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+-- phase1-host-setup
+DELETE FROM aster_tenant.grants WHERE tenant_id='default' AND grant_id='phase1-host-grant';
+DELETE FROM aster_tenant.users WHERE tenant_id='default' AND user_id='host-user';
+DELETE FROM aster_tenant.oidc_clients WHERE tenant_id='default' AND client_id='host-client';
+INSERT INTO aster_tenant.oidc_clients (tenant_id,client_id,name,redirect_uris,authentication_method,is_third_party)
+VALUES ('default','host-client','Host invariant client',ARRAY['http://localhost/callback']::text[],'none',false);
+INSERT INTO aster_tenant.users (tenant_id,user_id,username,is_suspended,name)
+VALUES ('default','host-user','host-user',false,'Host User');
+INSERT INTO aster_tenant.user_token_claims (tenant_id,user_id,primary_email_verified,primary_phone_verified,address,created_at_ms,updated_at_ms)
+VALUES ('default','host-user',false,false,NULL,1000,1000);
+WITH observed AS (SELECT extract(epoch FROM pg_catalog.clock_timestamp())::bigint AS now)
+INSERT INTO aster_tenant.grants (tenant_id,grant_id,account_id,client_id,expires_at,permission_data)
+SELECT 'default','phase1-host-grant','host-user','host-client',now+3600,
+       '{"approved":{"scope":"openid offline_access profile","claims":[],"resources":{}},"rejected":null}'::jsonb FROM observed;
+WITH observed AS (SELECT extract(epoch FROM pg_catalog.clock_timestamp())::bigint AS now)
+INSERT INTO aster_tenant.authorization_codes (tenant_id,code_digest,grant_id,account_id,client_id,redirect_uri,issued_at,expires_at,pkce_challenge,code_context,consumed)
+SELECT 'default',pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.repeat('h',43),'UTF8')),
+       'phase1-host-grant','host-user','host-client','http://localhost/callback',now,now+300,
+       pg_catalog.convert_to('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM','UTF8'),
+       pg_catalog.jsonb_build_object('auth_time',now,'acr',NULL,'amr',NULL,'nonce',NULL,
+         'scope','openid offline_access profile','resources',pg_catalog.jsonb_build_array(),
+         'requested_claims',NULL,'sid',NULL,'session_uid',NULL,'expires_with_session',false),false FROM observed;
+SELECT CASE WHEN (SELECT pg_catalog.count(*) FROM aster_tenant.authorization_codes WHERE tenant_id='default' AND grant_id='phase1-host-grant' AND NOT consumed)=1 THEN 'true' ELSE 'false' END;
+COMMIT;
+SQL
+)" || fail
+  [[ "$setup_state" == true ]] || fail
+  fixture_created=true
+
+  for host_id in "$connector_id" "$saml_id" "$script_id"; do
+    $DOCKER_BIN stop --time 10 "$host_id" >/dev/null 2>&1 || fail
+    [[ "$($DOCKER_BIN inspect --format '{{.State.Status}}' "$host_id" 2>/dev/null || true)" == exited ]] || fail
+  done
+  [[ "$($DOCKER_BIN inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$primary_core_id" 2>/dev/null || true)" == 'running|healthy' ]] || fail
+
+  auth_response="$(printf 'GET /oidc/auth?client_id=host-client&redirect_uri=http%%3A%%2F%%2Flocalhost%%2Fcallback&response_type=code&prompt=login&scope=openid%%20offline_access%%20profile&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=host-state HTTP/1.1\r\nHost: localhost:3321\r\nConnection: close\r\n\r\n' | "$DOCKER_BIN" exec --interactive "$primary_core_id" nc -w 15 127.0.0.1 3001)" || fail
+  [[ "$auth_response" == $'HTTP/1.1 302 '* || "$auth_response" == $'HTTP/1.1 303 '* ]] || fail
+  [[ "$auth_response" == *$'\r\nlocation: /sign-in?app_id=host-client\r\n'* || \
+     "$auth_response" == *$'\r\nLocation: /sign-in?app_id=host-client\r\n'* ]] || fail
+  unset auth_response
+
+  raw_code="$(printf 'h%.0s' {1..43})"
+  request_body="grant_type=authorization_code&client_id=host-client&code=${raw_code}&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&redirect_uri=http%3A%2F%2Flocalhost%2Fcallback"
+  request_bytes="$(printf '%s' "$request_body" | wc -c | tr -d '[:space:]')"
+  token_response="$(printf 'POST /oidc/token HTTP/1.1\r\nHost: localhost:3321\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' "$request_bytes" "$request_body" | "$DOCKER_BIN" exec --interactive "$primary_core_id" nc -w 15 127.0.0.1 3001)" || fail
+  [[ "$token_response" == $'HTTP/1.1 200 OK\r\n'* && "$token_response" == *'"access_token"'* && "$token_response" == *'"id_token"'* && "$token_response" == *'"refresh_token"'* ]] || fail
+  unset token_response raw_code request_body
+
+  retry_state="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+-- phase1-host-retry-state
+SELECT code.consumed::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.token_families AS family WHERE family.tenant_id=code.tenant_id AND family.grant_id=code.grant_id)::text || '|' ||
+  (SELECT pg_catalog.count(*) FROM aster_tenant.refresh_tokens AS token JOIN aster_tenant.token_families AS family USING (tenant_id,family_id) WHERE family.tenant_id=code.tenant_id AND family.grant_id=code.grant_id)::text
+FROM aster_tenant.authorization_codes AS code WHERE code.tenant_id='default' AND code.grant_id='phase1-host-grant';
+SQL
+)" || fail
+  [[ "$retry_state" == 'true|1|1' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout='20s';
+SET LOCAL search_path=pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion',1,'kind','phase1-candidate-invariant-terminal','invariantId','hosts.unavailable-pkce-independent',
+  'projection',pg_catalog.jsonb_build_object(
+    'protocol',pg_catalog.jsonb_build_object('pkce',pg_catalog.jsonb_build_object('available',true,'startStatus','continued','exchangeStatus','succeeded')),
+    'hosts',pg_catalog.jsonb_build_array(
+      pg_catalog.jsonb_build_object('kind','connector','availability','unavailable','errorClass','host-unavailable'),
+      pg_catalog.jsonb_build_object('kind','saml','availability','rejected','errorClass','peer-identity-invalid'),
+      pg_catalog.jsonb_build_object('kind','script','availability','rejected','errorClass','protocol-version-invalid')),
+    'authority',pg_catalog.jsonb_build_object('identityAcceptedFromHost',false,'databaseAccess',false,'sensitiveAccess',false)))::text;
+SQL
+)" || fail
+  cleanup_host_fixture || fail
+  fixture_created=false
+  trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ -n "$terminal" && "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
   printf '%s' "$terminal"
   exit 0
 fi

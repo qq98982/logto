@@ -326,28 +326,46 @@
     "candidate-connector-host": {
       "profiles": ["candidate-connectors"],
       "image": "${ASTER_PHASE1_CANDIDATE_CONNECTOR_IMAGE:-candidate-connector-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "entrypoint": ["/bin/sh", "-c"],
+      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
-      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "environment": {
+        "ASTER_HOST_KIND": "connector",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
+        "ASTER_HOST_PROTOCOL_VERSION": "1"
+      },
       "networks": ["candidate-connector-boundary"]
     },
     "candidate-saml-host": {
       "profiles": ["candidate-saml"],
       "image": "${ASTER_PHASE1_CANDIDATE_SAML_IMAGE:-candidate-saml-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "entrypoint": ["/bin/sh", "-c"],
+      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
-      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "environment": {
+        "ASTER_HOST_KIND": "saml",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/connector",
+        "ASTER_HOST_PROTOCOL_VERSION": "1"
+      },
       "networks": ["candidate-saml-boundary"]
     },
     "candidate-script-host": {
       "profiles": ["candidate-scripts"],
       "image": "${ASTER_PHASE1_CANDIDATE_SCRIPT_IMAGE:-candidate-script-disabled@sha256:0000000000000000000000000000000000000000000000000000000000000000}",
+      "entrypoint": ["/bin/sh", "-c"],
+      "command": ["trap 'exit 0' TERM INT; while :; do sleep 60; done"],
       "read_only": true,
       "security_opt": ["no-new-privileges:true"],
       "tmpfs": ["/tmp:rw,noexec,nosuid,size=64m"],
-      "environment": { "ASTER_CORE_URL": "http://candidate-primary-core:3001" },
+      "environment": {
+        "ASTER_HOST_KIND": "script",
+        "ASTER_HOST_PEER_ID": "spiffe://aster.test/script",
+        "ASTER_HOST_PROTOCOL_VERSION": "2"
+      },
       "networks": ["candidate-script-boundary"]
     }
   },

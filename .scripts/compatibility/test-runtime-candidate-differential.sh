@@ -19,6 +19,7 @@ readonly SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator
+  candidate-connector-host candidate-saml-host candidate-script-host
   candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441)
@@ -592,6 +593,7 @@ ASTER_PHASE1_REDIS_IMAGE=${REDIS_IMAGE}
 ASTER_PHASE1_ORACLE_IMAGE=${ORACLE_IMAGE}
 ASTER_PHASE1_CANDIDATE_IMAGE=${CANDIDATE_IMAGE}
 ASTER_PHASE1_PHASE0_CONTROL_IMAGE=${ORACLE_IMAGE}
+ASTER_PHASE1_HOST_FIXTURE_IMAGE=${CANDIDATE_IMAGE}
 ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY=$(random_hex 32)

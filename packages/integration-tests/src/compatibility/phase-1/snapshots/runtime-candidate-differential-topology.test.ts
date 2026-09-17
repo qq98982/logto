@@ -43,6 +43,9 @@ const measuredCandidateServices = [
   'candidate-foreign-init',
   'candidate-foreign-core',
   'candidate-fixture-coordinator',
+  'candidate-connector-host',
+  'candidate-saml-host',
+  'candidate-script-host',
 ] as const;
 const phase0CandidateServices = [
   'candidate-phase0-postgres',
@@ -121,6 +124,9 @@ describe('runtime-candidate differential topology', () => {
         'candidate-primary',
         'candidate-foreign',
         'candidate-phase0',
+        'candidate-connector-boundary',
+        'candidate-saml-boundary',
+        'candidate-script-boundary',
       ].toSorted()
     );
     expect(Object.keys(document.volumes).toSorted()).toEqual(
