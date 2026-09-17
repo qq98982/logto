@@ -156,8 +156,11 @@ const safeContainerId = (value: unknown): string =>
 
 const persistenceId = (value: unknown): string => {
   const state = record(value);
+  const identifier = own(state, 'persistenceId');
 
-  return safeContainerId(own(state, 'persistenceId'));
+  return typeof identifier === 'string' && identifier.startsWith('container:')
+    ? safeContainerId(identifier.slice('container:'.length))
+    : fail();
 };
 
 const candidateContainers = (

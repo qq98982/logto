@@ -8,6 +8,7 @@ import { createPhase1LiveCandidateInvariantExecutor } from './live-driver.js';
 
 const primaryContainerId = '1'.repeat(64);
 const foreignContainerId = '2'.repeat(64);
+const containerPersistenceId = (value: string) => `container:${value}`;
 const projectName = 'aster-phase1-0123456789abcdef';
 const invariantId = candidateInvariantScenarioIds[0];
 const projection = candidateInvariantContracts[0].positiveControl.expectedProjection;
@@ -24,14 +25,14 @@ const context = (overrides: Record<string, unknown> = {}): Phase1EvidenceRuntime
     targets: {},
     isolationAttestations: {
       oracle: {
-        data: { persistenceId: '3'.repeat(64) },
-        admin: { persistenceId: '3'.repeat(64) },
-        foreign: { persistenceId: '4'.repeat(64) },
+        data: { persistenceId: containerPersistenceId('3'.repeat(64)) },
+        admin: { persistenceId: containerPersistenceId('3'.repeat(64)) },
+        foreign: { persistenceId: containerPersistenceId('4'.repeat(64)) },
       },
       candidate: {
-        data: { persistenceId: primaryContainerId },
-        admin: { persistenceId: primaryContainerId },
-        foreign: { persistenceId: foreignContainerId },
+        data: { persistenceId: containerPersistenceId(primaryContainerId) },
+        admin: { persistenceId: containerPersistenceId(primaryContainerId) },
+        foreign: { persistenceId: containerPersistenceId(foreignContainerId) },
       },
     },
     ...overrides,
@@ -158,8 +159,8 @@ describe('Phase 1 live candidate invariant driver adapter', () => {
       isolationAttestations: {
         candidate: {
           data: { persistenceId: primaryContainerId },
-          admin: { persistenceId: foreignContainerId },
-          foreign: { persistenceId: primaryContainerId },
+          admin: { persistenceId: containerPersistenceId(foreignContainerId) },
+          foreign: { persistenceId: containerPersistenceId(primaryContainerId) },
         },
       },
     });
