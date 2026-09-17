@@ -30,6 +30,7 @@ const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
 const liveLedgerInvariantId = 'keystore.live-ledger-limit-and-tombstone';
 const wrappingFenceInvariantId = 'keystore.wrapping-fence-late-commit';
+const signSealInvariantId = 'keystore.sign-seal-during-rewrap';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -47,6 +48,7 @@ const metadataDmlProjection = projection(metadataDmlInvariantId);
 const referenceLedgerProjection = projection(referenceLedgerInvariantId);
 const liveLedgerProjection = projection(liveLedgerInvariantId);
 const wrappingFenceProjection = projection(wrappingFenceInvariantId);
+const signSealProjection = projection(signSealInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -62,7 +64,8 @@ if (
   !metadataDmlProjection ||
   !referenceLedgerProjection ||
   !liveLedgerProjection ||
-  !wrappingFenceProjection
+  !wrappingFenceProjection ||
+  !signSealProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -88,6 +91,7 @@ const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
 const liveLedgerOutput = output(liveLedgerInvariantId, liveLedgerProjection);
 const wrappingFenceOutput = output(wrappingFenceInvariantId, wrappingFenceProjection);
+const signSealOutput = output(signSealInvariantId, signSealProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -282,6 +286,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{REFERENCE_LEDGER_TOKEN:-true|1|true}"
   elif [[ "$input" == *'phase1-wrapping-fence-late-probe'* ]]; then
     printf '%s' "${'$'}{WRAPPING_FENCE_TOKEN:-55000|true}"
+  elif [[ "$input" == *'phase1-sign-seal-rewrap-probe'* ]]; then
+    printf '%s' "${'$'}{SIGN_SEAL_TOKEN:-1|1|1|1|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
@@ -298,6 +304,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$LIVE_LEDGER_OUTPUT"
   elif [[ "$input" == *'keystore.wrapping-fence-late-commit'* ]]; then
     printf '%s' "$WRAPPING_FENCE_OUTPUT"
+  elif [[ "$input" == *'keystore.sign-seal-during-rewrap'* ]]; then
+    printf '%s' "$SIGN_SEAL_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -335,6 +343,7 @@ exit 1
       REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
       LIVE_LEDGER_OUTPUT: liveLedgerOutput,
       WRAPPING_FENCE_OUTPUT: wrappingFenceOutput,
+      SIGN_SEAL_OUTPUT: signSealOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -869,6 +878,40 @@ describe('Phase 1 candidate invariant shell driver', () => {
     await expect(
       executeFile(driver, args(wrappingFenceInvariantId), {
         env: { ...fake.env, WRAPPING_FENCE_TOKEN: '00000|true' },
+      })
+    ).rejects.toThrow();
+  });
+
+  it('keeps signing and cookie operations available across material rewrap', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(signSealInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(signSealOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-sign-seal-rewrap-probe');
+    expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql).toContain('aster_runtime.provision_cookie_key');
+    expect(sql).toContain('aster_runtime.rewrap_signing_key_material');
+    expect(sql).toContain('aster_runtime.rewrap_cookie_key_material');
+    expect(sql).toContain('aster_runtime.record_signing_use');
+    expect(sql).toContain('aster_runtime.record_cookie_seal');
+    expect(sql).toContain('aster_runtime.read_active_signing_key_material');
+    expect(sql).toContain('aster_runtime.read_cookie_key_material');
+    expect(sql).toContain('ROLLBACK;');
+    expect(sql).toContain("'keystore.sign-seal-during-rewrap'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed when token signing becomes unavailable during rewrap', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(signSealInvariantId), {
+        env: { ...fake.env, SIGN_SEAL_TOKEN: 'false|true|true|true' },
       })
     ).rejects.toThrow();
   });
