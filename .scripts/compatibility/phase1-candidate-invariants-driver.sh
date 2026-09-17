@@ -459,6 +459,100 @@ fi
 if [[ "$invariant_id" == 'reaper.activity-visibility-redaction' ]]; then
   request_client_pid=''
   worker_client_pid=''
+  primary_core_id=''
+  maintainer_pid=''
+  maintainer_start_time=''
+  maintainer_paused=false
+
+  pause_primary_maintainer() {
+    local core_labels core_state identity
+    primary_core_id="$($DOCKER_BIN ps -aq \
+      --filter "label=com.docker.compose.project=$project_name" \
+      --filter 'label=com.docker.compose.service=candidate-primary-core' \
+      2>/dev/null | tr -d '[:space:]')" || return 1
+    [[ "$primary_core_id" =~ ^[0-9a-f]{12,64}$ ]] || return 1
+    core_labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$primary_core_id" 2>/dev/null || true)"
+    [[ "$core_labels" == "candidate-primary-core|$project_name" ]] || return 1
+    core_state="$($DOCKER_BIN inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$primary_core_id" 2>/dev/null || true)"
+    [[ "$core_state" == 'running|healthy' ]] || return 1
+    # The embedded script must expand variables inside the container.
+    # shellcheck disable=SC2016
+    identity="$($DOCKER_BIN exec "$primary_core_id" /usr/bin/bash -c '
+      set -euo pipefail
+      # phase1-maintainer-identify
+      found_pid=""
+      for executable_link in /proc/[0-9]*/exe; do
+        resolved="$(/usr/bin/readlink -f -- "$executable_link" 2>/dev/null || true)"
+        [[ "$resolved" == /usr/local/bin/aster-maintainer ]] || continue
+        pid=${executable_link#/proc/}
+        pid=${pid%/exe}
+        [[ -z "$found_pid" ]] || exit 1
+        found_pid=$pid
+      done
+      [[ "$found_pid" =~ ^[1-9][0-9]*$ ]]
+      stat="$(<"/proc/$found_pid/stat")"
+      remainder=${stat##*) }
+      read -r -a fields <<<"$remainder"
+      [[ "${#fields[@]}" -ge 20 && "${fields[0]}" != Z ]]
+      printf "%s|%s" "$found_pid" "${fields[19]}"
+    ' 2>/dev/null)" || return 1
+    IFS='|' read -r maintainer_pid maintainer_start_time <<<"$identity"
+    [[ "$maintainer_pid" =~ ^[1-9][0-9]*$ && "$maintainer_start_time" =~ ^[1-9][0-9]*$ ]] || return 1
+    maintainer_paused=true
+    # The embedded script must expand variables inside the container.
+    # shellcheck disable=SC2016
+    "$DOCKER_BIN" exec "$primary_core_id" /usr/bin/bash -c '
+      set -euo pipefail
+      # phase1-maintainer-stop
+      pid=$1
+      expected_start=$2
+      resolved="$(/usr/bin/readlink -f -- "/proc/$pid/exe" 2>/dev/null || true)"
+      [[ "$resolved" == /usr/local/bin/aster-maintainer ]]
+      stat="$(<"/proc/$pid/stat")"
+      remainder=${stat##*) }
+      read -r -a fields <<<"$remainder"
+      [[ "${#fields[@]}" -ge 20 && "${fields[19]}" == "$expected_start" && "${fields[0]}" != Z ]]
+      kill -STOP "$pid"
+      for _ in {1..100}; do
+        stat="$(<"/proc/$pid/stat")"
+        remainder=${stat##*) }
+        read -r -a fields <<<"$remainder"
+        [[ "${fields[19]}" == "$expected_start" ]] || exit 1
+        [[ "${fields[0]}" == T || "${fields[0]}" == t ]] && exit 0
+        /usr/bin/sleep 0.01
+      done
+      exit 1
+    ' phase1-maintainer-stop "$maintainer_pid" "$maintainer_start_time" >/dev/null 2>&1
+  }
+
+  resume_primary_maintainer() {
+    [[ "$maintainer_paused" == true ]] || return 0
+    # The embedded script must expand variables inside the container.
+    # shellcheck disable=SC2016
+    "$DOCKER_BIN" exec "$primary_core_id" /usr/bin/bash -c '
+      set -euo pipefail
+      # phase1-maintainer-resume
+      pid=$1
+      expected_start=$2
+      resolved="$(/usr/bin/readlink -f -- "/proc/$pid/exe" 2>/dev/null || true)"
+      [[ "$resolved" == /usr/local/bin/aster-maintainer ]]
+      stat="$(<"/proc/$pid/stat")"
+      remainder=${stat##*) }
+      read -r -a fields <<<"$remainder"
+      [[ "${#fields[@]}" -ge 20 && "${fields[19]}" == "$expected_start" && "${fields[0]}" != Z ]]
+      kill -CONT "$pid"
+      for _ in {1..100}; do
+        stat="$(<"/proc/$pid/stat")"
+        remainder=${stat##*) }
+        read -r -a fields <<<"$remainder"
+        [[ "${fields[19]}" == "$expected_start" && "${fields[0]}" != Z ]] || exit 1
+        [[ "${fields[0]}" != T && "${fields[0]}" != t ]] && exit 0
+        /usr/bin/sleep 0.01
+      done
+      exit 1
+    ' phase1-maintainer-resume "$maintainer_pid" "$maintainer_start_time" >/dev/null 2>&1 || return 1
+    maintainer_paused=false
+  }
 
   cleanup_reaper_clients() {
     local cleanup_failed=0 client_pid
@@ -476,6 +570,9 @@ if [[ "$invariant_id" == 'reaper.activity-visibility-redaction' ]]; then
     done
     request_client_pid=''
     worker_client_pid=''
+    if ! resume_primary_maintainer; then
+      cleanup_failed=1
+    fi
     return "$cleanup_failed"
   }
 
@@ -491,6 +588,8 @@ if [[ "$invariant_id" == 'reaper.activity-visibility-redaction' ]]; then
     exit "$exit_code"
   }
   trap cleanup_reaper_on_exit EXIT
+
+  pause_primary_maintainer || fail
 
   start_reaper_client() {
     local role=$1 application_name=$2 sentinel=$3

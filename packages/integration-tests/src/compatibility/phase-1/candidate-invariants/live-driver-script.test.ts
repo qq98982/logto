@@ -200,6 +200,13 @@ if [[ "$1" == logs ]]; then
   exit 0
 fi
 if [[ "$1" == exec ]]; then
+  if [[ "$*" == *'phase1-maintainer-identify'* ]]; then
+    printf '%s' '4242|12345'
+    exit 0
+  fi
+  if [[ "$*" == *'phase1-maintainer-stop'* || "$*" == *'phase1-maintainer-resume'* ]]; then
+    exit 0
+  fi
   if [[ "$*" == *"$CORE_ID"* && "$*" == *'nc -w 15 127.0.0.1 3001'* ]]; then
     input="$(cat)"
     printf '%s' "$input" >>"$STDIN"
@@ -712,6 +719,15 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(calls).toContain('PGAPPNAME=phase1-invariant-reaper-worker');
     expect(calls).toContain('aster_runtime.run_tenant_maintenance');
     expect(calls).toContain('pg_stat_activity');
+    const identifyIndex = calls.indexOf('phase1-maintainer-identify');
+    const stopIndex = calls.indexOf('phase1-maintainer-stop');
+    const maintenanceIndex = calls.indexOf('aster_runtime.run_tenant_maintenance');
+    const resumeIndex = calls.indexOf('phase1-maintainer-resume');
+
+    expect(identifyIndex).toBeGreaterThanOrEqual(0);
+    expect(stopIndex).toBeGreaterThan(identifyIndex);
+    expect(maintenanceIndex).toBeGreaterThan(stopIndex);
+    expect(resumeIndex).toBeGreaterThan(maintenanceIndex);
     expect(sql).toContain('phase1-reaper-request-sentinel');
     expect(sql).toContain('phase1-reaper-worker-sentinel');
     expect(sql).toContain("'reaper.activity-visibility-redaction'");
