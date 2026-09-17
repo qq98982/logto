@@ -52,7 +52,7 @@ while (($# > 0)); do
 done
 
 case "$invariant_id" in
-  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.live-ledger-limit-and-tombstone) ;;
+  database.owner-role-membership-boundary|tenant.suspended-epoch-rejected|tenant.cross-tenant-read-rejected|tenant.admin-operation-binding|tenant.admin-operation-status-matrix|reaper.activity-visibility-redaction|reaper.object-audit-disabled|keystore.required-readable-key-set|keystore.stale-keyring-rejoin-rejected|keystore.forced-rls-owner-boundary|keystore.metadata-dml-boundary|keystore.reference-count-ledger|keystore.live-ledger-limit-and-tombstone|keystore.wrapping-fence-late-commit) ;;
   *) fail ;;
 esac
 [[ "$project_name" =~ ^aster-phase1-[0-9a-f]{16}$ ]] || fail
@@ -2227,6 +2227,161 @@ SQL
   [[ -n "$terminal" ]] || fail
   cleanup_live_ledger || fail
   trap - EXIT
+  byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
+  [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
+  printf '%s' "$terminal"
+  exit 0
+fi
+
+if [[ "$invariant_id" == 'keystore.wrapping-fence-late-commit' ]]; then
+  wrapping_fence_observation="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --username postgres --dbname "$database" 2>/dev/null <<'SQL'
+BEGIN;
+SELECT pg_catalog.set_config('search_path', 'pg_catalog', false),
+       pg_catalog.set_config('transaction_timeout', '20s', false),
+       pg_catalog.set_config('statement_timeout', '15s', false),
+       pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', false),
+       pg_catalog.set_config('log_min_messages', 'panic', false),
+       pg_catalog.set_config('log_min_error_statement', 'panic', false),
+       pg_catalog.set_config('log_statement', 'none', false),
+       pg_catalog.set_config('log_duration', 'off', false),
+       pg_catalog.set_config('log_min_duration_statement', '-1', false),
+       pg_catalog.set_config('log_min_duration_sample', '-1', false),
+       pg_catalog.set_config('log_statement_sample_rate', '0', false),
+       pg_catalog.set_config('log_transaction_sample_rate', '0', false),
+       pg_catalog.set_config('log_parameter_max_length', '0', false),
+       pg_catalog.set_config('log_parameter_max_length_on_error', '0', false),
+       pg_catalog.set_config('log_statement_stats', 'off', false),
+       pg_catalog.set_config('log_parser_stats', 'off', false),
+       pg_catalog.set_config('log_planner_stats', 'off', false),
+       pg_catalog.set_config('log_executor_stats', 'off', false),
+       pg_catalog.set_config('log_lock_waits', 'off', false),
+       pg_catalog.set_config('log_temp_files', '-1', false),
+       pg_catalog.set_config('track_activities', 'on', false),
+       pg_catalog.set_config('auto_explain.log_min_duration', '-1', false),
+       pg_catalog.set_config('auto_explain.log_parameter_max_length', '0', false),
+       pg_catalog.set_config('pgaudit.log', 'none', false),
+       pg_catalog.set_config('pgaudit.log_statement', 'off', false),
+       pg_catalog.set_config('pgaudit.log_parameter', 'off', false),
+       pg_catalog.set_config('pgaudit.role', '', false) \g /dev/null
+
+SELECT deployment_id::text AS deployment_id
+FROM aster_control.deployment_state
+WHERE singleton \gset
+SELECT active_key_id AS root_key_id
+FROM aster_control.wrapping_key_runtime_state
+WHERE singleton \gset
+UPDATE aster_control.wrapping_key_registry
+SET lifecycle_state = 'retained', required_readable = true
+WHERE key_id = :'root_key_id';
+INSERT INTO aster_control.wrapping_key_registry (
+  key_id, writer_generation, lifecycle_state, required_readable, reference_count
+) VALUES
+  ('aster-mk-5000000000000001', 1, 'retained', true, 0),
+  ('aster-mk-5000000000000002', 2, 'active', true, 0);
+UPDATE aster_control.wrapping_key_runtime_state
+SET active_key_id = 'aster-mk-5000000000000002',
+    minimum_keyring_generation = 2,
+    write_fenced = false
+WHERE singleton;
+
+INSERT INTO aster_control.tenants (
+  tenant_id, status, status_epoch, provisioning_verified
+) VALUES ('phase1-fence-tenant-a', 'inactive', 1, false);
+INSERT INTO aster_control.tenant_bindings (
+  capability_digest, tenant_id, status_epoch, deployment_id, audience,
+  admin_operation, issued_at, expires_at, cleanup_at
+)
+SELECT pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('d1', 32), 'hex')),
+       'phase1-fence-tenant-a', 1, :'deployment_id'::uuid, 'admin', 'provision',
+       observed_at, observed_at + interval '30 seconds', observed_at + interval '30 seconds'
+FROM LATERAL (SELECT pg_catalog.clock_timestamp() AS observed_at) AS observed;
+
+-- phase1-wrapping-fence-late-probe
+SET SESSION AUTHORIZATION aster_admin;
+SELECT * FROM aster_runtime.activate_tenant_binding(
+  pg_catalog.decode(pg_catalog.repeat('d1', 32), 'hex')
+) \g /dev/null
+SELECT aster_runtime.provision_signing_key(
+  '55555555555555555555555555555551',
+  '66666666666666666666666666666661', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('71', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('72', 64), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('73', 24), 'hex'),
+  'aster-mk-5000000000000002', 2
+) \g /dev/null
+RESET SESSION AUTHORIZATION;
+UPDATE aster_control.wrapping_key_runtime_state
+SET write_fenced = true
+WHERE singleton;
+SET SESSION AUTHORIZATION aster_admin;
+SAVEPOINT late_old_key_write;
+\set ON_ERROR_STOP off
+SELECT aster_runtime.provision_cookie_key(
+  '77777777777777777777777777777771',
+  '88888888888888888888888888888881', 1,
+  pg_catalog.decode(pg_catalog.repeat('74', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('75', 48), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('76', 24), 'hex'),
+  'aster-mk-5000000000000001', 1
+) \g /dev/null
+\set late_state :SQLSTATE
+ROLLBACK TO SAVEPOINT late_old_key_write;
+\set ON_ERROR_STOP on
+RESET SESSION AUTHORIZATION;
+
+SELECT CASE WHEN runtime.active_key_id = 'aster-mk-5000000000000002'
+  AND runtime.minimum_keyring_generation = 2
+  AND runtime.write_fenced
+  AND old_key.reference_count = 0
+  AND new_key.reference_count = 1
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.signing_key_material
+    WHERE tenant_id = 'phase1-fence-tenant-a'
+      AND wrapping_key_id = 'aster-mk-5000000000000002') = 1
+  AND (SELECT pg_catalog.count(*) FROM aster_tenant.cookie_key_material
+    WHERE tenant_id = 'phase1-fence-tenant-a'
+      AND wrapping_key_id = 'aster-mk-5000000000000001') = 0
+THEN 'true' ELSE 'false' END AS state_ok
+FROM aster_control.wrapping_key_runtime_state AS runtime
+JOIN aster_control.wrapping_key_registry AS old_key
+  ON old_key.key_id = 'aster-mk-5000000000000001'
+JOIN aster_control.wrapping_key_registry AS new_key
+  ON new_key.key_id = 'aster-mk-5000000000000002'
+WHERE runtime.singleton \gset
+
+\echo :late_state|:state_ok
+ROLLBACK;
+SQL
+)" || fail
+  [[ "$wrapping_fence_observation" == '55000|true' ]] || fail
+
+  terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
+    psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
+    --set=ON_ERROR_STOP=1 --username postgres --dbname "$database" <<'SQL'
+SET TRANSACTION READ ONLY;
+SET LOCAL statement_timeout = '20s';
+SET LOCAL search_path = pg_catalog;
+SELECT pg_catalog.jsonb_build_object(
+  'schemaVersion', 1,
+  'kind', 'phase1-candidate-invariant-terminal',
+  'invariantId', 'keystore.wrapping-fence-late-commit',
+  'projection', pg_catalog.jsonb_build_object(
+    'fence', pg_catalog.jsonb_build_object('generation', 2, 'status', 'completed'),
+    'lateCommit', pg_catalog.jsonb_build_object(
+      'accepted', false, 'errorClass', 'wrapping-fence'
+    ),
+    'semanticState', pg_catalog.jsonb_build_object(
+      'ledger', pg_catalog.jsonb_build_object('oldKeyReferences', 0),
+      'material', pg_catalog.jsonb_build_object(
+        'oldKeyReferences', 0, 'newKeyReferences', 1
+      )
+    )
+  )
+)::text;
+SQL
+)" || fail
+  [[ -n "$terminal" ]] || fail
   byte_count="$(printf '%s' "$terminal" | wc -c | tr -d '[:space:]')"
   [[ "$byte_count" =~ ^[0-9]+$ && "$byte_count" -le 65536 ]] || fail
   printf '%s' "$terminal"

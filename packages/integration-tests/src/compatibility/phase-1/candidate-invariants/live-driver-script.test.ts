@@ -29,6 +29,7 @@ const forcedRlsInvariantId = 'keystore.forced-rls-owner-boundary';
 const metadataDmlInvariantId = 'keystore.metadata-dml-boundary';
 const referenceLedgerInvariantId = 'keystore.reference-count-ledger';
 const liveLedgerInvariantId = 'keystore.live-ledger-limit-and-tombstone';
+const wrappingFenceInvariantId = 'keystore.wrapping-fence-late-commit';
 const projection = (invariantId: string) =>
   candidateInvariantContracts.find(({ id }) => id === invariantId)?.positiveControl
     .expectedProjection;
@@ -45,6 +46,7 @@ const forcedRlsProjection = projection(forcedRlsInvariantId);
 const metadataDmlProjection = projection(metadataDmlInvariantId);
 const referenceLedgerProjection = projection(referenceLedgerInvariantId);
 const liveLedgerProjection = projection(liveLedgerInvariantId);
+const wrappingFenceProjection = projection(wrappingFenceInvariantId);
 
 if (
   !ownerRoleProjection ||
@@ -59,7 +61,8 @@ if (
   !forcedRlsProjection ||
   !metadataDmlProjection ||
   !referenceLedgerProjection ||
-  !liveLedgerProjection
+  !liveLedgerProjection ||
+  !wrappingFenceProjection
 ) {
   throw new Error('missing candidate invariant projection');
 }
@@ -84,6 +87,7 @@ const forcedRlsOutput = output(forcedRlsInvariantId, forcedRlsProjection);
 const metadataDmlOutput = output(metadataDmlInvariantId, metadataDmlProjection);
 const referenceLedgerOutput = output(referenceLedgerInvariantId, referenceLedgerProjection);
 const liveLedgerOutput = output(liveLedgerInvariantId, liveLedgerProjection);
+const wrappingFenceOutput = output(wrappingFenceInvariantId, wrappingFenceProjection);
 
 afterEach(async () => {
   await Promise.all([...roots].map(async (root) => rm(root, { recursive: true, force: true })));
@@ -276,6 +280,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "${'$'}{METADATA_DML_TOKEN:-42501|42501|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'phase1-reference-ledger-probe'* ]]; then
     printf '%s' "${'$'}{REFERENCE_LEDGER_TOKEN:-true|1|true}"
+  elif [[ "$input" == *'phase1-wrapping-fence-late-probe'* ]]; then
+    printf '%s' "${'$'}{WRAPPING_FENCE_TOKEN:-55000|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
@@ -290,6 +296,8 @@ if [[ "$1" == exec ]]; then
     printf '%s' "$REFERENCE_LEDGER_OUTPUT"
   elif [[ "$input" == *'keystore.live-ledger-limit-and-tombstone'* ]]; then
     printf '%s' "$LIVE_LEDGER_OUTPUT"
+  elif [[ "$input" == *'keystore.wrapping-fence-late-commit'* ]]; then
+    printf '%s' "$WRAPPING_FENCE_OUTPUT"
   else
     printf '%s' "$OWNER_OUTPUT"
   fi
@@ -326,6 +334,7 @@ exit 1
       METADATA_DML_OUTPUT: metadataDmlOutput,
       REFERENCE_LEDGER_OUTPUT: referenceLedgerOutput,
       LIVE_LEDGER_OUTPUT: liveLedgerOutput,
+      WRAPPING_FENCE_OUTPUT: wrappingFenceOutput,
       CORE_ID: '3'.repeat(64),
     },
   };
@@ -830,6 +839,38 @@ describe('Phase 1 candidate invariant shell driver', () => {
     const calls = await readFile(fake.calls, 'utf8');
 
     expect(calls).toContain("key_id LIKE 'aster-mk-4%'");
+  });
+
+  it('rejects a late old-key material write after the wrapping fence completes', async () => {
+    const fake = await fakeDocker();
+    const { stdout, stderr } = await executeFile(driver, args(wrappingFenceInvariantId), {
+      env: fake.env,
+    });
+
+    expect(stderr).toBe('');
+    expect(JSON.parse(stdout)).toEqual(JSON.parse(wrappingFenceOutput));
+    const sql = await readFile(fake.stdin, 'utf8');
+
+    expect(sql).toContain('phase1-wrapping-fence-late-probe');
+    expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql).toContain('write_fenced = true');
+    expect(sql).toContain('aster-mk-5000000000000001');
+    expect(sql).toContain('aster-mk-5000000000000002');
+    expect(sql).toContain('old_key.reference_count');
+    expect(sql).toContain('new_key.reference_count');
+    expect(sql).toContain('ROLLBACK TO SAVEPOINT');
+    expect(sql).toContain("'keystore.wrapping-fence-late-commit'");
+    expect(sql).not.toMatch(/password|secret|private_key/iu);
+  });
+
+  it('fails closed when a late old-key write is accepted', async () => {
+    const fake = await fakeDocker();
+
+    await expect(
+      executeFile(driver, args(wrappingFenceInvariantId), {
+        env: { ...fake.env, WRAPPING_FENCE_TOKEN: '00000|true' },
+      })
+    ).rejects.toThrow();
   });
 
   it.each([
