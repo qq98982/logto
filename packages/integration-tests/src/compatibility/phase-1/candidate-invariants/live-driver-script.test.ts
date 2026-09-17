@@ -787,6 +787,10 @@ describe('Phase 1 candidate invariant shell driver', () => {
     expect(sql).toContain('SET SESSION AUTHORIZATION aster_key_runtime');
     expect(sql).toContain('aster_runtime.upsert_own_writer_lease');
     expect(sql).toContain('aster_runtime.read_key_runtime_state');
+    expect(sql).toContain('state.active_writer_lease_count >= 1');
+    expect(sql).toContain("pg_catalog.repeat('81', 32)");
+    expect(sql).toContain('lease.loaded_key_set_sha256');
+    expect(sql).not.toContain('state.active_writer_lease_count = 1');
     expect(sql).toContain('phase1-required-old-referenced');
     expect(sql).toContain('phase1-required-rollback-retained');
     expect(sql).toContain('phase1-required-staged-optional');

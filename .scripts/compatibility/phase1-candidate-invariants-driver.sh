@@ -1010,12 +1010,39 @@ SELECT CASE WHEN state.minimum_keyring_generation = 2
     ]::text[]) AS required(key_id)
     ORDER BY key_id COLLATE "C"
   )
-  AND state.active_writer_lease_count = 1
-THEN 'true' ELSE 'false' END AS state_ok
+  AND state.active_writer_lease_count >= 1
+THEN 'true' ELSE 'false' END AS runtime_state_ok
 FROM aster_runtime.read_key_runtime_state(:'deployment_id') AS state \gset
 
-\echo :lease_ms|:missing_state|:unknown_state|:tombstoned_state|:non_live_state|:state_ok
 RESET SESSION AUTHORIZATION;
+SELECT CASE WHEN :'runtime_state_ok'::boolean AND EXISTS (
+  SELECT 1
+  FROM aster_control.writer_leases AS lease
+  WHERE lease.capability_digest =
+      pg_catalog.sha256(pg_catalog.decode(pg_catalog.repeat('81', 32), 'hex'))
+    AND lease.deployment_id = :'deployment_id'::uuid
+    AND lease.loaded_keyring_generation = 2
+    AND lease.loaded_key_ids = ARRAY(
+      SELECT key_id
+      FROM pg_catalog.unnest(ARRAY[
+        :'active_key_id',
+        'aster-mk-1000000000000001',
+        'aster-mk-1000000000000002',
+        'aster-mk-1000000000000003',
+        'aster-mk-1000000000000004'
+      ]::text[]) AS loaded(key_id)
+      ORDER BY key_id COLLATE "C"
+    )
+    AND lease.loaded_key_set_sha256 = pg_catalog.sha256(
+      pg_catalog.convert_to(
+        pg_catalog.array_to_string(lease.loaded_key_ids, E'\n'),
+        'UTF8'
+      )
+    )
+    AND lease.heartbeat_at < lease.expires_at
+    AND lease.expires_at > pg_catalog.clock_timestamp()
+) THEN 'true' ELSE 'false' END AS state_ok \gset
+\echo :lease_ms|:missing_state|:unknown_state|:tombstoned_state|:non_live_state|:state_ok
 ROLLBACK;
 SQL
 )" || fail
