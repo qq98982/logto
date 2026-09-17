@@ -10,7 +10,7 @@ readonly DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-compatibility"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 if [[ "${ASTER_PHASE1_MODE:-}" == 'runtime-candidate' ]]; then
-  export ASTER_PHASE1_RUNTIME_GATE='candidate-invariants'
+  export ASTER_PHASE1_RUNTIME_GATE="${ASTER_PHASE1_RUNTIME_GATE:-candidate-invariants}"
   export ASTER_PHASE1_ORACLE_IMAGE="${ASTER_PHASE1_ORACLE_IMAGE_DIGEST:-}"
   export ASTER_PHASE1_CANDIDATE_IMAGE="${ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST:-}"
   exec "${SCRIPT_DIR}/run-phase1-runtime-candidate.sh"

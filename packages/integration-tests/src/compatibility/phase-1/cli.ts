@@ -45,6 +45,7 @@ import {
   type SecureJsonPublication,
 } from './secure-evidence-sink.js';
 import {
+  executeAuthorizedPhase1BrowserGate,
   executeAuthorizedPhase1CandidateInvariantGate,
   executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
@@ -58,7 +59,7 @@ export type {
 } from './run-authorization.js';
 
 export type Phase1RunCommand = Readonly<{
-  command: 'run' | 'run-differential' | 'run-candidate-invariants';
+  command: 'run' | 'run-differential' | 'run-candidate-invariants' | 'run-browser';
   mode: Phase1RunMode;
   profilePath: string;
   schemaPath: string;
@@ -96,6 +97,10 @@ export type Phase1CliDependencies = Readonly<{
     command: Phase1RunCommand
   ) => Promise<void>;
   executeCandidateInvariants: (
+    authorization: Phase1RunAuthorization,
+    command: Phase1RunCommand
+  ) => Promise<void>;
+  executeBrowser: (
     authorization: Phase1RunAuthorization,
     command: Phase1RunCommand
   ) => Promise<void>;
@@ -245,7 +250,8 @@ export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCo
   if (
     subcommand === 'run' ||
     subcommand === 'run-differential' ||
-    subcommand === 'run-candidate-invariants'
+    subcommand === 'run-candidate-invariants' ||
+    subcommand === 'run-browser'
   ) {
     const { values, booleans } = parseFlagMap(
       rest,
@@ -834,6 +840,9 @@ const defaultDependencies: Phase1CliDependencies = {
   executeCandidateInvariants: async (authorization) => {
     await executeAuthorizedPhase1CandidateInvariantGate(authorization, defaultLogtoRoot);
   },
+  executeBrowser: async (authorization) => {
+    await executeAuthorizedPhase1BrowserGate(authorization, defaultLogtoRoot);
+  },
   prepareReviewProfile: preparePhase1ReviewProfile,
   stdout: (message) => {
     console.log(message);
@@ -899,17 +908,32 @@ export const runPhase1Cli = async (
         ...(command.command === 'run-candidate-invariants' && {
           candidateInvariantGate: true as const,
         }),
+        ...(command.command === 'run-browser' && { browserGate: true as const }),
       } satisfies Phase1RunAuthorization)
     );
-    if (command.command === 'run-differential') {
-      await dependencies.executeDifferential(authorization, command);
-      await writeStatus(dependencies.stdout, 'Phase 1 differential gate authorized.');
-    } else if (command.command === 'run-candidate-invariants') {
-      await dependencies.executeCandidateInvariants(authorization, command);
-      await writeStatus(dependencies.stdout, 'Phase 1 candidate invariant gate authorized.');
-    } else {
-      await dependencies.executeRun(authorization, command);
-      await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');
+    switch (command.command) {
+      case 'run-differential': {
+        await dependencies.executeDifferential(authorization, command);
+        await writeStatus(dependencies.stdout, 'Phase 1 differential gate authorized.');
+
+        break;
+      }
+      case 'run-candidate-invariants': {
+        await dependencies.executeCandidateInvariants(authorization, command);
+        await writeStatus(dependencies.stdout, 'Phase 1 candidate invariant gate authorized.');
+
+        break;
+      }
+      case 'run-browser': {
+        await dependencies.executeBrowser(authorization, command);
+        await writeStatus(dependencies.stdout, 'Phase 1 browser gate authorized.');
+
+        break;
+      }
+      default: {
+        await dependencies.executeRun(authorization, command);
+        await writeStatus(dependencies.stdout, 'Phase 1 run authorized.');
+      }
     }
     return 0;
   } catch {

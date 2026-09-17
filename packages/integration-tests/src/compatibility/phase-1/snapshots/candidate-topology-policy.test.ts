@@ -288,7 +288,7 @@ const assertCandidateTopology = (
 
 const assertCandidateSmoke = (source: string, formalRunnerSource: string): void => {
   for (const required of [
-    "readonly FORMAL_RUNNER_SHA256='35a053b137e5f3a06dccc548f9fb75973fe395ddacfb395460f116d31663f3f1'",
+    "readonly FORMAL_RUNNER_SHA256='d1bc2e9d191402cae9225bcf1728f8b384706ae6f88b877240b62842712edc07'",
     '/var/tmp/henry-build',
     'require_private_root',
     'capture_path_identity',
@@ -354,7 +354,7 @@ const assertCandidateSmoke = (source: string, formalRunnerSource: string): void 
 
   expect(fixtureNodeSource).not.toMatch(/DATABASE_URL|POSTGRES_PASSWORD|docker/u);
   expect(createHash('sha256').update(formalRunnerSource).digest('hex')).toBe(
-    '35a053b137e5f3a06dccc548f9fb75973fe395ddacfb395460f116d31663f3f1'
+    'd1bc2e9d191402cae9225bcf1728f8b384706ae6f88b877240b62842712edc07'
   );
 };
 
@@ -547,7 +547,7 @@ host all all ::/0 reject
       {
         name: 'formal runner digest',
         source: source.replace(
-          "readonly FORMAL_RUNNER_SHA256='35a053b137e5f3a06dccc548f9fb75973fe395ddacfb395460f116d31663f3f1'",
+          "readonly FORMAL_RUNNER_SHA256='d1bc2e9d191402cae9225bcf1728f8b384706ae6f88b877240b62842712edc07'",
           `readonly FORMAL_RUNNER_SHA256='${'0'.repeat(64)}'`
         ),
       },

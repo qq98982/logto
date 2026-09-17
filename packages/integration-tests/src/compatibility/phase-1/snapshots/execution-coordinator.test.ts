@@ -22,6 +22,7 @@ import { createSecureEvidenceSink } from '../secure-evidence-sink.js';
 import {
   executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
+  executePhase1BrowserGateForTesting,
   executePhase1CandidateInvariantGateForTesting,
   executePhase1DifferentialGateForTesting,
   executePhase1EvidenceForTesting,
@@ -155,6 +156,44 @@ const candidateGateContext = (directory: string): Phase1EvidenceRuntimeContext =
         candidateInvariantControls: true,
       }),
       candidateInvariantGate: true,
+    })
+  );
+
+  return createPhase1EvidenceRuntimeContext(
+    {
+      authorization,
+      oracleImageDigest: digest,
+      candidateImageDigest: candidateDigest,
+      evidenceDirectory: directory,
+      oracleSnapshotPath: path.join(path.dirname(directory), 'snapshots', 'oracle-snapshots.json'),
+      repositoryRoot: '/home/henry/repo/logto',
+      conformanceRoot: '/var/tmp/henry-build/phase1-conformance',
+      isolationAttestations: loadPhase1RuntimeIsolationAttestations(runtimeEnvironment),
+    },
+    runtimeEnvironment
+  );
+};
+
+const browserGateContext = (directory: string): Phase1EvidenceRuntimeContext => {
+  const authorization = authorizePhase1RunForTesting(
+    Object.freeze({
+      mode: 'runtime-candidate',
+      profile,
+      profileSha256: '3'.repeat(64),
+      schemaSha256: '4'.repeat(64),
+      provenance: Object.freeze({
+        kind: 'review-candidate',
+        harnessCommit,
+        publishable: false,
+      }),
+      protectedExecution: undefined,
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+      browserGate: true,
     })
   );
 
@@ -381,6 +420,29 @@ describe('Phase 1 evidence execution coordinator', () => {
     expect(artifact.outcomes).toHaveLength(18);
     expect(artifact.observationNegativeControls).toHaveLength(6);
     expect(artifact.discoveryExtraControl).toBeDefined();
+  });
+
+  it('publishes one browser artifact with four zero-difference flows', async () => {
+    const root = await createRoot();
+    const runtime = browserGateContext(root);
+    const published = await executePhase1BrowserGateForTesting(
+      runtime,
+      async (candidate) => browser(candidate),
+      {
+        createSink: async (directory, names, authority) =>
+          createSecureEvidenceSink(directory, names, {}, authority),
+      }
+    );
+
+    expect(published).toEqual([path.join(root, 'phase-1-browser.json')]);
+    expect(await readdir(root)).toEqual(['phase-1-browser.json']);
+    const artifact = JSON.parse(
+      await readFile(path.join(root, 'phase-1-browser.json'), 'utf8')
+    ) as { provenance: { imageDigest: string }; flows: Array<{ differences: unknown[] }> };
+
+    expect(artifact.provenance.imageDigest).toBe(digest);
+    expect(artifact.flows).toHaveLength(4);
+    expect(artifact.flows.every(({ differences }) => differences.length === 0)).toBe(true);
   });
 
   it('rejects non-runtime authorization before the differential live port', async () => {

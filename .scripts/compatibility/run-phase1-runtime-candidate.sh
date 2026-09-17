@@ -13,6 +13,9 @@ case "${RUNTIME_GATE}" in
   candidate-invariants)
     DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-invariants"
     ;;
+  browser)
+    DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-browser"
+    ;;
   *)
     printf '%s\n' 'Aster runtime candidate gate failed (initialization)' >&2
     exit 1
@@ -206,10 +209,11 @@ readonly BROWSER_CACHE
 RUN_ROOT="${ASTER_RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 require_private_root "${RUN_ROOT}"
 RESULT_ROOT=''
-if [[ "${RUNTIME_GATE}" == 'candidate-invariants' ]]; then
-  RESULT_ROOT="${BUILD_ROOT}/aster-phase1-candidate-invariant-evidence"
-  require_private_root "${RESULT_ROOT}"
-fi
+case "${RUNTIME_GATE}" in
+  candidate-invariants) RESULT_ROOT="${BUILD_ROOT}/aster-phase1-candidate-invariant-evidence" ;;
+  browser) RESULT_ROOT="${BUILD_ROOT}/aster-phase1-browser-evidence" ;;
+esac
+if [[ -n "${RESULT_ROOT}" ]]; then require_private_root "${RESULT_ROOT}"; fi
 readonly RESULT_ROOT
 RESULT_DIR=''
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_ROOT}/run.XXXXXX")"
@@ -798,6 +802,7 @@ failure_stage="${RUNTIME_GATE}"
 case "${RUNTIME_GATE}" in
   differential) gate_command='run-differential'; artifact_name='phase-1-differential.json' ;;
   candidate-invariants) gate_command='run-candidate-invariants'; artifact_name='phase-1-candidate-invariants.json' ;;
+  browser) gate_command='run-browser'; artifact_name='phase-1-browser.json' ;;
 esac
 readonly gate_command artifact_name
 ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}" "${SETSID_BIN}" "${PUBLIC_ENV[@]}" \
@@ -814,7 +819,7 @@ NODE_RUN_TOKEN=''
 artifact_path="${EVIDENCE_DIR}/${artifact_name}"
 [[ -f "${artifact_path}" && ! -L "${artifact_path}" ]] || fail
 [[ "$(find "${EVIDENCE_DIR}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')" == "${artifact_name}" ]] || fail
-"${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}" "${RUNTIME_GATE}" "${CANDIDATE_IMAGE}" <<'NODE'
+"${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}" "${RUNTIME_GATE}" "${ORACLE_IMAGE}" "${CANDIDATE_IMAGE}" <<'NODE'
 import { readFile } from 'node:fs/promises';
 const value = JSON.parse(await readFile(process.argv[2], 'utf8'));
 if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' || value.sanitizerSuccess !== true) process.exit(1);
@@ -823,20 +828,24 @@ if (gate === 'differential') {
   if (!Array.isArray(value.scenarios) || value.scenarios.length !== 22) process.exit(1);
   if (value.scenarios.some((scenario) => !Array.isArray(scenario.differences) || scenario.differences.length !== 0)) process.exit(1);
 } else if (gate === 'candidate-invariants') {
-  if (value.provenance?.imageDigest !== process.argv[4]) process.exit(1);
+  if (value.provenance?.imageDigest !== process.argv[5]) process.exit(1);
   if (!Array.isArray(value.outcomes) || value.outcomes.length !== 18) process.exit(1);
   if (value.outcomes.some((outcome) => outcome.detected !== true || outcome.positiveControl?.detected !== true || outcome.negativeControl?.detected !== true)) process.exit(1);
   if (!Array.isArray(value.observationNegativeControls) || value.observationNegativeControls.length !== 6) process.exit(1);
   if (value.observationNegativeControls.some((control) => control.detected !== true)) process.exit(1);
   if (value.discoveryExtraControl?.detected !== true) process.exit(1);
+} else if (gate === 'browser') {
+  if (value.provenance?.imageDigest !== process.argv[4]) process.exit(1);
+  if (!Array.isArray(value.flows) || value.flows.length !== 4) process.exit(1);
+  if (value.flows.some((flow) => !Array.isArray(flow.differences) || flow.differences.length !== 0)) process.exit(1);
 } else process.exit(1);
-const entries = gate === 'differential' ? value.scenarios : value.outcomes;
+const entries = gate === 'differential' ? value.scenarios : gate === 'browser' ? value.flows : value.outcomes;
 const ids = entries.map(({ id }) => id);
 if (new Set(ids).size !== ids.length) process.exit(1);
 if (JSON.stringify(ids) !== JSON.stringify([...ids].sort())) process.exit(1);
 NODE
 
-if [[ "${RUNTIME_GATE}" == 'candidate-invariants' ]]; then
+if [[ "${RUNTIME_GATE}" != 'differential' ]]; then
   RESULT_DIR="$(/usr/bin/mktemp -d "${RESULT_ROOT}/result.XXXXXX")"
   /usr/bin/mv -- "${artifact_path}" "${RESULT_DIR}/${artifact_name}" || fail
   artifact_path="${RESULT_DIR}/${artifact_name}"
@@ -844,8 +853,8 @@ if [[ "${RUNTIME_GATE}" == 'candidate-invariants' ]]; then
   # shellcheck disable=SC2016
   artifact_sha256="$("${SHA256_BIN}" "${artifact_path}" | "${AWK_BIN}" '{print $1}')"
   [[ "${artifact_sha256}" =~ ^[0-9a-f]{64}$ ]] || fail
-  printf 'Aster runtime candidate invariant gate passed\nresult=%s\nsha256=%s\n' \
-    "${RESULT_DIR}" "${artifact_sha256}"
+  printf 'Aster runtime candidate %s gate passed\nresult=%s\nsha256=%s\n' \
+    "${RUNTIME_GATE}" "${RESULT_DIR}" "${artifact_sha256}"
 else
   printf '%s\n' 'Aster runtime candidate differential smoke passed'
 fi
