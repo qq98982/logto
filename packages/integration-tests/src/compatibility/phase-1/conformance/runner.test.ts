@@ -230,7 +230,12 @@ describe('Phase 1 conformance runner', () => {
       shell: false,
     });
 
-    expect(official).toMatchObject({ exitCode: 1, stdout: '', stderr: '', reaped: true });
+    expect(official).toMatchObject({ exitCode: 1, stderr: '', reaped: true });
+    expect(JSON.parse(official.stdout)).toMatchObject({
+      planId: 'oidcc-basic-certification-test-plan',
+      status: 'FAILED',
+      failureCategory: 'input',
+    });
   });
 
   it('runs and reaps a real detached process group', async () => {
@@ -460,7 +465,9 @@ describe('Phase 1 conformance runner', () => {
 
     expect(requests).toHaveLength(5);
     expect(requests.every(({ shell }) => shell === false)).toBe(true);
-    expect(requests.every(({ timeoutMs }) => timeoutMs === 300_000)).toBe(true);
+    expect(requests.map(({ timeoutMs }) => timeoutMs)).toEqual([
+      300_000, 300_000, 300_000, 300_000, 10_920_000,
+    ]);
     expect(requests.every(({ maxStdoutBytes }) => maxStdoutBytes === 65_536)).toBe(true);
     expect(requests.every(({ maxStderrBytes }) => maxStderrBytes === 65_536)).toBe(true);
     expect(
@@ -476,6 +483,21 @@ describe('Phase 1 conformance runner', () => {
       { outcome: 'passed', checks: { completed: true } },
       { outcome: 'passed', checks: { completed: true } },
     ]);
+    const configInput = JSON.parse(requests[3]!.stdin) as { target: Record<string, unknown> };
+    const basicInput = JSON.parse(requests[4]!.stdin) as { target: Record<string, unknown> };
+
+    expect(configInput.target).toEqual({
+      discoveryUrl: 'https://server.example/oidc/.well-known/openid-configuration',
+      suiteBaseUrl: 'https://suite.example',
+      alias: 'aster-phase1',
+    });
+    expect(basicInput.target).toEqual({
+      issuer: 'https://server.example/oidc',
+      discoveryUrl: 'https://server.example/oidc/.well-known/openid-configuration',
+      suiteBaseUrl: 'https://suite.example',
+      alias: 'aster-phase1',
+      callbackUri,
+    });
   });
 
   it('waits for each owned invocation before starting the next one', async () => {

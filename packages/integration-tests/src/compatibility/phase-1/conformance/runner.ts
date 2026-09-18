@@ -37,7 +37,7 @@ export type Phase1ConformanceProcessRequest = Readonly<{
   cwd: string;
   stdin: string;
   env: Readonly<Record<string, string>>;
-  timeoutMs: 300_000;
+  timeoutMs: number;
   maxStdoutBytes: 65_536;
   maxStderrBytes: 65_536;
   shell: false;
@@ -89,7 +89,9 @@ export type RunPhase1ConformanceDependencies = Readonly<{
 }>;
 
 const diagnostic = 'Invalid phase 1 conformance runner';
-const timeoutMs = 300_000;
+const defaultProcessTimeoutMs = 300_000;
+const basicProcessTimeoutMs = 10_920_000;
+const maximumProcessTimeoutMs = basicProcessTimeoutMs;
 const maximumOutputBytes = 65_536;
 const killGraceMs = 100;
 const groupReapTimeoutMs = 2000;
@@ -373,7 +375,7 @@ export const runPhase1ConformanceProcessForTesting = async (
   if (
     !Number.isSafeInteger(request.timeoutMs) ||
     request.timeoutMs < 1 ||
-    request.timeoutMs > timeoutMs ||
+    request.timeoutMs > maximumProcessTimeoutMs ||
     !Number.isSafeInteger(request.maxStdoutBytes) ||
     request.maxStdoutBytes < 1 ||
     request.maxStdoutBytes > maximumOutputBytes ||
@@ -523,7 +525,8 @@ const runRequest = async (
 const commonRequest = (
   dependencies: RunPhase1ConformanceDependencies,
   args: readonly string[],
-  stdin: string
+  stdin: string,
+  processTimeoutMs = defaultProcessTimeoutMs
 ): Phase1ConformanceProcessRequest =>
   (() => {
     const request = Object.freeze({
@@ -532,7 +535,7 @@ const commonRequest = (
       cwd: dependencies.workingDirectory,
       stdin,
       env: cloneAndDeepFreeze(dependencies.environment),
-      timeoutMs,
+      timeoutMs: processTimeoutMs,
       maxStdoutBytes: maximumOutputBytes,
       maxStderrBytes: maximumOutputBytes,
       shell: false,
@@ -575,14 +578,26 @@ const runPlan = async (
         JSON.stringify({
           schemaVersion: 1,
           suite: { commit: config.suite.commit },
-          target: {
-            discoveryUrl: config.target.discoveryUrl,
-            suiteBaseUrl: config.target.suiteBaseUrl,
-            alias: config.target.alias,
-          },
+          target:
+            plan.id === 'oidcc-basic-certification-test-plan'
+              ? {
+                  issuer: config.target.issuer,
+                  discoveryUrl: config.target.discoveryUrl,
+                  suiteBaseUrl: config.target.suiteBaseUrl,
+                  alias: config.target.alias,
+                  callbackUri: config.target.callbackUri,
+                }
+              : {
+                  discoveryUrl: config.target.discoveryUrl,
+                  suiteBaseUrl: config.target.suiteBaseUrl,
+                  alias: config.target.alias,
+                },
           planId: plan.id,
           variant: plan.variant,
-        })
+        }),
+        plan.id === 'oidcc-basic-certification-test-plan'
+          ? basicProcessTimeoutMs
+          : defaultProcessTimeoutMs
       ),
       dependencies
     ),

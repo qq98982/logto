@@ -35,6 +35,7 @@ const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 
 type Behavior =
   | 'cleanup-query-failure'
+  | 'fixture-cleanup-failure'
   | 'plan-failure'
   | 'signal'
   | 'setup-signal'
@@ -308,10 +309,48 @@ if (args[0] === 'exec' && args[1] === '--interactive') {
   const state = readState();
   const containerId = args[2];
   let environment;
+  let service;
   for (const value of Object.values(state.projects)) {
-    if (value.containers[containerId]) environment = value.environment;
+    if (value.containers[containerId]) {
+      environment = value.environment;
+      service = value.containers[containerId];
+    }
   }
-  if (!environment || args[3] !== '/opt/aster/phase1-conformance-driver.sh') process.exit(1);
+  if (!environment) process.exit(1);
+  const fixtureCommandIndex = args.indexOf('/usr/local/bin/aster-admin', 3);
+  if (service === 'candidate-fixture-coordinator' && fixtureCommandIndex >= 0 &&
+      args[fixtureCommandIndex + 1] === 'fixture' && args[fixtureCommandIndex + 2] === 'apply') {
+    const fixturePrefix = args.slice(3, fixtureCommandIndex);
+    if (JSON.stringify(fixturePrefix) !== JSON.stringify([
+      '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin',
+      'ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock',
+    ])) process.exit(1);
+    const descriptor = JSON.parse(fs.readFileSync(0, 'utf8'));
+    fs.appendFileSync(logPath, JSON.stringify(['fixture-operation', descriptor.operation]) + '\\n');
+    if (descriptor.operation === 'provision') {
+      state.fixtureProvisioned = true;
+      writeState(state);
+      process.stdout.write(JSON.stringify({
+        schemaVersion: 1,
+        operation: 'provision',
+        public: {
+          schemaVersion: 1,
+          recipe: 'oidfConformance',
+          allocations: [{ allocationId: descriptor.allocationId }],
+        },
+      }));
+      process.exit(0);
+    }
+    if (descriptor.operation === 'cleanup' && state.fixtureProvisioned === true) {
+      if (state.fixtureCleanupFailure === true) process.exit(1);
+      state.fixtureProvisioned = false;
+      writeState(state);
+      process.stdout.write(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+      process.exit(0);
+    }
+    process.exit(1);
+  }
+  if (args[3] !== '/opt/aster/phase1-conformance-driver.sh') process.exit(1);
   const result = cp.spawnSync(environment.ASTER_PHASE1_CONFORMANCE_DRIVER_FILE, args.slice(4), {
     input: fs.readFileSync(0),
     encoding: 'utf8',
@@ -355,7 +394,8 @@ copyFileSync(descriptorPath, path.join(captureRoot, descriptor.projectName + '.j
 appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\n');
 appendFileSync(path.join(captureRoot, 'started.log'), descriptor.projectName + '\\n');
 const behavior = ${JSON.stringify(behavior)};
-const reachesPlan = behavior === 'plan-failure' || behavior === 'cleanup-query-failure';
+const reachesPlan = behavior === 'plan-failure' || behavior === 'cleanup-query-failure' ||
+  behavior === 'fixture-cleanup-failure';
 if (behavior === 'signal') setInterval(() => {}, 2147483647);
 if (behavior === 'wrong-container') descriptor.runnerContainerId = 'f'.repeat(64);
 if (behavior === 'wrong-project') descriptor.projectName = 'aster-phase1-conformance-' + 'd'.repeat(16);
@@ -429,7 +469,10 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
   await writeFile(path.join(suite, 'pom.xml'), '<project/>\n');
   const suiteCommit = await initializeRepository(suite, suite, 'suite');
   await Promise.all([
-    writeFile(path.join(aster, 'compatibility/phase-1-profile.json'), '{}\n'),
+    writeFile(
+      path.join(aster, 'compatibility/phase-1-profile.json'),
+      '{"fixtures":{},"conformance":{}}\n'
+    ),
     writeFile(path.join(aster, 'compatibility/phase-1-profile.schema.json'), '{}\n'),
   ]);
   await initializeRepository(aster, 'https://github.com/qq98982/aster.git', 'aster');
@@ -444,6 +487,8 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
         archiveLoadedImageId: candidateImageId,
         hangBuild: behavior === 'setup-signal',
         setupMarker: path.join(captureRoot, 'setup-started.log'),
+        fixtureProvisioned: false,
+        fixtureCleanupFailure: behavior === 'fixture-cleanup-failure',
       })
     ),
     writeFile(dockerLog, ''),
@@ -511,7 +556,19 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     ),
     writeFile(
       runner,
-      "import { spawnSync } from 'node:child_process';\nimport { readFileSync } from 'node:fs';\nconst result = spawnSync(process.env.ASTER_PHASE1_CONFORMANCE_DRIVER_FILE, process.argv.slice(2), { input: readFileSync(0), encoding: 'utf8' });\nprocess.stdout.write(result.stdout ?? '');\nprocess.stderr.write(result.stderr ?? '');\nprocess.exit(result.status ?? 1);\n",
+      `const planId = process.argv[3];
+process.stdout.write(JSON.stringify({
+  schemaVersion: 1,
+  kind: 'phase1-conformance-official-failure-terminal',
+  suiteCommit: ${JSON.stringify(suiteCommit)},
+  planId,
+  module: null,
+  status: 'FAILED',
+  result: 'FAILED',
+  failureCategory: 'suite-api',
+}));
+process.exit(1);
+`,
       { mode: 0o644 }
     ),
     writeFile(
@@ -775,7 +832,19 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     expect({ log, bridgeDiagnostic }).toEqual(
       expect.objectContaining({ log: expect.stringContaining('"exec","--interactive"') })
     );
-    expect(basicDiagnostic).toEqual({ invoked: true, status: 1, stdout: '', stderr: '' });
+    expect(basicDiagnostic).toMatchObject({ invoked: true, status: 1, stderr: '' });
+    expect(JSON.parse(basicDiagnostic.stdout)).toMatchObject({
+      planId: 'oidcc-basic-certification-test-plan',
+      status: 'FAILED',
+      failureCategory: 'suite-api',
+    });
+    const provisionIndex = log.indexOf('["fixture-operation","provision"]');
+    const cleanupIndex = log.indexOf('["fixture-operation","cleanup"]');
+    const firstRemoveIndex = log.indexOf('["rm","--force"');
+
+    expect(provisionIndex).toBeGreaterThanOrEqual(0);
+    expect(cleanupIndex).toBeGreaterThan(provisionIndex);
+    expect(firstRemoveIndex).toBeGreaterThan(cleanupIndex);
     expect(log).not.toContain('/dev/shm');
     expect(log).not.toContain('/var/lib/docker');
     expect(await activeResources(fixture)).toBe(false);
@@ -820,11 +889,18 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     expect(serializedDescriptor).not.toContain(fixture.candidateArchive);
     expect(serializedDescriptor).not.toMatch(/candidateArchive|archiveHash/iu);
     expect(publicEnvironment).toBe(`${candidateImageId}||`);
-    expect(JSON.parse(basicDiagnosticSource)).toEqual({
-      invoked: true,
-      status: 1,
-      stdout: '',
-      stderr: '',
+    const basicDiagnostic = JSON.parse(basicDiagnosticSource) as {
+      invoked: boolean;
+      status: number;
+      stdout: string;
+      stderr: string;
+    };
+
+    expect(basicDiagnostic).toMatchObject({ invoked: true, status: 1, stderr: '' });
+    expect(JSON.parse(basicDiagnostic.stdout)).toMatchObject({
+      planId: 'oidcc-basic-certification-test-plan',
+      status: 'FAILED',
+      failureCategory: 'suite-api',
     });
     expect(after.mode % 0o1000).toBe(before.mode % 0o1000);
     expect(after.size).toBe(before.size);
@@ -973,6 +1049,32 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
 
     expect(composeMetadata.mode % 0o1000).toBe(0o400);
     expect(caKeyMetadata.mode % 0o1000).toBe(0o400);
+  });
+
+  it('removes generated OIDF secrets even when fixture cleanup fails', async () => {
+    const fixture = await createFixture('fixture-cleanup-failure');
+
+    await runFailure(fixture);
+    expect(await activeResources(fixture)).toBe(false);
+    const runs = await readdir(fixture.runRoot);
+
+    expect(runs).toHaveLength(1);
+    const preservedRun = path.join(fixture.runRoot, runs[0] ?? 'missing');
+    for (const relative of [
+      'secrets/phase1-user',
+      'secrets/oidf-basic-1',
+      'secrets/oidf-basic-2',
+      'secrets/oidf-post-1',
+      'secrets/oidf-conformance-public.json',
+      'fixture/oidf-conformance-provision.json',
+      'fixture/oidf-conformance-provision-response.json',
+      'fixture/oidf-conformance-cleanup.json',
+      'fixture/oidf-conformance-cleanup-response.json',
+    ]) {
+      await expect(stat(path.join(preservedRun, relative))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    }
   });
 
   it.each([

@@ -313,7 +313,6 @@
       "networks": { "oidf-edge": { "ipv4_address": "172.30.249.13" } },
       "volumes": [
         "${ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE:?required}:/etc/aster/pki/root-ca.crt:ro",
-        "candidate-fixture:/run/aster-fixture:rw",
         "${ASTER_PHASE1_CONFORMANCE_SECRET_DIRECTORY:?required}:/run/aster-secrets:ro",
         "${ASTER_PHASE1_CONFORMANCE_EVIDENCE_DIRECTORY:?required}:/var/lib/aster/evidence:rw",
         "${ASTER_PHASE1_CONFORMANCE_DRIVER_FILE:?required}:/opt/aster/phase1-conformance-driver.sh:ro",

@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the complete official suite exchange and mutates one response contract at a time. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the complete official suite exchange, including the closed Basic failure terminal, and mutates one response contract at a time. */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -406,7 +406,7 @@ describe('official OIDF Config plan runner', () => {
     expect(now).toBeGreaterThanOrEqual(220_000);
   });
 
-  it('keeps Basic fail-closed and silent in both driver and runner entry points', () => {
+  it('emits only the closed failure category for invalid Basic input in both entry points', () => {
     const driverPath = path.resolve(
       process.cwd(),
       '../../.scripts/compatibility/phase1-conformance-driver.sh'
@@ -426,9 +426,23 @@ describe('official OIDF Config plan runner', () => {
       { input, encoding: 'utf8' }
     );
 
-    expect(driver).toMatchObject({ status: 1, stdout: '', stderr: '' });
-    expect(direct).toMatchObject({ status: 1, stdout: '', stderr: '' });
+    const expected = {
+      schemaVersion: 1,
+      kind: 'phase1-conformance-official-failure-terminal',
+      suiteCommit: phase1ConformanceSuiteCommit,
+      planId: 'oidcc-basic-certification-test-plan',
+      module: null,
+      status: 'FAILED',
+      result: 'FAILED',
+      failureCategory: 'input',
+    };
+
+    expect(driver).toMatchObject({ status: 1, stderr: '' });
+    expect(direct).toMatchObject({ status: 1, stderr: '' });
+    expect(JSON.parse(driver.stdout)).toEqual(expected);
+    expect(JSON.parse(direct.stdout)).toEqual(expected);
+    expect(driver.stdout).not.toMatch(/https?:|cookie|token|secret|password/iu);
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

@@ -10,7 +10,7 @@ if [ "$#" -ne 2 ]; then
 fi
 case "$1:$2" in
   --adapter-control-id:oidf-basic-1|--adapter-control-id:oidf-basic-2|--adapter-control-id:oidf-post-1) ;;
-  --plan-id:oidcc-config-certification-test-plan) ;;
+  --plan-id:oidcc-basic-certification-test-plan|--plan-id:oidcc-config-certification-test-plan) ;;
   *) fail ;;
 esac
 

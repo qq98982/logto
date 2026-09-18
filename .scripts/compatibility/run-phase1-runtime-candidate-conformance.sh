@@ -204,9 +204,21 @@ POSTGRES_PASSWORD_FILE="${RUN_DIR}/postgres-password"
 COMPOSE_ENV="${RUN_DIR}/compose.env"
 DESCRIPTOR_FILE="${CONFORMANCE_ROOT}/runtime-candidate-conformance.json"
 REVIEW_PROFILE="${RUN_DIR}/review-profile.json"
+OIDF_PASSWORD_FILE="${SECRET_DIR}/phase1-user"
+OIDF_BASIC_1_SECRET_FILE="${SECRET_DIR}/oidf-basic-1"
+OIDF_BASIC_2_SECRET_FILE="${SECRET_DIR}/oidf-basic-2"
+OIDF_POST_1_SECRET_FILE="${SECRET_DIR}/oidf-post-1"
+OIDF_PUBLIC_MAP_FILE="${SECRET_DIR}/oidf-conformance-public.json"
+OIDF_PROVISION_DESCRIPTOR="${FIXTURE_DIR}/oidf-conformance-provision.json"
+OIDF_PROVISION_RESPONSE="${FIXTURE_DIR}/oidf-conformance-provision-response.json"
+OIDF_CLEANUP_DESCRIPTOR="${FIXTURE_DIR}/oidf-conformance-cleanup.json"
+OIDF_CLEANUP_RESPONSE="${FIXTURE_DIR}/oidf-conformance-cleanup-response.json"
 readonly CONFORMANCE_ROOT EVIDENCE_DIR SECRET_DIR PRIVATE_HOME PRIVATE_TMP SUITE_CHECKOUT
 readonly PRIMARY_KEYRING_DIR FIXTURE_DIR PRIMARY_CONFIG_FILE POSTGRES_PASSWORD_FILE COMPOSE_ENV
 readonly DESCRIPTOR_FILE REVIEW_PROFILE
+readonly OIDF_PASSWORD_FILE OIDF_BASIC_1_SECRET_FILE OIDF_BASIC_2_SECRET_FILE
+readonly OIDF_POST_1_SECRET_FILE OIDF_PUBLIC_MAP_FILE OIDF_PROVISION_DESCRIPTOR
+readonly OIDF_PROVISION_RESPONSE OIDF_CLEANUP_DESCRIPTOR OIDF_CLEANUP_RESPONSE
 /usr/bin/mkdir -m 700 -- "${CONFORMANCE_ROOT}" "${EVIDENCE_DIR}" "${SECRET_DIR}" \
   "${PRIVATE_HOME}" "${PRIVATE_TMP}" "${SUITE_CHECKOUT}" "${PRIMARY_KEYRING_DIR}" "${FIXTURE_DIR}"
 assert_build_root_identity
@@ -248,6 +260,9 @@ SETUP_RUN_TOKEN=''
 PODMAN_SERVICE_PID=''
 PODMAN_SERVICE_PGID=''
 PODMAN_SERVICE_TOKEN=''
+COORDINATOR_CONTAINER_ID=''
+OIDF_ALLOCATION_ID=''
+OIDF_FIXTURE_PROVISIONED=0
 
 docker_cli() {
   "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 30s \
@@ -355,6 +370,118 @@ compose_up_phase() {
       --file "${COMPOSE_FILE}" up --detach --no-build --no-deps "$@"
 }
 
+cleanup_oidf_fixture() {
+  local cleanup_status=0
+
+  [[ "${OIDF_FIXTURE_PROVISIONED}" == 1 ]] || return 0
+  [[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${OIDF_CLEANUP_DESCRIPTOR}" "${OIDF_ALLOCATION_ID}" "${OIDF_PUBLIC_MAP_FILE}" <<'NODE' || return 1
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+const [output, allocationId, publicMapPath] = process.argv.slice(2);
+const descriptor = {
+  schemaVersion: 1,
+  operation: 'cleanup',
+  recipe: 'oidfConformance',
+  allocationId,
+};
+if (existsSync(publicMapPath)) descriptor.public = JSON.parse(readFileSync(publicMapPath, 'utf8'));
+writeFileSync(output, JSON.stringify(descriptor), { flag: 'wx', mode: 0o400 });
+NODE
+  docker_cli exec --interactive "${COORDINATOR_CONTAINER_ID}" \
+    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+    ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
+    /usr/local/bin/aster-admin fixture apply \
+    <"${OIDF_CLEANUP_DESCRIPTOR}" >"${OIDF_CLEANUP_RESPONSE}" || cleanup_status=1
+  if [[ "${cleanup_status}" == 0 ]]; then
+    "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+      "${OIDF_CLEANUP_RESPONSE}" <<'NODE' || cleanup_status=1
+import { readFileSync } from 'node:fs';
+const value = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const keys = Object.keys(value ?? {});
+if (!value || Array.isArray(value) || keys.length !== 3 ||
+  !['schemaVersion', 'operation', 'ok'].every((key) => keys.includes(key)) ||
+  value.schemaVersion !== 1 || value.operation !== 'cleanup' || value.ok !== true) process.exit(1);
+NODE
+  fi
+  /usr/bin/rm -f -- "${OIDF_CLEANUP_DESCRIPTOR}" "${OIDF_CLEANUP_RESPONSE}" || cleanup_status=1
+  [[ "${cleanup_status}" != 0 ]] || OIDF_FIXTURE_PROVISIONED=0
+  return "${cleanup_status}"
+}
+
+remove_oidf_private_material() {
+  /usr/bin/rm -f -- \
+    "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" \
+    "${OIDF_BASIC_2_SECRET_FILE}" "${OIDF_POST_1_SECRET_FILE}" \
+    "${OIDF_PUBLIC_MAP_FILE}" "${OIDF_PROVISION_DESCRIPTOR}" \
+    "${OIDF_PROVISION_RESPONSE}" "${OIDF_CLEANUP_DESCRIPTOR}" \
+    "${OIDF_CLEANUP_RESPONSE}"
+}
+
+provision_oidf_fixture() {
+  [[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${OIDF_PROVISION_DESCRIPTOR}" "${PROFILE_SOURCE}" "${OIDF_ALLOCATION_ID}" \
+    "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" "${OIDF_BASIC_2_SECRET_FILE}" \
+    "${OIDF_POST_1_SECRET_FILE}" <<'NODE' || return 1
+import { readFileSync, writeFileSync } from 'node:fs';
+const [output, profilePath, allocationId, passwordPath, basic1Path, basic2Path, post1Path] =
+  process.argv.slice(2);
+const profile = JSON.parse(readFileSync(profilePath, 'utf8'));
+if (!profile || Array.isArray(profile) || typeof profile.fixtures !== 'object' ||
+  profile.fixtures === null || typeof profile.conformance !== 'object' ||
+  profile.conformance === null) process.exit(1);
+const text = (secretPath) => readFileSync(secretPath, 'utf8');
+writeFileSync(output, JSON.stringify({
+  schemaVersion: 1,
+  operation: 'provision',
+  recipe: 'oidfConformance',
+  allocationId,
+  profile: { fixtures: profile.fixtures, conformance: profile.conformance },
+  seeds: {
+    passwords: [{ logicalId: 'phase1-user', value: text(passwordPath) }],
+    clientSecrets: [
+      { logicalId: 'oidf-basic-1', value: text(basic1Path) },
+      { logicalId: 'oidf-basic-2', value: text(basic2Path) },
+      { logicalId: 'oidf-post-1', value: text(post1Path) },
+    ],
+  },
+}), { flag: 'wx', mode: 0o400 });
+NODE
+  OIDF_FIXTURE_PROVISIONED=1
+  docker_cli exec --interactive "${COORDINATOR_CONTAINER_ID}" \
+    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+    ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
+    /usr/local/bin/aster-admin fixture apply \
+    <"${OIDF_PROVISION_DESCRIPTOR}" >"${OIDF_PROVISION_RESPONSE}" || return 1
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${OIDF_PROVISION_RESPONSE}" "${OIDF_PUBLIC_MAP_FILE}" "${OIDF_ALLOCATION_ID}" \
+    "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" "${OIDF_BASIC_2_SECRET_FILE}" \
+    "${OIDF_POST_1_SECRET_FILE}" <<'NODE' || return 1
+import { readFileSync, writeFileSync } from 'node:fs';
+const [responsePath, output, allocationId, ...secretPaths] = process.argv.slice(2);
+const value = JSON.parse(readFileSync(responsePath, 'utf8'));
+const keys = Object.keys(value ?? {});
+if (!value || Array.isArray(value) || keys.length !== 3 ||
+  !['schemaVersion', 'operation', 'public'].every((key) => keys.includes(key)) ||
+  value.schemaVersion !== 1 || value.operation !== 'provision') process.exit(1);
+const publicMap = value.public;
+if (!publicMap || Array.isArray(publicMap) || publicMap.schemaVersion !== 1 ||
+  publicMap.recipe !== 'oidfConformance' || !Array.isArray(publicMap.allocations) ||
+  publicMap.allocations.length !== 1 ||
+  publicMap.allocations[0]?.allocationId !== allocationId) process.exit(1);
+const serialized = JSON.stringify(publicMap);
+for (const secretPath of secretPaths) {
+  const secret = readFileSync(secretPath, 'utf8');
+  if (secret.length === 0 || serialized.includes(secret)) process.exit(1);
+}
+writeFileSync(output, serialized, { flag: 'wx', mode: 0o400 });
+NODE
+  /usr/bin/rm -f -- "${OIDF_PROVISION_DESCRIPTOR}" "${OIDF_PROVISION_RESPONSE}" || return 1
+  [[ "$(/usr/bin/stat -c '%a|%F' -- "${OIDF_PUBLIC_MAP_FILE}" 2>/dev/null || true)" == \
+    '400|regular file' ]] || return 1
+}
+
 cleanup() {
   local exit_code=$? cleanup_failed=0 remaining resource_id index
   trap - EXIT INT TERM HUP
@@ -373,6 +500,9 @@ cleanup() {
   NODE_RUN_PID=''
   NODE_RUN_PGID=''
   NODE_RUN_TOKEN=''
+
+  cleanup_oidf_fixture || cleanup_failed=1
+  remove_oidf_private_material || cleanup_failed=1
 
   if [[ "${project_started}" == 1 ]]; then
     for ((index=${#container_ids[@]} - 1; index >= 0; index--)); do
@@ -728,7 +858,20 @@ readonly SUITE_IMAGE_ID
 failure_stage=private-material
 printf '%s\n' "$(random_hex 32)" >"${POSTGRES_PASSWORD_FILE}"
 printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$(random_uuid)" "$(random_hex 32)" >"${PRIMARY_CONFIG_FILE}"
-/usr/bin/chmod 0400 "${POSTGRES_PASSWORD_FILE}" "${PRIMARY_CONFIG_FILE}"
+printf '%s' "$(random_hex 32)" >"${OIDF_PASSWORD_FILE}"
+printf '%s' "$(random_hex 32)" >"${OIDF_BASIC_1_SECRET_FILE}"
+printf '%s' "$(random_hex 32)" >"${OIDF_BASIC_2_SECRET_FILE}"
+printf '%s' "$(random_hex 32)" >"${OIDF_POST_1_SECRET_FILE}"
+/usr/bin/chmod 0400 "${POSTGRES_PASSWORD_FILE}" "${PRIMARY_CONFIG_FILE}" \
+  "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" "${OIDF_BASIC_2_SECRET_FILE}" \
+  "${OIDF_POST_1_SECRET_FILE}"
+for secret_file in "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" \
+  "${OIDF_BASIC_2_SECRET_FILE}" "${OIDF_POST_1_SECRET_FILE}"; do
+  [[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${secret_file}" 2>/dev/null || true)" == \
+    "$(/usr/bin/id -u)|$(/usr/bin/id -g)|400|regular file" ]] || fail
+done
+OIDF_ALLOCATION_ID="oidf-conformance-$(random_hex 16)"
+readonly OIDF_ALLOCATION_ID
 run_owned_command 180 /dev/null /dev/null \
   PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C \
   "${PKI_SCRIPT}" "${RUN_DIR}" "$(/usr/bin/id -u)" "$(/usr/bin/id -g)" || fail
@@ -778,6 +921,11 @@ compose_up_phase candidate-conformance-core || fail
 wait_for_topology candidate-conformance-core
 compose_up_phase candidate-fixture-coordinator suite-nginx || fail
 wait_for_topology candidate-fixture-coordinator suite-nginx
+COORDINATOR_CONTAINER_ID="$(compose ps --all -q candidate-fixture-coordinator 2>/dev/null || true)"
+[[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || fail
+readonly COORDINATOR_CONTAINER_ID
+failure_stage=fixture-provision
+provision_oidf_fixture || fail
 compose_up_phase oidf-runner || fail
 wait_for_topology oidf-runner
 wait_for_topology "${SERVICES[@]}"

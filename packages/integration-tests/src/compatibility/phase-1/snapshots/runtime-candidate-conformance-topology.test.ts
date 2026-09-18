@@ -219,6 +219,10 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(services['oidf-runner']?.volumes).toContain(runnerSecretMount);
     expect(services['oidf-runner']?.volumes).toContain(runnerDriverMount);
     expect(services['oidf-runner']?.volumes).toContain(runnerScriptMount);
+    expect(services['oidf-runner']?.volumes).not.toContain(
+      'candidate-fixture:/run/aster-fixture:rw'
+    );
+    expect(serialized('oidf-runner')).not.toContain('/run/aster-fixture');
     expect(services['oidf-runner']?.userns_mode).toBe('keep-id');
     expect(topologySource.match(/ASTER_PHASE1_CONFORMANCE_SECRET_DIRECTORY/gu)).toHaveLength(1);
     for (const [name, service] of Object.entries(services)) {
@@ -362,6 +366,19 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(lifecycle).toContain('compose_up_phase candidate-primary-init suite-server');
     expect(lifecycle).toContain('compose_up_phase candidate-conformance-core');
     expect(lifecycle).toContain('compose_up_phase candidate-fixture-coordinator suite-nginx');
+    expect(lifecycle).toMatch(/\/usr\/local\/bin\/aster-admin\s+fixture apply/u);
+    expect(lifecycle).toContain("operation: 'provision'");
+    expect(lifecycle).toContain("operation: 'cleanup'");
+    expect(lifecycle).toContain('OIDF_PUBLIC_MAP_FILE');
+    for (const secretName of [
+      'phase1-user',
+      'oidf-basic-1',
+      'oidf-basic-2',
+      'oidf-post-1',
+      'oidf-conformance-public.json',
+    ]) {
+      expect(lifecycle).toContain(secretName);
+    }
     expect(lifecycle).toContain('compose_up_phase oidf-runner');
     expect(lifecycle).toContain('compose ps --all -q');
     expect(lifecycle).not.toContain('/dev/shm');
