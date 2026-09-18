@@ -25,6 +25,7 @@ export type Phase1RunAuthorization = Readonly<{
   differentialGate?: true;
   candidateInvariantGate?: true;
   browserGate?: true;
+  conformanceGate?: true;
 }>;
 
 const diagnostic = 'Phase 1 run authorization failed.';

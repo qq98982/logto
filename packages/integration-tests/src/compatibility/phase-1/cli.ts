@@ -47,6 +47,7 @@ import {
 import {
   executeAuthorizedPhase1BrowserGate,
   executeAuthorizedPhase1CandidateInvariantGate,
+  executeAuthorizedPhase1ConformanceGate,
   executeAuthorizedPhase1DifferentialGate,
   executeAuthorizedPhase1Run,
 } from './snapshots/execution-coordinator.js';
@@ -59,7 +60,12 @@ export type {
 } from './run-authorization.js';
 
 export type Phase1RunCommand = Readonly<{
-  command: 'run' | 'run-differential' | 'run-candidate-invariants' | 'run-browser';
+  command:
+    | 'run'
+    | 'run-differential'
+    | 'run-candidate-invariants'
+    | 'run-browser'
+    | 'run-conformance';
   mode: Phase1RunMode;
   profilePath: string;
   schemaPath: string;
@@ -101,6 +107,10 @@ export type Phase1CliDependencies = Readonly<{
     command: Phase1RunCommand
   ) => Promise<void>;
   executeBrowser: (
+    authorization: Phase1RunAuthorization,
+    command: Phase1RunCommand
+  ) => Promise<void>;
+  executeConformance: (
     authorization: Phase1RunAuthorization,
     command: Phase1RunCommand
   ) => Promise<void>;
@@ -251,7 +261,8 @@ export const parsePhase1Arguments = (arguments_: readonly string[]): Phase1CliCo
     subcommand === 'run' ||
     subcommand === 'run-differential' ||
     subcommand === 'run-candidate-invariants' ||
-    subcommand === 'run-browser'
+    subcommand === 'run-browser' ||
+    subcommand === 'run-conformance'
   ) {
     const { values, booleans } = parseFlagMap(
       rest,
@@ -843,6 +854,9 @@ const defaultDependencies: Phase1CliDependencies = {
   executeBrowser: async (authorization) => {
     await executeAuthorizedPhase1BrowserGate(authorization, defaultLogtoRoot);
   },
+  executeConformance: async (authorization) => {
+    await executeAuthorizedPhase1ConformanceGate(authorization, defaultLogtoRoot);
+  },
   prepareReviewProfile: preparePhase1ReviewProfile,
   stdout: (message) => {
     console.log(message);
@@ -909,6 +923,7 @@ export const runPhase1Cli = async (
           candidateInvariantGate: true as const,
         }),
         ...(command.command === 'run-browser' && { browserGate: true as const }),
+        ...(command.command === 'run-conformance' && { conformanceGate: true as const }),
       } satisfies Phase1RunAuthorization)
     );
     switch (command.command) {
@@ -927,6 +942,12 @@ export const runPhase1Cli = async (
       case 'run-browser': {
         await dependencies.executeBrowser(authorization, command);
         await writeStatus(dependencies.stdout, 'Phase 1 browser gate authorized.');
+
+        break;
+      }
+      case 'run-conformance': {
+        await dependencies.executeConformance(authorization, command);
+        await writeStatus(dependencies.stdout, 'Phase 1 conformance gate authorized.');
 
         break;
       }

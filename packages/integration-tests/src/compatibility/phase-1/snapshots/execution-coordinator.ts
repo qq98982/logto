@@ -20,6 +20,12 @@ import { assertCandidateInvariantProjectionIsSanitized } from '../candidate-inva
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { createPhase1LiveCandidateInvariantExecutor } from '../candidate-invariants/live-driver.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
+import {
+  assertValidatedPhase1ConformanceRuntimeContext,
+  createPhase1ConformanceGateRuntimeContext,
+  createPhase1ConformanceRuntimeContextFromEvidence,
+  type Phase1ConformanceRuntimeContext,
+} from '../conformance/context.js';
 import { phase1ConformanceAdapterControlIds } from '../conformance/runner.js';
 import { runPhase1ConformanceRuntime } from '../conformance/runtime.js';
 import { runPhase1DifferentialRuntime } from '../differential/runtime.js';
@@ -53,6 +59,16 @@ export type Phase1EvidenceExecutionPorts = Readonly<{
   conformance(context: Phase1EvidenceRuntimeContext): Promise<unknown>;
 }>;
 
+type Phase1ConformanceExecutionPort = (
+  context: Phase1ConformanceRuntimeContext
+) => Promise<unknown>;
+
+type Phase1ArtifactRuntimeContext = Readonly<{
+  authorization: Phase1RunAuthorization;
+  candidateImageDigest: string;
+  oracleImageDigest?: string;
+}>;
+
 type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 type Phase1ExecutionCoordinatorDependencies = Readonly<{
   createSink(
@@ -61,6 +77,8 @@ type Phase1ExecutionCoordinatorDependencies = Readonly<{
     authority: SecureEvidenceInputAuthority
   ): Promise<SecureEvidenceSink>;
 }>;
+type Phase1ConformanceGateDependencies = Phase1ExecutionCoordinatorDependencies &
+  Readonly<{ conformance: Phase1ConformanceExecutionPort }>;
 
 const diagnostic = 'Phase 1 evidence execution failed.';
 const directCliDiagnostic = 'Direct Phase 1 coordinator execution is unavailable.';
@@ -104,9 +122,9 @@ const exactArray = (value: unknown): readonly unknown[] => (Array.isArray(value)
 
 const requireCommonArtifact = (
   value: unknown,
-  context: Phase1EvidenceRuntimeContext,
+  context: Phase1ArtifactRuntimeContext,
   detailKeys: readonly string[],
-  expectedImageDigest = context.oracleImageDigest
+  expectedImageDigest?: string
 ) => {
   assertPhase1PublicArtifactValue(value);
   const root = exactRecord(value, [
@@ -123,6 +141,7 @@ const requireCommonArtifact = (
     'schemaSha256',
     'imageDigest',
   ]);
+  const imageDigest = expectedImageDigest ?? context.oracleImageDigest ?? fail();
 
   if (
     root.schemaVersion !== 1 ||
@@ -132,7 +151,7 @@ const requireCommonArtifact = (
     provenance.harnessCommit !== harnessCommit ||
     provenance.profileSha256 !== context.authorization.profileSha256 ||
     provenance.schemaSha256 !== context.authorization.schemaSha256 ||
-    provenance.imageDigest !== expectedImageDigest
+    provenance.imageDigest !== imageDigest
   ) {
     return fail();
   }
@@ -406,12 +425,18 @@ const validateCandidateControls = (
   return value as JsonValue;
 };
 
-const validateConformance = (value: unknown, context: Phase1EvidenceRuntimeContext): JsonValue => {
-  const root = requireCommonArtifact(value, context, [
-    'adapterControls',
-    'officialResultIds',
-    'planResults',
-  ]);
+const validateConformance = (
+  value: unknown,
+  context: Phase1EvidenceRuntimeContext | Phase1ConformanceRuntimeContext
+): JsonValue => {
+  const root = requireCommonArtifact(
+    value,
+    context,
+    ['adapterControls', 'officialResultIds', 'planResults'],
+    context.authorization.mode === 'runtime-candidate'
+      ? context.candidateImageDigest
+      : (context.oracleImageDigest ?? fail())
+  );
   const controls = exactArray(root.adapterControls);
   const expectedIds = [...phase1ConformanceAdapterControlIds];
 
@@ -575,6 +600,14 @@ const executeEvidence = async (
 
   try {
     assertValidatedPhase1EvidenceRuntimeContext(context);
+    if (
+      context.authorization.differentialGate === true ||
+      context.authorization.candidateInvariantGate === true ||
+      context.authorization.browserGate === true ||
+      context.authorization.conformanceGate === true
+    ) {
+      return fail();
+    }
     await assertPrivateEmptyDirectory(context.evidenceDirectory);
     const results: Readonly<Record<Phase1EvidenceFileName, JsonValue>> = {
       'phase-1-differential.json': validateDifferential(await ports.differential(context), context),
@@ -688,6 +721,7 @@ const executeEvidence = async (
 const differentialEvidenceName = 'phase-1-differential.json';
 const candidateInvariantEvidenceName = 'phase-1-candidate-invariants.json';
 const browserEvidenceName = 'phase-1-browser.json';
+const conformanceEvidenceName = 'phase-1-conformance.json';
 
 const executeDifferentialGate = async (
   context: Phase1EvidenceRuntimeContext,
@@ -881,6 +915,70 @@ const executeBrowserGate = async (
   }
 };
 
+const executeConformanceGate = async (
+  context: Phase1ConformanceRuntimeContext,
+  conformance: Phase1ConformanceExecutionPort,
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  try {
+    assertValidatedPhase1ConformanceRuntimeContext(context);
+    await assertPrivateEmptyDirectory(context.evidenceDirectory);
+    const result = validateConformance(await conformance(context), context);
+    const serialized = Buffer.from(canonicalPhase1ArtifactBytes(result)).toString('utf8');
+    const trustedInputs = new WeakSet<Record<string, unknown>>([result as Record<string, unknown>]);
+    const authority: SecureEvidenceInputAuthority = Object.freeze({
+      consume: ({ name, source, snapshot, serialized: candidate }) => {
+        if (
+          name !== conformanceEvidenceName ||
+          source !== result ||
+          candidate !== serialized ||
+          !isDeepStrictEqual(snapshot, result) ||
+          Buffer.from(canonicalPhase1ArtifactBytes(snapshot)).toString('utf8') !== serialized ||
+          typeof source !== 'object' ||
+          source === null ||
+          !trustedInputs.delete(source as Record<string, unknown>)
+        ) {
+          throw new TypeError(diagnostic);
+        }
+      },
+    });
+    const sink = await dependencies.createSink(
+      context.evidenceDirectory,
+      Object.freeze([conformanceEvidenceName]),
+      authority
+    );
+    let published = false;
+
+    try {
+      const publication = await sink.write(conformanceEvidenceName, result);
+      published = true;
+      const verified = await sink.scan();
+      const expected = [path.join(context.evidenceDirectory, conformanceEvidenceName)];
+
+      if (
+        trustedInputs.has(result as Record<string, unknown>) ||
+        JSON.stringify(verified) !== JSON.stringify(expected)
+      ) {
+        throw new TypeError(diagnostic);
+      }
+
+      return Object.freeze([publication]);
+    } catch {
+      if (published) {
+        await sink.rollback(conformanceEvidenceName).catch(() => false);
+      }
+      const remaining = await readdir(context.evidenceDirectory).catch(() => ['unreadable']);
+
+      if (remaining.length > 0) {
+        throw new TypeError(diagnostic);
+      }
+      throw new TypeError(diagnostic);
+    }
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
 export const executePhase1EvidenceForTesting = async (
   context: Phase1EvidenceRuntimeContext,
   ports: Phase1EvidenceExecutionPorts,
@@ -929,11 +1027,24 @@ export const executePhase1BrowserGateForTesting = async (
   return executeBrowserGate(context, browser, dependencies);
 };
 
+export const executePhase1ConformanceGateForTesting = async (
+  context: Phase1ConformanceRuntimeContext,
+  conformance: Phase1ConformanceExecutionPort,
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return executeConformanceGate(context, conformance, dependencies);
+};
+
 const runtimePorts: Phase1EvidenceExecutionPorts = Object.freeze({
   differential: runPhase1DifferentialRuntime,
   browser: runPhase1BrowserRuntime,
   candidateControls: runPhase1CandidateControlRuntime,
-  conformance: runPhase1ConformanceRuntime,
+  conformance: async (context) =>
+    runPhase1ConformanceRuntime(createPhase1ConformanceRuntimeContextFromEvidence(context)),
 });
 
 const requiredEnvironmentValue = (environment: RuntimeEnvironment, name: string): string => {
@@ -989,6 +1100,7 @@ export const executeAuthorizedPhase1Run = async (
       authorization.differentialGate === true ||
       authorization.candidateInvariantGate === true ||
       authorization.browserGate === true ||
+      authorization.conformanceGate === true ||
       requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode
     ) {
       return fail();
@@ -1034,6 +1146,9 @@ export const executeAuthorizedPhase1DifferentialGate = async (
     if (
       authorization.mode !== 'runtime-candidate' ||
       authorization.differentialGate !== true ||
+      authorization.candidateInvariantGate === true ||
+      authorization.browserGate === true ||
+      authorization.conformanceGate === true ||
       authorization.controls.recordOracle ||
       !authorization.controls.observationControls ||
       !authorization.controls.discoveryExtraControl ||
@@ -1084,6 +1199,8 @@ export const executeAuthorizedPhase1CandidateInvariantGate = async (
       authorization.mode !== 'runtime-candidate' ||
       authorization.candidateInvariantGate !== true ||
       authorization.differentialGate === true ||
+      authorization.browserGate === true ||
+      authorization.conformanceGate === true ||
       authorization.controls.recordOracle ||
       !authorization.controls.observationControls ||
       !authorization.controls.discoveryExtraControl ||
@@ -1142,6 +1259,7 @@ export const executeAuthorizedPhase1BrowserGate = async (
       authorization.browserGate !== true ||
       authorization.differentialGate === true ||
       authorization.candidateInvariantGate === true ||
+      authorization.conformanceGate === true ||
       authorization.controls.recordOracle ||
       !authorization.controls.observationControls ||
       !authorization.controls.discoveryExtraControl ||
@@ -1180,6 +1298,61 @@ export const executeAuthorizedPhase1BrowserGate = async (
   } catch {
     throw new TypeError(diagnostic);
   }
+};
+
+const executeAuthorizedConformanceGate = async (
+  authorization: Phase1RunAuthorization,
+  repositoryRoot: string,
+  environment: RuntimeEnvironment,
+  dependencies: Phase1ConformanceGateDependencies
+): Promise<readonly string[]> => {
+  try {
+    if (requiredEnvironmentValue(environment, 'ASTER_PHASE1_MODE') !== authorization.mode) {
+      return fail();
+    }
+    const context = createPhase1ConformanceGateRuntimeContext({
+      authorization,
+      candidateImageDigest: requiredEnvironmentValue(
+        environment,
+        'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST'
+      ),
+      evidenceDirectory: requiredEnvironmentValue(environment, 'ASTER_PHASE1_EVIDENCE_DIR'),
+      repositoryRoot,
+      conformanceRoot: requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT'),
+    });
+
+    return await executeConformanceGate(context, dependencies.conformance, dependencies);
+  } catch {
+    throw new TypeError(diagnostic);
+  }
+};
+
+export const executeAuthorizedPhase1ConformanceGate = async (
+  authorization: Phase1RunAuthorization,
+  repositoryRoot: string,
+  environment: RuntimeEnvironment = process.env
+): Promise<readonly string[]> =>
+  executeAuthorizedConformanceGate(authorization, repositoryRoot, environment, {
+    conformance: runPhase1ConformanceRuntime,
+    createSink: async (root, allowlist, authority) =>
+      createSecureEvidenceSink(root, allowlist, {}, authority),
+  });
+
+export const executeAuthorizedPhase1ConformanceGateForTesting = async (
+  authorization: Phase1RunAuthorization,
+  repositoryRoot: string,
+  environment: RuntimeEnvironment,
+  conformance: Phase1ConformanceExecutionPort,
+  dependencies: Phase1ExecutionCoordinatorDependencies
+): Promise<readonly string[]> => {
+  if (process.env.NODE_ENV !== 'test') {
+    return fail();
+  }
+
+  return executeAuthorizedConformanceGate(authorization, repositoryRoot, environment, {
+    ...dependencies,
+    conformance,
+  });
 };
 
 export const runPhase1ExecutionCoordinatorCli = async (): Promise<number> => {

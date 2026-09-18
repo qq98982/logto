@@ -7,7 +7,11 @@ import { canonicalPhase1ArtifactBytes } from '../artifact-contract.js';
 import { phase1BrowserFlowIds } from '../browser/contracts.js';
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
-import { authorizePhase1RunForTesting } from '../cli.js';
+import { authorizePhase1RunForTesting, type Phase1RunAuthorization } from '../cli.js';
+import {
+  createPhase1ConformanceGateRuntimeContext,
+  type Phase1ConformanceRuntimeContext,
+} from '../conformance/context.js';
 import { createPhase1ProjectionEnvelope, hashCanonicalPhase1Json } from '../evidence-envelope.js';
 import { snapshotPhase1EvidencePreservingVerifiedTokens } from '../evidence.js';
 import {
@@ -21,9 +25,11 @@ import { createSecureEvidenceSink } from '../secure-evidence-sink.js';
 
 import {
   executeAuthorizedPhase1DifferentialGate,
+  executeAuthorizedPhase1ConformanceGateForTesting,
   executeAuthorizedPhase1Run,
   executePhase1BrowserGateForTesting,
   executePhase1CandidateInvariantGateForTesting,
+  executePhase1ConformanceGateForTesting,
   executePhase1DifferentialGateForTesting,
   executePhase1EvidenceForTesting,
   loadPhase1RuntimeIsolationAttestations,
@@ -212,6 +218,53 @@ const browserGateContext = (directory: string): Phase1EvidenceRuntimeContext => 
   );
 };
 
+const conformanceGateAuthorization = (): Phase1RunAuthorization =>
+  authorizePhase1RunForTesting(
+    Object.freeze({
+      mode: 'runtime-candidate',
+      profile,
+      profileSha256: '3'.repeat(64),
+      schemaSha256: '4'.repeat(64),
+      provenance: Object.freeze({
+        kind: 'review-candidate',
+        harnessCommit,
+        publishable: false,
+      }),
+      protectedExecution: undefined,
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+      conformanceGate: true,
+    })
+  );
+
+const conformanceGateContext = (directory: string): Phase1ConformanceRuntimeContext =>
+  createPhase1ConformanceGateRuntimeContext({
+    authorization: conformanceGateAuthorization(),
+    candidateImageDigest: candidateDigest,
+    evidenceDirectory: directory,
+    repositoryRoot: '/home/henry/repo/logto',
+    conformanceRoot: '/var/tmp/henry-build/phase1-conformance',
+  });
+
+const conformanceEvidenceGateContext = (directory: string): Phase1EvidenceRuntimeContext =>
+  createPhase1EvidenceRuntimeContext(
+    {
+      authorization: conformanceGateAuthorization(),
+      oracleImageDigest: digest,
+      candidateImageDigest: candidateDigest,
+      evidenceDirectory: directory,
+      oracleSnapshotPath: path.join(path.dirname(directory), 'snapshots', 'oracle-snapshots.json'),
+      repositoryRoot: '/home/henry/repo/logto',
+      conformanceRoot: '/var/tmp/henry-build/phase1-conformance',
+      isolationAttestations: loadPhase1RuntimeIsolationAttestations(runtimeEnvironment),
+    },
+    runtimeEnvironment
+  );
+
 const provenance = (runtime: Phase1EvidenceRuntimeContext) => ({
   harnessCommit,
   profileSha256: runtime.authorization.profileSha256,
@@ -320,22 +373,60 @@ const browser = (runtime: Phase1EvidenceRuntimeContext): JsonValue => ({
     .map((id) => comparable(id, 'oracle-browser', 'candidate-browser')),
 });
 
-const conformance = (runtime: Phase1EvidenceRuntimeContext): JsonValue => ({
-  schemaVersion: 1,
-  mode: runtime.authorization.mode,
-  provenance: provenance(runtime),
-  sanitizerSuccess: true,
-  adapterControls: ['oidf-basic-1', 'oidf-basic-2', 'oidf-post-1'].map((id) => ({
-    id,
-    detected: true,
-    result: createPhase1ProjectionEnvelope('adapter-control', {
-      configured: true,
-      redirectUriMatches: true,
-    }),
-  })),
-  officialResultIds: [],
-  planResults: [],
-});
+const conformance = (
+  runtime: Phase1EvidenceRuntimeContext | Phase1ConformanceRuntimeContext
+): JsonValue => {
+  const planResults = [
+    {
+      planId: 'oidcc-basic-certification-test-plan',
+      resultId: 'oidf-result-opaque-001',
+    },
+    {
+      planId: 'oidcc-config-certification-test-plan',
+      resultId: 'oidf-result-opaque-002',
+    },
+  ].map(({ planId, resultId }) => {
+    const result = createPhase1ProjectionEnvelope('official-plan-result', {
+      outcome: 'passed',
+      checks: { completed: true },
+    });
+
+    return { planId, resultId, resultSha256: result.projectionSha256, result };
+  });
+  const imageDigest =
+    runtime.authorization.mode === 'runtime-candidate'
+      ? runtime.candidateImageDigest
+      : runtime.oracleImageDigest;
+
+  if (imageDigest === undefined) {
+    throw new TypeError('missing conformance fixture image digest');
+  }
+
+  return {
+    schemaVersion: 1,
+    mode: runtime.authorization.mode,
+    provenance: {
+      harnessCommit,
+      profileSha256: runtime.authorization.profileSha256,
+      schemaSha256: runtime.authorization.schemaSha256,
+      imageDigest,
+    },
+    sanitizerSuccess: true,
+    adapterControls: ['oidf-basic-1', 'oidf-basic-2', 'oidf-post-1'].map((id) => ({
+      id,
+      detected: true,
+      result: createPhase1ProjectionEnvelope('adapter-control', {
+        configured: true,
+        redirectUriMatches: true,
+      }),
+    })),
+    officialResultIds:
+      runtime.authorization.mode === 'runtime-candidate'
+        ? planResults.map(({ resultId }) => resultId)
+        : [],
+    planResults: runtime.authorization.mode === 'runtime-candidate' ? planResults : [],
+  };
+};
 
 const ports = (): Phase1EvidenceExecutionPorts => ({
   differential: async (runtime) => differential(runtime),
@@ -443,6 +534,215 @@ describe('Phase 1 evidence execution coordinator', () => {
     expect(artifact.provenance.imageDigest).toBe(digest);
     expect(artifact.flows).toHaveLength(4);
     expect(artifact.flows.every(({ differences }) => differences.length === 0)).toBe(true);
+  });
+
+  it('runs only the conformance port and publishes one candidate-bound artifact', async () => {
+    const root = await createRoot();
+    const runtime = conformanceGateContext(root);
+    const touched = {
+      differential: false,
+      browser: false,
+      candidateControls: false,
+      conformance: false,
+    };
+    const published = await executePhase1ConformanceGateForTesting(
+      runtime,
+      async (candidate) => {
+        touched.conformance = true;
+        return conformance(candidate);
+      },
+      {
+        createSink: async (directory, names, authority) =>
+          createSecureEvidenceSink(directory, names, {}, authority),
+      }
+    );
+
+    expect(touched).toEqual({
+      differential: false,
+      browser: false,
+      candidateControls: false,
+      conformance: true,
+    });
+    expect(published).toEqual([path.join(root, 'phase-1-conformance.json')]);
+    expect(await readdir(root)).toEqual(['phase-1-conformance.json']);
+    const artifact = JSON.parse(
+      await readFile(path.join(root, 'phase-1-conformance.json'), 'utf8')
+    ) as {
+      provenance: { imageDigest: string };
+      adapterControls: unknown[];
+      officialResultIds: string[];
+      planResults: unknown[];
+    };
+
+    expect(artifact.provenance.imageDigest).toBe(candidateDigest);
+    expect(artifact.adapterControls).toHaveLength(3);
+    expect(artifact.officialResultIds).toEqual([
+      'oidf-result-opaque-001',
+      'oidf-result-opaque-002',
+    ]);
+    expect(artifact.planResults).toHaveLength(2);
+  });
+
+  it('runs the authorized conformance gate without target or isolation environment', async () => {
+    const root = await createRoot();
+    const environment = {
+      ASTER_PHASE1_MODE: 'runtime-candidate',
+      ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST: candidateDigest,
+      ASTER_PHASE1_EVIDENCE_DIR: root,
+      ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/phase1-conformance',
+    } as const;
+    let observedContext: Phase1ConformanceRuntimeContext | undefined;
+    const published = await executeAuthorizedPhase1ConformanceGateForTesting(
+      conformanceGateAuthorization(),
+      '/home/henry/repo/logto',
+      environment,
+      async (runtime) => {
+        observedContext = runtime;
+        return conformance(runtime);
+      },
+      {
+        createSink: async (directory, names, authority) =>
+          createSecureEvidenceSink(directory, names, {}, authority),
+      }
+    );
+
+    expect(Object.keys(observedContext ?? {})).toEqual([
+      'authorization',
+      'candidateImageDigest',
+      'evidenceDirectory',
+      'repositoryRoot',
+      'conformanceRoot',
+    ]);
+    expect(published).toEqual([path.join(root, 'phase-1-conformance.json')]);
+    expect(await readdir(root)).toEqual(['phase-1-conformance.json']);
+  });
+
+  it('rejects hostile authorization graphs before the conformance port', async () => {
+    const root = await createRoot();
+    const environment = {
+      ASTER_PHASE1_MODE: 'runtime-candidate',
+      ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST: candidateDigest,
+      ASTER_PHASE1_EVIDENCE_DIR: root,
+      ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/phase1-conformance',
+    } as const;
+    const base = conformanceGateAuthorization();
+    let storedGate = false;
+    const accessor = { ...base } as Record<string, unknown>;
+
+    Object.defineProperty(accessor, 'conformanceGate', {
+      enumerable: true,
+      get: () => !storedGate,
+      set: (value: boolean) => {
+        storedGate = value;
+      },
+    });
+    Object.freeze(accessor);
+    const inherited = Object.create(
+      { browserGate: true },
+      Object.getOwnPropertyDescriptors(base)
+    ) as Record<string, unknown>;
+    const mutable = { ...base, conformanceGate: false } as unknown as Phase1RunAuthorization & {
+      conformanceGate: boolean;
+    };
+    const mintedMutable = authorizePhase1RunForTesting(mutable);
+
+    Object.freeze(inherited);
+    mutable.conformanceGate = true;
+    const hostileAuthorizations = [
+      authorizePhase1RunForTesting(accessor as unknown as Phase1RunAuthorization),
+      authorizePhase1RunForTesting(new Proxy(base, {})),
+      authorizePhase1RunForTesting(inherited as Phase1RunAuthorization),
+      mintedMutable,
+      authorizePhase1RunForTesting(Object.freeze({ ...base, controls: { ...base.controls } })),
+      authorizePhase1RunForTesting(Object.freeze({ ...base, provenance: { ...base.provenance } })),
+      { ...base } as Phase1RunAuthorization,
+    ];
+
+    for (const authorization of hostileAuthorizations) {
+      let touched = false;
+
+      await expect(
+        executeAuthorizedPhase1ConformanceGateForTesting(
+          authorization,
+          '/home/henry/repo/logto',
+          environment,
+          async (runtime) => {
+            touched = true;
+            return conformance(runtime);
+          },
+          {
+            createSink: async (directory, names, authority) =>
+              createSecureEvidenceSink(directory, names, {}, authority),
+          }
+        )
+      ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+      expect(touched).toBe(false);
+      await expect(readdir(root)).resolves.toEqual([]);
+    }
+  });
+
+  it.each([
+    'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST',
+    'ASTER_PHASE1_EVIDENCE_DIR',
+    'ASTER_PHASE1_CONFORMANCE_ROOT',
+  ] as const)('fails closed before the conformance port without %s', async (missing) => {
+    const root = await createRoot();
+    const completeEnvironment: Record<string, string> = {
+      ASTER_PHASE1_MODE: 'runtime-candidate',
+      ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST: candidateDigest,
+      ASTER_PHASE1_EVIDENCE_DIR: root,
+      ASTER_PHASE1_CONFORMANCE_ROOT: '/var/tmp/henry-build/phase1-conformance',
+    };
+    const environment = Object.fromEntries(
+      Object.entries(completeEnvironment).filter(([name]) => name !== missing)
+    );
+    let touched = false;
+
+    await expect(
+      executeAuthorizedPhase1ConformanceGateForTesting(
+        conformanceGateAuthorization(),
+        '/home/henry/repo/logto',
+        environment,
+        async (runtime) => {
+          touched = true;
+          return conformance(runtime);
+        },
+        {
+          createSink: async (directory, names, authority) =>
+            createSecureEvidenceSink(directory, names, {}, authority),
+        }
+      )
+    ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+    expect(touched).toBe(false);
+    await expect(readdir(root)).resolves.toEqual([]);
+  });
+
+  it('rejects gate authorization before every complete-run port', async () => {
+    const root = await createRoot();
+    const runtime = conformanceEvidenceGateContext(root);
+    let touched = false;
+    const rejectPort = async () => {
+      touched = true;
+      throw new TypeError('complete run port must remain unreachable');
+    };
+
+    await expect(
+      executePhase1EvidenceForTesting(
+        runtime,
+        {
+          differential: rejectPort,
+          browser: rejectPort,
+          candidateControls: rejectPort,
+          conformance: rejectPort,
+        },
+        {
+          createSink: async (directory, names, authority) =>
+            createSecureEvidenceSink(directory, names, {}, authority),
+        }
+      )
+    ).rejects.toThrow(/^Phase 1 evidence execution failed\.$/u);
+    expect(touched).toBe(false);
+    await expect(readdir(root)).resolves.toEqual([]);
   });
 
   it('rejects non-runtime authorization before the differential live port', async () => {

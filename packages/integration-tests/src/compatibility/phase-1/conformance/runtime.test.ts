@@ -1,9 +1,17 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- Runtime tests record bounded process requests and deliberately forge partial profile/context authorities. */
-import type { Phase1RunAuthorization, Phase1RunMode } from '../cli.js';
+import {
+  authorizePhase1RunForTesting,
+  type Phase1RunAuthorization,
+  type Phase1RunMode,
+} from '../cli.js';
 import type { Phase1Profile } from '../profile-types.js';
-import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import { phase1ConformanceSuiteCommit, phase1ConformanceSuiteRepository } from './config.js';
+import {
+  createPhase1ConformanceGateRuntimeContext,
+  createPhase1ConformanceRuntimeContextForTesting,
+  type Phase1ConformanceRuntimeContext,
+} from './context.js';
 import {
   phase1ConformanceAdapterControlIds,
   type Phase1ConformanceProcessRequest,
@@ -16,6 +24,7 @@ import {
 
 const harnessCommit = '1'.repeat(40);
 const oracleImageDigest = `sha256:${'2'.repeat(64)}`;
+const candidateImageDigest = `sha256:${'5'.repeat(64)}`;
 const callbackUri = 'https://suite.example/test/a/aster-phase1/callback';
 
 const profile = (): Phase1Profile =>
@@ -107,59 +116,116 @@ const authorization = (mode: Phase1RunMode): Phase1RunAuthorization => {
         }
   );
 
-  return Object.freeze({
-    mode,
-    profile: profile(),
-    profileSha256: '3'.repeat(64),
-    schemaSha256: '4'.repeat(64),
-    provenance,
-    protectedExecution:
-      mode === 'review-candidate' ? undefined : Object.freeze({ mode, provenance }),
-    controls: Object.freeze({
-      recordOracle: false,
-      observationControls: true,
-      discoveryExtraControl: true,
-      candidateInvariantControls: true,
-    }),
-  }) as unknown as Phase1RunAuthorization;
+  return authorizePhase1RunForTesting(
+    Object.freeze({
+      mode,
+      profile: profile(),
+      profileSha256: '3'.repeat(64),
+      schemaSha256: '4'.repeat(64),
+      provenance,
+      protectedExecution:
+        mode === 'review-candidate' ? undefined : Object.freeze({ mode, provenance }),
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+    }) as unknown as Phase1RunAuthorization
+  );
 };
 
 const context = (
-  mode: Phase1RunMode = 'mirror-control',
+  mode: 'review-candidate' | 'mirror-control' = 'mirror-control',
   conformanceRoot = '/var/tmp/henry-build/phase1/conformance'
-): Phase1EvidenceRuntimeContext =>
-  ({
+): Phase1ConformanceRuntimeContext =>
+  createPhase1ConformanceRuntimeContextForTesting({
     authorization: authorization(mode),
     oracleImageDigest,
-    candidateImageDigest:
-      mode === 'mirror-control' ? oracleImageDigest : `sha256:${'5'.repeat(64)}`,
+    candidateImageDigest: mode === 'mirror-control' ? oracleImageDigest : candidateImageDigest,
     evidenceDirectory: '/var/tmp/henry-build/phase1/evidence',
-    oracleSnapshotPath: '/var/tmp/henry-build/phase1/oracle-snapshots.json',
     repositoryRoot: '/home/henry/repo/logto',
     conformanceRoot,
-    targets: {},
-    isolationAttestations: {},
-  }) as Phase1EvidenceRuntimeContext;
+  });
+
+const conformanceGateContext = (): Phase1ConformanceRuntimeContext =>
+  createPhase1ConformanceGateRuntimeContext({
+    authorization: authorizePhase1RunForTesting(
+      Object.freeze({
+        mode: 'runtime-candidate',
+        profile: profile(),
+        profileSha256: '3'.repeat(64),
+        schemaSha256: '4'.repeat(64),
+        provenance: Object.freeze({
+          kind: 'review-candidate' as const,
+          harnessCommit,
+          publishable: false as const,
+        }),
+        protectedExecution: undefined,
+        controls: Object.freeze({
+          recordOracle: false,
+          observationControls: true,
+          discoveryExtraControl: true,
+          candidateInvariantControls: true,
+        }),
+        conformanceGate: true as const,
+      }) as Phase1RunAuthorization
+    ),
+    candidateImageDigest,
+    evidenceDirectory: '/var/tmp/henry-build/phase1/evidence',
+    repositoryRoot: '/home/henry/repo/logto',
+    conformanceRoot: '/var/tmp/henry-build/phase1/conformance',
+  });
+
+const runtimeWithoutGateContext = (): Phase1ConformanceRuntimeContext =>
+  ({
+    authorization: authorization('runtime-candidate'),
+    candidateImageDigest,
+    evidenceDirectory: '/var/tmp/henry-build/phase1/evidence',
+    repositoryRoot: '/home/henry/repo/logto',
+    conformanceRoot: '/var/tmp/henry-build/phase1/conformance',
+  }) as Phase1ConformanceRuntimeContext;
 
 const processResult = (
   request: Phase1ConformanceProcessRequest,
   overrides: Partial<Phase1ConformanceProcessResult> = {}
 ): Phase1ConformanceProcessResult => {
-  const input = JSON.parse(request.stdin) as { staticClient?: { id: string } };
+  const input = JSON.parse(request.stdin) as {
+    staticClient?: { id: string };
+    planId?: string;
+    variant?: unknown;
+  };
+  const output =
+    request.args[0] === '--adapter-control-id'
+      ? {
+          schemaVersion: 1,
+          kind: 'phase1-conformance-adapter-control-terminal',
+          suiteCommit: phase1ConformanceSuiteCommit,
+          adapterControlId: input.staticClient?.id,
+          status: 'PASSED',
+          result: { configured: true, redirectUriMatches: true },
+        }
+      : {
+          schemaVersion: 1,
+          kind: 'phase1-conformance-terminal',
+          suiteCommit: phase1ConformanceSuiteCommit,
+          adapterControlId: 'phase1-conformance.runner.strict-terminal',
+          planId: input.planId,
+          variant: input.variant,
+          status: 'PASSED',
+          resultId:
+            input.planId === 'oidcc-basic-certification-test-plan'
+              ? 'oidf-result-opaque-001'
+              : 'oidf-result-opaque-002',
+          result: { outcome: 'passed', checks: { completed: true } },
+        };
 
   return {
     pid: 1234,
     processGroupId: 1234,
     exitCode: 0,
     signal: undefined,
-    stdout: JSON.stringify({
-      schemaVersion: 1,
-      kind: 'phase1-conformance-adapter-control-terminal',
-      suiteCommit: phase1ConformanceSuiteCommit,
-      adapterControlId: input.staticClient?.id,
-      status: 'PASSED',
-      result: { configured: true, redirectUriMatches: true },
-    }),
+    stdout: JSON.stringify(output),
     stderr: '',
     timedOut: false,
     killed: false,
@@ -219,6 +285,41 @@ describe('Phase 1 conformance production runtime', () => {
     }
   );
 
+  it('runs three controls and both official plans for the runtime conformance gate', async () => {
+    const requests: Phase1ConformanceProcessRequest[] = [];
+    const result = await runPhase1ConformanceRuntimeForTesting(conformanceGateContext(), {
+      runner: async (request) => {
+        requests.push(request);
+        return processResult(request);
+      },
+    });
+
+    expect(requests.map(({ args }) => args)).toEqual([
+      ['--adapter-control-id', 'oidf-basic-1'],
+      ['--adapter-control-id', 'oidf-basic-2'],
+      ['--adapter-control-id', 'oidf-post-1'],
+      ['--plan-id', 'oidcc-basic-certification-test-plan'],
+      ['--plan-id', 'oidcc-config-certification-test-plan'],
+    ]);
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      mode: 'runtime-candidate',
+      provenance: {
+        harnessCommit,
+        profileSha256: '3'.repeat(64),
+        schemaSha256: '4'.repeat(64),
+        imageDigest: candidateImageDigest,
+      },
+      sanitizerSuccess: true,
+      officialResultIds: ['oidf-result-opaque-001', 'oidf-result-opaque-002'],
+    });
+    expect(result.adapterControls).toHaveLength(3);
+    expect(result.planResults.map(({ planId }) => planId)).toEqual([
+      'oidcc-basic-certification-test-plan',
+      'oidcc-config-certification-test-plan',
+    ]);
+  });
+
   it('runs beneath a custom safe build root and rejects an unsafe root', async () => {
     const buildRoot = '/var/tmp/aster-portable-runtime';
     const customRoot = `${buildRoot}/private`;
@@ -247,13 +348,51 @@ describe('Phase 1 conformance production runtime', () => {
     let touched = false;
 
     await expect(
-      runPhase1ConformanceRuntimeForTesting(context('runtime-candidate'), {
+      runPhase1ConformanceRuntimeForTesting(runtimeWithoutGateContext(), {
         runner: async (request) => {
           touched = true;
           return processResult(request);
         },
       })
     ).rejects.toThrow(/^Phase 1 official conformance plan runtime is unavailable$/u);
+    expect(touched).toBe(false);
+  });
+
+  it('rejects an unbranded conformance context before invoking the runner', async () => {
+    let touched = false;
+
+    await expect(
+      runPhase1ConformanceRuntimeForTesting(
+        { ...conformanceGateContext() },
+        {
+          runner: async (request) => {
+            touched = true;
+            return processResult(request);
+          },
+        }
+      )
+    ).rejects.toThrow(/^Invalid phase 1 conformance runtime$/u);
+    expect(touched).toBe(false);
+  });
+
+  it('rejects an injected runner outside NODE_ENV=test', async () => {
+    const originalNodeEnvironment = process.env.NODE_ENV;
+    const runtime = conformanceGateContext();
+    let touched = false;
+
+    process.env.NODE_ENV = 'production';
+    try {
+      await expect(
+        runPhase1ConformanceRuntimeForTesting(runtime, {
+          runner: async (request) => {
+            touched = true;
+            return processResult(request);
+          },
+        })
+      ).rejects.toThrow(/^Invalid phase 1 conformance runtime$/u);
+    } finally {
+      process.env.NODE_ENV = originalNodeEnvironment;
+    }
     expect(touched).toBe(false);
   });
 

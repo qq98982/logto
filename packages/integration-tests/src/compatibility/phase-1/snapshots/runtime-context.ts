@@ -293,7 +293,7 @@ const assertAcceptedAuthorization = (
 ): void => {
   dependencies.assertRunAuthorization(value);
   const runtimeGateKeys = (
-    ['differentialGate', 'candidateInvariantGate', 'browserGate'] as const
+    ['differentialGate', 'candidateInvariantGate', 'browserGate', 'conformanceGate'] as const
   ).filter((key) => Object.hasOwn(value, key));
   const runtimeGateKey = runtimeGateKeys[0];
   const runtimeGate = runtimeGateKey !== undefined;

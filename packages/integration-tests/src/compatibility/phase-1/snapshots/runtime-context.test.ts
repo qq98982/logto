@@ -183,6 +183,26 @@ const browserGateInput = () => {
   return { ...base, authorization };
 };
 
+const conformanceGateInput = () => {
+  const base = differentialGateInput();
+  const { mode, profile, profileSha256, schemaSha256, provenance, protectedExecution, controls } =
+    base.authorization;
+  const authorization = authorizePhase1RunForTesting(
+    Object.freeze({
+      mode,
+      profile,
+      profileSha256,
+      schemaSha256,
+      provenance,
+      protectedExecution,
+      controls,
+      conformanceGate: true as const,
+    })
+  );
+
+  return { ...base, authorization };
+};
+
 describe('Phase 1 evidence runtime context', () => {
   it('loads the exact separated primary and foreign target graph', () => {
     const targets = loadPhase1RuntimeTargetGraph(environment);
@@ -311,6 +331,35 @@ describe('Phase 1 evidence runtime context', () => {
     expect(() =>
       createPhase1EvidenceRuntimeContext({ ...input, authorization: bothMarkers }, environment)
     ).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
+  });
+
+  it('accepts review provenance only for one explicit runtime conformance gate', () => {
+    const input = conformanceGateInput();
+    const context = createPhase1EvidenceRuntimeContext(input, environment);
+
+    expect(context.authorization).toBe(input.authorization);
+    expect(context.authorization).toMatchObject({
+      mode: 'runtime-candidate',
+      conformanceGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
+    });
+    for (const extraGate of [
+      { differentialGate: true },
+      { candidateInvariantGate: true },
+      { browserGate: true },
+    ] as const) {
+      const bothMarkers = authorizePhase1RunForTesting(
+        Object.freeze({
+          ...input.authorization,
+          ...extraGate,
+        }) as Phase1RunAuthorization
+      );
+
+      expect(() =>
+        createPhase1EvidenceRuntimeContext({ ...input, authorization: bothMarkers }, environment)
+      ).toThrow(/^Invalid Phase 1 evidence runtime context$/u);
+    }
   });
 
   it('rejects a structurally valid protected authorization that lacks accepted provenance identity', () => {

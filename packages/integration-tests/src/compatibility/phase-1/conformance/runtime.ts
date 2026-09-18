@@ -10,9 +10,12 @@ import {
 } from '../build-root.js';
 import { createPhase1EvidenceProvenance } from '../evidence-envelope.js';
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
-import type { Phase1EvidenceRuntimeContext } from '../snapshots/runtime-context.js';
 
 import { phase1ConformanceSuiteCommit } from './config.js';
+import {
+  assertValidatedPhase1ConformanceRuntimeContext,
+  type Phase1ConformanceRuntimeContext,
+} from './context.js';
 import { createPhase1ConformanceEvidence, type Phase1ConformanceEvidence } from './evidence.js';
 import { runPhase1Conformance, type Phase1ConformanceProcessRunner } from './runner.js';
 
@@ -26,23 +29,26 @@ export type Phase1ConformanceRuntimeDependencies = Readonly<{
 const diagnostic = 'Invalid phase 1 conformance runtime';
 const runtimeUnavailable = 'Phase 1 official conformance plan runtime is unavailable';
 const requireMode = (
-  context: Phase1EvidenceRuntimeContext,
+  context: Phase1ConformanceRuntimeContext,
   environment: AsterPhase1BuildRootEnvironment
-): 'review-candidate' | 'mirror-control' => {
+): 'review-candidate' | 'mirror-control' | 'runtime-candidate' => {
   const { authorization } = context;
   const { mode, profile, provenance, protectedExecution } = authorization;
 
   if (
-    (mode !== 'review-candidate' && mode !== 'mirror-control') ||
     profile.phase1Harness.commit !== provenance.harnessCommit ||
     !path.isAbsolute(context.repositoryRoot) ||
     path.resolve(context.repositoryRoot) !== context.repositoryRoot ||
     (mode === 'mirror-control' && context.oracleImageDigest !== context.candidateImageDigest) ||
     (mode === 'review-candidate'
       ? provenance.kind !== 'review-candidate' || protectedExecution !== undefined
-      : provenance.kind !== 'accepted-harness' ||
-        protectedExecution?.mode !== mode ||
-        protectedExecution.provenance !== provenance)
+      : mode === 'runtime-candidate'
+        ? authorization.conformanceGate !== true ||
+          provenance.kind !== 'review-candidate' ||
+          protectedExecution !== undefined
+        : provenance.kind !== 'accepted-harness' ||
+          protectedExecution?.mode !== mode ||
+          protectedExecution.provenance !== provenance)
   ) {
     throw new TypeError(diagnostic);
   }
@@ -52,14 +58,18 @@ const requireMode = (
 };
 
 const executeRuntime = async (
-  context: Phase1EvidenceRuntimeContext,
+  context: Phase1ConformanceRuntimeContext,
   dependencies?: Phase1ConformanceRuntimeDependencies
 ): Promise<Phase1ConformanceRuntimeEvidence> => {
-  if (context.authorization.mode === 'runtime-candidate') {
+  if (
+    context.authorization.mode === 'runtime-candidate' &&
+    context.authorization.conformanceGate !== true
+  ) {
     throw new TypeError(runtimeUnavailable);
   }
 
   try {
+    assertValidatedPhase1ConformanceRuntimeContext(context);
     const environment = dependencies?.environment ?? process.env;
     const buildRoot = resolveAsterPhase1BuildRoot(environment);
     const mode = requireMode(context, environment);
@@ -89,13 +99,19 @@ const executeRuntime = async (
       ...(dependencies === undefined ? {} : { runner: dependencies.runner }),
     });
 
+    const imageDigest =
+      mode === 'runtime-candidate' ? context.candidateImageDigest : context.oracleImageDigest;
+
+    if (imageDigest === undefined) {
+      throw new TypeError(diagnostic);
+    }
     const evidence = createPhase1ConformanceEvidence(
       runResult,
       createPhase1EvidenceProvenance({
         harnessCommit,
         profileSha256: context.authorization.profileSha256,
         schemaSha256: context.authorization.schemaSha256,
-        imageDigest: context.oracleImageDigest,
+        imageDigest,
       })
     );
 
@@ -109,11 +125,11 @@ const executeRuntime = async (
 };
 
 export const runPhase1ConformanceRuntime = async (
-  context: Phase1EvidenceRuntimeContext
+  context: Phase1ConformanceRuntimeContext
 ): Promise<Phase1ConformanceRuntimeEvidence> => executeRuntime(context);
 
 export const runPhase1ConformanceRuntimeForTesting = async (
-  context: Phase1EvidenceRuntimeContext,
+  context: Phase1ConformanceRuntimeContext,
   dependencies: Phase1ConformanceRuntimeDependencies
 ): Promise<Phase1ConformanceRuntimeEvidence> => {
   if (process.env.NODE_ENV !== 'test' || typeof dependencies.runner !== 'function') {

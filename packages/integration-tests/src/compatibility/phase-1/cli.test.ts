@@ -154,6 +154,7 @@ const createCliHarness = (
   differentialAuthorizations: Phase1RunAuthorization[];
   candidateInvariantAuthorizations: Phase1RunAuthorization[];
   browserAuthorizations: Phase1RunAuthorization[];
+  conformanceAuthorizations: Phase1RunAuthorization[];
 }> => {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -161,6 +162,7 @@ const createCliHarness = (
   const differentialAuthorizations: Phase1RunAuthorization[] = [];
   const candidateInvariantAuthorizations: Phase1RunAuthorization[] = [];
   const browserAuthorizations: Phase1RunAuthorization[] = [];
+  const conformanceAuthorizations: Phase1RunAuthorization[] = [];
   const profile = profileFixture();
   const dependencies: Phase1CliDependencies = {
     loadRunBundle: async () => ({
@@ -187,6 +189,9 @@ const createCliHarness = (
     executeBrowser: async (authorization) => {
       browserAuthorizations.push(authorization);
     },
+    executeConformance: async (authorization) => {
+      conformanceAuthorizations.push(authorization);
+    },
     prepareReviewProfile: async () => {
       await Promise.resolve();
     },
@@ -207,6 +212,7 @@ const createCliHarness = (
     differentialAuthorizations,
     candidateInvariantAuthorizations,
     browserAuthorizations,
+    conformanceAuthorizations,
   };
 };
 
@@ -452,6 +458,63 @@ describe('Phase 1 CLI grammar', () => {
       ['run-browser', '--mode', 'review-candidate'],
       ['run-browser', '--mode', 'runtime-candidate', '--record-oracle'],
       ['run-browser', '--mode', 'runtime-candidate', '--observation-controls'],
+    ]) {
+      expect(() =>
+        parsePhase1Arguments([
+          ...invalid,
+          '--profile',
+          '/private/profile.json',
+          '--schema',
+          '/private/schema.json',
+        ])
+      ).toThrow('Invalid Phase 1 arguments.');
+    }
+  });
+
+  it('authorizes only the closed runtime conformance gate command', async () => {
+    const arguments_ = [
+      'run-conformance',
+      '--mode',
+      'runtime-candidate',
+      '--profile',
+      '/private/profile.json',
+      '--schema',
+      '/private/schema.json',
+      '--observation-controls',
+      '--discovery-extra-control',
+      '--candidate-invariant-controls',
+    ] as const;
+    expect(parsePhase1Arguments(arguments_)).toMatchObject({
+      command: 'run-conformance',
+      mode: 'runtime-candidate',
+    });
+    const harness = createCliHarness();
+
+    await expect(runPhase1Cli(arguments_, harness.dependencies)).resolves.toBe(0);
+    expect(harness.authorizations).toEqual([]);
+    expect(harness.differentialAuthorizations).toEqual([]);
+    expect(harness.candidateInvariantAuthorizations).toEqual([]);
+    expect(harness.browserAuthorizations).toEqual([]);
+    expect(harness.conformanceAuthorizations).toHaveLength(1);
+    expect(harness.conformanceAuthorizations[0]).toMatchObject({
+      mode: 'runtime-candidate',
+      conformanceGate: true,
+      protectedExecution: undefined,
+      provenance: { kind: 'review-candidate', publishable: false },
+      controls: {
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      },
+    });
+    expect(harness.stdout).toEqual(['Phase 1 conformance gate authorized.']);
+
+    for (const invalid of [
+      ['run-conformance', '--mode', 'mirror-control'],
+      ['run-conformance', '--mode', 'review-candidate'],
+      ['run-conformance', '--mode', 'runtime-candidate', '--record-oracle'],
+      ['run-conformance', '--mode', 'runtime-candidate', '--observation-controls'],
     ]) {
       expect(() =>
         parsePhase1Arguments([
