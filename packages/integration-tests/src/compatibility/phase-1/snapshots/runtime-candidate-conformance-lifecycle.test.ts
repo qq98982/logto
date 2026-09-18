@@ -332,6 +332,7 @@ if (args[0] === 'exec' && args[1] === '--interactive') {
     const descriptor = JSON.parse(fs.readFileSync(0, 'utf8'));
     fs.appendFileSync(logPath, JSON.stringify(['fixture-operation', descriptor.operation]) + '\\n');
     if (descriptor.operation === 'provision') {
+      if (descriptor.recipe !== 'none' && state.keyOnlyBaseline === true) process.exit(1);
       state.fixtureProvisioned = true;
       writeState(state);
       process.stdout.write(JSON.stringify({
@@ -339,14 +340,15 @@ if (args[0] === 'exec' && args[1] === '--interactive') {
         operation: 'provision',
         public: {
           schemaVersion: 1,
-          recipe: 'oidfConformance',
-          allocations: [{ allocationId: descriptor.allocationId }],
+          recipe: descriptor.recipe,
+          allocations: descriptor.recipe === 'none' ? [] : [{ allocationId: descriptor.allocationId }],
         },
       }));
       process.exit(0);
     }
     if (descriptor.operation === 'cleanup' && state.fixtureProvisioned === true) {
-      if (state.fixtureCleanupFailure === true) process.exit(1);
+      if (state.fixtureCleanupFailure === true && descriptor.recipe === 'oidfConformance') process.exit(1);
+      if (descriptor.recipe === 'none') state.keyOnlyBaseline = false;
       state.fixtureProvisioned = false;
       writeState(state);
       process.stdout.write(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
@@ -493,6 +495,7 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
         setupMarker: path.join(captureRoot, 'setup-started.log'),
         fixtureProvisioned: false,
         fixtureCleanupFailure: behavior === 'fixture-cleanup-failure',
+        keyOnlyBaseline: true,
       })
     ),
     writeFile(dockerLog, ''),
@@ -842,13 +845,13 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       status: 'FAILED',
       failureCategory: 'suite-api',
     });
-    const provisionIndex = log.indexOf('["fixture-operation","provision"]');
-    const cleanupIndex = log.indexOf('["fixture-operation","cleanup"]');
+    const fixtureOperations = [
+      ...log.matchAll(/\["fixture-operation","(provision|cleanup)"\]/gu),
+    ].map((match) => match[1]);
     const firstRemoveIndex = log.indexOf('["rm","--force"');
 
-    expect(provisionIndex).toBeGreaterThanOrEqual(0);
-    expect(cleanupIndex).toBeGreaterThan(provisionIndex);
-    expect(firstRemoveIndex).toBeGreaterThan(cleanupIndex);
+    expect(fixtureOperations).toEqual(['provision', 'cleanup', 'provision', 'cleanup']);
+    expect(firstRemoveIndex).toBeGreaterThan(log.lastIndexOf('["fixture-operation","cleanup"]'));
     expect(log).not.toContain('/dev/shm');
     expect(log).not.toContain('/var/lib/docker');
     expect(await activeResources(fixture)).toBe(false);
@@ -1074,6 +1077,10 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       'fixture/oidf-conformance-provision-response.json',
       'fixture/oidf-conformance-cleanup.json',
       'fixture/oidf-conformance-cleanup-response.json',
+      'fixture/baseline-release-provision.json',
+      'fixture/baseline-release-provision-response.json',
+      'fixture/baseline-release-cleanup.json',
+      'fixture/baseline-release-cleanup-response.json',
     ]) {
       await expect(stat(path.join(preservedRun, relative))).rejects.toMatchObject({
         code: 'ENOENT',

@@ -213,12 +213,18 @@ OIDF_PROVISION_DESCRIPTOR="${FIXTURE_DIR}/oidf-conformance-provision.json"
 OIDF_PROVISION_RESPONSE="${FIXTURE_DIR}/oidf-conformance-provision-response.json"
 OIDF_CLEANUP_DESCRIPTOR="${FIXTURE_DIR}/oidf-conformance-cleanup.json"
 OIDF_CLEANUP_RESPONSE="${FIXTURE_DIR}/oidf-conformance-cleanup-response.json"
+FIXTURE_BASELINE_PROVISION_DESCRIPTOR="${FIXTURE_DIR}/baseline-release-provision.json"
+FIXTURE_BASELINE_PROVISION_RESPONSE="${FIXTURE_DIR}/baseline-release-provision-response.json"
+FIXTURE_BASELINE_CLEANUP_DESCRIPTOR="${FIXTURE_DIR}/baseline-release-cleanup.json"
+FIXTURE_BASELINE_CLEANUP_RESPONSE="${FIXTURE_DIR}/baseline-release-cleanup-response.json"
 readonly CONFORMANCE_ROOT EVIDENCE_DIR SECRET_DIR PRIVATE_HOME PRIVATE_TMP SUITE_CHECKOUT
 readonly PRIMARY_KEYRING_DIR FIXTURE_DIR PRIMARY_CONFIG_FILE POSTGRES_PASSWORD_FILE COMPOSE_ENV
 readonly DESCRIPTOR_FILE REVIEW_PROFILE
 readonly OIDF_PASSWORD_FILE OIDF_BASIC_1_SECRET_FILE OIDF_BASIC_2_SECRET_FILE
 readonly OIDF_POST_1_SECRET_FILE OIDF_PUBLIC_MAP_FILE OIDF_PROVISION_DESCRIPTOR
 readonly OIDF_PROVISION_RESPONSE OIDF_CLEANUP_DESCRIPTOR OIDF_CLEANUP_RESPONSE
+readonly FIXTURE_BASELINE_PROVISION_DESCRIPTOR FIXTURE_BASELINE_PROVISION_RESPONSE
+readonly FIXTURE_BASELINE_CLEANUP_DESCRIPTOR FIXTURE_BASELINE_CLEANUP_RESPONSE
 /usr/bin/mkdir -m 700 -- "${CONFORMANCE_ROOT}" "${EVIDENCE_DIR}" "${SECRET_DIR}" \
   "${PRIVATE_HOME}" "${PRIVATE_TMP}" "${SUITE_CHECKOUT}" "${PRIMARY_KEYRING_DIR}" "${FIXTURE_DIR}"
 assert_build_root_identity
@@ -416,7 +422,73 @@ remove_oidf_private_material() {
     "${OIDF_BASIC_2_SECRET_FILE}" "${OIDF_POST_1_SECRET_FILE}" \
     "${OIDF_PUBLIC_MAP_FILE}" "${OIDF_PROVISION_DESCRIPTOR}" \
     "${OIDF_PROVISION_RESPONSE}" "${OIDF_CLEANUP_DESCRIPTOR}" \
-    "${OIDF_CLEANUP_RESPONSE}"
+    "${OIDF_CLEANUP_RESPONSE}" "${FIXTURE_BASELINE_PROVISION_DESCRIPTOR}" \
+    "${FIXTURE_BASELINE_PROVISION_RESPONSE}" "${FIXTURE_BASELINE_CLEANUP_DESCRIPTOR}" \
+    "${FIXTURE_BASELINE_CLEANUP_RESPONSE}"
+}
+
+prepare_oidf_fixture_baseline() {
+  local allocation_id
+  allocation_id="baseline-release-$(random_hex 8)"
+  [[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  # The initialized candidate contains only key material for default/admin. The coordinator's
+  # closed `none` lifecycle is the supported transition that removes that key-only baseline before
+  # a mutable oidfConformance fixture can recreate and activate the default tenant.
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${FIXTURE_BASELINE_PROVISION_DESCRIPTOR}" "${allocation_id}" <<'NODE' || return 1
+import { writeFileSync } from 'node:fs';
+const [output, allocationId] = process.argv.slice(2);
+writeFileSync(output, JSON.stringify({
+  schemaVersion: 1,
+  operation: 'provision',
+  recipe: 'none',
+  allocationId,
+  profile: { fixtures: {} },
+  seeds: { passwords: [], clientSecrets: [] },
+}), { flag: 'wx', mode: 0o400 });
+NODE
+  docker_cli exec --interactive --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" \
+    "${COORDINATOR_CONTAINER_ID}" \
+    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+    ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
+    /usr/local/bin/aster-admin fixture apply \
+    <"${FIXTURE_BASELINE_PROVISION_DESCRIPTOR}" \
+    >"${FIXTURE_BASELINE_PROVISION_RESPONSE}" || return 1
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${FIXTURE_BASELINE_PROVISION_RESPONSE}" "${FIXTURE_BASELINE_CLEANUP_DESCRIPTOR}" \
+    "${allocation_id}" <<'NODE' || return 1
+import { readFileSync, writeFileSync } from 'node:fs';
+const [responsePath, output, allocationId] = process.argv.slice(2);
+const value = JSON.parse(readFileSync(responsePath, 'utf8'));
+const publicMap = value?.public;
+if (value?.schemaVersion !== 1 || value?.operation !== 'provision' ||
+  publicMap?.schemaVersion !== 1 || publicMap?.recipe !== 'none' ||
+  !Array.isArray(publicMap.allocations) || publicMap.allocations.length !== 0) process.exit(1);
+writeFileSync(output, JSON.stringify({
+  schemaVersion: 1,
+  operation: 'cleanup',
+  recipe: 'none',
+  allocationId,
+  public: publicMap,
+}), { flag: 'wx', mode: 0o400 });
+NODE
+  docker_cli exec --interactive --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" \
+    "${COORDINATOR_CONTAINER_ID}" \
+    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+    ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
+    /usr/local/bin/aster-admin fixture apply \
+    <"${FIXTURE_BASELINE_CLEANUP_DESCRIPTOR}" \
+    >"${FIXTURE_BASELINE_CLEANUP_RESPONSE}" || return 1
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${FIXTURE_BASELINE_CLEANUP_RESPONSE}" <<'NODE' || return 1
+import { readFileSync } from 'node:fs';
+const value = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+if (value?.schemaVersion !== 1 || value?.operation !== 'cleanup' || value?.ok !== true ||
+  Object.keys(value).length !== 3) process.exit(1);
+NODE
+  /usr/bin/rm -f -- \
+    "${FIXTURE_BASELINE_PROVISION_DESCRIPTOR}" "${FIXTURE_BASELINE_PROVISION_RESPONSE}" \
+    "${FIXTURE_BASELINE_CLEANUP_DESCRIPTOR}" "${FIXTURE_BASELINE_CLEANUP_RESPONSE}"
 }
 
 provision_oidf_fixture() {
@@ -926,6 +998,8 @@ wait_for_topology candidate-fixture-coordinator suite-nginx
 COORDINATOR_CONTAINER_ID="$(compose ps --all -q candidate-fixture-coordinator 2>/dev/null || true)"
 [[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || fail
 readonly COORDINATOR_CONTAINER_ID
+failure_stage=fixture-baseline
+prepare_oidf_fixture_baseline || fail
 failure_stage=fixture-provision
 provision_oidf_fixture || fail
 compose_up_phase oidf-runner || fail

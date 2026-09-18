@@ -370,6 +370,9 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(lifecycle).toContain('exec --interactive --user');
     expect(lifecycle).toContain("operation: 'provision'");
     expect(lifecycle).toContain("operation: 'cleanup'");
+    expect(lifecycle).toContain("recipe: 'none'");
+    expect(lifecycle).toContain('prepare_oidf_fixture_baseline');
+    expect(lifecycle).toContain('fixture-baseline');
     expect(lifecycle).toContain('OIDF_PUBLIC_MAP_FILE');
     for (const secretName of [
       'phase1-user',
