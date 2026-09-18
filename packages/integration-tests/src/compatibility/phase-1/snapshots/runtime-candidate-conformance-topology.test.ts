@@ -182,8 +182,9 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(services['suite-nginx']?.userns_mode).toBe('keep-id');
     expect(services['suite-nginx']?.tmpfs).toEqual(
       expect.arrayContaining([
-        expect.stringContaining(`uid=${required('ASTER_PHASE1_RUNTIME_UID')}`),
-        expect.stringContaining(`gid=${required('ASTER_PHASE1_RUNTIME_GID')}`),
+        expect.stringContaining('/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'),
+        expect.stringContaining('/var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,mode=0777'),
+        expect.stringContaining('/var/run:rw,noexec,nosuid,nodev,size=8m,mode=0777'),
       ])
     );
     for (const name of ['suite-server', 'oidf-runner']) {
@@ -265,6 +266,7 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(runner?.command?.join(' ')).not.toMatch(/plan|schedule|api/iu);
     expect(source).not.toMatch(/(?:^|["/:])latest(?:["/,]|$)/iu);
     expect(source).not.toContain('/dev/shm');
+    expect(source).not.toMatch(/(?:^|,)uid=|(?:^|,)gid=/u);
     expect(source).not.toContain('root-ca.key');
 
     expect(dockerfile).toContain(
@@ -355,7 +357,12 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(lifecycle).toContain('"${DOCKER_BIN}" image save --output');
     expect(lifecycle).toContain('SETUP_RUN_PGID');
     expect(lifecycle).toContain('compose config --quiet');
-    expect(lifecycle).toContain('up --detach --no-build');
+    expect(lifecycle).toContain('up --detach --no-build --no-deps');
+    expect(lifecycle).toContain('compose_up_phase candidate-primary-postgres suite-mongo');
+    expect(lifecycle).toContain('compose_up_phase candidate-primary-init suite-server');
+    expect(lifecycle).toContain('compose_up_phase candidate-conformance-core');
+    expect(lifecycle).toContain('compose_up_phase candidate-fixture-coordinator suite-nginx');
+    expect(lifecycle).toContain('compose_up_phase oidf-runner');
     expect(lifecycle).toContain('compose ps --all -q');
     expect(lifecycle).not.toContain('/dev/shm');
     expect(lifecycle).not.toContain('/var/lib/docker');

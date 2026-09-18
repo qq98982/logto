@@ -64,8 +64,8 @@
         "candidate-primary-keyring:/var/lib/aster/primary"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
-        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,mode=0777"
       ],
       "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
       "userns_mode": "keep-id",
@@ -116,8 +116,8 @@
         "${ASTER_PHASE1_CONFORMANCE_ASTER_PRIVATE_KEY_FILE:?required}:/etc/aster/pki/aster/tls.key:ro"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
-        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,mode=0777"
       ],
       "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
       "userns_mode": "keep-id",
@@ -157,8 +157,8 @@
         "candidate-fixture:/run/aster-fixture"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
-        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,mode=0777"
       ],
       "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
       "userns_mode": "keep-id",
@@ -225,8 +225,8 @@
         "${ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE:?required}:/etc/aster/pki/root-ca.crt:ro"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700",
-        "/run/oidf:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777",
+        "/run/oidf:rw,noexec,nosuid,nodev,size=32m,mode=0777"
       ],
       "user": "10001:10001",
       "read_only": true,
@@ -268,9 +268,9 @@
         "${ASTER_PHASE1_CONFORMANCE_SUITE_PRIVATE_KEY_FILE:?required}:/etc/aster/pki/suite/tls.key:ro"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
-        "/var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
-        "/var/run:rw,noexec,nosuid,nodev,size=8m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
+        "/var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,mode=0777",
+        "/var/run:rw,noexec,nosuid,nodev,size=8m,mode=0777"
       ],
       "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
       "userns_mode": "keep-id",
@@ -320,7 +320,7 @@
         "${ASTER_PHASE1_CONFORMANCE_RUNNER_FILE:?required}:/opt/aster/phase1-conformance-runner.mjs:ro"
       ],
       "tmpfs": [
-        "/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+        "/tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777"
       ],
       "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
       "userns_mode": "keep-id",

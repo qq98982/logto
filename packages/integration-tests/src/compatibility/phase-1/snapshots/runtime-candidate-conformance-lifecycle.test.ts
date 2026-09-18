@@ -227,8 +227,19 @@ if (args[0] === 'compose') {
   if (command === 'up') {
     const environment = parseEnv(args[args.indexOf('--env-file') + 1]);
     const state = readState();
-    state.projects[project] = { environment, containers: {}, network: true, volume: true };
-    for (const service of serviceNames) state.projects[project].containers[idFor(project, service)] = service;
+    const topology = state.projects[project] ?? {
+      environment,
+      containers: {},
+      network: true,
+      volume: true,
+    };
+    topology.environment = environment;
+    topology.network = true;
+    topology.volume = true;
+    for (const service of serviceNames.filter((candidate) => args.includes(candidate))) {
+      topology.containers[idFor(project, service)] = service;
+    }
+    state.projects[project] = topology;
     writeState(state);
     process.exit(0);
   }

@@ -346,6 +346,15 @@ run_owned_command() {
   return "${status}"
 }
 
+compose_up_phase() {
+  [[ "$#" -gt 0 ]] || return 1
+  run_owned_command 600 /dev/null /dev/null \
+    PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_HOST="unix://${PODMAN_SOCKET}" \
+    DOCKER_CLIENT_TIMEOUT=540 COMPOSE_HTTP_TIMEOUT=540 \
+    "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" --project-name "${project_name}" \
+      --file "${COMPOSE_FILE}" up --detach --no-build --no-deps "$@"
+}
+
 cleanup() {
   local exit_code=$? cleanup_failed=0 remaining resource_id index
   trap - EXIT INT TERM HUP
@@ -533,10 +542,13 @@ expected_image_for_service() {
 
 wait_for_topology() {
   local attempt service container_id metadata status health exit_code image project service_label topology
+  local -a services=("$@")
+
+  [[ "${#services[@]}" -gt 0 ]] || fail
 
   for ((attempt=0; attempt<180; attempt++)); do
     container_ids=()
-    for service in "${SERVICES[@]}"; do
+    for service in "${services[@]}"; do
       container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
       [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || break
       metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.ExitCode}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.aster.phase1.topology"}}' "${container_id}" 2>/dev/null || true)"
@@ -560,7 +572,7 @@ wait_for_topology() {
       fi
       container_ids+=("${container_id}")
     done
-    if [[ "${#container_ids[@]}" == "${#SERVICES[@]}" ]]; then
+    if [[ "${#container_ids[@]}" == "${#services[@]}" ]]; then
       return 0
     fi
     /usr/bin/sleep 1
@@ -758,12 +770,17 @@ run_owned_command 60 /dev/null /dev/null \
 failure_stage=topology
 project_started=1
 compose config --quiet >/dev/null 2>&1 || fail
-run_owned_command 600 /dev/null /dev/null \
-  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_HOST="unix://${PODMAN_SOCKET}" \
-  DOCKER_CLIENT_TIMEOUT=540 COMPOSE_HTTP_TIMEOUT=540 \
-  "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" --project-name "${project_name}" \
-    --file "${COMPOSE_FILE}" up --detach --no-build "${SERVICES[@]}" || fail
-wait_for_topology
+compose_up_phase candidate-primary-postgres suite-mongo || fail
+wait_for_topology candidate-primary-postgres suite-mongo
+compose_up_phase candidate-primary-init suite-server || fail
+wait_for_topology candidate-primary-init suite-server
+compose_up_phase candidate-conformance-core || fail
+wait_for_topology candidate-conformance-core
+compose_up_phase candidate-fixture-coordinator suite-nginx || fail
+wait_for_topology candidate-fixture-coordinator suite-nginx
+compose_up_phase oidf-runner || fail
+wait_for_topology oidf-runner
+wait_for_topology "${SERVICES[@]}"
 runner_index=$((${#SERVICES[@]} - 1))
 RUNNER_CONTAINER_ID="${container_ids[runner_index]}"
 readonly RUNNER_CONTAINER_ID
