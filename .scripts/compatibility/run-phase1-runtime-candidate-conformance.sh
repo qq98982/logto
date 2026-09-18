@@ -6,6 +6,7 @@ readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'
 readonly SUITE_COMMIT='0dc0e3a21ec411e92c808e5b2e2258592c22b594'
 readonly SUITE_MAVEN_RESOLUTION='source-pom-not-fully-offline-locked'
 readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
+readonly MAX_CANDIDATE_ARCHIVE_SIZE=34359738368
 BUILD_ROOT="${ASTER_PHASE1_BUILD_ROOT:-${DEFAULT_BUILD_ROOT}}"
 readonly BUILD_ROOT
 readonly DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-conformance"
@@ -128,6 +129,24 @@ immutable_image() {
   [[ "$1" =~ ^sha256:[0-9a-f]{64}$ || "$1" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]]
 }
 
+candidate_archive_identity() {
+  local input=$1 resolved metadata owner group mode type size device inode
+
+  [[ "${input}" == /* && ! "${input}" =~ [[:cntrl:]] ]] || return 1
+  [[ "${input}" == "${BUILD_ROOT}/"* && "${input}" != "${BUILD_ROOT}" ]] || return 1
+  [[ -f "${input}" && ! -L "${input}" ]] || return 1
+  resolved="$(/usr/bin/realpath -e -- "${input}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${input}" ]] || return 1
+  metadata="$(/usr/bin/stat -c '%u|%g|%a|%F|%s|%d|%i' -- "${input}" 2>/dev/null || true)"
+  IFS='|' read -r owner group mode type size device inode <<<"${metadata}"
+  [[ "${owner}" == "$(/usr/bin/id -u)" && "${group}" == "$(/usr/bin/id -g)" ]] || return 1
+  [[ "${mode}" == 400 || "${mode}" == 600 ]] || return 1
+  [[ "${type}" == 'regular file' && "${size}" =~ ^[0-9]+$ ]] || return 1
+  ((size > 0 && size <= MAX_CANDIDATE_ARCHIVE_SIZE)) || return 1
+  [[ "${device}" =~ ^[0-9]+$ && "${inode}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "${owner}|${group}|${mode}|${type}|${size}|${device}|${inode}"
+}
+
 GIT_BIN="$(trusted_system_binary /usr/bin/git)"
 DOCKER_BIN="$(trusted_system_binary /usr/bin/docker)"
 PODMAN_BIN="$(trusted_system_binary /usr/bin/podman)"
@@ -169,7 +188,7 @@ PODMAN_SOCKET="/run/user/$(/usr/bin/id -u)/aster-p1c-${run_root_hash}.sock"
 [[ "${#PODMAN_SOCKET}" -le 100 && ! -e "${PODMAN_SOCKET}" && ! -L "${PODMAN_SOCKET}" ]] || fail
 PODMAN_LOG="${RUN_DIR}/podman-service.log"
 PODMAN_LOCK_FILE="${BUILD_ROOT}/aster-phase1-conformance-podman.lock"
-exec {PODMAN_LOCK_FD}>"${PODMAN_LOCK_FILE}"
+exec {PODMAN_LOCK_FD}>>"${PODMAN_LOCK_FILE}"
 "${FLOCK_BIN}" -x "${PODMAN_LOCK_FD}" || fail
 readonly PODMAN_GRAPH_ROOT PODMAN_RUN_ROOT PODMAN_SOCKET PODMAN_LOG PODMAN_LOCK_FILE PODMAN_LOCK_FD
 CONFORMANCE_ROOT="${RUN_DIR}/conformance"
@@ -479,6 +498,27 @@ inspect_system_image_id() {
   printf '%s' "${result}"
 }
 
+remove_private_image_if_present() {
+  local image_id=$1 status=0
+
+  [[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  podman_cli image exists "${image_id}" >/dev/null 2>&1 || status=$?
+  case "${status}" in
+    0)
+      run_owned_command 300 /dev/null /dev/null \
+        PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+        XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+        "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+          rmi "${image_id}" || return 1
+      status=0
+      podman_cli image exists "${image_id}" >/dev/null 2>&1 || status=$?
+      [[ "${status}" == 1 ]] || return 1
+      ;;
+    1) ;;
+    *) return 1 ;;
+  esac
+}
+
 expected_image_for_service() {
   case "$1" in
     candidate-primary-postgres) printf '%s' "${POSTGRES_IMAGE_ID}" ;;
@@ -557,10 +597,26 @@ RUNNER_SCRIPT_SHA256="$("${SHA256_BIN}" "${RUNNER_FILE}" | "${AWK_BIN}" '{print 
 readonly H_HEAD DRIVER_BLOB DRIVER_SHA256 RUNNER_SCRIPT_BLOB RUNNER_SCRIPT_SHA256
 
 ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"
-CANDIDATE_IMAGE_INPUT="${ASTER_PHASE1_CANDIDATE_IMAGE:?required}"
+CANDIDATE_IMAGE_INPUT="${ASTER_PHASE1_CANDIDATE_IMAGE-}"
+CANDIDATE_ARCHIVE_INPUT="${ASTER_PHASE1_CANDIDATE_ARCHIVE-}"
+EXPECTED_CANDIDATE_IMAGE_ID="${ASTER_PHASE1_CANDIDATE_IMAGE_ID-}"
 [[ "${ASTER_ROOT}" == /* && -d "${ASTER_ROOT}" && ! -L "${ASTER_ROOT}" ]] || fail
 ASTER_ROOT="$(/usr/bin/realpath -e -- "${ASTER_ROOT}")"
-readonly ASTER_ROOT CANDIDATE_IMAGE_INPUT
+if [[ -n "${CANDIDATE_IMAGE_INPUT}" ]]; then
+  [[ -z "${CANDIDATE_ARCHIVE_INPUT}" && -z "${EXPECTED_CANDIDATE_IMAGE_ID}" ]] || fail
+  CANDIDATE_INPUT_CHANNEL='system-image'
+  CANDIDATE_ARCHIVE_IDENTITY=''
+else
+  [[ -n "${CANDIDATE_ARCHIVE_INPUT}" && -n "${EXPECTED_CANDIDATE_IMAGE_ID}" ]] || fail
+  [[ "${EXPECTED_CANDIDATE_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
+  assert_build_root_identity
+  CANDIDATE_ARCHIVE_IDENTITY="$(candidate_archive_identity "${CANDIDATE_ARCHIVE_INPUT}" 2>/dev/null || true)"
+  [[ -n "${CANDIDATE_ARCHIVE_IDENTITY}" ]] || fail
+  assert_build_root_identity
+  CANDIDATE_INPUT_CHANNEL='archive'
+fi
+readonly ASTER_ROOT CANDIDATE_IMAGE_INPUT CANDIDATE_ARCHIVE_INPUT
+readonly EXPECTED_CANDIDATE_IMAGE_ID CANDIDATE_INPUT_CHANNEL CANDIDATE_ARCHIVE_IDENTITY
 aster_origin="$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" remote get-url origin 2>/dev/null || true)"
 case "${aster_origin}" in
   'https://github.com/qq98982/aster.git'|'git@github.com:qq98982/aster.git'|'ssh://git@github.com/qq98982/aster.git') ;;
@@ -577,22 +633,40 @@ start_private_podman
 compose version >/dev/null 2>&1 || fail
 
 failure_stage=images
-SYSTEM_CANDIDATE_IMAGE_ID="$(inspect_system_image_id "${CANDIDATE_IMAGE_INPUT}")"
-CANDIDATE_ARCHIVE="${RUN_DIR}/candidate-image.tar"
-run_owned_command 1800 /dev/null /dev/null \
-  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=1200 \
-  "${DOCKER_BIN}" image save --output "${CANDIDATE_ARCHIVE}" "${CANDIDATE_IMAGE_INPUT}" || fail
-[[ -f "${CANDIDATE_ARCHIVE}" && ! -L "${CANDIDATE_ARCHIVE}" ]] || fail
-[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${CANDIDATE_ARCHIVE}" 2>/dev/null || true)" == \
-  "$(/usr/bin/id -u)|$(/usr/bin/id -g)|600|regular file" ]] || fail
-run_owned_command 600 /dev/null /dev/null \
-  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
-  XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
-  "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-    load --input "${CANDIDATE_ARCHIVE}" || fail
-/usr/bin/rm -f -- "${CANDIDATE_ARCHIVE}" || fail
-CANDIDATE_IMAGE_ID="$(inspect_image_id "${SYSTEM_CANDIDATE_IMAGE_ID}")"
-[[ "${CANDIDATE_IMAGE_ID}" == "${SYSTEM_CANDIDATE_IMAGE_ID}" ]] || fail
+SYSTEM_CANDIDATE_IMAGE_ID=''
+if [[ "${CANDIDATE_INPUT_CHANNEL}" == 'system-image' ]]; then
+  SYSTEM_CANDIDATE_IMAGE_ID="$(inspect_system_image_id "${CANDIDATE_IMAGE_INPUT}")"
+  CANDIDATE_ARCHIVE="${RUN_DIR}/candidate-image.tar"
+  run_owned_command 1800 /dev/null /dev/null \
+    PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=1200 \
+    "${DOCKER_BIN}" image save --output "${CANDIDATE_ARCHIVE}" "${CANDIDATE_IMAGE_INPUT}" || fail
+  [[ -f "${CANDIDATE_ARCHIVE}" && ! -L "${CANDIDATE_ARCHIVE}" ]] || fail
+  [[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${CANDIDATE_ARCHIVE}" 2>/dev/null || true)" == \
+    "$(/usr/bin/id -u)|$(/usr/bin/id -g)|600|regular file" ]] || fail
+  run_owned_command 600 /dev/null /dev/null \
+    PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+    XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+      load --input "${CANDIDATE_ARCHIVE}" || fail
+  /usr/bin/rm -f -- "${CANDIDATE_ARCHIVE}" || fail
+  EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID="${SYSTEM_CANDIDATE_IMAGE_ID}"
+else
+  assert_build_root_identity
+  [[ "$(candidate_archive_identity "${CANDIDATE_ARCHIVE_INPUT}" 2>/dev/null || true)" == \
+    "${CANDIDATE_ARCHIVE_IDENTITY}" ]] || fail
+  remove_private_image_if_present "${EXPECTED_CANDIDATE_IMAGE_ID}" || fail
+  run_owned_command 1800 /dev/null /dev/null \
+    PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+    XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+      load --input "${CANDIDATE_ARCHIVE_INPUT}" || fail
+  assert_build_root_identity
+  [[ "$(candidate_archive_identity "${CANDIDATE_ARCHIVE_INPUT}" 2>/dev/null || true)" == \
+    "${CANDIDATE_ARCHIVE_IDENTITY}" ]] || fail
+  EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID="${EXPECTED_CANDIDATE_IMAGE_ID}"
+fi
+CANDIDATE_IMAGE_ID="$(inspect_image_id "${EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID}")"
+[[ "${CANDIDATE_IMAGE_ID}" == "${EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID}" ]] || fail
 for image in "${POSTGRES_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMAGE}"; do
   run_owned_command 900 /dev/null /dev/null \
     PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
@@ -604,7 +678,7 @@ POSTGRES_IMAGE_ID="$(inspect_image_id "${POSTGRES_IMAGE}")"
 MONGO_IMAGE_ID="$(inspect_image_id "${MONGO_IMAGE}")"
 NGINX_IMAGE_ID="$(inspect_image_id "${NGINX_IMAGE}")"
 RUNNER_IMAGE_ID="$(inspect_image_id "${RUNNER_IMAGE}")"
-readonly SYSTEM_CANDIDATE_IMAGE_ID CANDIDATE_IMAGE_ID
+readonly SYSTEM_CANDIDATE_IMAGE_ID EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID CANDIDATE_IMAGE_ID
 readonly POSTGRES_IMAGE_ID MONGO_IMAGE_ID NGINX_IMAGE_ID RUNNER_IMAGE_ID
 
 failure_stage=suite-checkout

@@ -1,6 +1,17 @@
 /* eslint-disable max-lines, complexity, no-await-in-loop, no-template-curly-in-string, @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- This process fixture mutates isolated process state and intentionally embeds literal shell interpolation syntax. */
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  truncate,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -19,6 +30,8 @@ const driverSourcePath = path.join(
   '.scripts/compatibility/phase1-conformance-driver.sh'
 );
 const candidateInput = `sha256:${'5'.repeat(64)}`;
+const candidateImageId = `sha256:${'c'.repeat(64)}`;
+const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 
 type Behavior =
   | 'cleanup-query-failure'
@@ -38,6 +51,7 @@ type Fixture = Readonly<{
   buildRoot: string;
   runRoot: string;
   captureRoot: string;
+  candidateArchive: string;
   dockerLog: string;
   dockerState: string;
   lifecycle: string;
@@ -143,7 +157,13 @@ if (args[0] === 'system' && args[1] === 'service') {
   process.on('SIGINT', () => server.close(() => process.exit(0)));
   setInterval(() => {}, 2147483647);
 }
-if (args[0] === 'pull' || args[0] === 'load') process.exit(0);
+if (args[0] === 'pull') process.exit(0);
+if (args[0] === 'load') {
+  const state = readState();
+  state.privateCandidateImageId = state.archiveLoadedImageId;
+  writeState(state);
+  process.exit(0);
+}
 if (args[0] === 'ps' && args.length === 1) {
   const socket = (process.env.DOCKER_HOST ?? '').replace(/^unix:\\/\\//, '');
   process.exit(socket && fs.existsSync(socket) ? 0 : 1);
@@ -152,12 +172,18 @@ if (args[0] === 'compose' && args.includes('version')) process.exit(0);
 if (args[0] === 'image' && args[1] === 'inspect') {
   const input = args.at(-1);
   const format = args[args.indexOf('--format') + 1] ?? '';
+  const state = readState();
+  const privateEngine = (process.env.DOCKER_HOST ?? '').startsWith('unix://');
   let id = imageIds.candidate;
   if (input.includes('postgres')) id = imageIds.postgres;
   else if (input.includes('mongo')) id = imageIds.mongo;
   else if (input.includes('nginx')) id = imageIds.nginx;
   else if (input.includes('node')) id = imageIds.runner;
   else if (input === imageIds.suite) id = imageIds.suite;
+  else if (privateEngine && /^sha256:[0-9a-f]{64}$/.test(input)) {
+    if (state.privateCandidateImageId !== input) process.exit(1);
+    id = input;
+  }
   if (format.includes('maven-resolution')) {
     process.stdout.write(id + '|${suiteCommit}|source-pom-not-fully-offline-locked');
   } else process.stdout.write(id);
@@ -165,6 +191,16 @@ if (args[0] === 'image' && args[1] === 'inspect') {
 }
 if (args[0] === 'image' && args[1] === 'save') {
   fs.writeFileSync(args[args.indexOf('--output') + 1], 'candidate-image-archive');
+  process.exit(0);
+}
+if (args[0] === 'image' && args[1] === 'exists') {
+  process.exit(readState().privateCandidateImageId === args[2] ? 0 : 1);
+}
+if (args[0] === 'rmi') {
+  const state = readState();
+  if (state.privateCandidateImageId !== args[1]) process.exit(1);
+  state.privateCandidateImageId = null;
+  writeState(state);
   process.exit(0);
 }
 if (args[0] === 'build') {
@@ -298,6 +334,11 @@ const root = process.env.ASTER_PHASE1_CONFORMANCE_ROOT;
 const descriptorPath = path.join(root, 'runtime-candidate-conformance.json');
 const captureRoot = ${JSON.stringify(captureRoot)};
 mkdirSync(captureRoot, { recursive: true, mode: 0o700 });
+writeFileSync(path.join(captureRoot, 'public-environment.txt'), [
+  process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST ?? '',
+  process.env.ASTER_PHASE1_CANDIDATE_ARCHIVE ?? '',
+  process.env.ASTER_PHASE1_CANDIDATE_IMAGE_ID ?? '',
+].join('|'));
 const descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'));
 copyFileSync(descriptorPath, path.join(captureRoot, descriptor.projectName + '.json'));
 appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\n');
@@ -341,6 +382,12 @@ writeFileSync(path.join(captureRoot, 'bridge-diagnostic.json'), JSON.stringify({
 if (!reachesPlan) process.exit(adapter.status === 0 ? 2 : 1);
 if (adapter.status !== 0 || JSON.parse(adapter.stdout).status !== 'PASSED') process.exit(3);
 const plan = spawnSync(wrapper, ['--plan-id', 'oidcc-basic-certification-test-plan'], { input, env: environment, encoding: 'utf8' });
+writeFileSync(path.join(captureRoot, 'basic-diagnostic.json'), JSON.stringify({
+  invoked: true,
+  status: plan.status,
+  stdout: plan.stdout,
+  stderr: plan.stderr,
+}));
 process.exit(plan.status === 0 ? 4 : 1);
 `;
 
@@ -351,6 +398,7 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
   const suite = path.join(root, 'suite');
   const buildRoot = path.join(root, 'build');
   const captureRoot = path.join(root, 'capture');
+  const candidateArchive = path.join(buildRoot, 'candidate-image.tar');
   const dockerState = path.join(root, 'docker-state.json');
   const dockerLog = path.join(root, 'docker.log');
   const fakeDocker = path.join(root, 'fake-docker');
@@ -381,11 +429,14 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
         projects: {},
         cleanupQueryFailure: behavior === 'cleanup-query-failure',
         cleanupQueriesActive: false,
+        privateCandidateImageId: null,
+        archiveLoadedImageId: candidateImageId,
         hangBuild: behavior === 'setup-signal',
         setupMarker: path.join(captureRoot, 'setup-started.log'),
       })
     ),
     writeFile(dockerLog, ''),
+    writeFile(candidateArchive, 'candidate-image-archive', { mode: 0o600 }),
     writeFile(fakeDocker, fakeDockerSource(dockerState, dockerLog, suiteCommit), { mode: 0o700 }),
     writeFile(fakePnpm, '#!/bin/sh\n[ "$1" = --version ] && printf "10.15.1\\n"\nexit 0\n', {
       mode: 0o700,
@@ -473,19 +524,51 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     buildRoot,
     runRoot: path.join(buildRoot, 'aster-phase1-runtime-candidate-conformance'),
     captureRoot,
+    candidateArchive,
     dockerLog,
     dockerState,
     lifecycle,
   };
 };
 
-const lifecycleEnvironment = (fixture: Fixture, image = candidateInput) => ({
-  ...process.env,
-  PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
-  ASTER_PHASE1_BUILD_ROOT: fixture.buildRoot,
-  ASTER_PHASE1_ASTER_ROOT: fixture.aster,
-  ASTER_PHASE1_CANDIDATE_IMAGE: image,
-});
+type CandidateChannel = Readonly<{
+  image?: string;
+  archive?: string;
+  imageId?: string;
+}>;
+const systemCandidateChannel: CandidateChannel = Object.freeze({ image: candidateInput });
+const candidateInputEnvironmentNames = new Set([
+  'ASTER_PHASE1_CANDIDATE_IMAGE',
+  'ASTER_PHASE1_CANDIDATE_ARCHIVE',
+  'ASTER_PHASE1_CANDIDATE_IMAGE_ID',
+]);
+
+const lifecycleEnvironment = (
+  fixture: Fixture,
+  candidate: CandidateChannel = systemCandidateChannel
+): NodeJS.ProcessEnv => {
+  const inheritedEnvironment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !candidateInputEnvironmentNames.has(name))
+  );
+  const environment: NodeJS.ProcessEnv = {
+    ...inheritedEnvironment,
+    PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+    ASTER_PHASE1_BUILD_ROOT: fixture.buildRoot,
+    ASTER_PHASE1_ASTER_ROOT: fixture.aster,
+  };
+
+  if (candidate.image !== undefined) {
+    environment.ASTER_PHASE1_CANDIDATE_IMAGE = candidate.image;
+  }
+  if (candidate.archive !== undefined) {
+    environment.ASTER_PHASE1_CANDIDATE_ARCHIVE = candidate.archive;
+  }
+  if (candidate.imageId !== undefined) {
+    environment.ASTER_PHASE1_CANDIDATE_IMAGE_ID = candidate.imageId;
+  }
+
+  return environment;
+};
 
 const activeResources = async (fixture: Fixture): Promise<boolean> => {
   const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as {
@@ -500,11 +583,14 @@ const activeResources = async (fixture: Fixture): Promise<boolean> => {
   );
 };
 
-const runFailure = async (fixture: Fixture, image = candidateInput): Promise<void> => {
+const runFailure = async (
+  fixture: Fixture,
+  candidate: CandidateChannel = systemCandidateChannel
+): Promise<void> => {
   await expect(
     executeFile(fixture.lifecycle, [], {
       cwd: fixture.repository,
-      env: lifecycleEnvironment(fixture, image),
+      env: lifecycleEnvironment(fixture, candidate),
       timeout: 30_000,
     })
   ).rejects.toMatchObject({ code: 1 });
@@ -615,7 +701,7 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
   it('rejects a mutable candidate before compose and keeps compose builds disabled', async () => {
     const fixture = await createFixture('plan-failure');
 
-    await runFailure(fixture, 'candidate:latest');
+    await runFailure(fixture, { image: 'candidate:latest' });
     const log = await readFile(fixture.dockerLog, 'utf8');
 
     expect(log).not.toContain('"up"');
@@ -634,6 +720,9 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       path.join(fixture.captureRoot, 'bridge-diagnostic.json'),
       'utf8'
     );
+    const basicDiagnostic = JSON.parse(
+      await readFile(path.join(fixture.captureRoot, 'basic-diagnostic.json'), 'utf8')
+    ) as { invoked: boolean; status: number | undefined; stdout: string; stderr: string };
     const captureEntries = await readdir(fixture.captureRoot);
     const descriptorName = captureEntries.find((name) => name.endsWith('.json'));
 
@@ -675,6 +764,7 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     expect({ log, bridgeDiagnostic }).toEqual(
       expect.objectContaining({ log: expect.stringContaining('"exec","--interactive"') })
     );
+    expect(basicDiagnostic).toEqual({ invoked: true, status: 1, stdout: '', stderr: '' });
     expect(log).not.toContain('/dev/shm');
     expect(log).not.toContain('/var/lib/docker');
     expect(await activeResources(fixture)).toBe(false);
@@ -682,6 +772,178 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     await expect(stat(path.join(runRoot, 'pki/host-only/root-ca.key'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('loads a caller-owned private archive, reaches Basic fail-closed, and preserves the archive', async () => {
+    const fixture = await createFixture('plan-failure');
+    await chmod(fixture.candidateArchive, 0o400);
+    const before = await stat(fixture.candidateArchive);
+
+    await runFailure(fixture, {
+      image: '',
+      archive: fixture.candidateArchive,
+      imageId: candidateImageId,
+    });
+    const [log, after, archiveSource, publicEnvironment, basicDiagnosticSource] = await Promise.all(
+      [
+        readFile(fixture.dockerLog, 'utf8'),
+        stat(fixture.candidateArchive),
+        readFile(fixture.candidateArchive, 'utf8'),
+        readFile(path.join(fixture.captureRoot, 'public-environment.txt'), 'utf8'),
+        readFile(path.join(fixture.captureRoot, 'basic-diagnostic.json'), 'utf8'),
+      ]
+    );
+    const captureEntries = await readdir(fixture.captureRoot);
+    const descriptorName = captureEntries.find(
+      (name) => name.startsWith('aster-phase1-conformance-') && name.endsWith('.json')
+    );
+    const descriptor = JSON.parse(
+      await readFile(path.join(fixture.captureRoot, descriptorName ?? 'missing'), 'utf8')
+    ) as Record<string, unknown>;
+    const serializedDescriptor = JSON.stringify(descriptor);
+
+    expect(log).toContain(`"load","--input","${fixture.candidateArchive}"`);
+    expect(log).not.toContain('"image","save"');
+    expect(log).toContain('"exec","--interactive"');
+    expect(descriptor.candidateImageId).toBe(candidateImageId);
+    expect(serializedDescriptor).not.toContain(fixture.candidateArchive);
+    expect(serializedDescriptor).not.toMatch(/candidateArchive|archiveHash/iu);
+    expect(publicEnvironment).toBe(`${candidateImageId}||`);
+    expect(JSON.parse(basicDiagnosticSource)).toEqual({
+      invoked: true,
+      status: 1,
+      stdout: '',
+      stderr: '',
+    });
+    expect(after.mode % 0o1000).toBe(before.mode % 0o1000);
+    expect(after.size).toBe(before.size);
+    expect(archiveSource).toBe('candidate-image-archive');
+    expect(await activeResources(fixture)).toBe(false);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+  });
+
+  it('does not let a cached expected image conceal a mismatched archive', async () => {
+    const fixture = await createFixture('plan-failure');
+    const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    state.privateCandidateImageId = candidateImageId;
+    state.archiveLoadedImageId = `sha256:${'d'.repeat(64)}`;
+    await writeFile(fixture.dockerState, JSON.stringify(state));
+
+    await runFailure(fixture, {
+      archive: fixture.candidateArchive,
+      imageId: candidateImageId,
+    });
+    const log = await readFile(fixture.dockerLog, 'utf8');
+
+    expect(log).toContain(`"image","exists","${candidateImageId}"`);
+    expect(log).toContain(`"rmi","${candidateImageId}"`);
+    expect(log).toContain(`"load","--input","${fixture.candidateArchive}"`);
+    expect(log).not.toContain('"up"');
+    expect(await activeResources(fixture)).toBe(false);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+  });
+
+  it('opens a caller archive aliased to the fixed lock path without truncating it', async () => {
+    const fixture = await createFixture('plan-failure');
+    const lockArchive = path.join(fixture.buildRoot, 'aster-phase1-conformance-podman.lock');
+    const source = 'candidate-image-archive-at-lock-path';
+    await writeFile(lockArchive, source, { mode: 0o600 });
+
+    await runFailure(fixture, { archive: lockArchive, imageId: candidateImageId });
+    const [afterSource, metadata] = await Promise.all([
+      readFile(lockArchive, 'utf8'),
+      stat(lockArchive),
+    ]);
+
+    expect(afterSource).toBe(source);
+    expect(metadata.mode % 0o1000).toBe(0o600);
+  });
+
+  it.each([
+    {
+      name: 'wrong mode',
+      prepare: async (fixture: Fixture) => {
+        await chmod(fixture.candidateArchive, 0o640);
+        return { archive: fixture.candidateArchive, imageId: candidateImageId };
+      },
+    },
+    {
+      name: 'relative path',
+      prepare: async (fixture: Fixture) => ({
+        archive: path.relative(fixture.repository, fixture.candidateArchive),
+        imageId: candidateImageId,
+      }),
+    },
+    {
+      name: 'path outside build root',
+      prepare: async (fixture: Fixture) => {
+        const outsideArchive = path.join(fixture.root, 'outside-candidate.tar');
+        await writeFile(outsideArchive, 'candidate-image-archive', { mode: 0o600 });
+        return { archive: outsideArchive, imageId: candidateImageId };
+      },
+    },
+    {
+      name: 'symlink',
+      prepare: async (fixture: Fixture) => {
+        const archiveLink = path.join(fixture.buildRoot, 'candidate-image-link.tar');
+        await symlink(fixture.candidateArchive, archiveLink);
+        return { archive: archiveLink, imageId: candidateImageId };
+      },
+    },
+    {
+      name: 'wrong gid',
+      prepare: async (fixture: Fixture) => {
+        await executeFile('/usr/bin/podman', ['unshare', 'chown', '0:1', fixture.candidateArchive]);
+        const metadata = await stat(fixture.candidateArchive);
+        if (metadata.uid !== process.getuid?.() || metadata.gid === process.getgid?.()) {
+          throw new Error('failed to construct deterministic wrong-gid archive');
+        }
+        return { archive: fixture.candidateArchive, imageId: candidateImageId };
+      },
+    },
+    {
+      name: 'oversize sparse file',
+      prepare: async (fixture: Fixture) => {
+        await truncate(fixture.candidateArchive, maximumCandidateArchiveSize + 1);
+        return { archive: fixture.candidateArchive, imageId: candidateImageId };
+      },
+    },
+    {
+      name: 'missing image ID pair',
+      prepare: async (fixture: Fixture) => ({ archive: fixture.candidateArchive }),
+    },
+    {
+      name: 'missing archive pair',
+      prepare: async () => ({ imageId: candidateImageId }),
+    },
+    {
+      name: 'both input channels',
+      prepare: async (fixture: Fixture) => ({
+        image: candidateInput,
+        archive: fixture.candidateArchive,
+        imageId: candidateImageId,
+      }),
+    },
+    {
+      name: 'wrong image ID',
+      prepare: async (fixture: Fixture) => ({
+        archive: fixture.candidateArchive,
+        imageId: `sha256:${'d'.repeat(64)}`,
+      }),
+    },
+  ])('fails closed before compose for archive input with $name', async ({ prepare }) => {
+    const fixture = await createFixture('plan-failure');
+    const candidate = await prepare(fixture);
+
+    await runFailure(fixture, candidate);
+    const log = await readFile(fixture.dockerLog, 'utf8');
+
+    expect(log).not.toContain('"up"');
+    expect(await activeResources(fixture)).toBe(false);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
   });
 
   it('preserves recovery material when cleanup engine queries fail', async () => {
