@@ -207,9 +207,8 @@ const processResult = (
         }
       : {
           schemaVersion: 1,
-          kind: 'phase1-conformance-terminal',
+          kind: 'phase1-conformance-official-terminal',
           suiteCommit: phase1ConformanceSuiteCommit,
-          adapterControlId: 'phase1-conformance.runner.strict-terminal',
           planId: input.planId,
           variant: input.variant,
           status: 'PASSED',
@@ -298,8 +297,8 @@ describe('Phase 1 conformance production runtime', () => {
       ['--adapter-control-id', 'oidf-basic-1'],
       ['--adapter-control-id', 'oidf-basic-2'],
       ['--adapter-control-id', 'oidf-post-1'],
-      ['--plan-id', 'oidcc-basic-certification-test-plan'],
       ['--plan-id', 'oidcc-config-certification-test-plan'],
+      ['--plan-id', 'oidcc-basic-certification-test-plan'],
     ]);
     expect(result).toMatchObject({
       schemaVersion: 1,

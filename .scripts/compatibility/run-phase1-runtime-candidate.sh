@@ -6,6 +6,11 @@ readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
 BUILD_ROOT="${ASTER_PHASE1_BUILD_ROOT:-${DEFAULT_BUILD_ROOT}}"
 readonly BUILD_ROOT
 RUNTIME_GATE="${ASTER_PHASE1_RUNTIME_GATE:-}"
+if [[ "${RUNTIME_GATE}" == 'conformance' ]]; then
+  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  readonly SCRIPT_DIR
+  exec "${SCRIPT_DIR}/run-phase1-runtime-candidate-conformance.sh" "$@"
+fi
 case "${RUNTIME_GATE}" in
   differential)
     DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-differential"

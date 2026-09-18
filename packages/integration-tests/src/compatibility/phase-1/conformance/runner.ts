@@ -99,7 +99,6 @@ const terminalKeys = Object.freeze([
   'schemaVersion',
   'kind',
   'suiteCommit',
-  'adapterControlId',
   'planId',
   'variant',
   'status',
@@ -431,9 +430,8 @@ const parseOfficialTerminal = (
     Array.isArray(snapshot) ||
     !exactKeys(snapshot, terminalKeys) ||
     snapshot.schemaVersion !== 1 ||
-    snapshot.kind !== 'phase1-conformance-terminal' ||
+    snapshot.kind !== 'phase1-conformance-official-terminal' ||
     snapshot.suiteCommit !== phase1ConformanceSuiteCommit ||
-    snapshot.adapterControlId !== 'phase1-conformance.runner.strict-terminal' ||
     snapshot.planId !== plan.id ||
     !isDeepStrictEqual(snapshot.variant, plan.variant) ||
     snapshot.status !== 'PASSED' ||
@@ -576,9 +574,12 @@ const runPlan = async (
         ['--plan-id', plan.id],
         JSON.stringify({
           schemaVersion: 1,
-          suite: config.suite,
-          target: config.target,
-          staticClients: config.staticClients,
+          suite: { commit: config.suite.commit },
+          target: {
+            discoveryUrl: config.target.discoveryUrl,
+            suiteBaseUrl: config.target.suiteBaseUrl,
+            alias: config.target.alias,
+          },
           planId: plan.id,
           variant: plan.variant,
         })
@@ -617,10 +618,25 @@ export const runPhase1Conformance = async (
     const adapterControls = await runSequentially(config.staticClients, async (client) =>
       runAdapterControl(config, client, dependencies)
     );
-    const officialResults =
-      mode === 'runtime-candidate'
-        ? await runSequentially(config.plans, async (plan) => runPlan(config, plan, dependencies))
-        : Object.freeze([]);
+    const officialResults = await (async () => {
+      if (mode !== 'runtime-candidate') return Object.freeze([]);
+      const configPlan = config.plans.find(
+        ({ id }) => id === 'oidcc-config-certification-test-plan'
+      );
+      const basicPlan = config.plans.find(({ id }) => id === 'oidcc-basic-certification-test-plan');
+      if (!configPlan || !basicPlan) {
+        throw new TypeError(diagnostic);
+      }
+      const executionPlans = Object.freeze([configPlan, basicPlan] as const);
+      const executionResults = await runSequentially(executionPlans, async (plan) =>
+        runPlan(config, plan, dependencies)
+      );
+      const ordered = config.plans.map((plan) =>
+        executionResults.find((result) => result.planId === plan.id)
+      );
+      if (ordered.includes(undefined)) throw new TypeError(diagnostic);
+      return Object.freeze(ordered as readonly Phase1ConformanceOfficialResult[]);
+    })();
     const officialResultIds = officialResults.map(({ resultId }) => resultId);
 
     if (new Set(officialResultIds).size !== officialResultIds.length) {

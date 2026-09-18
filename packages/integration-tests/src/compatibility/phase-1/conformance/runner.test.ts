@@ -130,9 +130,8 @@ const terminalFor = (
   }
   return {
     schemaVersion: 1,
-    kind: 'phase1-conformance-terminal',
+    kind: 'phase1-conformance-official-terminal',
     suiteCommit: phase1ConformanceSuiteCommit,
-    adapterControlId: 'phase1-conformance.runner.strict-terminal',
     planId: input.planId,
     variant: input.variant,
     status: 'PASSED',
@@ -507,8 +506,8 @@ describe('Phase 1 conformance runner', () => {
       'oidf-basic-1',
       'oidf-basic-2',
       'oidf-post-1',
-      'oidcc-basic-certification-test-plan',
       'oidcc-config-certification-test-plan',
+      'oidcc-basic-certification-test-plan',
     ]);
   });
 

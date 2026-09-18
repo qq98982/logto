@@ -1,0 +1,389 @@
+{
+  "x-aster-project-name": "${ASTER_PHASE1_CONFORMANCE_PROJECT_NAME:?required}",
+  "services": {
+    "candidate-primary-postgres": {
+      "image": "docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+      "command": [
+        "postgres",
+        "-c", "max_prepared_transactions=0",
+        "-c", "password_encryption=scram-sha-256",
+        "-c", "log_statement=none",
+        "-c", "log_duration=off",
+        "-c", "log_min_duration_statement=-1",
+        "-c", "log_min_error_statement=panic",
+        "-c", "log_parameter_max_length=0",
+        "-c", "log_parameter_max_length_on_error=0"
+      ],
+      "environment": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD_FILE": "/run/secrets/postgres-password",
+        "POSTGRES_DB": "postgres",
+        "POSTGRES_INITDB_ARGS": "--auth-local=trust --auth-host=scram-sha-256",
+        "ASTER_PHASE1_INIT_CIDR": "172.30.247.11/32",
+        "ASTER_PHASE1_CORE_CIDR": "172.30.247.12/32",
+        "ASTER_PHASE1_COORDINATOR_CIDR": "172.30.247.13/32"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U postgres -d postgres"],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": { "db": { "ipv4_address": "172.30.247.10" } },
+      "volumes": [
+        "candidate-primary-postgres:/var/lib/postgresql/data",
+        "${ASTER_PHASE1_CONFORMANCE_POSTGRES_PASSWORD_FILE:?required}:/run/secrets/postgres-password:ro",
+        "./.scripts/compatibility/phase1-candidate-postgres-init.sh:/docker-entrypoint-initdb.d/010-aster-phase1-hba.sh:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m",
+        "/var/run/postgresql:rw,noexec,nosuid,nodev,size=16m"
+      ],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "candidate-primary-init": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST:?required}",
+      "command": ["init", "primary"],
+      "depends_on": {
+        "candidate-primary-postgres": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "/etc/aster/phase1/primary.conf",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json"
+      },
+      "networks": { "db": { "ipv4_address": "172.30.247.11" } },
+      "volumes": [
+        "${ASTER_PHASE1_CONFORMANCE_PRIMARY_CONFIG_FILE:?required}:/etc/aster/phase1/primary.conf:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "keep-id",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "restart": "no",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "candidate-conformance-core": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST:?required}",
+      "command": ["conformance-core", "primary"],
+      "depends_on": {
+        "candidate-primary-init": { "condition": "service_completed_successfully" }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "/etc/aster/phase1/primary.conf",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json",
+        "ASTER_PHASE1_TLS_CERTIFICATE_FILE": "/etc/aster/pki/aster/tls.crt",
+        "ASTER_PHASE1_TLS_PRIVATE_KEY_FILE": "/etc/aster/pki/aster/tls.key",
+        "ASTER_PHASE1_TLS_CA_BUNDLE_FILE": "/etc/aster/pki/root-ca.crt"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -f /run/aster/maintainer-ready && printf 'GET /oidc/.well-known/openid-configuration HTTP/1.1\\r\\nHost: aster-server.aster-phase1-conformance.svc.cluster.local:3443\\r\\nConnection: close\\r\\n\\r\\n' | openssl s_client -quiet -connect 127.0.0.1:3443 -servername aster-server.aster-phase1-conformance.svc.cluster.local -verify_hostname aster-server.aster-phase1-conformance.svc.cluster.local -verify_return_error -CAfile /etc/aster/pki/root-ca.crt 2>/dev/null | grep -q ' 200 OK'"
+        ],
+        "interval": "2s",
+        "timeout": "5s",
+        "retries": 90
+      },
+      "networks": {
+        "db": { "ipv4_address": "172.30.247.12" },
+        "oidf-edge": {
+          "ipv4_address": "172.30.249.10",
+          "aliases": ["aster-server.aster-phase1-conformance.svc.cluster.local"]
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_CONFORMANCE_PRIMARY_CONFIG_FILE:?required}:/etc/aster/phase1/primary.conf:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary:ro",
+        "${ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE:?required}:/etc/aster/pki/root-ca.crt:ro",
+        "${ASTER_PHASE1_CONFORMANCE_ASTER_CERTIFICATE_FILE:?required}:/etc/aster/pki/aster/tls.crt:ro",
+        "${ASTER_PHASE1_CONFORMANCE_ASTER_PRIVATE_KEY_FILE:?required}:/etc/aster/pki/aster/tls.key:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "keep-id",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "candidate-fixture-coordinator": {
+      "image": "${ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST:?required}",
+      "command": ["fixture-coordinator", "primary"],
+      "depends_on": {
+        "candidate-primary-init": { "condition": "service_completed_successfully" },
+        "candidate-conformance-core": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "ASTER_PHASE1_RUNTIME_UID": "${ASTER_PHASE1_RUNTIME_UID:?required}",
+        "ASTER_PHASE1_RUNTIME_GID": "${ASTER_PHASE1_RUNTIME_GID:?required}",
+        "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "/etc/aster/phase1/primary.conf",
+        "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json",
+        "ASTER_FIXTURE_SOCKET": "/run/aster-fixture/coordinator.sock"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "test -S /run/aster-fixture/coordinator.sock"],
+        "interval": "1s",
+        "timeout": "2s",
+        "retries": 60
+      },
+      "networks": { "db": { "ipv4_address": "172.30.247.13" } },
+      "volumes": [
+        "${ASTER_PHASE1_CONFORMANCE_PRIMARY_CONFIG_FILE:?required}:/etc/aster/phase1/primary.conf:ro",
+        "candidate-primary-keyring:/var/lib/aster/primary:ro",
+        "candidate-fixture:/run/aster-fixture"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/run/aster:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "keep-id",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "20s",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "suite-mongo": {
+      "image": "docker.io/library/mongo:6.0.13@sha256:b415b12f638e2685d06c58ab7fb5943577c50fadec6d9340ef67d21aeac72070",
+      "command": ["mongod", "--bind_ip_all", "--port", "27017", "--quiet"],
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "mongosh --quiet --eval 'quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)'"
+        ],
+        "interval": "3s",
+        "timeout": "5s",
+        "retries": 60
+      },
+      "networks": { "suite-db": { "ipv4_address": "172.30.248.10" } },
+      "volumes": ["suite-mongo:/data/db"],
+      "tmpfs": ["/tmp:rw,noexec,nosuid,nodev,size=64m"],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "suite-server": {
+      "image": "${ASTER_PHASE1_OIDF_SUITE_IMAGE_DIGEST:?required}",
+      "command": [
+        "umask 077; cp \"$${JAVA_HOME}/lib/security/cacerts\" /run/oidf/cacerts; keytool -importcert -noprompt -alias aster-phase1-root -file /etc/aster/pki/root-ca.crt -keystore /run/oidf/cacerts -storepass changeit >/dev/null; exec java -Djavax.net.ssl.trustStore=/run/oidf/cacerts -Djavax.net.ssl.trustStorePassword=changeit -Djdk.tls.maxHandshakeMessageSize=65536 -Dfintechlabs.base_url=\"$${BASE_URL}\" -Dfintechlabs.base_mtls_url=\"$${BASE_MTLS_URL}\" -Dspring.mongodb.uri=\"mongodb://$${MONGODB_HOST}:27017/test_suite\" -jar /server/fapi-test-suite.jar --fintechlabs.devmode=true --fintechlabs.startredir=false"
+      ],
+      "depends_on": {
+        "suite-mongo": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "BASE_URL": "https://conformance.aster-phase1-conformance.svc.cluster.local:8443",
+        "BASE_MTLS_URL": "https://conformance.aster-phase1-conformance.svc.cluster.local:8443",
+        "MONGODB_HOST": "suite-mongo"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/bin/bash",
+          "-ec",
+          "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET / HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -Eq '^HTTP/1\\.[01] [23][0-9][0-9]' <&3"
+        ],
+        "interval": "3s",
+        "timeout": "5s",
+        "retries": 90
+      },
+      "networks": {
+        "suite-db": { "ipv4_address": "172.30.248.11" },
+        "oidf-edge": { "ipv4_address": "172.30.249.11" }
+      },
+      "volumes": [
+        "${ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE:?required}:/etc/aster/pki/root-ca.crt:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=128m,uid=10001,gid=10001,mode=0700",
+        "/run/oidf:rw,noexec,nosuid,nodev,size=32m,uid=10001,gid=10001,mode=0700"
+      ],
+      "user": "10001:10001",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "30s",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v",
+        "com.aster.phase1.oidf-suite-source-commit": "0dc0e3a21ec411e92c808e5b2e2258592c22b594",
+        "com.aster.phase1.oidf-suite-image-id": "${ASTER_PHASE1_OIDF_SUITE_IMAGE_DIGEST:?required}"
+      }
+    },
+    "suite-nginx": {
+      "image": "docker.io/library/nginx:1.27.3-alpine@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4",
+      "entrypoint": ["/usr/sbin/nginx"],
+      "command": ["-g", "daemon off;"],
+      "depends_on": {
+        "suite-server": { "condition": "service_healthy" }
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "wget --quiet --spider --no-check-certificate https://conformance.aster-phase1-conformance.svc.cluster.local:8443/"
+        ],
+        "interval": "3s",
+        "timeout": "5s",
+        "retries": 60
+      },
+      "networks": {
+        "oidf-edge": {
+          "ipv4_address": "172.30.249.12",
+          "aliases": ["conformance.aster-phase1-conformance.svc.cluster.local"]
+        }
+      },
+      "volumes": [
+        "./.scripts/compatibility/phase1-conformance-nginx.conf:/etc/nginx/nginx.conf:ro",
+        "${ASTER_PHASE1_CONFORMANCE_SUITE_CERTIFICATE_FILE:?required}:/etc/aster/pki/suite/tls.crt:ro",
+        "${ASTER_PHASE1_CONFORMANCE_SUITE_PRIVATE_KEY_FILE:?required}:/etc/aster/pki/suite/tls.key:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700",
+        "/var/run:rw,noexec,nosuid,nodev,size=8m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "keep-id",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "stop_signal": "SIGQUIT",
+      "stop_grace_period": "10s",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "oidf-runner": {
+      "image": "docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
+      "entrypoint": ["node", "-e"],
+      "command": [
+        "const fs=require('node:fs');fs.accessSync('/etc/aster/pki/root-ca.crt',fs.constants.R_OK);setInterval(()=>{},2147483647);"
+      ],
+      "depends_on": {
+        "candidate-conformance-core": { "condition": "service_healthy" },
+        "candidate-fixture-coordinator": { "condition": "service_healthy" },
+        "suite-nginx": { "condition": "service_healthy" }
+      },
+      "environment": {
+        "NODE_EXTRA_CA_CERTS": "/etc/aster/pki/root-ca.crt",
+        "SSL_CERT_FILE": "/etc/aster/pki/root-ca.crt",
+        "ASTER_PHASE1_OIDF_RUNNER_MODE": "wait-for-driver-exec"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:fs').accessSync('/etc/aster/pki/root-ca.crt',require('node:fs').constants.R_OK)"
+        ],
+        "interval": "2s",
+        "timeout": "3s",
+        "retries": 30
+      },
+      "networks": { "oidf-edge": { "ipv4_address": "172.30.249.13" } },
+      "volumes": [
+        "${ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE:?required}:/etc/aster/pki/root-ca.crt:ro",
+        "candidate-fixture:/run/aster-fixture:rw",
+        "${ASTER_PHASE1_CONFORMANCE_SECRET_DIRECTORY:?required}:/run/aster-secrets:ro",
+        "${ASTER_PHASE1_CONFORMANCE_EVIDENCE_DIRECTORY:?required}:/var/lib/aster/evidence:rw",
+        "${ASTER_PHASE1_CONFORMANCE_DRIVER_FILE:?required}:/opt/aster/phase1-conformance-driver.sh:ro",
+        "${ASTER_PHASE1_CONFORMANCE_RUNNER_FILE:?required}:/opt/aster/phase1-conformance-runner.mjs:ro"
+      ],
+      "tmpfs": [
+        "/tmp:rw,noexec,nosuid,nodev,size=128m,uid=${ASTER_PHASE1_RUNTIME_UID:?required},gid=${ASTER_PHASE1_RUNTIME_GID:?required},mode=0700"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "keep-id",
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "10s",
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    }
+  },
+  "networks": {
+    "db": {
+      "internal": true,
+      "ipam": { "config": [{ "subnet": "172.30.247.0/24" }] }
+    },
+    "suite-db": {
+      "internal": true,
+      "ipam": { "config": [{ "subnet": "172.30.248.0/24" }] }
+    },
+    "oidf-edge": {
+      "internal": true,
+      "ipam": { "config": [{ "subnet": "172.30.249.0/24" }] }
+    }
+  },
+  "volumes": {
+    "candidate-primary-postgres": {
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "candidate-primary-keyring": {
+      "driver": "local",
+      "driver_opts": {
+        "type": "none",
+        "o": "bind",
+        "device": "${ASTER_PHASE1_CONFORMANCE_PRIMARY_KEYRING_DIRECTORY:?required}"
+      },
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "candidate-fixture": {
+      "driver": "local",
+      "driver_opts": {
+        "type": "none",
+        "o": "bind",
+        "device": "${ASTER_PHASE1_CONFORMANCE_FIXTURE_DIRECTORY:?required}"
+      },
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    },
+    "suite-mongo": {
+      "labels": {
+        "com.aster.phase1.topology": "runtime-candidate-conformance",
+        "com.aster.phase1.cleanup": "down-v"
+      }
+    }
+  }
+}

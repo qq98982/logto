@@ -1,21 +1,69 @@
 #!/bin/sh
 set -eu
 
-NODE_BIN=/usr/bin/node
-
-node_mode=$(stat -c %a -- "${NODE_BIN}" 2>/dev/null || true)
-case "${node_mode}" in
-  [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
-  *) exit 1 ;;
-esac
-case "${node_mode}" in
-  [0-7][2367][0-7]|[0-7][0-7][2367]|[0-7][0-7][2367][0-7]|[0-7][0-7][0-7][2367])
-    exit 1
-    ;;
-esac
-if [ ! -x "${NODE_BIN}" ] || [ -L "${NODE_BIN}" ] || \
-  [ "$(stat -c %u -- "${NODE_BIN}" 2>/dev/null || true)" != 0 ]; then
+fail() {
   exit 1
+}
+
+if [ "$#" -ne 2 ]; then
+  fail
+fi
+case "$1:$2" in
+  --adapter-control-id:oidf-basic-1|--adapter-control-id:oidf-basic-2|--adapter-control-id:oidf-post-1) ;;
+  --plan-id:oidcc-config-certification-test-plan) ;;
+  *) fail ;;
+esac
+
+STAT_BIN=''
+STAT_APPLET=''
+if [ -f /usr/bin/stat ] && [ ! -L /usr/bin/stat ] && [ -x /usr/bin/stat ] && \
+  [ "$(/usr/bin/stat -c %u -- /usr/bin/stat 2>/dev/null || true)" = 0 ] && \
+  [ "$(/usr/bin/stat -c %a -- /usr/bin/stat 2>/dev/null || true)" = 755 ]; then
+  STAT_BIN=/usr/bin/stat
+elif [ -f /bin/busybox ] && [ ! -L /bin/busybox ] && [ -x /bin/busybox ] && \
+  [ "$(/bin/busybox stat -c %u -- /bin/busybox 2>/dev/null || true)" = 0 ] && \
+  [ "$(/bin/busybox stat -c %a -- /bin/busybox 2>/dev/null || true)" = 755 ]; then
+  STAT_BIN=/bin/busybox
+  STAT_APPLET=stat
+else
+  fail
+fi
+readonly STAT_BIN STAT_APPLET
+
+stat_value() {
+  format=$1
+  file=$2
+  if [ -n "${STAT_APPLET}" ]; then
+    "${STAT_BIN}" "${STAT_APPLET}" -c "${format}" -- "${file}" 2>/dev/null || true
+  else
+    "${STAT_BIN}" -c "${format}" -- "${file}" 2>/dev/null || true
+  fi
+}
+
+NODE_BIN=''
+for candidate in /usr/local/bin/node /usr/bin/node; do
+  if [ -f "${candidate}" ] && [ ! -L "${candidate}" ] && [ -x "${candidate}" ] && \
+    [ "$(stat_value %u "${candidate}")" = 0 ] && [ "$(stat_value %a "${candidate}")" = 755 ]; then
+    NODE_BIN=${candidate}
+    break
+  fi
+done
+[ -n "${NODE_BIN}" ] || fail
+readonly NODE_BIN
+
+if [ "$1" = '--plan-id' ]; then
+  case "$0" in
+    /*) driver_path=$0 ;;
+    *) fail ;;
+  esac
+  runner_path=${driver_path%/*}/phase1-conformance-runner.mjs
+  driver_owner=$(stat_value %u "${driver_path}")
+  if [ ! -f "${runner_path}" ] || [ -L "${runner_path}" ] || \
+    [ "$(stat_value %u "${runner_path}")" != "${driver_owner}" ] || \
+    [ "$(stat_value %a "${runner_path}")" != 644 ]; then
+    fail
+  fi
+  exec "${NODE_BIN}" "${runner_path}" "$@"
 fi
 
 exec "${NODE_BIN}" -e '

@@ -1,0 +1,770 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'
+readonly SUITE_COMMIT='0dc0e3a21ec411e92c808e5b2e2258592c22b594'
+readonly SUITE_MAVEN_RESOLUTION='source-pom-not-fully-offline-locked'
+readonly DEFAULT_BUILD_ROOT='/var/tmp/henry-build'
+BUILD_ROOT="${ASTER_PHASE1_BUILD_ROOT:-${DEFAULT_BUILD_ROOT}}"
+readonly BUILD_ROOT
+readonly DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-conformance"
+readonly TOPOLOGY_ID='runtime-candidate-conformance'
+readonly RUNNER_DRIVER_PATH='/opt/aster/phase1-conformance-driver.sh'
+readonly RUNNER_SCRIPT_PATH='/opt/aster/phase1-conformance-runner.mjs'
+readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
+readonly MONGO_IMAGE='docker.io/library/mongo:6.0.13@sha256:b415b12f638e2685d06c58ab7fb5943577c50fadec6d9340ef67d21aeac72070'
+readonly NGINX_IMAGE='docker.io/library/nginx:1.27.3-alpine@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4'
+readonly RUNNER_IMAGE='docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
+readonly SERVICES=(
+  candidate-primary-postgres candidate-primary-init candidate-conformance-core
+  candidate-fixture-coordinator suite-mongo suite-server suite-nginx oidf-runner
+)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+readonly REPO_ROOT
+readonly COMPOSE_FILE="${REPO_ROOT}/docker-compose.phase1-runtime-candidate-conformance.yml"
+readonly SUITE_DOCKERFILE="${REPO_ROOT}/Dockerfile.phase1-oidf-suite"
+readonly PKI_SCRIPT="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-pki.sh"
+readonly DRIVER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-driver.sh"
+readonly RUNNER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-runner.mjs"
+readonly PHASE1_CLI="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js"
+
+failure_stage=initialization
+fail() {
+  printf 'Aster runtime candidate conformance gate failed (%s)\n' "${failure_stage}" >&2
+  exit 1
+}
+
+require_safe_build_root() {
+  local value=$1
+
+  [[ "${value}" == /* && "${value}" != */ && "${value}" != *'//'* ]] || fail
+  [[ "${value}" != *'/./'* && "${value}" != *'/../'* && ! "${value}" =~ [[:cntrl:]] ]] || fail
+  case "${value}" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/proc|/root|/run|/sbin|/sys|/tmp|/usr|/var|/var/tmp|/dev/*|/proc/*|/sys/*) fail ;;
+  esac
+}
+
+BUILD_ROOT_DEVICE=''
+BUILD_ROOT_INODE=''
+
+capture_build_root_identity() {
+  local resolved owner mode
+
+  require_safe_build_root "${BUILD_ROOT}"
+  [[ -d "${BUILD_ROOT}" && ! -L "${BUILD_ROOT}" ]] || fail
+  resolved="$(/usr/bin/realpath -e -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  owner="$(/usr/bin/stat -c %u -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${BUILD_ROOT}" && "${owner}" == "$(/usr/bin/id -u)" && "${mode}" == 700 ]] || fail
+  BUILD_ROOT_DEVICE="$(/usr/bin/stat -c %d -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  BUILD_ROOT_INODE="$(/usr/bin/stat -c %i -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${BUILD_ROOT_DEVICE}" =~ ^[0-9]+$ && "${BUILD_ROOT_INODE}" =~ ^[0-9]+$ ]] || fail
+}
+
+assert_build_root_identity() {
+  local resolved owner mode device inode
+
+  [[ -d "${BUILD_ROOT}" && ! -L "${BUILD_ROOT}" ]] || fail
+  resolved="$(/usr/bin/realpath -e -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  owner="$(/usr/bin/stat -c %u -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  device="$(/usr/bin/stat -c %d -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  inode="$(/usr/bin/stat -c %i -- "${BUILD_ROOT}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${BUILD_ROOT}" && "${owner}" == "$(/usr/bin/id -u)" && "${mode}" == 700 ]] || fail
+  [[ "${device}" == "${BUILD_ROOT_DEVICE}" && "${inode}" == "${BUILD_ROOT_INODE}" ]] || fail
+}
+
+require_private_root() {
+  local root=$1 resolved metadata
+
+  assert_build_root_identity
+  [[ "${root}" == "${BUILD_ROOT}/"* && "${root}" != "${BUILD_ROOT}" && "${root}" != *'/../'* ]] || fail
+  if [[ ! -e "${root}" ]]; then
+    /usr/bin/mkdir -m 700 -- "${root}" || fail
+  fi
+  [[ -d "${root}" && ! -L "${root}" ]] || fail
+  resolved="$(/usr/bin/realpath -e -- "${root}" 2>/dev/null || true)"
+  metadata="$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${root}" 2>/dev/null || true)"
+  [[ "${resolved}" == "${root}" ]] || fail
+  [[ "${metadata}" == "$(/usr/bin/id -u)|$(/usr/bin/id -g)|700|directory" ]] || fail
+  assert_build_root_identity
+}
+
+trusted_binary() {
+  local candidate=$1 resolved owner group mode
+
+  if [[ "${candidate}" != /* ]]; then
+    candidate="$(command -v "${candidate}" 2>/dev/null || true)"
+  fi
+  resolved="$(/usr/bin/realpath -e -- "${candidate}" 2>/dev/null || true)"
+  [[ -n "${resolved}" && -f "${resolved}" && -x "${resolved}" && ! -L "${resolved}" ]] || fail
+  owner="$(/usr/bin/stat -c %u -- "${resolved}" 2>/dev/null || true)"
+  group="$(/usr/bin/stat -c %g -- "${resolved}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${resolved}" 2>/dev/null || true)"
+  [[ "${owner}" == 0 || "${owner}" == "$(/usr/bin/id -u)" ]] || fail
+  [[ "${mode}" =~ ^[0-7]{3,4}$ ]] || fail
+  ((8#${mode} & 8#002)) && fail
+  if ((8#${mode} & 8#020)); then
+    [[ "${owner}" == "$(/usr/bin/id -u)" && "${group}" == "$(/usr/bin/id -g)" ]] || fail
+  fi
+  printf '%s' "${resolved}"
+}
+
+trusted_system_binary() {
+  local resolved owner mode
+
+  resolved="$(trusted_binary "$1")"
+  owner="$(/usr/bin/stat -c %u -- "${resolved}" 2>/dev/null || true)"
+  mode="$(/usr/bin/stat -c %a -- "${resolved}" 2>/dev/null || true)"
+  [[ "${owner}" == 0 ]] || fail
+  ((8#${mode} & 8#022)) && fail
+  printf '%s' "${resolved}"
+}
+
+immutable_image() {
+  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ || "$1" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]]
+}
+
+GIT_BIN="$(trusted_system_binary /usr/bin/git)"
+DOCKER_BIN="$(trusted_system_binary /usr/bin/docker)"
+PODMAN_BIN="$(trusted_system_binary /usr/bin/podman)"
+FLOCK_BIN="$(trusted_system_binary /usr/bin/flock)"
+SETSID_BIN="$(trusted_system_binary /usr/bin/setsid)"
+TIMEOUT_BIN="$(trusted_system_binary /usr/bin/timeout)"
+ENV_BIN="$(trusted_system_binary /usr/bin/env)"
+PS_BIN="$(trusted_system_binary /usr/bin/ps)"
+AWK_BIN="$(trusted_system_binary /usr/bin/awk)"
+SHA256_BIN="$(trusted_system_binary /usr/bin/sha256sum)"
+NODE_BIN="$(trusted_binary node)"
+PNPM_BIN="$(trusted_binary pnpm)"
+readonly GIT_BIN DOCKER_BIN PODMAN_BIN FLOCK_BIN
+readonly SETSID_BIN TIMEOUT_BIN ENV_BIN PS_BIN AWK_BIN SHA256_BIN NODE_BIN PNPM_BIN
+export GIT_NO_REPLACE_OBJECTS=1
+readonly GIT_AUTHORITY=("${GIT_BIN}" --no-replace-objects)
+
+capture_build_root_identity
+readonly BUILD_ROOT_DEVICE BUILD_ROOT_INODE
+RUN_ROOT="${ASTER_RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
+require_private_root "${RUN_ROOT}"
+readonly RUN_ROOT
+RUN_DIR="$(/usr/bin/mktemp -d "${RUN_ROOT}/run.XXXXXX")"
+readonly RUN_DIR
+PODMAN_GRAPH_ROOT="${BUILD_ROOT}/aster-phase1-conformance-podman-graph"
+require_private_root "${PODMAN_GRAPH_ROOT}"
+# shellcheck disable=SC2016
+run_root_hash="$(printf '%s' "${PODMAN_GRAPH_ROOT}" | "${SHA256_BIN}" | "${AWK_BIN}" '{print substr($1, 1, 20)}')"
+[[ "${run_root_hash}" =~ ^[0-9a-f]{20}$ ]] || fail
+PODMAN_RUN_ROOT="/run/user/$(/usr/bin/id -u)/aster-p1c-${run_root_hash}"
+if [[ ! -e "${PODMAN_RUN_ROOT}" ]]; then
+  /usr/bin/mkdir -m 700 -- "${PODMAN_RUN_ROOT}" || fail
+fi
+[[ -d "${PODMAN_RUN_ROOT}" && ! -L "${PODMAN_RUN_ROOT}" ]] || fail
+[[ "$(/usr/bin/realpath -e -- "${PODMAN_RUN_ROOT}" 2>/dev/null || true)" == "${PODMAN_RUN_ROOT}" ]] || fail
+[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${PODMAN_RUN_ROOT}" 2>/dev/null || true)" == \
+  "$(/usr/bin/id -u)|$(/usr/bin/id -g)|700|directory" ]] || fail
+PODMAN_SOCKET="/run/user/$(/usr/bin/id -u)/aster-p1c-${run_root_hash}.sock"
+[[ "${#PODMAN_SOCKET}" -le 100 && ! -e "${PODMAN_SOCKET}" && ! -L "${PODMAN_SOCKET}" ]] || fail
+PODMAN_LOG="${RUN_DIR}/podman-service.log"
+PODMAN_LOCK_FILE="${BUILD_ROOT}/aster-phase1-conformance-podman.lock"
+exec {PODMAN_LOCK_FD}>"${PODMAN_LOCK_FILE}"
+"${FLOCK_BIN}" -x "${PODMAN_LOCK_FD}" || fail
+readonly PODMAN_GRAPH_ROOT PODMAN_RUN_ROOT PODMAN_SOCKET PODMAN_LOG PODMAN_LOCK_FILE PODMAN_LOCK_FD
+CONFORMANCE_ROOT="${RUN_DIR}/conformance"
+EVIDENCE_DIR="${RUN_DIR}/evidence"
+SECRET_DIR="${RUN_DIR}/secrets"
+PRIVATE_HOME="${RUN_DIR}/home"
+PRIVATE_TMP="${RUN_DIR}/tmp"
+SUITE_CHECKOUT="${RUN_DIR}/oidf-suite"
+PRIMARY_KEYRING_DIR="${RUN_DIR}/primary-keyring"
+FIXTURE_DIR="${RUN_DIR}/fixture"
+PRIMARY_CONFIG_FILE="${RUN_DIR}/primary.conf"
+POSTGRES_PASSWORD_FILE="${RUN_DIR}/postgres-password"
+COMPOSE_ENV="${RUN_DIR}/compose.env"
+DESCRIPTOR_FILE="${CONFORMANCE_ROOT}/runtime-candidate-conformance.json"
+REVIEW_PROFILE="${RUN_DIR}/review-profile.json"
+readonly CONFORMANCE_ROOT EVIDENCE_DIR SECRET_DIR PRIVATE_HOME PRIVATE_TMP SUITE_CHECKOUT
+readonly PRIMARY_KEYRING_DIR FIXTURE_DIR PRIMARY_CONFIG_FILE POSTGRES_PASSWORD_FILE COMPOSE_ENV
+readonly DESCRIPTOR_FILE REVIEW_PROFILE
+/usr/bin/mkdir -m 700 -- "${CONFORMANCE_ROOT}" "${EVIDENCE_DIR}" "${SECRET_DIR}" \
+  "${PRIVATE_HOME}" "${PRIVATE_TMP}" "${SUITE_CHECKOUT}" "${PRIMARY_KEYRING_DIR}" "${FIXTURE_DIR}"
+assert_build_root_identity
+
+CLOSED_ENV=(env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C)
+CLOSED_BUILD_ENV=(
+  env -i
+  PATH="$(dirname -- "${NODE_BIN}"):$(dirname -- "${PNPM_BIN}"):/usr/bin:/bin"
+  HOME="${PRIVATE_HOME}"
+  TMPDIR="${PRIVATE_TMP}"
+  CI=true
+  LC_ALL=C
+)
+readonly CLOSED_ENV CLOSED_BUILD_ENV
+[[ "$("${CLOSED_ENV[@]}" "${NODE_BIN}" --version 2>/dev/null || true)" == 'v22.23.2' ]] || fail
+[[ "$("${CLOSED_BUILD_ENV[@]}" "${PNPM_BIN}" --version 2>/dev/null || true)" == '10.15.1' ]] || fail
+
+random_hex() {
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" -e \
+    'process.stdout.write(require("node:crypto").randomBytes(Number(process.argv[1])).toString("hex"))' "$1"
+}
+
+random_uuid() {
+  local value
+  value="$(random_hex 16)"
+  printf '%s-%s-%s-%s-%s' "${value:0:8}" "${value:8:4}" "${value:12:4}" "${value:16:4}" "${value:20:12}"
+}
+
+project_name="aster-phase1-conformance-$(random_hex 8)"
+readonly project_name
+project_started=0
+container_ids=()
+NODE_RUN_PID=''
+NODE_RUN_PGID=''
+NODE_RUN_TOKEN=''
+SETUP_RUN_PID=''
+SETUP_RUN_PGID=''
+SETUP_RUN_TOKEN=''
+PODMAN_SERVICE_PID=''
+PODMAN_SERVICE_PGID=''
+PODMAN_SERVICE_TOKEN=''
+
+docker_cli() {
+  "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 30s \
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+      DOCKER_HOST="unix://${PODMAN_SOCKET}" DOCKER_CLIENT_TIMEOUT=20 \
+      "${DOCKER_BIN}" "$@"
+}
+
+compose() {
+  "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 120s \
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+      DOCKER_HOST="unix://${PODMAN_SOCKET}" DOCKER_CLIENT_TIMEOUT=90 COMPOSE_HTTP_TIMEOUT=90 \
+      "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" \
+        --project-name "${project_name}" --file "${COMPOSE_FILE}" "$@"
+}
+
+podman_cli() {
+  "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 120s \
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+      XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+      "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" "$@"
+}
+
+system_docker_cli() {
+  "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 30s \
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=20 \
+      "${DOCKER_BIN}" "$@"
+}
+
+process_has_ownership_token() {
+  local pid=$1 token=$2 entry
+
+  [[ "${pid}" =~ ^[1-9][0-9]*$ && "${token}" =~ ^[0-9a-f]{64}$ && -r "/proc/${pid}/environ" ]] || return 1
+  while IFS= read -r -d '' entry; do
+    [[ "${entry}" == "ASTER_PHASE1_PROCESS_TOKEN=${token}" ]] && return 0
+  done <"/proc/${pid}/environ"
+  return 1
+}
+
+process_group_has_live_members() {
+  local pgid=$1
+
+  # shellcheck disable=SC2016
+  "${PS_BIN}" -eo pgid=,stat= | "${AWK_BIN}" -v expected="${pgid}" '
+    $1 == expected && $2 !~ /^Z/ { found=1 }
+    END { exit found ? 0 : 1 }
+  '
+}
+
+terminate_owned_process_group() {
+  local pid=$1 pgid=$2 token=$3 attempt member_pid member_pgid member_sid member_state found
+
+  [[ "${pid}" =~ ^[1-9][0-9]*$ && "${pgid}" == "${pid}" ]] || return 1
+  if process_group_has_live_members "${pgid}"; then
+    found=0
+    while read -r member_pid member_pgid member_sid member_state; do
+      [[ "${member_pgid}" == "${pgid}" && "${member_state}" != Z* ]] || continue
+      [[ "${member_sid}" == "${pgid}" ]] || return 1
+      process_has_ownership_token "${member_pid}" "${token}" || return 1
+      found=1
+    done < <("${PS_BIN}" -eo pid=,pgid=,sid=,stat=)
+    [[ "${found}" == 1 ]] || return 1
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    for ((attempt=0; attempt<20; attempt++)); do
+      process_group_has_live_members "${pgid}" || break
+      /usr/bin/sleep 0.05
+    done
+    if process_group_has_live_members "${pgid}"; then
+      kill -KILL -- "-${pgid}" 2>/dev/null || true
+    fi
+  fi
+  wait "${pid}" 2>/dev/null || true
+  ! process_group_has_live_members "${pgid}"
+}
+
+run_owned_command() {
+  local timeout_seconds=$1 stdout_path=$2 stderr_path=$3 status=0
+  shift 3
+
+  [[ "${timeout_seconds}" =~ ^[1-9][0-9]{0,4}$ ]] || return 1
+  [[ -z "${SETUP_RUN_PGID}" && "$#" -gt 0 ]] || return 1
+  SETUP_RUN_TOKEN="$(random_hex 32)"
+  ASTER_PHASE1_PROCESS_TOKEN="${SETUP_RUN_TOKEN}" \
+    "${SETSID_BIN}" "${TIMEOUT_BIN}" --signal=TERM --kill-after=10s \
+      "${timeout_seconds}s" "${ENV_BIN}" -i \
+      "ASTER_PHASE1_PROCESS_TOKEN=${SETUP_RUN_TOKEN}" "$@" \
+      >"${stdout_path}" 2>"${stderr_path}" &
+  SETUP_RUN_PID=$!
+  SETUP_RUN_PGID="${SETUP_RUN_PID}"
+  wait "${SETUP_RUN_PID}" || status=$?
+  terminate_owned_process_group \
+    "${SETUP_RUN_PID}" "${SETUP_RUN_PGID}" "${SETUP_RUN_TOKEN}" || status=1
+  SETUP_RUN_PID=''
+  SETUP_RUN_PGID=''
+  SETUP_RUN_TOKEN=''
+  return "${status}"
+}
+
+cleanup() {
+  local exit_code=$? cleanup_failed=0 remaining resource_id index
+  trap - EXIT INT TERM HUP
+
+  if [[ -n "${SETUP_RUN_PGID}" ]]; then
+    terminate_owned_process_group \
+      "${SETUP_RUN_PID}" "${SETUP_RUN_PGID}" "${SETUP_RUN_TOKEN}" || cleanup_failed=1
+  fi
+  SETUP_RUN_PID=''
+  SETUP_RUN_PGID=''
+  SETUP_RUN_TOKEN=''
+
+  if [[ -n "${NODE_RUN_PGID}" ]]; then
+    terminate_owned_process_group "${NODE_RUN_PID}" "${NODE_RUN_PGID}" "${NODE_RUN_TOKEN}" || cleanup_failed=1
+  fi
+  NODE_RUN_PID=''
+  NODE_RUN_PGID=''
+  NODE_RUN_TOKEN=''
+
+  if [[ "${project_started}" == 1 ]]; then
+    for ((index=${#container_ids[@]} - 1; index >= 0; index--)); do
+      docker_cli rm --force "${container_ids[index]}" >/dev/null 2>&1 || cleanup_failed=1
+    done
+    if remaining="$(docker_cli ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      while IFS= read -r resource_id; do
+        [[ -z "${resource_id}" ]] || docker_cli rm --force "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      done <<<"${remaining}"
+    else
+      cleanup_failed=1
+    fi
+    if ! remaining="$(docker_cli ps -aq --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      cleanup_failed=1
+    elif [[ -n "${remaining}" ]]; then
+      cleanup_failed=1
+    fi
+    if remaining="$(docker_cli network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      while IFS= read -r resource_id; do
+        [[ -z "${resource_id}" ]] || docker_cli network rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      done <<<"${remaining}"
+    else
+      cleanup_failed=1
+    fi
+    if ! remaining="$(docker_cli network ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      cleanup_failed=1
+    elif [[ -n "${remaining}" ]]; then
+      cleanup_failed=1
+    fi
+    if remaining="$(docker_cli volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      while IFS= read -r resource_id; do
+        [[ -z "${resource_id}" ]] || docker_cli volume rm "${resource_id}" >/dev/null 2>&1 || cleanup_failed=1
+      done <<<"${remaining}"
+    else
+      cleanup_failed=1
+    fi
+    if ! remaining="$(docker_cli volume ls -q --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)"; then
+      cleanup_failed=1
+    elif [[ -n "${remaining}" ]]; then
+      cleanup_failed=1
+    fi
+  fi
+  if [[ -n "${PODMAN_SERVICE_PGID}" ]]; then
+    terminate_owned_process_group \
+      "${PODMAN_SERVICE_PID}" "${PODMAN_SERVICE_PGID}" "${PODMAN_SERVICE_TOKEN}" || cleanup_failed=1
+  elif [[ -n "${PODMAN_SERVICE_PID}" ]] && kill -0 "${PODMAN_SERVICE_PID}" 2>/dev/null; then
+    if process_has_ownership_token "${PODMAN_SERVICE_PID}" "${PODMAN_SERVICE_TOKEN}"; then
+      kill -TERM -- "${PODMAN_SERVICE_PID}" 2>/dev/null || cleanup_failed=1
+      for ((index=0; index<20; index++)); do
+        kill -0 "${PODMAN_SERVICE_PID}" 2>/dev/null || break
+        /usr/bin/sleep 0.05
+      done
+      if kill -0 "${PODMAN_SERVICE_PID}" 2>/dev/null; then
+        process_has_ownership_token "${PODMAN_SERVICE_PID}" "${PODMAN_SERVICE_TOKEN}" || cleanup_failed=1
+        kill -KILL -- "${PODMAN_SERVICE_PID}" 2>/dev/null || cleanup_failed=1
+      fi
+      wait "${PODMAN_SERVICE_PID}" 2>/dev/null || true
+    else
+      cleanup_failed=1
+    fi
+  fi
+  PODMAN_SERVICE_PID=''
+  PODMAN_SERVICE_PGID=''
+  PODMAN_SERVICE_TOKEN=''
+  if [[ -e "${PODMAN_SOCKET}" || -L "${PODMAN_SOCKET}" ]]; then
+    if [[ -S "${PODMAN_SOCKET}" && ! -L "${PODMAN_SOCKET}" ]] && \
+      [[ "$(/usr/bin/stat -c %u -- "${PODMAN_SOCKET}" 2>/dev/null || true)" == \
+        "$(/usr/bin/id -u)" ]]; then
+      /usr/bin/rm -f -- "${PODMAN_SOCKET}" || cleanup_failed=1
+    else
+      cleanup_failed=1
+    fi
+  fi
+  if [[ "${cleanup_failed}" == 0 && -d "${RUN_DIR}" && ! -L "${RUN_DIR}" ]]; then
+    /usr/bin/rm -rf -- "${RUN_DIR}" || cleanup_failed=1
+  fi
+  if [[ "${exit_code}" == 0 && "${cleanup_failed}" != 0 ]]; then
+    exit_code=1
+  fi
+  exit "${exit_code}"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+start_private_podman() {
+  local attempt observed_pgid
+
+  PODMAN_SERVICE_TOKEN="$(random_hex 32)"
+  ASTER_PHASE1_PROCESS_TOKEN="${PODMAN_SERVICE_TOKEN}" \
+    env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+      XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+      ASTER_PHASE1_PROCESS_TOKEN="${PODMAN_SERVICE_TOKEN}" \
+      "${SETSID_BIN}" "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" \
+        --runroot "${PODMAN_RUN_ROOT}" system service --time=0 \
+        "unix://${PODMAN_SOCKET}" >"${PODMAN_LOG}" 2>&1 &
+  PODMAN_SERVICE_PID=$!
+  # shellcheck disable=SC2016
+  observed_pgid="$("${PS_BIN}" -o pgid= -p "${PODMAN_SERVICE_PID}" 2>/dev/null | \
+    "${AWK_BIN}" '{gsub(/[[:space:]]/, "", $0); print}')"
+  [[ "${observed_pgid}" == "${PODMAN_SERVICE_PID}" ]] || fail
+  PODMAN_SERVICE_PGID="${observed_pgid}"
+  for ((attempt=0; attempt<100; attempt++)); do
+    if docker_cli ps >/dev/null 2>&1; then
+      [[ -S "${PODMAN_SOCKET}" && ! -L "${PODMAN_SOCKET}" ]] || fail
+      [[ "$(/usr/bin/stat -c %u -- "${PODMAN_SOCKET}" 2>/dev/null || true)" == \
+        "$(/usr/bin/id -u)" ]] || fail
+      return 0
+    fi
+    kill -0 "${PODMAN_SERVICE_PID}" 2>/dev/null || fail
+    /usr/bin/sleep 0.1
+  done
+  fail
+}
+
+inspect_image_id() {
+  local input=$1 result
+
+  immutable_image "${input}" || fail
+  result="$(docker_cli image inspect --format '{{.Id}}' "${input}" 2>/dev/null || true)"
+  [[ "${result}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
+  printf '%s' "${result}"
+}
+
+inspect_system_image_id() {
+  local input=$1 result
+
+  immutable_image "${input}" || fail
+  result="$(system_docker_cli image inspect --format '{{.Id}}' "${input}" 2>/dev/null || true)"
+  [[ "${result}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
+  printf '%s' "${result}"
+}
+
+expected_image_for_service() {
+  case "$1" in
+    candidate-primary-postgres) printf '%s' "${POSTGRES_IMAGE_ID}" ;;
+    candidate-primary-init|candidate-conformance-core|candidate-fixture-coordinator) printf '%s' "${CANDIDATE_IMAGE_ID}" ;;
+    suite-mongo) printf '%s' "${MONGO_IMAGE_ID}" ;;
+    suite-server) printf '%s' "${SUITE_IMAGE_ID}" ;;
+    suite-nginx) printf '%s' "${NGINX_IMAGE_ID}" ;;
+    oidf-runner) printf '%s' "${RUNNER_IMAGE_ID}" ;;
+    *) return 1 ;;
+  esac
+}
+
+wait_for_topology() {
+  local attempt service container_id metadata status health exit_code image project service_label topology
+
+  for ((attempt=0; attempt<180; attempt++)); do
+    container_ids=()
+    for service in "${SERVICES[@]}"; do
+      container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
+      [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || break
+      metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.ExitCode}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.aster.phase1.topology"}}' "${container_id}" 2>/dev/null || true)"
+      IFS='|' read -r container_id status health exit_code image project service_label topology <<<"${metadata}"
+      [[ "${container_id}" =~ ^[0-9a-f]{64}$ ]] || break
+      [[ "${project}" == "${project_name}" && "${service_label}" == "${service}" && "${topology}" == "${TOPOLOGY_ID}" ]] || fail
+      [[ "${image}" == "$(expected_image_for_service "${service}")" ]] || fail
+      if [[ "${service}" != 'candidate-primary-init' && "${status}" == running && \
+        "${health}" != healthy ]]; then
+        podman_cli healthcheck run "${container_id}" >/dev/null 2>&1 || true
+        metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.ExitCode}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.aster.phase1.topology"}}' "${container_id}" 2>/dev/null || true)"
+        IFS='|' read -r container_id status health exit_code image project service_label topology <<<"${metadata}"
+        [[ "${project}" == "${project_name}" && "${service_label}" == "${service}" && \
+          "${topology}" == "${TOPOLOGY_ID}" && \
+          "${image}" == "$(expected_image_for_service "${service}")" ]] || fail
+      fi
+      if [[ "${service}" == 'candidate-primary-init' ]]; then
+        [[ "${status}" == exited && "${exit_code}" == 0 ]] || break
+      else
+        [[ "${status}" == running && "${health}" == healthy ]] || break
+      fi
+      container_ids+=("${container_id}")
+    done
+    if [[ "${#container_ids[@]}" == "${#SERVICES[@]}" ]]; then
+      return 0
+    fi
+    /usr/bin/sleep 1
+  done
+  fail
+}
+
+failure_stage=authority
+[[ "$#" == 0 ]] || fail
+for file in "${COMPOSE_FILE}" "${SUITE_DOCKERFILE}" "${PKI_SCRIPT}" "${DRIVER_FILE}" \
+  "${RUNNER_FILE}" "${PHASE1_CLI}"; do
+  [[ -f "${file}" && ! -L "${file}" ]] || fail
+done
+repo_origin="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || true)"
+case "${repo_origin}" in
+  'https://github.com/qq98982/logto.git'|'git@github.com:qq98982/logto.git'|'ssh://git@github.com/qq98982/logto.git') ;;
+  *) fail ;;
+esac
+[[ -z "$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail
+H_HEAD="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+[[ "${H_HEAD}" =~ ^[0-9a-f]{40}$ ]] || fail
+DRIVER_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" rev-parse 'HEAD:.scripts/compatibility/phase1-conformance-driver.sh' 2>/dev/null || true)"
+ACTUAL_DRIVER_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" hash-object --no-filters "${DRIVER_FILE}" 2>/dev/null || true)"
+[[ "${DRIVER_BLOB}" =~ ^[0-9a-f]{40}$ && "${ACTUAL_DRIVER_BLOB}" == "${DRIVER_BLOB}" ]] || fail
+# shellcheck disable=SC2016
+DRIVER_SHA256="$("${SHA256_BIN}" "${DRIVER_FILE}" | "${AWK_BIN}" '{print $1}')"
+[[ "${DRIVER_SHA256}" =~ ^[0-9a-f]{64}$ ]] || fail
+RUNNER_SCRIPT_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" rev-parse 'HEAD:.scripts/compatibility/phase1-conformance-runner.mjs' 2>/dev/null || true)"
+ACTUAL_RUNNER_SCRIPT_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" hash-object --no-filters "${RUNNER_FILE}" 2>/dev/null || true)"
+[[ "${RUNNER_SCRIPT_BLOB}" =~ ^[0-9a-f]{40}$ && "${ACTUAL_RUNNER_SCRIPT_BLOB}" == "${RUNNER_SCRIPT_BLOB}" ]] || fail
+# shellcheck disable=SC2016
+RUNNER_SCRIPT_SHA256="$("${SHA256_BIN}" "${RUNNER_FILE}" | "${AWK_BIN}" '{print $1}')"
+[[ "${RUNNER_SCRIPT_SHA256}" =~ ^[0-9a-f]{64}$ ]] || fail
+readonly H_HEAD DRIVER_BLOB DRIVER_SHA256 RUNNER_SCRIPT_BLOB RUNNER_SCRIPT_SHA256
+
+ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"
+CANDIDATE_IMAGE_INPUT="${ASTER_PHASE1_CANDIDATE_IMAGE:?required}"
+[[ "${ASTER_ROOT}" == /* && -d "${ASTER_ROOT}" && ! -L "${ASTER_ROOT}" ]] || fail
+ASTER_ROOT="$(/usr/bin/realpath -e -- "${ASTER_ROOT}")"
+readonly ASTER_ROOT CANDIDATE_IMAGE_INPUT
+aster_origin="$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" remote get-url origin 2>/dev/null || true)"
+case "${aster_origin}" in
+  'https://github.com/qq98982/aster.git'|'git@github.com:qq98982/aster.git'|'ssh://git@github.com/qq98982/aster.git') ;;
+  *) fail ;;
+esac
+[[ -z "$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail
+PROFILE_SOURCE="${ASTER_ROOT}/compatibility/phase-1-profile.json"
+SCHEMA_SOURCE="${ASTER_ROOT}/compatibility/phase-1-profile.schema.json"
+[[ -f "${PROFILE_SOURCE}" && -f "${SCHEMA_SOURCE}" && ! -L "${PROFILE_SOURCE}" && ! -L "${SCHEMA_SOURCE}" ]] || fail
+readonly PROFILE_SOURCE SCHEMA_SOURCE
+
+failure_stage=container-engine
+start_private_podman
+compose version >/dev/null 2>&1 || fail
+
+failure_stage=images
+SYSTEM_CANDIDATE_IMAGE_ID="$(inspect_system_image_id "${CANDIDATE_IMAGE_INPUT}")"
+CANDIDATE_ARCHIVE="${RUN_DIR}/candidate-image.tar"
+run_owned_command 1800 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=1200 \
+  "${DOCKER_BIN}" image save --output "${CANDIDATE_ARCHIVE}" "${CANDIDATE_IMAGE_INPUT}" || fail
+[[ -f "${CANDIDATE_ARCHIVE}" && ! -L "${CANDIDATE_ARCHIVE}" ]] || fail
+[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${CANDIDATE_ARCHIVE}" 2>/dev/null || true)" == \
+  "$(/usr/bin/id -u)|$(/usr/bin/id -g)|600|regular file" ]] || fail
+run_owned_command 600 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+  XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+  "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+    load --input "${CANDIDATE_ARCHIVE}" || fail
+/usr/bin/rm -f -- "${CANDIDATE_ARCHIVE}" || fail
+CANDIDATE_IMAGE_ID="$(inspect_image_id "${SYSTEM_CANDIDATE_IMAGE_ID}")"
+[[ "${CANDIDATE_IMAGE_ID}" == "${SYSTEM_CANDIDATE_IMAGE_ID}" ]] || fail
+for image in "${POSTGRES_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMAGE}"; do
+  run_owned_command 900 /dev/null /dev/null \
+    PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+    XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+      pull "${image}" || fail
+done
+POSTGRES_IMAGE_ID="$(inspect_image_id "${POSTGRES_IMAGE}")"
+MONGO_IMAGE_ID="$(inspect_image_id "${MONGO_IMAGE}")"
+NGINX_IMAGE_ID="$(inspect_image_id "${NGINX_IMAGE}")"
+RUNNER_IMAGE_ID="$(inspect_image_id "${RUNNER_IMAGE}")"
+readonly SYSTEM_CANDIDATE_IMAGE_ID CANDIDATE_IMAGE_ID
+readonly POSTGRES_IMAGE_ID MONGO_IMAGE_ID NGINX_IMAGE_ID RUNNER_IMAGE_ID
+
+failure_stage=suite-checkout
+"${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" init -q >/dev/null 2>&1 || fail
+"${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" remote add origin "${SUITE_REPOSITORY}" >/dev/null 2>&1 || fail
+run_owned_command 600 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C \
+  GIT_ASKPASS=/bin/false GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+  GIT_CONFIG_SYSTEM=/dev/null GIT_TERMINAL_PROMPT=0 GIT_NO_REPLACE_OBJECTS=1 \
+  SSH_ASKPASS=/bin/false "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" \
+    fetch --no-tags --depth=1 origin "${SUITE_COMMIT}" || fail
+"${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" checkout --detach -q FETCH_HEAD >/dev/null 2>&1 || fail
+[[ "$("${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" rev-parse HEAD 2>/dev/null || true)" == "${SUITE_COMMIT}" ]] || fail
+[[ "$("${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" remote get-url origin 2>/dev/null || true)" == "${SUITE_REPOSITORY}" ]] || fail
+[[ -z "$("${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)" ]] || fail
+
+failure_stage=suite-build
+SUITE_IID_FILE="${RUN_DIR}/suite-image-id"
+run_owned_command 1800 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+  XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+  "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+    build --iidfile "${SUITE_IID_FILE}" --file "${SUITE_DOCKERFILE}" \
+    --build-arg "ASTER_PHASE1_OIDF_SUITE_COMMIT=${SUITE_COMMIT}" "${SUITE_CHECKOUT}" || fail
+SUITE_IMAGE_ID="$(/usr/bin/tr -d '[:space:]' <"${SUITE_IID_FILE}")"
+if [[ "${SUITE_IMAGE_ID}" =~ ^[0-9a-f]{64}$ ]]; then
+  SUITE_IMAGE_ID="sha256:${SUITE_IMAGE_ID}"
+fi
+[[ "${SUITE_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || fail
+suite_metadata="$(docker_cli image inspect --format '{{.Id}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "com.aster.phase1.maven-resolution"}}' "${SUITE_IMAGE_ID}" 2>/dev/null || true)"
+IFS='|' read -r inspected_suite_id inspected_suite_revision inspected_maven_resolution <<<"${suite_metadata}"
+[[ "${inspected_suite_id}" == "${SUITE_IMAGE_ID}" && "${inspected_suite_revision}" == "${SUITE_COMMIT}" && "${inspected_maven_resolution}" == "${SUITE_MAVEN_RESOLUTION}" ]] || fail
+readonly SUITE_IMAGE_ID
+
+failure_stage=private-material
+printf '%s\n' "$(random_hex 32)" >"${POSTGRES_PASSWORD_FILE}"
+printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$(random_uuid)" "$(random_hex 32)" >"${PRIMARY_CONFIG_FILE}"
+/usr/bin/chmod 0400 "${POSTGRES_PASSWORD_FILE}" "${PRIMARY_CONFIG_FILE}"
+run_owned_command 180 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C \
+  "${PKI_SCRIPT}" "${RUN_DIR}" "$(/usr/bin/id -u)" "$(/usr/bin/id -g)" || fail
+
+failure_stage=build
+run_owned_command 600 /dev/null /dev/null \
+  PATH="$(dirname -- "${NODE_BIN}"):$(dirname -- "${PNPM_BIN}"):/usr/bin:/bin" \
+  HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" CI=true LC_ALL=C \
+  "${PNPM_BIN}" --dir "${REPO_ROOT}/packages/integration-tests" build || fail
+run_owned_command 60 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C \
+  "${NODE_BIN}" "${PHASE1_CLI}" prepare-review-profile \
+    --source-profile "${PROFILE_SOURCE}" --schema "${SCHEMA_SOURCE}" \
+    --harness-commit "${H_HEAD}" --output "${REVIEW_PROFILE}" || fail
+[[ -f "${REVIEW_PROFILE}" && ! -L "${REVIEW_PROFILE}" ]] || fail
+
+{
+  printf 'ASTER_PHASE1_CONFORMANCE_PROJECT_NAME=%s\n' "${project_name}"
+  printf 'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST=%s\n' "${CANDIDATE_IMAGE_ID}"
+  printf 'ASTER_PHASE1_OIDF_SUITE_IMAGE_DIGEST=%s\n' "${SUITE_IMAGE_ID}"
+  printf 'ASTER_PHASE1_RUNTIME_UID=%s\n' "$(/usr/bin/id -u)"
+  printf 'ASTER_PHASE1_RUNTIME_GID=%s\n' "$(/usr/bin/id -g)"
+  printf 'ASTER_PHASE1_CONFORMANCE_POSTGRES_PASSWORD_FILE=%s\n' "${POSTGRES_PASSWORD_FILE}"
+  printf 'ASTER_PHASE1_CONFORMANCE_PRIMARY_CONFIG_FILE=%s\n' "${PRIMARY_CONFIG_FILE}"
+  printf 'ASTER_PHASE1_CONFORMANCE_PRIMARY_KEYRING_DIRECTORY=%s\n' "${PRIMARY_KEYRING_DIR}"
+  printf 'ASTER_PHASE1_CONFORMANCE_FIXTURE_DIRECTORY=%s\n' "${FIXTURE_DIR}"
+  printf 'ASTER_PHASE1_CONFORMANCE_PKI_ROOT_FILE=%s\n' "${RUN_DIR}/pki/root-ca.crt"
+  printf 'ASTER_PHASE1_CONFORMANCE_ASTER_CERTIFICATE_FILE=%s\n' "${RUN_DIR}/pki/aster/tls.crt"
+  printf 'ASTER_PHASE1_CONFORMANCE_ASTER_PRIVATE_KEY_FILE=%s\n' "${RUN_DIR}/pki/aster/tls.key"
+  printf 'ASTER_PHASE1_CONFORMANCE_SUITE_CERTIFICATE_FILE=%s\n' "${RUN_DIR}/pki/suite/tls.crt"
+  printf 'ASTER_PHASE1_CONFORMANCE_SUITE_PRIVATE_KEY_FILE=%s\n' "${RUN_DIR}/pki/suite/tls.key"
+  printf 'ASTER_PHASE1_CONFORMANCE_SECRET_DIRECTORY=%s\n' "${SECRET_DIR}"
+  printf 'ASTER_PHASE1_CONFORMANCE_EVIDENCE_DIRECTORY=%s\n' "${EVIDENCE_DIR}"
+  printf 'ASTER_PHASE1_CONFORMANCE_DRIVER_FILE=%s\n' "${DRIVER_FILE}"
+  printf 'ASTER_PHASE1_CONFORMANCE_RUNNER_FILE=%s\n' "${RUNNER_FILE}"
+} >"${COMPOSE_ENV}"
+/usr/bin/chmod 0400 "${COMPOSE_ENV}"
+
+failure_stage=topology
+project_started=1
+compose config --quiet >/dev/null 2>&1 || fail
+run_owned_command 600 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_HOST="unix://${PODMAN_SOCKET}" \
+  DOCKER_CLIENT_TIMEOUT=540 COMPOSE_HTTP_TIMEOUT=540 \
+  "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" --project-name "${project_name}" \
+    --file "${COMPOSE_FILE}" up --detach --no-build "${SERVICES[@]}" || fail
+wait_for_topology
+runner_index=$((${#SERVICES[@]} - 1))
+RUNNER_CONTAINER_ID="${container_ids[runner_index]}"
+readonly RUNNER_CONTAINER_ID
+
+failure_stage=descriptor
+"${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+  "${DESCRIPTOR_FILE}" "${project_name}" "${RUNNER_CONTAINER_ID}" "${SUITE_COMMIT}" \
+  "${SUITE_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "${RUNNER_IMAGE_ID}" "${RUNNER_DRIVER_PATH}" \
+  "${DRIVER_BLOB}" "${DRIVER_SHA256}" "${RUNNER_SCRIPT_PATH}" "${RUNNER_SCRIPT_BLOB}" \
+  "${RUNNER_SCRIPT_SHA256}" "${PODMAN_SOCKET}" "${TOPOLOGY_ID}" <<'NODE'
+import { writeFileSync } from 'node:fs';
+const [output, projectName, runnerContainerId, suiteCommit, suiteImageId, candidateImageId,
+  runnerImageId, driverPath, driverBlob, driverSha256, runnerPath, runnerBlob, runnerSha256,
+  engineSocket, topologyId] = process.argv.slice(2);
+writeFileSync(output, `${JSON.stringify({
+  schemaVersion: 1,
+  kind: 'aster-phase1-runtime-candidate-conformance-descriptor',
+  projectName,
+  runnerContainerId,
+  suiteCommit,
+  suiteImageId,
+  candidateImageId,
+  runnerImageId,
+  driverPath,
+  driverBlob,
+  driverSha256,
+  runnerPath,
+  runnerBlob,
+  runnerSha256,
+  engineSocket,
+  topologyId,
+})}\n`, { flag: 'wx', mode: 0o400 });
+NODE
+[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${DESCRIPTOR_FILE}")" == "$(/usr/bin/id -u)|$(/usr/bin/id -g)|400|regular file" ]] || fail
+
+failure_stage=conformance
+NODE_RUN_TOKEN="$(random_hex 32)"
+PUBLIC_ENV=(
+  env -i
+  PATH='/usr/bin:/bin'
+  HOME="${PRIVATE_HOME}"
+  TMPDIR="${PRIVATE_TMP}"
+  ASTER_PHASE1_MODE='runtime-candidate'
+  ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}"
+  ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}"
+  ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE_ID}"
+  ASTER_PHASE1_TOPOLOGY_ID="${project_name}"
+  ASTER_PHASE1_CONFORMANCE_ROOT="${CONFORMANCE_ROOT}"
+  ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"
+)
+ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}" "${SETSID_BIN}" "${PUBLIC_ENV[@]}" \
+  "${NODE_BIN}" "${PHASE1_CLI}" run-conformance --mode runtime-candidate \
+  --profile "${REVIEW_PROFILE}" --schema "${SCHEMA_SOURCE}" \
+  --observation-controls --discovery-extra-control --candidate-invariant-controls >/dev/null &
+NODE_RUN_PID=$!
+NODE_RUN_PGID="${NODE_RUN_PID}"
+node_run_status=0
+wait "${NODE_RUN_PID}" || node_run_status=$?
+if ! terminate_owned_process_group "${NODE_RUN_PID}" "${NODE_RUN_PGID}" "${NODE_RUN_TOKEN}"; then
+  fail
+fi
+NODE_RUN_PID=''
+NODE_RUN_PGID=''
+NODE_RUN_TOKEN=''
+[[ "${node_run_status}" == 0 ]] || fail
+
+artifact_path="${EVIDENCE_DIR}/phase-1-conformance.json"
+[[ -f "${artifact_path}" && ! -L "${artifact_path}" ]] || fail
+[[ "$(/usr/bin/find "${EVIDENCE_DIR}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')" == 'phase-1-conformance.json' ]] || fail
+"${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}" "${CANDIDATE_IMAGE_ID}" <<'NODE'
+import { readFile } from 'node:fs/promises';
+const value = JSON.parse(await readFile(process.argv[2], 'utf8'));
+if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
+  value.sanitizerSuccess !== true || value.provenance?.imageDigest !== process.argv[3] ||
+  !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
+  !Array.isArray(value.planResults) || value.planResults.length !== 2) process.exit(1);
+NODE
+printf '%s\n' 'Aster runtime candidate conformance gate passed'

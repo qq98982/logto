@@ -152,9 +152,8 @@ const brandedRunResult = async (
           }
         : {
             schemaVersion: 1,
-            kind: 'phase1-conformance-terminal',
+            kind: 'phase1-conformance-official-terminal',
             suiteCommit: phase1ConformanceSuiteCommit,
-            adapterControlId: 'phase1-conformance.runner.strict-terminal',
             planId: input.planId,
             variant: input.variant,
             status: 'PASSED',
