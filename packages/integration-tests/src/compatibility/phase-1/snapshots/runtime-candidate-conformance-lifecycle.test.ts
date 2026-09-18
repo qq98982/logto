@@ -307,7 +307,10 @@ if ((args[0] === 'network' || args[0] === 'volume') && args[1] === 'rm') {
 }
 if (args[0] === 'exec' && args[1] === '--interactive') {
   const state = readState();
-  const containerId = args[2];
+  const hasUser = args[2] === '--user';
+  if (hasUser && args[3] !== process.getuid() + ':' + process.getgid()) process.exit(1);
+  const containerIndex = hasUser ? 4 : 2;
+  const containerId = args[containerIndex];
   let environment;
   let service;
   for (const value of Object.values(state.projects)) {
@@ -317,10 +320,11 @@ if (args[0] === 'exec' && args[1] === '--interactive') {
     }
   }
   if (!environment) process.exit(1);
-  const fixtureCommandIndex = args.indexOf('/usr/local/bin/aster-admin', 3);
+  const fixtureCommandIndex = args.indexOf('/usr/local/bin/aster-admin', containerIndex + 1);
   if (service === 'candidate-fixture-coordinator' && fixtureCommandIndex >= 0 &&
       args[fixtureCommandIndex + 1] === 'fixture' && args[fixtureCommandIndex + 2] === 'apply') {
-    const fixturePrefix = args.slice(3, fixtureCommandIndex);
+    if (!hasUser) process.exit(1);
+    const fixturePrefix = args.slice(containerIndex + 1, fixtureCommandIndex);
     if (JSON.stringify(fixturePrefix) !== JSON.stringify([
       '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin',
       'ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock',

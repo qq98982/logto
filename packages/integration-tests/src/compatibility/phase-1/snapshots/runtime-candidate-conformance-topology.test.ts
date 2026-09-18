@@ -367,6 +367,7 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(lifecycle).toContain('compose_up_phase candidate-conformance-core');
     expect(lifecycle).toContain('compose_up_phase candidate-fixture-coordinator suite-nginx');
     expect(lifecycle).toMatch(/\/usr\/local\/bin\/aster-admin\s+fixture apply/u);
+    expect(lifecycle).toContain('exec --interactive --user');
     expect(lifecycle).toContain("operation: 'provision'");
     expect(lifecycle).toContain("operation: 'cleanup'");
     expect(lifecycle).toContain('OIDF_PUBLIC_MAP_FILE');

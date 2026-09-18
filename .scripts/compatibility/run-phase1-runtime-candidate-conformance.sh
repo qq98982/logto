@@ -388,7 +388,8 @@ const descriptor = {
 if (existsSync(publicMapPath)) descriptor.public = JSON.parse(readFileSync(publicMapPath, 'utf8'));
 writeFileSync(output, JSON.stringify(descriptor), { flag: 'wx', mode: 0o400 });
 NODE
-  docker_cli exec --interactive "${COORDINATOR_CONTAINER_ID}" \
+  docker_cli exec --interactive --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" \
+    "${COORDINATOR_CONTAINER_ID}" \
     /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
     ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
     /usr/local/bin/aster-admin fixture apply \
@@ -449,7 +450,8 @@ writeFileSync(output, JSON.stringify({
 }), { flag: 'wx', mode: 0o400 });
 NODE
   OIDF_FIXTURE_PROVISIONED=1
-  docker_cli exec --interactive "${COORDINATOR_CONTAINER_ID}" \
+  docker_cli exec --interactive --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" \
+    "${COORDINATOR_CONTAINER_ID}" \
     /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
     ASTER_FIXTURE_SOCKET=/run/aster-fixture/coordinator.sock \
     /usr/local/bin/aster-admin fixture apply \
