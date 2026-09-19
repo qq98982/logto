@@ -498,10 +498,14 @@ const assertCurrentDirectory = async () => {
     named.dev !== anchored.dev || named.ino !== anchored.ino ||
     await realpath(directory) !== directory) throw new Error('export directory moved');
 };
-const assertArtifact = (file, inode, links = 1) => {
+const assertOwnedArtifact = (file, inode, links = 1) => {
   if (!file.isFile() || file.uid !== process.getuid() || file.gid !== process.getgid() ||
-    file.mode % 0o1000 !== 0o600 || file.nlink !== links || String(file.ino) !== inode)
+    file.nlink !== links || String(file.ino) !== inode)
     throw new Error('export artifact identity');
+};
+const assertArtifact = (file, inode, links = 1) => {
+  assertOwnedArtifact(file, inode, links);
+  if (file.mode % 0o1000 !== 0o600) throw new Error('export artifact mode');
 };
 const removeOwned = async (filename, inode, links = 1) => {
   let file;
@@ -511,7 +515,7 @@ const removeOwned = async (filename, inode, links = 1) => {
     if (error.code === 'ENOENT') return;
     throw error;
   }
-  assertArtifact(file, inode, links);
+  assertOwnedArtifact(file, inode, links);
   await unlink(filename);
 };
 try {
@@ -596,7 +600,7 @@ try {
   if (finalCreated) {
     try {
       const file = await lstat(destination);
-      if (file.nlink === 2) assertArtifact(await lstat(temporary), expectedInode, 2);
+      if (file.nlink === 2) assertOwnedArtifact(await lstat(temporary), expectedInode, 2);
       await removeOwned(destination, expectedInode, file.nlink);
     } catch { process.exitCode = 1; }
   }

@@ -46,6 +46,7 @@ type Behavior =
   | 'export-dir-becomes-link'
   | 'staged-temp-changed'
   | 'publish-unlink-failure'
+  | 'publish-mode-changed'
   | 'cleanup-query-failure'
   | 'fixture-cleanup-failure'
   | 'plan-failure'
@@ -418,6 +419,7 @@ const reachesPlan = behavior === 'success' || behavior === 'cleanup-run-removal-
   behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
   behavior === 'staged-temp-changed' ||
   behavior === 'publish-unlink-failure' ||
+  behavior === 'publish-mode-changed' ||
   behavior === 'plan-failure' ||
   behavior === 'cleanup-query-failure' || behavior === 'fixture-cleanup-failure';
 if (behavior === 'signal') setInterval(() => {}, 2147483647);
@@ -460,7 +462,8 @@ if (behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
     behavior === 'run-dir-disappears' || behavior === 'run-dir-becomes-file' ||
     behavior === 'run-dir-raced-replacement' ||
     behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
-    behavior === 'staged-temp-changed' || behavior === 'publish-unlink-failure') {
+    behavior === 'staged-temp-changed' || behavior === 'publish-unlink-failure' ||
+    behavior === 'publish-mode-changed') {
   const artifact = JSON.stringify({
     schemaVersion: 1, mode: 'runtime-candidate', sanitizerSuccess: true,
     provenance: { imageDigest: process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST },
@@ -586,6 +589,14 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
   if (behavior === 'publish-unlink-failure' && !lifecycleSource.includes(publicationBoundary)) {
     throw new Error('export publication boundary missing');
   }
+  const publishedValidationBoundary =
+    '    await unlink(temporary);\n    const published = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);';
+  if (
+    behavior === 'publish-mode-changed' &&
+    !lifecycleSource.includes(publishedValidationBoundary)
+  ) {
+    throw new Error('export validation boundary missing');
+  }
   const transformedLifecycle = lifecycleSource
     .replace(
       "readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'",
@@ -620,6 +631,12 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
       behavior === 'publish-unlink-failure'
         ? '    finalCreated = true;\n    throw new Error("injected unlink failure");\n    await unlink(temporary);'
         : publicationBoundary
+    )
+    .replace(
+      publishedValidationBoundary,
+      behavior === 'publish-mode-changed'
+        ? '    await unlink(temporary);\n    await (await import("node:fs/promises")).chmod(destination, 0o400);\n    const published = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);'
+        : publishedValidationBoundary
     );
   const dockerAuthorityStart = wrapperSource.indexOf("DOCKER_PATH=''");
   const nodeAuthorityStart = wrapperSource.indexOf("NODE_PATH=''", dockerAuthorityStart);
@@ -1024,7 +1041,7 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     }
   );
 
-  it('reports failure when staged bytes cannot be removed without changing their identity', async () => {
+  it('removes chmod-only staged bytes even when run directory cleanup fails', async () => {
     const fixture = await createFixture('staged-temp-changed');
     const output = path.join(fixture.buildRoot, 'published');
     await mkdir(output, { mode: 0o700 });
@@ -1041,12 +1058,7 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
         stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
         stderr: expect.stringContaining('failed (cleanup)'),
       });
-      const entries = await readdir(output);
-      expect(entries).toHaveLength(1);
-      expect(entries[0]).toMatch(/^\.aster-conformance-[0-9a-f]{32}\.tmp$/u);
-      const staged = await lstat(path.join(output, entries[0] ?? 'missing'));
-      expect(staged.mode % 0o1000).toBe(0o400);
-      await expect(lstat(path.join(output, exportName))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readdir(output)).toEqual([]);
     } finally {
       await chmod(fixture.runRoot, 0o700);
     }
@@ -1054,6 +1066,26 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
 
   it('removes a final link if publication stops before removing its temporary link', async () => {
     const fixture = await createFixture('publish-unlink-failure');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    await expect(
+      executeFile(fixture.lifecycle, [], {
+        cwd: fixture.repository,
+        env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+        timeout: 30_000,
+      })
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+    });
+    expect(await readdir(output)).toEqual([]);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+    expect(await activeResources(fixture)).toBe(false);
+  });
+
+  it('withdraws the owned final link when its mode changes before publication validation', async () => {
+    const fixture = await createFixture('publish-mode-changed');
     const output = path.join(fixture.buildRoot, 'published');
     await mkdir(output, { mode: 0o700 });
 
