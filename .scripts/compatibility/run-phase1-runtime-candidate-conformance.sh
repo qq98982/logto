@@ -31,6 +31,8 @@ readonly PKI_SCRIPT="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-pki.
 readonly DRIVER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-driver.sh"
 readonly RUNNER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-runner.mjs"
 readonly PHASE1_CLI="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js"
+readonly ARTIFACT_CONTRACT="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/artifact-contract.js"
+readonly EXPORT_NAME='phase-1-conformance.json'
 
 failure_stage=initialization
 fail() {
@@ -171,6 +173,19 @@ require_private_root "${RUN_ROOT}"
 readonly RUN_ROOT
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_ROOT}/run.XXXXXX")"
 readonly RUN_DIR
+EXPORT_DIR="${ASTER_PHASE1_CONFORMANCE_EXPORT_DIR-}"
+readonly EXPORT_DIR
+export_directory_safe() {
+  [[ "${EXPORT_DIR}" == "${BUILD_ROOT}/"* && "${EXPORT_DIR}" != "${RUN_ROOT}" && \
+    "${EXPORT_DIR}" != "${RUN_ROOT}/"* && "${EXPORT_DIR}" != *'//'* && \
+    "${EXPORT_DIR}" != *'/./'* && "${EXPORT_DIR}" != *'/../'* && \
+    ! "${EXPORT_DIR}" =~ [[:cntrl:]] && -d "${EXPORT_DIR}" && ! -L "${EXPORT_DIR}" ]] || return 1
+  [[ "$(/usr/bin/realpath -e -- "${EXPORT_DIR}" 2>/dev/null || true)" == "${EXPORT_DIR}" ]] || return 1
+  [[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${EXPORT_DIR}" 2>/dev/null || true)" == \
+    "$(/usr/bin/id -u)|$(/usr/bin/id -g)|700|directory" ]] || return 1
+  [[ "$(/usr/bin/stat -c '%d|%i' -- "${EXPORT_DIR}" 2>/dev/null || true)" == "${EXPORT_IDENTITY}" ]]
+}
+EXPORT_IDENTITY=''
 PODMAN_GRAPH_ROOT="${BUILD_ROOT}/aster-phase1-conformance-podman-graph"
 require_private_root "${PODMAN_GRAPH_ROOT}"
 # shellcheck disable=SC2016
@@ -427,6 +442,82 @@ remove_oidf_private_material() {
     "${FIXTURE_BASELINE_CLEANUP_RESPONSE}"
 }
 
+publish_export() {
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
+    "${EVIDENCE_DIR}/${EXPORT_NAME}" "${EXPORT_DIR}" "${EXPORT_NAME}" \
+    "${CANDIDATE_IMAGE_ID}" "${ARTIFACT_CONTRACT}" <<'NODE'
+import { createHash, randomBytes } from 'node:crypto';
+import { constants } from 'node:fs';
+import { link, lstat, open, readdir, realpath, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const [source, directory, name, imageDigest, contractPath] = process.argv.slice(2);
+const { parseStrictPhase1ArtifactJson, assertPhase1PublicArtifactValue } =
+  await import(pathToFileURL(contractPath).href);
+const destination = join(directory, name);
+const temporary = join(directory, `.aster-conformance-${randomBytes(16).toString('hex')}`);
+let temporaryCreated = false;
+let published = false;
+try {
+  const entries = await readdir(directory);
+  const dir = await lstat(directory);
+  if (entries.length || !dir.isDirectory() || dir.isSymbolicLink() || dir.mode % 0o1000 !== 0o700 ||
+    dir.uid !== process.getuid() || dir.gid !== process.getgid() ||
+    await realpath(directory) !== directory) throw new Error('export directory');
+  const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let bytes;
+  try {
+    const file = await input.stat();
+    if (!file.isFile() || file.uid !== process.getuid() || file.gid !== process.getgid() ||
+      file.nlink !== 1 || ![0o400, 0o600].includes(file.mode % 0o1000))
+      throw new Error('source metadata');
+    bytes = await input.readFile();
+  } finally {
+    await input.close();
+  }
+  const value = parseStrictPhase1ArtifactJson(bytes);
+  assertPhase1PublicArtifactValue(value);
+  if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
+    value.sanitizerSuccess !== true || value.provenance?.imageDigest !== imageDigest ||
+    !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
+    !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
+    !Array.isArray(value.planResults) || value.planResults.length !== 2)
+    throw new Error('conformance contract');
+  const output = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+  temporaryCreated = true;
+  try {
+    await output.writeFile(bytes);
+    await output.sync();
+  } finally {
+    await output.close();
+  }
+  await link(temporary, destination);
+  published = true;
+  await unlink(temporary);
+  temporaryCreated = false;
+  const result = await lstat(destination);
+  const saved = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (!result.isFile() || result.uid !== process.getuid() || result.gid !== process.getgid() ||
+      result.mode % 0o1000 !== 0o600 || result.nlink !== 1 ||
+      !(await saved.readFile()).equals(bytes) ||
+      JSON.stringify(await readdir(directory)) !== JSON.stringify([name]))
+      throw new Error('published artifact');
+  } finally {
+    await saved.close();
+  }
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  process.stdout.write(`ASTER_PHASE1_CONFORMANCE_EXPORT_SHA256=${digest}\n` +
+    `ASTER_PHASE1_CONFORMANCE_EXPORT_BYTES=${bytes.length}`);
+} catch {
+  if (temporaryCreated) await unlink(temporary).catch(() => {});
+  if (published) await unlink(destination).catch(() => {});
+  process.exitCode = 1;
+}
+NODE
+}
+
 prepare_oidf_fixture_baseline() {
   local allocation_id
   allocation_id="baseline-release-$(random_hex 8)"
@@ -557,7 +648,7 @@ NODE
 }
 
 cleanup() {
-  local exit_code=$? cleanup_failed=0 remaining resource_id index
+  local exit_code=$? cleanup_failed=0 publication_failed=0 remaining resource_id index export_summary=''
   trap - EXIT INT TERM HUP
 
   if [[ -n "${SETUP_RUN_PGID}" ]]; then
@@ -650,11 +741,30 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
+  if [[ "${exit_code}" == 0 && "${cleanup_failed}" == 0 && -n "${EXPORT_DIR}" ]]; then
+    if export_directory_safe && \
+      [[ -z "$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" ]]; then
+      export_summary="$(publish_export)" || publication_failed=1
+    else
+      publication_failed=1
+    fi
+  fi
   if [[ "${cleanup_failed}" == 0 && -d "${RUN_DIR}" && ! -L "${RUN_DIR}" ]]; then
     /usr/bin/rm -rf -- "${RUN_DIR}" || cleanup_failed=1
   fi
-  if [[ "${exit_code}" == 0 && "${cleanup_failed}" != 0 ]]; then
+  if [[ "${cleanup_failed}" != 0 && -n "${export_summary}" ]]; then
+    if export_directory_safe && [[ -f "${EXPORT_DIR}/${EXPORT_NAME}" && ! -L "${EXPORT_DIR}/${EXPORT_NAME}" ]]; then
+      /usr/bin/rm -f -- "${EXPORT_DIR}/${EXPORT_NAME}" || cleanup_failed=1
+    fi
+  fi
+  if [[ "${exit_code}" == 0 && ( "${cleanup_failed}" != 0 || "${publication_failed}" != 0 ) ]]; then
     exit_code=1
+  fi
+  if [[ "${exit_code}" == 0 ]]; then
+    [[ -z "${export_summary}" ]] || printf '%s\n' "${export_summary}"
+    printf '%s\n' 'Aster runtime candidate conformance gate passed'
+  elif [[ "${cleanup_failed}" != 0 || "${publication_failed}" != 0 ]]; then
+    printf 'Aster runtime candidate conformance gate failed (cleanup)\n' >&2
   fi
   exit "${exit_code}"
 }
@@ -783,6 +893,14 @@ wait_for_topology() {
   done
   fail
 }
+
+failure_stage=export-directory
+if [[ -n "${EXPORT_DIR}" ]]; then
+  EXPORT_IDENTITY="$(/usr/bin/stat -c '%d|%i' -- "${EXPORT_DIR}" 2>/dev/null || true)"
+  export_directory_safe || fail
+  [[ -z "$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" ]] || fail
+fi
+readonly EXPORT_IDENTITY
 
 failure_stage=authority
 [[ "$#" == 0 ]] || fail
@@ -1071,15 +1189,19 @@ NODE_RUN_PGID=''
 NODE_RUN_TOKEN=''
 [[ "${node_run_status}" == 0 ]] || fail
 
-artifact_path="${EVIDENCE_DIR}/phase-1-conformance.json"
+artifact_path="${EVIDENCE_DIR}/${EXPORT_NAME}"
 [[ -f "${artifact_path}" && ! -L "${artifact_path}" ]] || fail
-[[ "$(/usr/bin/find "${EVIDENCE_DIR}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n')" == 'phase-1-conformance.json' ]] || fail
-"${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}" "${CANDIDATE_IMAGE_ID}" <<'NODE'
+[[ "$(/usr/bin/find "${EVIDENCE_DIR}" -mindepth 1 -maxdepth 1 -printf '%f|%y\n')" == "${EXPORT_NAME}|f" ]] || fail
+"${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}" "${CANDIDATE_IMAGE_ID}" "${ARTIFACT_CONTRACT}" <<'NODE'
 import { readFile } from 'node:fs/promises';
-const value = JSON.parse(await readFile(process.argv[2], 'utf8'));
+import { pathToFileURL } from 'node:url';
+const { parseStrictPhase1ArtifactJson, assertPhase1PublicArtifactValue } =
+  await import(pathToFileURL(process.argv[4]).href);
+const value = parseStrictPhase1ArtifactJson(await readFile(process.argv[2]));
+assertPhase1PublicArtifactValue(value);
 if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
   value.sanitizerSuccess !== true || value.provenance?.imageDigest !== process.argv[3] ||
   !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
+  !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
   !Array.isArray(value.planResults) || value.planResults.length !== 2) process.exit(1);
 NODE
-printf '%s\n' 'Aster runtime candidate conformance gate passed'

@@ -1,5 +1,6 @@
 /* eslint-disable max-lines, complexity, no-await-in-loop, no-template-curly-in-string, @typescript-eslint/no-unsafe-assignment, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- This process fixture mutates isolated process state and intentionally embeds literal shell interpolation syntax. */
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmod,
   mkdir,
@@ -31,9 +32,12 @@ const driverSourcePath = path.join(
 );
 const candidateInput = `sha256:${'5'.repeat(64)}`;
 const candidateImageId = `sha256:${'c'.repeat(64)}`;
+const exportName = 'phase-1-conformance.json';
 const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 
 type Behavior =
+  | 'success'
+  | 'cleanup-run-removal-failure'
   | 'cleanup-query-failure'
   | 'fixture-cleanup-failure'
   | 'plan-failure'
@@ -400,8 +404,9 @@ copyFileSync(descriptorPath, path.join(captureRoot, descriptor.projectName + '.j
 appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\n');
 appendFileSync(path.join(captureRoot, 'started.log'), descriptor.projectName + '\\n');
 const behavior = ${JSON.stringify(behavior)};
-const reachesPlan = behavior === 'plan-failure' || behavior === 'cleanup-query-failure' ||
-  behavior === 'fixture-cleanup-failure';
+const reachesPlan = behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
+  behavior === 'plan-failure' ||
+  behavior === 'cleanup-query-failure' || behavior === 'fixture-cleanup-failure';
 if (behavior === 'signal') setInterval(() => {}, 2147483647);
 if (behavior === 'wrong-container') descriptor.runnerContainerId = 'f'.repeat(64);
 if (behavior === 'wrong-project') descriptor.projectName = 'aster-phase1-conformance-' + 'd'.repeat(16);
@@ -438,6 +443,23 @@ writeFileSync(path.join(captureRoot, 'bridge-diagnostic.json'), JSON.stringify({
 }));
 if (!reachesPlan) process.exit(adapter.status === 0 ? 2 : 1);
 if (adapter.status !== 0 || JSON.parse(adapter.stdout).status !== 'PASSED') process.exit(3);
+if (behavior === 'success' || behavior === 'cleanup-run-removal-failure') {
+  const artifact = JSON.stringify({
+    schemaVersion: 1, mode: 'runtime-candidate', sanitizerSuccess: true,
+    provenance: { imageDigest: process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST },
+    adapterControls: [{ id: 'oidf-basic-1' }, { id: 'oidf-basic-2' }, { id: 'oidf-post-1' }],
+    officialResultIds: ['basic-result-1', 'config-result-1'],
+    planResults: [
+      { planId: 'oidcc-basic-certification-test-plan', resultId: 'basic-result-1' },
+      { planId: 'oidcc-config-certification-test-plan', resultId: 'config-result-1' },
+    ],
+  }, null, 2) + '\\n';
+  const evidence = path.join(process.env.ASTER_PHASE1_EVIDENCE_DIR, 'phase-1-conformance.json');
+  writeFileSync(evidence, artifact, { flag: 'wx', mode: 0o400 });
+  writeFileSync(path.join(captureRoot, 'expected-artifact.json'), artifact);
+  if (behavior === 'cleanup-run-removal-failure') chmodSync(path.dirname(path.dirname(root)), 0o500);
+  process.exit(0);
+}
 const plan = spawnSync(wrapper, ['--plan-id', 'oidcc-basic-certification-test-plan'], { input, env: environment, encoding: 'utf8' });
 writeFileSync(path.join(captureRoot, 'basic-diagnostic.json'), JSON.stringify({
   invoked: true,
@@ -518,6 +540,10 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
   const wrapper = path.join(repository, '.scripts/compatibility/run-phase1-conformance.sh');
   const pki = path.join(repository, '.scripts/compatibility/phase1-conformance-pki.sh');
   const cli = path.join(repository, 'packages/integration-tests/lib/compatibility/phase-1/cli.js');
+  const artifactContract = path.join(
+    repository,
+    'packages/integration-tests/lib/compatibility/phase-1/artifact-contract.js'
+  );
   const transformedLifecycle = lifecycleSource
     .replace(
       "readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'",
@@ -585,6 +611,16 @@ process.exit(1);
     ),
     writeFile(cli, fakeCliSource(captureRoot, behavior, suiteCommit)),
     writeFile(
+      artifactContract,
+      `export const parseStrictPhase1ArtifactJson = (bytes) => {
+  if (bytes.length < 1 || bytes.length > 1048576) throw new Error('invalid size');
+  return JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
+};
+export const assertPhase1PublicArtifactValue = (value) => {
+  if (JSON.stringify(value).includes('fixture-secret')) throw new Error('private data');
+};\n`
+    ),
+    writeFile(
       path.join(repository, 'docker-compose.phase1-runtime-candidate-conformance.yml'),
       '{}\n'
     ),
@@ -616,11 +652,13 @@ const candidateInputEnvironmentNames = new Set([
   'ASTER_PHASE1_CANDIDATE_IMAGE',
   'ASTER_PHASE1_CANDIDATE_ARCHIVE',
   'ASTER_PHASE1_CANDIDATE_IMAGE_ID',
+  'ASTER_PHASE1_CONFORMANCE_EXPORT_DIR',
 ]);
 
 const lifecycleEnvironment = (
   fixture: Fixture,
-  candidate: CandidateChannel = systemCandidateChannel
+  candidate: CandidateChannel = systemCandidateChannel,
+  exportDirectory?: string
 ): NodeJS.ProcessEnv => {
   const inheritedEnvironment = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !candidateInputEnvironmentNames.has(name))
@@ -641,6 +679,9 @@ const lifecycleEnvironment = (
   if (candidate.imageId !== undefined) {
     environment.ASTER_PHASE1_CANDIDATE_IMAGE_ID = candidate.imageId;
   }
+  if (exportDirectory !== undefined) {
+    environment.ASTER_PHASE1_CONFORMANCE_EXPORT_DIR = exportDirectory;
+  }
 
   return environment;
 };
@@ -660,12 +701,13 @@ const activeResources = async (fixture: Fixture): Promise<boolean> => {
 
 const runFailure = async (
   fixture: Fixture,
-  candidate: CandidateChannel = systemCandidateChannel
+  candidate: CandidateChannel = systemCandidateChannel,
+  exportDirectory?: string
 ): Promise<void> => {
   await expect(
     executeFile(fixture.lifecycle, [], {
       cwd: fixture.repository,
-      env: lifecycleEnvironment(fixture, candidate),
+      env: lifecycleEnvironment(fixture, candidate, exportDirectory),
       timeout: 30_000,
     })
   ).rejects.toMatchObject({ code: 1 });
@@ -773,6 +815,135 @@ afterEach(async () => {
 });
 
 describe('runtime-candidate conformance lifecycle and runner bridge', () => {
+  it('exports only the original sanitized JSON bytes after successful cleanup', async () => {
+    const fixture = await createFixture('success');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    const { stdout } = await executeFile(fixture.lifecycle, [], {
+      cwd: fixture.repository,
+      env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+      timeout: 30_000,
+    });
+    const [expected, actual, metadata] = await Promise.all([
+      readFile(path.join(fixture.captureRoot, 'expected-artifact.json')),
+      readFile(path.join(output, exportName)),
+      stat(path.join(output, exportName)),
+    ]);
+
+    expect(actual.equals(expected)).toBe(true);
+    expect(await readdir(output)).toEqual([exportName]);
+    expect(metadata.mode % 0o1000).toBe(0o600);
+    expect(metadata.nlink).toBe(1);
+    expect(stdout).toContain(
+      `ASTER_PHASE1_CONFORMANCE_EXPORT_SHA256=${createHash('sha256').update(expected).digest('hex')}`
+    );
+    expect(stdout).toContain(`ASTER_PHASE1_CONFORMANCE_EXPORT_BYTES=${expected.length}`);
+    expect(stdout).toContain('Aster runtime candidate conformance gate passed');
+    expect(actual.toString('utf8')).not.toMatch(/cookie-value|private-key-value|fixture-secret/iu);
+    expect(await activeResources(fixture)).toBe(false);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+  });
+
+  it('does not publish when conformance or cleanup fails', async () => {
+    for (const behavior of ['plan-failure', 'success'] as const) {
+      const fixture = await createFixture(behavior);
+      const output = path.join(fixture.buildRoot, 'published');
+      await mkdir(output, { mode: 0o700 });
+      if (behavior === 'success') {
+        const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as Record<
+          string,
+          unknown
+        >;
+        state.fixtureCleanupFailure = true;
+        await writeFile(fixture.dockerState, JSON.stringify(state));
+      }
+
+      await runFailure(fixture, systemCandidateChannel, output);
+      expect(await readdir(output)).toEqual([]);
+    }
+  });
+
+  it('withdraws a published result if run directory cleanup fails', async () => {
+    const fixture = await createFixture('cleanup-run-removal-failure');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    try {
+      await expect(
+        executeFile(fixture.lifecycle, [], {
+          cwd: fixture.repository,
+          env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+          timeout: 30_000,
+        })
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+      });
+      expect(await readdir(output)).toEqual([]);
+    } finally {
+      await chmod(fixture.runRoot, 0o700);
+    }
+  });
+
+  it.each([
+    'symlink',
+    'occupied',
+    'occupied-link',
+    'relative',
+    'outside',
+    'run-root',
+    'world-readable',
+  ] as const)('rejects %s export directory without publishing', async (kind) => {
+    const fixture = await createFixture('success');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+    let selected = output;
+    switch (kind) {
+      case 'symlink': {
+        selected = path.join(fixture.buildRoot, 'linked');
+        await symlink(output, selected);
+        break;
+      }
+      case 'occupied': {
+        await writeFile(path.join(output, exportName), 'existing', { mode: 0o400 });
+        break;
+      }
+      case 'occupied-link': {
+        await symlink(fixture.candidateArchive, path.join(output, exportName));
+        break;
+      }
+      case 'relative': {
+        selected = 'published';
+        break;
+      }
+      case 'outside': {
+        selected = fixture.captureRoot;
+        break;
+      }
+      case 'run-root': {
+        selected = fixture.runRoot;
+        break;
+      }
+      case 'world-readable': {
+        await chmod(output, 0o755);
+        break;
+      }
+    }
+
+    await runFailure(fixture, systemCandidateChannel, selected);
+    expect(await readdir(output)).toEqual(
+      kind === 'occupied' || kind === 'occupied-link' ? [exportName] : []
+    );
+    if (kind === 'occupied') {
+      expect(await readFile(path.join(output, exportName), 'utf8')).toBe('existing');
+    } else if (kind === 'occupied-link') {
+      expect(await readFile(fixture.candidateArchive, 'utf8')).toBe('candidate-image-archive');
+    }
+    expect(await activeResources(fixture)).toBe(false);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+  });
+
   it('rejects a mutable candidate before compose and keeps compose builds disabled', async () => {
     const fixture = await createFixture('plan-failure');
 
