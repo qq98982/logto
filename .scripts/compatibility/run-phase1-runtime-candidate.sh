@@ -31,7 +31,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 readonly REPO_ROOT
-readonly COMPOSE_FILE="${REPO_ROOT}/docker-compose.phase1-runtime-candidate-differential.yml"
+COMPOSE_FILE="${REPO_ROOT}/docker-compose.phase1-runtime-candidate-differential.yml"
+PODMAN_API_VERSION=''
+PODMAN_WAIT_DEADLINE=''
+readonly PODMAN_TOPOLOGY_BIN="${REPO_ROOT}/.scripts/compatibility/phase1-podman-differential-topology.mjs"
 readonly PHASE1_CLI="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js"
 readonly SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
@@ -165,9 +168,14 @@ SHA256_BIN="$(trusted_system_binary /usr/bin/sha256sum)"
 READELF_BIN="$(trusted_system_binary /usr/bin/readelf)"
 LDD_BIN="$(trusted_system_binary /usr/bin/ldd)"
 DOCKER_BIN="$(trusted_system_binary /usr/bin/docker)"
+TIMEOUT_BIN="$(trusted_system_binary /usr/bin/timeout)"
+if [[ -n "${ENGINE_SOCKET_EXPLICIT}" ]]; then
+  CURL_BIN="$(trusted_system_binary /usr/bin/curl)"
+fi
 readonly GIT_BIN NODE_BIN PNPM_BIN SS_BIN SETSID_BIN SOCAT_BIN ENV_BIN PS_BIN AWK_BIN SHA256_BIN
 readonly READELF_BIN LDD_BIN
 readonly DOCKER_BIN
+readonly CURL_BIN TIMEOUT_BIN
 export GIT_NO_REPLACE_OBJECTS=1
 readonly GIT_AUTHORITY=("${GIT_BIN}" --no-replace-objects)
 
@@ -309,16 +317,89 @@ readonly project_name
 docker_cli() {
   if [[ -n "${ENGINE_SOCKET}" ]]; then
     validate_engine_socket "${ENGINE_SOCKET}"
-    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
-      DOCKER_HOST="unix://${ENGINE_SOCKET}" "${DOCKER_BIN}" "$@"
+    if [[ -n "${PODMAN_API_VERSION}" ]]; then
+      podman_timeout "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+        DOCKER_HOST="unix://${ENGINE_SOCKET}" "${DOCKER_BIN}" "$@"
+    else
+      "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+        DOCKER_HOST="unix://${ENGINE_SOCKET}" "${DOCKER_BIN}" "$@"
+    fi
   else
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" "${DOCKER_BIN}" "$@"
   fi
 }
 
+podman_timeout() {
+  local seconds=120 remaining
+  if [[ -n "${PODMAN_WAIT_DEADLINE}" ]]; then
+    remaining=$((PODMAN_WAIT_DEADLINE - SECONDS))
+    ((remaining > 0)) || fail
+    ((remaining < seconds)) && seconds=${remaining}
+  fi
+  "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s "${seconds}s" "$@"
+}
+
 compose() {
   docker_cli compose --env-file "${COMPOSE_ENV}" \
     --project-name "${project_name}" --file "${COMPOSE_FILE}" "$@"
+}
+
+wait_for_services() {
+  local service container_id metadata inspected_id status exit_code health project service_label http_status
+  local ready
+
+  while ((SECONDS < deadline)); do
+    ready=1
+    for service in "$@"; do
+      container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
+      [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { ready=0; break; }
+      if [[ -n "${PODMAN_API_VERSION}" ]]; then
+        metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail
+        IFS='|' read -r inspected_id status exit_code health project service_label <<<"${metadata}"
+        [[ "${inspected_id}" =~ ^[0-9a-f]{64}$ && "${inspected_id}" == "${container_id}"* && \
+          "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail
+        if [[ "${status}" == running && "${health}" != healthy && -n "${health}" ]]; then
+          validate_engine_socket "${ENGINE_SOCKET}"
+          http_status="$(podman_timeout "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+            "${CURL_BIN}" --silent --show-error --max-time 20 --output /dev/null \
+              --write-out '%{http_code}' --unix-socket "${ENGINE_SOCKET}" \
+              "http://localhost/v${PODMAN_API_VERSION}/libpod/containers/${inspected_id}/healthcheck")" || fail
+          [[ "${http_status}" == 200 ]] || fail
+          metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail
+          IFS='|' read -r inspected_id status exit_code health project service_label <<<"${metadata}"
+          [[ "${inspected_id}" =~ ^[0-9a-f]{64}$ && "${inspected_id}" == "${container_id}"* && \
+            "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail
+        fi
+      else
+        metadata="$(docker_cli inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}")" || fail
+        IFS='|' read -r status exit_code health <<<"${metadata}"
+      fi
+      case "${service}" in
+        candidate-primary-init|candidate-foreign-init)
+          [[ "${status}|${exit_code}|${health}" == 'exited|0|' ]] || ready=0
+          ;;
+        candidate-connector-host|candidate-saml-host|candidate-script-host)
+          [[ "${status}|${exit_code}|${health}" == 'running|0|' ]] || ready=0
+          ;;
+        *)
+          [[ "${status}|${exit_code}|${health}" == 'running|0|healthy' ]] || ready=0
+          ;;
+      esac
+      if [[ -n "${PODMAN_API_VERSION}" && "${status}" == exited && "${exit_code}" != 0 ]]; then
+        fail
+      fi
+      ((ready == 1)) || break
+    done
+    ((ready == 1)) && return 0
+    /usr/bin/sleep 1
+  done
+  fail
+}
+
+start_podman_stage() {
+  ((SECONDS < deadline)) || fail
+  compose up --no-deps --detach "$@" >/dev/null || fail
+  wait_for_services "$@"
 }
 
 container_network_ipv4() {
@@ -492,6 +573,7 @@ terminate_owned_process_group() {
 cleanup() {
   local exit_code=$? cleanup_failed=0 remaining
   trap - EXIT INT TERM HUP
+  PODMAN_WAIT_DEADLINE=''
 
   if [[ -n "${NODE_RUN_PGID}" ]]; then
     terminate_owned_process_group \
@@ -562,7 +644,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 docker_cli compose version >/dev/null 2>&1 || fail
-[[ -f "${COMPOSE_FILE}" && -f "${PHASE1_CLI}" ]] || fail
+[[ -f "${COMPOSE_FILE}" && -f "${PHASE1_CLI}" && -f "${PODMAN_TOPOLOGY_BIN}" ]] || fail
 [[ -f "${REPO_ROOT}/.scripts/compatibility/phase1-candidate-state-driver.sh" ]] || fail
 
 repo_origin="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || true)"
@@ -679,36 +761,54 @@ ASTER_PHASE1_FIXTURE_SOCKET=${FIXTURE_SOCKET}
 EOF
 /usr/bin/chmod 0600 "${COMPOSE_ENV}"
 
+if [[ -n "${ENGINE_SOCKET_EXPLICIT}" ]]; then
+  validate_engine_socket "${ENGINE_SOCKET}"
+  engine_kind_status="$("${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+    "${CURL_BIN}" --silent --show-error --max-time 10 --output /dev/null \
+      --write-out '%{http_code}' --unix-socket "${ENGINE_SOCKET}" \
+      http://localhost/libpod/_ping)" || fail
+  case "${engine_kind_status}" in
+    200)
+      PODMAN_API_VERSION="$("${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+        "${CURL_BIN}" --fail --silent --show-error --max-time 10 \
+          --unix-socket "${ENGINE_SOCKET}" http://localhost/version | \
+        "${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" -e \
+          'let s=""; process.stdin.on("data", c => s += c).on("end", () => { const v = JSON.parse(s).Components?.find(c => c.Name === "Podman Engine")?.Details?.APIVersion; if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1); process.stdout.write(v); });')" || fail
+      COMPOSE_FILE="${RUN_DIR}/podman-differential-compose.json"
+      "${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" "${PODMAN_TOPOLOGY_BIN}" \
+        "${REPO_ROOT}/docker-compose.phase1-runtime-candidate-differential.yml" \
+        "${RUN_DIR}" "${COMPOSE_FILE}" || fail
+      ;;
+    404) ;;
+    *) fail ;;
+  esac
+fi
+readonly COMPOSE_FILE PODMAN_API_VERSION
 compose config --quiet >/dev/null || fail
 project_started=1
 failure_stage=compose-up
-compose up --detach "${SERVICES[@]}" >/dev/null || fail
-
+if [[ -n "${PODMAN_API_VERSION}" ]]; then
+  deadline=$((SECONDS + 600))
+  PODMAN_WAIT_DEADLINE=${deadline}
+  start_podman_stage \
+    oracle-primary-postgres oracle-primary-redis \
+    oracle-foreign-postgres oracle-foreign-redis \
+    oracle-phase0-postgres oracle-phase0-redis \
+    candidate-primary-postgres candidate-foreign-postgres \
+    candidate-phase0-postgres candidate-phase0-redis \
+    candidate-connector-host candidate-saml-host candidate-script-host
+  start_podman_stage \
+    oracle-primary-core oracle-foreign-core oracle-phase0-core \
+    candidate-primary-init candidate-foreign-init candidate-phase0-core
+  start_podman_stage candidate-primary-core candidate-foreign-core
+  start_podman_stage candidate-fixture-coordinator
+else
+  compose up --detach "${SERVICES[@]}" >/dev/null || fail
+  deadline=$((SECONDS + 600))
+fi
 failure_stage=topology-readiness
-deadline=$((SECONDS + 600))
-while ((SECONDS < deadline)); do
-  ready=1
-  for service in "${SERVICES[@]}"; do
-    container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
-    [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { ready=0; break; }
-    state="$(docker_cli inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}")"
-    case "${service}" in
-      candidate-primary-init|candidate-foreign-init)
-        [[ "${state}" == 'exited|0|' ]] || ready=0
-        ;;
-      candidate-connector-host|candidate-saml-host|candidate-script-host)
-        [[ "${state}" == 'running|0|' ]] || ready=0
-        ;;
-      *)
-        [[ "${state}" == 'running|0|healthy' ]] || ready=0
-        ;;
-    esac
-    ((ready == 1)) || break
-  done
-  ((ready == 1)) && break
-  /usr/bin/sleep 1
-done
-((ready == 1)) || fail
+wait_for_services "${SERVICES[@]}"
+PODMAN_WAIT_DEADLINE=''
 
 ORACLE_PRIMARY_POSTGRES_CONTAINER_ID=''
 ORACLE_FOREIGN_POSTGRES_CONTAINER_ID=''

@@ -111,6 +111,9 @@ describe('runtime-candidate differential topology', () => {
       ['ENGINE_SOCKET_EXPLICIT="', '$', '{ASTER_PHASE1_ENGINE_SOCKET+x}"'].join('')
     );
     expect(source).not.toContain('--root /dev/shm');
+    expect(source).toContain('http://localhost/libpod/_ping');
+    expect(source).toContain('404) ;;');
+    expect(source).toContain('readonly COMPOSE_FILE');
   });
 
   it('routes each state and invariant driver through an explicit socket and rejects aliases', async () => {
