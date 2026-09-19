@@ -7,6 +7,8 @@ import type { RawProtocolResponse } from '../clients/oidc.js';
 import { verifyObservedJwt, type VerifiedJwtObservation } from '../evidence.js';
 import { getPhase1FixtureRuntimeId } from '../fixture-map.js';
 import type { Phase1DifferentialScenarioId, Phase1ScenarioRunContext } from '../model.js';
+import { phase1ImplementationForProfile } from '../native-surface-profile.js';
+import { hasValidOptionalProfileTimestamps } from '../profile-timestamps.js';
 import {
   projectOrganizationTokenObservation,
   projectTokenObservation,
@@ -229,6 +231,11 @@ const assertJwtPair = async (
     }
     assertTimes(accessClaims);
     assertTimes(idClaims);
+    if (
+      !hasValidOptionalProfileTimestamps(idClaims, phase1ImplementationForProfile(context.profile))
+    ) {
+      throw new TypeError('invalid ID Token profile timestamps');
+    }
     const jwks = await requireJwks(context);
 
     return await Promise.all([

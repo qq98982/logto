@@ -13,8 +13,12 @@ import {
   getPhase1FixtureRuntimeText,
 } from '../fixture-map.js';
 import type { Phase1DifferentialScenarioId, Phase1ScenarioRunContext } from '../model.js';
-import { createPhase1NormalizationContext } from '../native-surface-profile.js';
+import {
+  createPhase1NormalizationContext,
+  phase1ImplementationForProfile,
+} from '../native-surface-profile.js';
 import { normalizeTokenResponse } from '../normalizers.js';
+import { hasValidOptionalProfileTimestamps } from '../profile-timestamps.js';
 import {
   projectHttpObservation,
   projectSemanticStateObservation,
@@ -583,6 +587,11 @@ const assertJwtClaims = (
           !Number.isSafeInteger(claims.nbf) ||
           claims.nbf > now + 30)) ||
       (input.kind === 'access' && claims.client_id !== input.clientId) ||
+      (input.kind === 'id' &&
+        !hasValidOptionalProfileTimestamps(
+          claims,
+          phase1ImplementationForProfile(context.profile)
+        )) ||
       (input.expectedScope !== undefined && claims.scope !== input.expectedScope)
     ) {
       throw new TypeError('invalid JWT claims');

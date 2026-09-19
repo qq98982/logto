@@ -10,6 +10,8 @@ import {
   getPhase1FixtureRuntimeUsername,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
+import { phase1ImplementationForProfile } from '../native-surface-profile.js';
+import { isValidProfileTimestamp } from '../profile-timestamps.js';
 import { projectUserInfoObservation } from '../projections/userinfo.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
@@ -68,15 +70,13 @@ const assertSeededClaims = (context: Phase1ScenarioRunContext, body: JsonObject)
     phone_number_verified: true,
     address: subject.profile.address,
   };
+  const implementation = phase1ImplementationForProfile(context.profile);
 
   if (
     Object.keys(body).some((claim) => !allowedClaims.has(claim)) ||
     Object.entries(expected).some(([claim, value]) => !isDeepStrictEqual(body[claim], value)) ||
-    typeof body.created_at !== 'number' ||
-    !Number.isSafeInteger(body.created_at) ||
-    body.created_at < 100_000_000_000 ||
-    typeof body.updated_at !== 'number' ||
-    !Number.isSafeInteger(body.updated_at) ||
+    !isValidProfileTimestamp(body.created_at, implementation) ||
+    !isValidProfileTimestamp(body.updated_at, implementation) ||
     body.updated_at < body.created_at
   ) {
     throw new Error('Phase 1 UserInfo claims are invalid');

@@ -230,6 +230,91 @@ describe('token.authorization-code', () => {
       })
     ).rejects.toThrow('Invalid phase 1 observed JWT signature');
   });
+
+  it.each([
+    ['oracle', 1_700_000_000, 1_700_000_000],
+    ['candidate', 1_700_000_000_000, 1_700_000_000_000],
+    ['candidate', 1_700_000_000.5, 1_700_000_000.5],
+    ['oracle', 1_700_000_000_000, 1_699_999_999_999],
+    ['candidate', 1_700_000_000, 1_699_999_999],
+  ] as const)(
+    'checks raw %s ID Token profile timestamp units',
+    async (implementation, createdAt, updatedAt) => {
+      const signer = await createTokenTestSigner();
+      const now = Math.floor(Date.now() / 1000);
+      const accessToken = await signer.sign({
+        iss: `${tokenTestTarget.coreUrl}oidc`,
+        sub: 'runtime-subject',
+        aud: tokenTestRuntimeValues.resourceIndicator,
+        client_id: tokenTestCredentials.clientId,
+        scope: tokenTestRuntimeValues.scopeName,
+        iat: now,
+        exp: now + 3600,
+      });
+      const idToken = await signer.sign({
+        iss: `${tokenTestTarget.coreUrl}oidc`,
+        sub: 'runtime-subject',
+        aud: tokenTestCredentials.clientId,
+        iat: now,
+        exp: now + 3600,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      const harness = createTokenScenarioHarness({
+        jwk: signer.jwk,
+        tokenBodies: [
+          tokenGrantBody({
+            accessToken,
+            idToken,
+            refreshToken: 'private-refresh',
+          }),
+        ],
+        implementation,
+      });
+      await expect(
+        runTokenAuthorizationCode(harness.context, { withPositiveOidcFlow: harness.flow })
+      ).rejects.toThrow('Phase 1 token claims are invalid');
+    }
+  );
+
+  it('accepts a signed candidate ID Token with second-based profile claims', async () => {
+    const signer = await createTokenTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const accessToken = await signer.sign({
+      iss: `${tokenTestTarget.coreUrl}oidc`,
+      sub: 'runtime-subject',
+      aud: tokenTestRuntimeValues.resourceIndicator,
+      client_id: tokenTestCredentials.clientId,
+      scope: tokenTestRuntimeValues.scopeName,
+      iat: now,
+      exp: now + 3600,
+    });
+    const idToken = await signer.sign({
+      iss: `${tokenTestTarget.coreUrl}oidc`,
+      sub: 'runtime-subject',
+      aud: tokenTestCredentials.clientId,
+      iat: now,
+      exp: now + 3600,
+      created_at: now - 120,
+      updated_at: now - 60,
+    });
+    const harness = createTokenScenarioHarness({
+      jwk: signer.jwk,
+      tokenBodies: [tokenGrantBody({ accessToken, idToken, refreshToken: 'private-refresh' })],
+      implementation: 'candidate',
+    });
+
+    const steps = await runTokenAuthorizationCode(harness.context, {
+      withPositiveOidcFlow: harness.flow,
+    });
+    expect(steps[0]?.value.tokens[1]).toMatchObject({
+      kind: 'id',
+      claims: {
+        created_at: { $timestamp: now - 120, $toleranceSeconds: 30 },
+        updated_at: { $timestamp: now - 60, $toleranceSeconds: 30 },
+      },
+    });
+  });
 });
 
 /* eslint-enable no-await-in-loop */

@@ -17,6 +17,7 @@ import {
   type Phase1FixtureAllocationRole,
 } from '../fixture-map.js';
 import type { Phase1ScenarioRunContext } from '../model.js';
+import { asterNativeSurfaceContract } from '../native-surface.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
 
 import {
@@ -241,6 +242,7 @@ export const createTokenScenarioHarness = (
     tokenBodies: readonly unknown[];
     tokenResponses?: readonly RawProtocolResponse[];
     userInfoBody?: unknown;
+    implementation?: 'oracle' | 'candidate';
     projectScenarioState?: (input: {
       scenarioId: string;
       stepId: string;
@@ -294,7 +296,22 @@ export const createTokenScenarioHarness = (
     }),
   };
   const context: Phase1ScenarioRunContext = {
-    profile: profile as never,
+    profile:
+      input.implementation === 'candidate'
+        ? ({
+            ...profile,
+            fixtures: {
+              ...profile.fixtures,
+              dataTenant: {
+                ...profile.fixtures.dataTenant,
+                browserClientConfiguration: {
+                  localStorageKey:
+                    asterNativeSurfaceContract.markers.demoConfigStorageKey.candidate,
+                },
+              },
+            },
+          } as never)
+        : (profile as never),
     target: tokenTestTarget,
     fixture: { public: fixtureMap } as never,
     signal: new AbortController().signal,

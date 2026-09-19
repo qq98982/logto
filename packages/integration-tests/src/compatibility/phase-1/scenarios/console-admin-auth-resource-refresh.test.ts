@@ -1620,6 +1620,47 @@ describe('console.admin-auth-resource-refresh', () => {
     expect(harness.store.getToken('management')).toBeUndefined();
   });
 
+  it.each([
+    ['seconds on the oracle', 1_700_000_000, 1_700_000_060],
+    ['reversed milliseconds', 1_700_000_060_000, 1_700_000_000_000],
+  ] as const)(
+    'rejects initial admin ID Token profile claims with %s',
+    async (_case, createdAt, updatedAt) => {
+      const signer = await createAdminTestSigner();
+      const now = Math.floor(Date.now() / 1000);
+      const idToken = await signer.sign({
+        iss: `${adminTestTarget.adminUrl}oidc`,
+        sub: adminRuntime.userId,
+        aud: 'admin-console',
+        iat: now,
+        exp: now + 3600,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      });
+      const harness = createAdminScenarioHarness({
+        jwk: signer.jwk,
+        tokens: {
+          initial: tokenBody(
+            adminSecrets.initialAccess,
+            idToken,
+            adminSecrets.initialRefresh,
+            adminInitialResponseScope
+          ),
+        },
+      });
+
+      await expect(
+        withPositiveAdminSession(
+          harness.context,
+          {
+            random: { codeVerifier: () => adminSecrets.verifier, state: () => adminSecrets.state },
+          },
+          async () => null
+        )
+      ).rejects.toThrow('Phase 1 admin code token claims are invalid');
+    }
+  );
+
   it('rejects private JWK material on a hidden Management refresh', async () => {
     const signer = await createAdminTestSigner();
     const now = Math.floor(Date.now() / 1000);

@@ -20,6 +20,7 @@ import {
   projectNativeSurfaceObservation,
   type Phase1Implementation,
 } from './native-surface.js';
+import { isValidProfileTimestamp } from './profile-timestamps.js';
 import type { Phase1NativeSurfaceMarkerId } from './profile-types.js';
 
 const credentialKeyPattern =
@@ -1196,9 +1197,22 @@ const normalizeClaimObject = (
         if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
           return fixedFailure('Invalid phase 1 claims');
         }
-        const timestamp = allowedUserInfoTimestampFields.has(key)
-          ? Math.floor(rawValue / 1000)
-          : rawValue;
+        const profileTimestamp = allowedUserInfoTimestampFields.has(key);
+        const profileImplementation =
+          profileTimestamp && (profile === 'userinfo' || tokenKind === 'id-token')
+            ? nativeSurfaceImplementation(context)
+            : undefined;
+
+        if (
+          profileImplementation !== undefined &&
+          !isValidProfileTimestamp(rawValue, profileImplementation)
+        ) {
+          return fixedFailure('Invalid phase 1 claims');
+        }
+        const timestamp =
+          profileTimestamp && profileImplementation !== 'candidate'
+            ? Math.floor(rawValue / 1000)
+            : rawValue;
 
         return [
           [

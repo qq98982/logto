@@ -798,7 +798,7 @@ describe('phase 1 field-specific normalizers', () => {
     ).toEqual(['/created_at']);
     expect(
       normalizers.normalizeClaims(
-        { created_at: 990_000, updated_at: 1_000_000 },
+        { created_at: 1_700_000_000_123, updated_at: 1_700_000_060_999 },
         context(),
         'access-token',
         {
@@ -807,19 +807,19 @@ describe('phase 1 field-specific normalizers', () => {
         }
       )
     ).toEqual({
-      created_at: { $timestamp: 990, $toleranceSeconds: 30 },
-      updated_at: { $timestamp: 1000, $toleranceSeconds: 30 },
+      created_at: { $timestamp: 1_700_000_000, $toleranceSeconds: 30 },
+      updated_at: { $timestamp: 1_700_000_060, $toleranceSeconds: 30 },
     });
     expect(
       normalizers.normalizeClaims(
-        { created_at: 990_000, updated_at: 1_000_000 },
+        { created_at: 1_700_000_000_123, updated_at: 1_700_000_060_999 },
         context(),
         'id-token',
         { boundedTimestampPaths: ['/created_at', '/updated_at'] }
       )
     ).toEqual({
-      created_at: { $timestamp: 990, $toleranceSeconds: 30 },
-      updated_at: { $timestamp: 1000, $toleranceSeconds: 30 },
+      created_at: { $timestamp: 1_700_000_000, $toleranceSeconds: 30 },
+      updated_at: { $timestamp: 1_700_000_060, $toleranceSeconds: 30 },
     });
     expect(
       normalizers.normalizeCookieContinuity(
@@ -932,6 +932,103 @@ describe('phase 1 field-specific normalizers', () => {
         { requireExpiryOffset: true }
       )
     ).toThrow('Invalid phase 1 cookie continuity');
+  });
+
+  it('projects registered ID Token and UserInfo profile times from oracle milliseconds to candidate seconds', () => {
+    for (const [profile, kind] of [
+      ['jwt', 'id-token'],
+      ['userinfo', 'access-token'],
+    ] as const) {
+      const options = {
+        profile,
+        boundedTimestampPaths: ['/created_at', '/updated_at'],
+      };
+      const oracle = normalizers.normalizeClaims(
+        { created_at: 1_700_000_000_123, updated_at: 1_700_000_060_999 },
+        context(),
+        kind,
+        options
+      );
+      const candidate = normalizers.normalizeClaims(
+        { created_at: 1_700_000_000, updated_at: 1_700_000_060 },
+        context('candidate'),
+        kind,
+        options
+      );
+
+      expect(oracle).toEqual(candidate);
+      expect(candidate).toEqual({
+        created_at: { $timestamp: 1_700_000_000, $toleranceSeconds: 30 },
+        updated_at: { $timestamp: 1_700_000_060, $toleranceSeconds: 30 },
+      });
+      expect(() =>
+        normalizers.normalizeClaims(
+          { created_at: 1_700_000_000, updated_at: 1_700_000_060 },
+          context(),
+          kind,
+          options
+        )
+      ).toThrow('Invalid phase 1 claims');
+      expect(() =>
+        normalizers.normalizeClaims(
+          { created_at: 1_700_000_000_000, updated_at: 1_700_000_060_000 },
+          context('candidate'),
+          kind,
+          options
+        )
+      ).toThrow('Invalid phase 1 claims');
+      expect(() =>
+        normalizers.normalizeClaims(
+          { created_at: 1_700_000_000.5 },
+          context('candidate'),
+          kind,
+          options
+        )
+      ).toThrow('Invalid phase 1 claims');
+      expect(() =>
+        normalizers.normalizeClaims(
+          { created_at: '1700000000' },
+          context('candidate'),
+          kind,
+          options
+        )
+      ).toThrow('Invalid phase 1 claims');
+    }
+  });
+
+  it('keeps unregistered claims exact and does not project candidate access JWT profile times', () => {
+    expect(
+      normalizers.normalizeClaims(
+        { created_at: 1_700_000_000, metadata: { updated_at: 1_700_000_000 } },
+        context('candidate'),
+        'id-token'
+      )
+    ).toEqual({ created_at: 1_700_000_000, metadata: { updated_at: 1_700_000_000 } });
+    expect(() =>
+      normalizers.normalizeClaims({ created_at: 1_700_000_000 }, context('candidate'), 'id-token', {
+        boundedTimestampPaths: ['/metadata/created_at'],
+      })
+    ).toThrow('Invalid phase 1 claims');
+    expect(
+      normalizers.normalizeClaims(
+        { created_at: 1_700_000_000 },
+        context('candidate'),
+        'access-token',
+        { boundedTimestampPaths: ['/created_at'] }
+      )
+    ).toEqual({ created_at: { $timestamp: 1_700_000, $toleranceSeconds: 30 } });
+    expect(
+      normalizers.normalizeClaims(
+        { iat: 1_700_000_000, exp: 1_700_003_600, auth_time: 1_699_999_900 },
+        context('candidate'),
+        'id-token',
+        { boundedTimestampPaths: ['/iat', '/exp', '/auth_time'] }
+      )
+    ).toMatchObject({
+      iat: { $timestamp: 1_700_000_000, $toleranceSeconds: 30 },
+      exp: { $timestamp: 1_700_003_600, $toleranceSeconds: 30 },
+      auth_time: { $timestamp: 1_699_999_900, $toleranceSeconds: 30 },
+    });
   });
 
   it('projects only approved resource audience and organization scope values', () => {

@@ -16,9 +16,11 @@ import {
 import type { Phase1ScenarioRunContext, Phase1ScenarioStepResult } from '../model.js';
 import {
   createPhase1NormalizationContext,
+  phase1ImplementationForProfile,
   projectPhase1NativeScopeForComparison,
 } from '../native-surface-profile.js';
 import { normalizeTokenResponse } from '../normalizers.js';
+import { hasValidOptionalProfileTimestamps } from '../profile-timestamps.js';
 import {
   projectAuthorizationObservation,
   projectHttpObservation,
@@ -569,6 +571,7 @@ const assertInitialIdToken = async (
       claims.iss !== issuerFor(context) ||
       claims.sub !== subject ||
       claims.aud !== clientId ||
+      !hasValidOptionalProfileTimestamps(claims, phase1ImplementationForProfile(context.profile)) ||
       typeof claims.iat !== 'number' ||
       !Number.isSafeInteger(claims.iat) ||
       typeof claims.exp !== 'number' ||
