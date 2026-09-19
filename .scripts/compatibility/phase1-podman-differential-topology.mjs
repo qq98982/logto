@@ -40,6 +40,22 @@ for (const name of candidates) {
   service.userns_mode = 'keep-id';
 }
 
+const publishedCorePorts = {
+  'oracle-primary-core': [3001, 3411],
+  'oracle-foreign-core': [3001, 3002],
+  'oracle-phase0-core': [3001, 3431],
+  'candidate-primary-core': [3001, 3421],
+  'candidate-foreign-core': [3001, 3002],
+  'candidate-phase0-core': [3001, 3441],
+};
+for (const [name, ports] of Object.entries(publishedCorePorts)) {
+  const service = document.services[name];
+  if (!service || service.ports !== undefined) {
+    throw new Error(`unexpected core ports: ${name}`);
+  }
+  service.ports = ports.map((target) => ({ target, host_ip: '127.0.0.1', protocol: 'tcp' }));
+}
+
 const relativeInitMount = './.scripts/compatibility/phase1-candidate-postgres-init.sh:/docker-entrypoint-initdb.d/010-aster-phase1-hba.sh:ro';
 for (const name of ['candidate-primary-postgres', 'candidate-foreign-postgres']) {
   const service = document.services[name];

@@ -30,6 +30,7 @@ type Service = Readonly<{
   volumes?: readonly string[];
   tmpfs?: readonly string[];
   userns_mode?: string;
+  ports?: ReadonlyArray<{ target: number; host_ip: string; protocol: string }>;
 }>;
 type Topology = Readonly<{
   services: Readonly<Record<string, Service>>;
@@ -39,6 +40,7 @@ type Topology = Readonly<{
 const parse = async (file: string): Promise<Topology> =>
   JSON.parse(await readFile(file, 'utf8')) as Topology;
 
+// eslint-disable-next-line complexity -- One contract checks each service against the baseline.
 it('keeps bounded private candidate tmpfs and all other differential authority unchanged on Podman', async () => {
   const runDirectory = await mkdtemp('/var/tmp/henry-build/aster-p1-podman-topology-');
   const output = path.join(runDirectory, 'podman-differential-compose.json');
@@ -51,9 +53,24 @@ it('keeps bounded private candidate tmpfs and all other differential authority u
     expect(actual.networks).toEqual(baseline.networks);
     expect(actual.volumes).toEqual(baseline.volumes);
     expect(Object.keys(actual.services)).toEqual(Object.keys(baseline.services));
+    const runner = await readFile(launcher, 'utf8');
+    const bindingBlock = runner.split('readonly LOOPBACK_PROXY_BINDINGS=(')[1]?.split('\n)')[0];
+    expect(bindingBlock).toBeDefined();
+    const expectedPorts = new Map<string, number[]>();
+    for (const [, service, port] of bindingBlock?.matchAll(/'([^|']+)\|[^|']+\|\d+\|(\d+)'/gu) ??
+      []) {
+      if (!service || !port) {
+        throw new Error('invalid proxy binding');
+      }
+      expectedPorts.set(service, [...(expectedPorts.get(service) ?? []), Number(port)]);
+    }
+    expect(expectedPorts.size).toBe(6);
+    expect([...expectedPorts.values()].every((ports) => ports.length === 2)).toBe(true);
 
     for (const [name, service] of Object.entries(baseline.services)) {
       const generated = actual.services[name];
+      const targets = expectedPorts.get(name);
+      const ports = targets?.map((target) => ({ target, host_ip: '127.0.0.1', protocol: 'tcp' }));
       if (candidates.has(name)) {
         expect(service.tmpfs).toHaveLength(2);
         expect(service.userns_mode).toBe('host');
@@ -64,6 +81,7 @@ it('keeps bounded private candidate tmpfs and all other differential authority u
             '/run/aster:rw,noexec,nosuid,nodev,size=16m,mode=0777',
           ],
           userns_mode: 'keep-id',
+          ...(ports ? { ports } : {}),
         });
       } else if (name === 'candidate-primary-postgres' || name === 'candidate-foreign-postgres') {
         expect(generated).toEqual({
@@ -75,7 +93,7 @@ it('keeps bounded private candidate tmpfs and all other differential authority u
           ),
         });
       } else {
-        expect(generated).toEqual(service);
+        expect(generated).toEqual({ ...service, ...(ports ? { ports } : {}) });
       }
     }
     expect(await parse(source)).toEqual(baseline);
@@ -143,6 +161,86 @@ it('starts every Podman service after its healthy or completed dependencies', as
     'for port in "${PORTS[@]}"; do\n  failure_stage="http-readiness:${port}"'
   );
   expect(runner).toContain('done\nfailure_stage=topology-readiness\n[[ -S "${FIXTURE_SOCKET}" ]]');
+});
+
+it('resolves only a single owned Podman loopback port and leaves Docker direct-IP routing intact', async () => {
+  const runner = await readFile(launcher, 'utf8');
+  const start = runner.indexOf('container_published_port() {');
+  expect(start).toBeGreaterThan(0);
+  const resolver = runner.slice(start, runner.indexOf('\n}\n', start) + 3);
+  const id = 'a'.repeat(64);
+  const validPorts = { '3001/tcp': [{ HostIp: '127.0.0.1', HostPort: '49152' }] };
+  const cases: ReadonlyArray<readonly [string, unknown, string, string, string]> = [
+    ['valid', validPorts, id, 'fixture', 'candidate-primary-core'],
+    ['wrong container', validPorts, 'b'.repeat(64), 'fixture', 'candidate-primary-core'],
+    ['wrong project', validPorts, id, 'other', 'candidate-primary-core'],
+    ['wrong service', validPorts, id, 'fixture', 'oracle-primary-core'],
+    ['missing', {}, id, 'fixture', 'candidate-primary-core'],
+    [
+      'ambiguous',
+      { '3001/tcp': [...validPorts['3001/tcp'], ...validPorts['3001/tcp']] },
+      id,
+      'fixture',
+      'candidate-primary-core',
+    ],
+    [
+      'nonloopback',
+      { '3001/tcp': [{ HostIp: '0.0.0.0', HostPort: '49152' }] },
+      id,
+      'fixture',
+      'candidate-primary-core',
+    ],
+    [
+      'malformed port',
+      { '3001/tcp': [{ HostIp: '127.0.0.1', HostPort: '49152x' }] },
+      id,
+      'fixture',
+      'candidate-primary-core',
+    ],
+    [
+      'port out of range',
+      { '3001/tcp': [{ HostIp: '127.0.0.1', HostPort: '65536' }] },
+      id,
+      'fixture',
+      'candidate-primary-core',
+    ],
+  ];
+  await Promise.all(
+    cases.map(async ([scenario, ports, inspectedId, project, service]) => {
+      const metadata = `${JSON.stringify(ports)}|${inspectedId}|${project}|${service}`;
+      const script = `set -euo pipefail
+CLOSED_NODE_ENV=(env -i PATH=/usr/bin:/bin)
+NODE_BIN=${JSON.stringify(process.execPath)}
+project_name=fixture
+compose() { printf '%s' '${id}'; }
+docker_cli() { printf '%s\\n' '${metadata}'; }
+${resolver}
+container_published_port candidate-primary-core 3001`;
+      return scenario === 'valid'
+        ? expect(executeFile('/usr/bin/bash', ['-c', script])).resolves.toMatchObject({
+            stdout: '49152',
+            stderr: '',
+          })
+        : expect(executeFile('/usr/bin/bash', ['-c', script])).rejects.toMatchObject({
+            code: 1,
+            stdout: '',
+            stderr: '',
+          });
+    })
+  );
+  await expect(
+    executeFile('/usr/bin/bash', [
+      '-c',
+      `set -euo pipefail
+${resolver}
+container_published_port candidate-primary-core 65536`,
+    ])
+  ).rejects.toMatchObject({ code: 1, stderr: '' });
+  expect(runner).toContain('if [[ -n "${PODMAN_API_VERSION}" ]]; then\n    target_ip=127.0.0.1');
+  expect(runner).toContain('target_ip="$(container_network_ipv4 "${service}" "${network}")"');
+  expect(runner).toContain('fail_service podman-published-port "${service}"');
+  expect(runner).toContain('"TCP4-LISTEN:${host_port},bind=127.0.0.1,reuseaddr,fork"');
+  expect(runner).toContain('"TCP4:${target_ip}:${target_port}"');
 });
 
 it('serializes Podman service creation while retaining the stage readiness barrier', async () => {

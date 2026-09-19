@@ -254,6 +254,7 @@ RUN_ROOT="${ASTER_RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 require_private_root "${RUN_ROOT}"
 RESULT_ROOT=''
 case "${RUNTIME_GATE}" in
+  differential) RESULT_ROOT="${BUILD_ROOT}/aster-phase1-differential-evidence" ;;
   candidate-invariants) RESULT_ROOT="${BUILD_ROOT}/aster-phase1-candidate-invariant-evidence" ;;
   browser) RESULT_ROOT="${BUILD_ROOT}/aster-phase1-browser-evidence" ;;
 esac
@@ -447,17 +448,55 @@ container_network_ipv4() {
   printf '%s' "${result}"
 }
 
+container_published_port() {
+  local service=$1 container_port=$2 container_id
+
+  [[ "${container_port}" =~ ^[1-9][0-9]{0,4}$ ]] && ((container_port <= 65535)) || return 1
+  container_id="$(compose ps --all -q "${service}" 2>/dev/null)" || return 1
+  [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || return 1
+  # shellcheck disable=SC2016
+  docker_cli inspect --format \
+    '{{json .NetworkSettings.Ports}}|{{.Id}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' \
+    "${container_id}" 2>/dev/null | \
+    "${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" -e '
+      let input = "";
+      process.stdin.on("data", (chunk) => { input += chunk; });
+      process.stdin.on("end", () => {
+        try {
+          const [serialized, id, project, service, ...extra] = input.trim().split("|");
+          const [expectedId, expectedProject, expectedService, target] = process.argv.slice(1);
+          const ports = JSON.parse(serialized);
+          const bindings = ports?.[`${target}/tcp`];
+          if (extra.length || !/^[0-9a-f]{64}$/.test(id) || !id.startsWith(expectedId) ||
+              project !== expectedProject || service !== expectedService ||
+              !Array.isArray(bindings) || bindings.length !== 1 ||
+              bindings[0]?.HostIp !== "127.0.0.1" ||
+              !/^[1-9][0-9]{0,4}$/.test(bindings[0]?.HostPort ?? "") ||
+              Number(bindings[0].HostPort) > 65535) process.exit(1);
+          process.stdout.write(bindings[0].HostPort);
+        } catch { process.exit(1); }
+      });
+    ' "${container_id}" "${project_name}" "${service}" "${container_port}" 2>/dev/null
+}
+
 start_loopback_proxy() {
   local service=$1 network=$2 host_port=$3 container_port=$4
-  local target_ip ownership_token proxy_pid proxy_pgid observed_pgid ownership_index attempt
+  local target_ip target_port ownership_token proxy_pid proxy_pgid observed_pgid ownership_index attempt
 
-  target_ip="$(container_network_ipv4 "${service}" "${network}")"
+  target_port=${container_port}
+  if [[ -n "${PODMAN_API_VERSION}" ]]; then
+    target_ip=127.0.0.1
+    target_port="$(container_published_port "${service}" "${container_port}")" || \
+      fail_service podman-published-port "${service}"
+  else
+    target_ip="$(container_network_ipv4 "${service}" "${network}")"
+  fi
   ownership_token="$(random_hex 32)"
   ASTER_PHASE1_PROCESS_TOKEN="${ownership_token}" \
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' "ASTER_PHASE1_PROCESS_TOKEN=${ownership_token}" \
     "${SETSID_BIN}" "${SOCAT_BIN}" \
     "TCP4-LISTEN:${host_port},bind=127.0.0.1,reuseaddr,fork" \
-    "TCP4:${target_ip}:${container_port}" </dev/null >/dev/null 2>&1 &
+    "TCP4:${target_ip}:${target_port}" </dev/null >/dev/null 2>&1 &
   proxy_pid=$!
   proxy_pgid="${proxy_pid}"
   PROXY_PIDS+=("${proxy_pid}")
@@ -1014,16 +1053,12 @@ if (new Set(ids).size !== ids.length) process.exit(1);
 if (JSON.stringify(ids) !== JSON.stringify([...ids].sort())) process.exit(1);
 NODE
 
-if [[ "${RUNTIME_GATE}" != 'differential' ]]; then
-  RESULT_DIR="$(/usr/bin/mktemp -d "${RESULT_ROOT}/result.XXXXXX")"
-  /usr/bin/mv -- "${artifact_path}" "${RESULT_DIR}/${artifact_name}" || fail
-  artifact_path="${RESULT_DIR}/${artifact_name}"
-  # The awk program intentionally uses the literal first field.
-  # shellcheck disable=SC2016
-  artifact_sha256="$("${SHA256_BIN}" "${artifact_path}" | "${AWK_BIN}" '{print $1}')"
-  [[ "${artifact_sha256}" =~ ^[0-9a-f]{64}$ ]] || fail
-  printf 'Aster runtime candidate %s gate passed\nresult=%s\nsha256=%s\n' \
-    "${RUNTIME_GATE}" "${RESULT_DIR}" "${artifact_sha256}"
-else
-  printf '%s\n' 'Aster runtime candidate differential smoke passed'
-fi
+RESULT_DIR="$(/usr/bin/mktemp -d "${RESULT_ROOT}/result.XXXXXX")"
+/usr/bin/mv -- "${artifact_path}" "${RESULT_DIR}/${artifact_name}" || fail
+artifact_path="${RESULT_DIR}/${artifact_name}"
+# The awk program intentionally uses the literal first field.
+# shellcheck disable=SC2016
+artifact_sha256="$("${SHA256_BIN}" "${artifact_path}" | "${AWK_BIN}" '{print $1}')"
+[[ "${artifact_sha256}" =~ ^[0-9a-f]{64}$ ]] || fail
+printf 'Aster runtime candidate %s gate passed\nresult=%s\nsha256=%s\n' \
+  "${RUNTIME_GATE}" "${RESULT_DIR}" "${artifact_sha256}"

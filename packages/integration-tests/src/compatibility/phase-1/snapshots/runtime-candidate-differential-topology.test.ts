@@ -383,6 +383,8 @@ describe('runtime-candidate differential topology', () => {
       'value.outcomes.length !== 18',
       'value.observationNegativeControls.length !== 6',
       'value.flows.length !== 4',
+      'aster-phase1-differential-evidence',
+      ['RESULT_DIR="$(/usr/bin/mktemp -d "', '$', '{RESULT_ROOT}/result.XXXXXX")"'].join(''),
       'aster-phase1-candidate-invariant-evidence',
       'aster-phase1-browser-evidence',
       'terminate_owned_process_group',
