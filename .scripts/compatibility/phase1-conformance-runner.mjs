@@ -886,7 +886,54 @@ const redirectTarget = (response, currentUrl, config, module) => {
   } catch {
     throw invalidBasic('browser-flow', module);
   }
+  if (
+    absolute.hash &&
+    absolute.origin === config.suiteBaseUrl &&
+    absolute.pathname === new URL(config.callbackUri).pathname
+  ) {
+    const hash = absolute.hash;
+    absolute.hash = '';
+    requireAllowedNavigationUrl(absolute.href, config, 'browser-flow', module);
+    absolute.hash = hash;
+    return absolute;
+  }
   return requireAllowedNavigationUrl(absolute.href, config, 'browser-flow', module);
+};
+
+const implicitSubmissionUrl = (response, config, module) => {
+  if (
+    response.status !== 200 ||
+    !/^text\/html(?:\s*;|$)/iu.test(response.headers.get('content-type') ?? '')
+  ) {
+    throw invalidBasic('browser-flow', module);
+  }
+  let html;
+  try {
+    html = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
+  } catch {
+    throw invalidBasic('browser-flow', module);
+  }
+  const submissions = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/giu)].flatMap(
+    ([, script]) => [...script.matchAll(/\bxhr\.open\(\s*'POST'\s*,\s*("(?:\\.|[^"\\])*")\s*,\s*true\s*\)/gu)]
+  );
+  if (submissions.length !== 1) throw invalidBasic('browser-flow', module);
+  let value;
+  try {
+    value = JSON.parse(submissions[0][1]);
+  } catch {
+    throw invalidBasic('browser-flow', module);
+  }
+  if (typeof value !== 'string') throw invalidBasic('browser-flow', module);
+  const url = requireAllowedNavigationUrl(value, config, 'browser-flow', module);
+  if (
+    url.href !== value ||
+    url.origin !== config.suiteBaseUrl ||
+    !/^\/test\/a\/aster-phase1\/implicit\/[A-Za-z0-9]{20}$/u.test(url.pathname) ||
+    url.search !== ''
+  ) {
+    throw invalidBasic('browser-flow', module);
+  }
+  return url;
 };
 
 const driveDeclaredBrowserUrl = async (declaration, context) => {
@@ -898,6 +945,7 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
   );
   let method = declaration.method;
   let body;
+  let callbackHash = '';
   let headers = { accept: 'text/html,application/xhtml+xml' };
   if (method === 'POST') {
     body = currentUrl.searchParams.toString();
@@ -928,6 +976,8 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
       } else if (nextUrl.origin === context.config.issuerOrigin && nextUrl.pathname === '/consent') {
         pending = await performConsent(nextUrl, context);
       } else {
+        callbackHash = nextUrl.hash;
+        nextUrl.hash = '';
         currentUrl = nextUrl;
         if (![307, 308].includes(response.status)) {
           method = 'GET';
@@ -942,6 +992,26 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
         headers = { accept: 'text/html,application/xhtml+xml' };
       }
       continue;
+    }
+    if (
+      currentUrl.origin === context.config.suiteBaseUrl &&
+      currentUrl.pathname === new URL(context.config.callbackUri).pathname
+    ) {
+      const submissionUrl = implicitSubmissionUrl(response, context.config, context.module);
+      requireEmptyResponse(
+        await requestWithCookieJar({
+          ...context,
+          url: submissionUrl,
+          method: 'POST',
+          headers: { accept: '*/*', 'content-type': 'text/plain' },
+          body: callbackHash,
+          category: 'browser-flow',
+        }),
+        204,
+        'browser-flow',
+        context.module
+      );
+      return;
     }
     if (
       (response.status >= 200 && response.status < 300) ||

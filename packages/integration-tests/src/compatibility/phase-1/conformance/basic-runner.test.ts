@@ -118,6 +118,12 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     headers: { 'content-type': 'application/json' },
   });
 
+const renderedImplicitCallback = (submissionUrl: string): Response =>
+  new Response(
+    `<html><script>var xhr = new XMLHttpRequest(); xhr.open('POST', ${JSON.stringify(submissionUrl)}, true); xhr.setRequestHeader('Content-type', 'text/plain'); xhr.send(window.location.hash);</script></html>`,
+    { status: 200, headers: { 'content-type': 'text/html;charset=UTF-8' } }
+  );
+
 const readSecret = (secretPath: string): Uint8Array => {
   const values: Readonly<Record<string, string>> = {
     '/run/aster-secrets/phase1-user': 'user-secret-value',
@@ -342,13 +348,13 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     );
   });
 
-  it('acknowledges a browser declaration before its callback finishes the running test', async () => {
+  it('submits an empty callback fragment before the first module finishes', async () => {
     const runner = await loadRunner();
     const requests: string[] = [];
     const tests = new Map<string, Readonly<{ name: string; variant: Record<string, string> }>>();
     let nextTest = 0;
     let firstFinished = false;
-    let lateVisits = 0;
+    let waits = 0;
     const declaredUrl = 'https://suite.example/browser/finish-on-callback';
     const firstId = 'B00000000000001';
     const fetchImplementation: typeof fetch = async (input, init) => {
@@ -380,6 +386,10 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         return jsonResponse({ name: manifestEntry.testModule, id }, 201);
       }
       if (url.pathname === `/api/runner/${firstId}/wait-state`) {
+        waits += 1;
+        if (waits > 2 && !firstFinished) {
+          throw new Error('callback fragment not submitted');
+        }
         return jsonResponse({ state: firstFinished ? 'FINISHED' : 'WAITING' });
       }
       if (url.pathname.endsWith('/wait-state')) {
@@ -399,10 +409,6 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       }
       if (url.pathname === `/api/runner/browser/${firstId}/visit` && method === 'POST') {
         expect(url.searchParams.get('url')).toBe(declaredUrl);
-        if (firstFinished) {
-          lateVisits += 1;
-          return jsonResponse({ error: 'test is no longer running' }, 404);
-        }
         return new Response(null, { status: 204 });
       }
       if (url.pathname === '/browser/finish-on-callback') {
@@ -413,8 +419,17 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         });
       }
       if (url.pathname === '/test/a/aster-phase1/callback') {
+        expect(firstFinished).toBe(false);
+        return renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+        );
+      }
+      if (url.pathname === '/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt') {
+        expect(method).toBe('POST');
+        expect(new Headers(init?.headers).get('content-type')).toBe('text/plain');
+        expect(init?.body).toBe('');
         firstFinished = true;
-        return new Response('complete', { status: 200 });
+        return new Response(null, { status: 204 });
       }
       if (url.pathname.startsWith('/api/info/')) {
         const id = url.pathname.slice('/api/info/'.length);
@@ -441,19 +456,16 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       throw new Error(`unexpected request ${method} ${url.href}`);
     };
 
-    const terminal = await runner
-      .runOidfBasicPlan(JSON.stringify(validInput()), {
-        readSecret,
-        fetch: fetchImplementation,
-      })
-      .catch((error: unknown) => {
-        expect(lateVisits).toBe(0);
-        throw error;
-      });
+    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+      readSecret,
+      fetch: fetchImplementation,
+    });
 
-    expect(lateVisits).toBe(0);
     expect(requests.indexOf(`POST /api/runner/browser/${firstId}/visit`)).toBeLessThan(
       requests.indexOf('GET /test/a/aster-phase1/callback')
+    );
+    expect(requests.indexOf('GET /test/a/aster-phase1/callback')).toBeLessThan(
+      requests.indexOf('POST /test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt')
     );
     expect(firstFinished).toBe(true);
     expect(nextTest).toBe(35);
@@ -523,6 +535,162 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     expect(requests).toContain(`DELETE /api/runner/${testId}`);
     expect(requests).not.toContain('GET /browser/start-one');
   });
+
+  it.each([
+    [
+      'missing submit URL',
+      () => new Response('<html>complete</html>', { headers: { 'content-type': 'text/html' } }),
+      204,
+    ],
+    [
+      'submit marker outside script',
+      () =>
+        new Response(
+          `<html><p>xhr.open('POST', "https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt", true)</p></html>`,
+          { headers: { 'content-type': 'text/html' } }
+        ),
+      204,
+    ],
+    [
+      'wrong origin',
+      () =>
+        renderedImplicitCallback(
+          'https://server.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+        ),
+      204,
+    ],
+    [
+      'wrong alias',
+      () =>
+        renderedImplicitCallback(
+          'https://suite.example/test/a/other/implicit/AbCdEfGhIjKlMnOpQrSt'
+        ),
+      204,
+    ],
+    [
+      'wrong token length',
+      () =>
+        renderedImplicitCallback('https://suite.example/test/a/aster-phase1/implicit/too-short'),
+      204,
+    ],
+    [
+      'userinfo',
+      () =>
+        renderedImplicitCallback(
+          'https://user@suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+        ),
+      204,
+    ],
+    [
+      'unexpected query',
+      () =>
+        renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt?extra=1'
+        ),
+      204,
+    ],
+    [
+      'unexpected fragment',
+      () =>
+        renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt#hash'
+        ),
+      204,
+    ],
+    [
+      'duplicate submit URLs',
+      () =>
+        new Response(
+          `<script>xhr.open('POST', "https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt", true); xhr.open('POST', "https://suite.example/test/a/aster-phase1/implicit/0123456789abcdefghij", true);</script>`,
+          { headers: { 'content-type': 'text/html' } }
+        ),
+      204,
+    ],
+    [
+      'non-204 submit response',
+      () =>
+        renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+        ),
+      200,
+    ],
+  ] as const)(
+    'rejects %s from the callback page without accepting the module',
+    async (_reason, callbackPage, submissionStatus) => {
+      const runner = await loadRunner();
+      const requests: string[] = [];
+      const testId = 'B00000000000001';
+      const declaredUrl = 'https://suite.example/browser/start-one';
+      const fetchImplementation: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        const method = init?.method ?? 'GET';
+        requests.push(`${method} ${url.pathname}`);
+        if (url.pathname === '/api/plan') {
+          return jsonResponse(
+            {
+              name: planName,
+              id: planInstanceId,
+              modules: expectedManifest.map(({ testModule, variant }) => ({
+                testModule,
+                variant,
+                instances: [],
+              })),
+            },
+            201
+          );
+        }
+        if (url.pathname === '/api/runner' && method === 'POST') {
+          return jsonResponse({ name: 'oidcc-server', id: testId }, 201);
+        }
+        if (url.pathname === `/api/runner/${testId}/wait-state`) {
+          return jsonResponse({ state: 'WAITING' });
+        }
+        if (url.pathname === `/api/runner/${testId}` && method === 'GET') {
+          return jsonResponse({
+            name: 'oidcc-server',
+            id: testId,
+            browser: {
+              urls: [declaredUrl],
+              urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
+              browserApiRequests: [],
+              uriInputRequests: [],
+            },
+          });
+        }
+        if (url.pathname === `/api/runner/browser/${testId}/visit` && method === 'POST') {
+          return new Response(null, { status: 204 });
+        }
+        if (url.pathname === '/browser/start-one') {
+          return new Response(null, {
+            status: 302,
+            headers: { location: 'https://suite.example/test/a/aster-phase1/callback?code=done' },
+          });
+        }
+        if (url.pathname === '/test/a/aster-phase1/callback') {
+          return callbackPage();
+        }
+        if (url.pathname === '/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt') {
+          return new Response(null, { status: submissionStatus });
+        }
+        if (url.pathname === `/api/runner/${testId}` && method === 'DELETE') {
+          return jsonResponse({ name: 'oidcc-server', id: testId });
+        }
+        throw new Error(`unexpected request ${method} ${url.href}`);
+      };
+
+      await expect(
+        runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+          readSecret,
+          fetch: fetchImplementation,
+        })
+      ).rejects.toMatchObject({ category: 'browser-flow', module: 'oidcc-server' });
+      expect(requests).toContain('GET /test/a/aster-phase1/callback');
+      expect(requests).toContain(`DELETE /api/runner/${testId}`);
+      expect(
+        requests.filter((request) => request.startsWith('POST /test/a/aster-phase1/implicit/'))
+      ).toHaveLength(submissionStatus === 200 ? 1 : 0);
+    }
+  );
 
   it('drives declared browser URLs with one module cookie jar and response-led Experience state', async () => {
     const runner = await loadRunner();
@@ -736,8 +904,17 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         expect(headers.get('cookie')).toContain('suite_session=alpha');
         expect(headers.get('cookie')).not.toContain('_aster');
         expect(headers.get('cookie')).not.toContain('bad_cookie');
+        return renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+        );
+      }
+      if (url.pathname === '/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt') {
+        expect(method).toBe('POST');
+        expect(headers.get('content-type')).toBe('text/plain');
+        expect(headers.get('cookie')).toContain('suite_session=alpha');
+        expect(init?.body).toBe('');
         virtualNow = 2000;
-        return new Response('complete', { status: 200 });
+        return new Response(null, { status: 204 });
       }
       if (url.origin === suiteBaseUrl && url.pathname === '/browser/start-two') {
         expect(visited.has('https://suite.example/browser/start-two?phase=2')).toBe(true);
@@ -752,7 +929,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         expect(headers.get('cookie')).toContain('_aster_session=session-one');
         expect(headers.get('cookie')).not.toContain('expiring=discard-me');
         return redirectResponse(
-          'https://suite.example/test/a/aster-phase1/callback?error=login_required&state=state-two',
+          'https://suite.example/test/a/aster-phase1/callback?error=login_required&state=state-two#fragment=value',
           303
         );
       }
@@ -761,8 +938,17 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         url.pathname === '/test/a/aster-phase1/callback' &&
         url.searchParams.get('state') === 'state-two'
       ) {
+        expect(url.hash).toBe('');
         expect(headers.get('cookie')).toContain('suite_session=alpha');
-        return new Response('complete', { status: 200 });
+        return renderedImplicitCallback(
+          'https://suite.example/test/a/aster-phase1/implicit/0123456789abcdefghij'
+        );
+      }
+      if (url.pathname === '/test/a/aster-phase1/implicit/0123456789abcdefghij') {
+        expect(method).toBe('POST');
+        expect(headers.get('content-type')).toBe('text/plain');
+        expect(init?.body).toBe('#fragment=value');
+        return new Response(null, { status: 204 });
       }
       if (url.origin === suiteBaseUrl && url.pathname === '/browser/start-three') {
         expect(visited.has('https://suite.example/browser/start-three')).toBe(true);
