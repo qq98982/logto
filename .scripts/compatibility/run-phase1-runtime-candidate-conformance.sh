@@ -172,7 +172,8 @@ RUN_ROOT="${ASTER_RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 require_private_root "${RUN_ROOT}"
 readonly RUN_ROOT
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_ROOT}/run.XXXXXX")"
-readonly RUN_DIR
+RUN_DIR_IDENTITY="$(/usr/bin/stat -c '%d|%i' -- "${RUN_DIR}")"
+readonly RUN_DIR RUN_DIR_IDENTITY
 EXPORT_DIR="${ASTER_PHASE1_CONFORMANCE_EXPORT_DIR-}"
 readonly EXPORT_DIR
 export_directory_safe() {
@@ -186,6 +187,25 @@ export_directory_safe() {
   [[ "$(/usr/bin/stat -c '%d|%i' -- "${EXPORT_DIR}" 2>/dev/null || true)" == "${EXPORT_IDENTITY}" ]]
 }
 EXPORT_IDENTITY=''
+EXPORT_FD=''
+EXPORT_TEMP_NAME=''
+RUN_DIR_FD=''
+export_directory_stable() {
+  export_directory_safe && [[ "${EXPORT_FD}" =~ ^[0-9]+$ ]] && \
+    [[ "$(/usr/bin/stat -L -c '%d|%i' -- "/proc/self/fd/${EXPORT_FD}" 2>/dev/null || true)" == \
+      "${EXPORT_IDENTITY}" ]]
+}
+run_directory_owned() {
+  [[ -d "${RUN_DIR}" && ! -L "${RUN_DIR}" ]] && \
+    [[ "$(/usr/bin/realpath -e -- "${RUN_DIR}" 2>/dev/null || true)" == "${RUN_DIR}" ]] && \
+    [[ "$(/usr/bin/stat -c '%d|%i|%u|%g|%a|%F' -- "${RUN_DIR}" 2>/dev/null || true)" == \
+      "${RUN_DIR_IDENTITY}|$(/usr/bin/id -u)|$(/usr/bin/id -g)|700|directory" ]]
+}
+run_directory_fd_owned() {
+  [[ "${RUN_DIR_FD}" =~ ^[0-9]+$ ]] && \
+    [[ "$(/usr/bin/stat -L -c '%d|%i' -- "/proc/self/fd/${RUN_DIR_FD}" 2>/dev/null || true)" == \
+      "${RUN_DIR_IDENTITY}" ]]
+}
 PODMAN_GRAPH_ROOT="${BUILD_ROOT}/aster-phase1-conformance-podman-graph"
 require_private_root "${PODMAN_GRAPH_ROOT}"
 # shellcheck disable=SC2016
@@ -442,77 +462,144 @@ remove_oidf_private_material() {
     "${FIXTURE_BASELINE_CLEANUP_RESPONSE}"
 }
 
-publish_export() {
+export_artifact() {
+  local action=$1 digest=${2-} size=${3-} inode=${4-}
   "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
-    "${EVIDENCE_DIR}/${EXPORT_NAME}" "${EXPORT_DIR}" "${EXPORT_NAME}" \
-    "${CANDIDATE_IMAGE_ID}" "${ARTIFACT_CONTRACT}" <<'NODE'
-import { createHash, randomBytes } from 'node:crypto';
-import { constants } from 'node:fs';
+    "${action}" "${EXPORT_DIR}" "${EXPORT_FD}" "${EXPORT_IDENTITY}" \
+    "${EXPORT_TEMP_NAME}" "${EXPORT_NAME}" "${EVIDENCE_DIR}/${EXPORT_NAME}" \
+    "${CANDIDATE_IMAGE_ID}" "${ARTIFACT_CONTRACT}" "${digest}" "${size}" "${inode}" <<'NODE'
+import { createHash } from 'node:crypto';
+import { constants, fstatSync } from 'node:fs';
 import { link, lstat, open, readdir, realpath, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const [source, directory, name, imageDigest, contractPath] = process.argv.slice(2);
-const { parseStrictPhase1ArtifactJson, assertPhase1PublicArtifactValue } =
-  await import(pathToFileURL(contractPath).href);
-const destination = join(directory, name);
-const temporary = join(directory, `.aster-conformance-${randomBytes(16).toString('hex')}`);
-let temporaryCreated = false;
-let published = false;
-try {
-  const entries = await readdir(directory);
-  const dir = await lstat(directory);
-  if (entries.length || !dir.isDirectory() || dir.isSymbolicLink() || dir.mode % 0o1000 !== 0o700 ||
+const [action, directory, fdText, identity, tempName, name, source, imageDigest,
+  contractPath, expectedDigest, expectedSize, expectedInode] = process.argv.slice(2);
+const fd = Number(fdText);
+const anchor = `/proc/self/fd/${fd}`;
+const temporary = join(anchor, tempName);
+const destination = join(anchor, name);
+let tempCreated = false;
+let finalCreated = false;
+let stagedInode = '';
+const digestOf = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const assertDirectoryFd = () => {
+  const dir = fstatSync(fd);
+  if (!dir.isDirectory() || dir.mode % 0o1000 !== 0o700 ||
     dir.uid !== process.getuid() || dir.gid !== process.getgid() ||
-    await realpath(directory) !== directory) throw new Error('export directory');
-  const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
-  let bytes;
+    `${dir.dev}|${dir.ino}` !== identity) throw new Error('export directory identity');
+  return dir;
+};
+const assertCurrentDirectory = async () => {
+  const anchored = assertDirectoryFd();
+  const named = await lstat(directory);
+  if (!named.isDirectory() || named.isSymbolicLink() ||
+    named.dev !== anchored.dev || named.ino !== anchored.ino ||
+    await realpath(directory) !== directory) throw new Error('export directory moved');
+};
+const assertArtifact = (file, inode, links = 1) => {
+  if (!file.isFile() || file.uid !== process.getuid() || file.gid !== process.getgid() ||
+    file.mode % 0o1000 !== 0o600 || file.nlink !== links || String(file.ino) !== inode)
+    throw new Error('export artifact identity');
+};
+const removeOwned = async (filename, inode, links = 1) => {
+  let file;
   try {
-    const file = await input.stat();
-    if (!file.isFile() || file.uid !== process.getuid() || file.gid !== process.getgid() ||
-      file.nlink !== 1 || ![0o400, 0o600].includes(file.mode % 0o1000))
-      throw new Error('source metadata');
-    bytes = await input.readFile();
-  } finally {
-    await input.close();
+    file = await lstat(filename);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
   }
-  const value = parseStrictPhase1ArtifactJson(bytes);
-  assertPhase1PublicArtifactValue(value);
-  if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
-    value.sanitizerSuccess !== true || value.provenance?.imageDigest !== imageDigest ||
-    !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
-    !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
-    !Array.isArray(value.planResults) || value.planResults.length !== 2)
-    throw new Error('conformance contract');
-  const output = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-  temporaryCreated = true;
-  try {
-    await output.writeFile(bytes);
-    await output.sync();
-  } finally {
-    await output.close();
+  assertArtifact(file, inode, links);
+  await unlink(filename);
+};
+try {
+  if (!Number.isSafeInteger(fd) || fd < 3 ||
+    !/^\.aster-conformance-[0-9a-f]{32}\.tmp$/.test(tempName)) throw new Error('export input');
+  assertDirectoryFd();
+  if (action === 'stage') {
+    await assertCurrentDirectory();
+    if ((await readdir(anchor)).length !== 0) throw new Error('export directory not empty');
+    const { parseStrictPhase1ArtifactJson, assertPhase1PublicArtifactValue } =
+      await import(pathToFileURL(contractPath).href);
+    const input = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let bytes;
+    try {
+      const file = await input.stat();
+      if (!file.isFile() || file.uid !== process.getuid() || file.gid !== process.getgid() ||
+        file.nlink !== 1 || ![0o400, 0o600].includes(file.mode % 0o1000))
+        throw new Error('source metadata');
+      bytes = await input.readFile();
+    } finally {
+      await input.close();
+    }
+    const value = parseStrictPhase1ArtifactJson(bytes);
+    assertPhase1PublicArtifactValue(value);
+    if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
+      value.sanitizerSuccess !== true || value.provenance?.imageDigest !== imageDigest ||
+      !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
+      !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
+      !Array.isArray(value.planResults) || value.planResults.length !== 2)
+      throw new Error('conformance contract');
+    const output = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    tempCreated = true;
+    try {
+      stagedInode = String((await output.stat()).ino);
+      await output.writeFile(bytes);
+      await output.sync();
+    } finally {
+      await output.close();
+    }
+    assertArtifact(await lstat(temporary), stagedInode);
+    await assertCurrentDirectory();
+    if (JSON.stringify(await readdir(anchor)) !== JSON.stringify([tempName]))
+      throw new Error('staged artifact tree');
+    process.stdout.write(`${digestOf(bytes)}|${bytes.length}|${stagedInode}`);
+  } else if (action === 'publish') {
+    await assertCurrentDirectory();
+    if (JSON.stringify(await readdir(anchor)) !== JSON.stringify([tempName]))
+      throw new Error('staged artifact tree');
+    const file = await open(temporary, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let bytes;
+    try {
+      assertArtifact(await file.stat(), expectedInode);
+      bytes = await file.readFile();
+    } finally {
+      await file.close();
+    }
+    if (bytes.length !== Number(expectedSize) || digestOf(bytes) !== expectedDigest)
+      throw new Error('staged artifact changed');
+    await link(temporary, destination);
+    finalCreated = true;
+    await unlink(temporary);
+    const published = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      assertArtifact(await published.stat(), expectedInode);
+      if (!(await published.readFile()).equals(bytes)) throw new Error('published bytes');
+    } finally {
+      await published.close();
+    }
+    await assertCurrentDirectory();
+    if (JSON.stringify(await readdir(anchor)) !== JSON.stringify([name]))
+      throw new Error('published artifact tree');
+  } else if (action === 'discard' || action === 'rollback') {
+    await removeOwned(action === 'discard' ? temporary : destination, expectedInode);
+    if ((await readdir(anchor)).length !== 0) throw new Error('export cleanup incomplete');
+  } else {
+    throw new Error('export action');
   }
-  await link(temporary, destination);
-  published = true;
-  await unlink(temporary);
-  temporaryCreated = false;
-  const result = await lstat(destination);
-  const saved = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    if (!result.isFile() || result.uid !== process.getuid() || result.gid !== process.getgid() ||
-      result.mode % 0o1000 !== 0o600 || result.nlink !== 1 ||
-      !(await saved.readFile()).equals(bytes) ||
-      JSON.stringify(await readdir(directory)) !== JSON.stringify([name]))
-      throw new Error('published artifact');
-  } finally {
-    await saved.close();
-  }
-  const digest = createHash('sha256').update(bytes).digest('hex');
-  process.stdout.write(`ASTER_PHASE1_CONFORMANCE_EXPORT_SHA256=${digest}\n` +
-    `ASTER_PHASE1_CONFORMANCE_EXPORT_BYTES=${bytes.length}`);
 } catch {
-  if (temporaryCreated) await unlink(temporary).catch(() => {});
-  if (published) await unlink(destination).catch(() => {});
+  if (tempCreated) {
+    try { await removeOwned(temporary, stagedInode); } catch { process.exitCode = 1; }
+  }
+  if (finalCreated) {
+    try {
+      const file = await lstat(destination);
+      if (file.nlink === 2) assertArtifact(await lstat(temporary), expectedInode, 2);
+      await removeOwned(destination, expectedInode, file.nlink);
+    } catch { process.exitCode = 1; }
+  }
   process.exitCode = 1;
 }
 NODE
@@ -648,7 +735,8 @@ NODE
 }
 
 cleanup() {
-  local exit_code=$? cleanup_failed=0 publication_failed=0 remaining resource_id index export_summary=''
+  local exit_code=$? cleanup_failed=0 publication_failed=0 remaining resource_id index
+  local staged=0 published=0 staged_metadata='' digest='' size='' inode='' entries=''
   trap - EXIT INT TERM HUP
 
   if [[ -n "${SETUP_RUN_PGID}" ]]; then
@@ -741,27 +829,66 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
+  if [[ "${cleanup_failed}" == 0 ]]; then
+    if ! run_directory_owned || ! exec {RUN_DIR_FD}<"${RUN_DIR}" || ! run_directory_fd_owned; then
+      cleanup_failed=1
+    fi
+  fi
   if [[ "${exit_code}" == 0 && "${cleanup_failed}" == 0 && -n "${EXPORT_DIR}" ]]; then
-    if export_directory_safe && \
-      [[ -z "$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" ]]; then
-      export_summary="$(publish_export)" || publication_failed=1
+    if export_directory_safe && exec {EXPORT_FD}<"${EXPORT_DIR}" && \
+      export_directory_stable && \
+      entries="$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" && \
+      [[ -z "${entries}" ]]; then
+      EXPORT_TEMP_NAME=".aster-conformance-$(random_hex 16).tmp"
+      if staged_metadata="$(export_artifact stage)"; then
+        IFS='|' read -r digest size inode <<<"${staged_metadata}"
+        if [[ "${digest}" =~ ^[0-9a-f]{64}$ && "${size}" =~ ^[1-9][0-9]*$ && \
+          "${inode}" =~ ^[1-9][0-9]*$ ]]; then
+          staged=1
+        else
+          publication_failed=1
+        fi
+      else
+        publication_failed=1
+      fi
     else
       publication_failed=1
     fi
   fi
-  if [[ "${cleanup_failed}" == 0 && -d "${RUN_DIR}" && ! -L "${RUN_DIR}" ]]; then
-    /usr/bin/rm -rf -- "${RUN_DIR}" || cleanup_failed=1
-  fi
-  if [[ "${cleanup_failed}" != 0 && -n "${export_summary}" ]]; then
-    if export_directory_safe && [[ -f "${EXPORT_DIR}/${EXPORT_NAME}" && ! -L "${EXPORT_DIR}/${EXPORT_NAME}" ]]; then
-      /usr/bin/rm -f -- "${EXPORT_DIR}/${EXPORT_NAME}" || cleanup_failed=1
+  if [[ "${cleanup_failed}" == 0 ]]; then
+    if run_directory_owned && run_directory_fd_owned; then
+      /usr/bin/rm -rf -- "${RUN_DIR}" || cleanup_failed=1
+      [[ ! -e "${RUN_DIR}" && ! -L "${RUN_DIR}" ]] || cleanup_failed=1
+      [[ "$(/usr/bin/stat -L -c %h -- "/proc/self/fd/${RUN_DIR_FD}" 2>/dev/null || true)" == 0 ]] || cleanup_failed=1
+    else
+      cleanup_failed=1
     fi
+  fi
+  if [[ "${exit_code}" == 0 && "${cleanup_failed}" == 0 && "${publication_failed}" == 0 && \
+    "${staged}" == 1 ]]; then
+    if export_directory_stable && export_artifact publish "${digest}" "${size}" "${inode}"; then
+      if export_directory_stable; then
+        published=1
+        staged=0
+      else
+        publication_failed=1
+        export_artifact rollback "${digest}" "${size}" "${inode}" || cleanup_failed=1
+      fi
+    else
+      publication_failed=1
+    fi
+  fi
+  if [[ "${staged}" == 1 ]]; then
+    export_artifact discard "${digest}" "${size}" "${inode}" || cleanup_failed=1
   fi
   if [[ "${exit_code}" == 0 && ( "${cleanup_failed}" != 0 || "${publication_failed}" != 0 ) ]]; then
     exit_code=1
   fi
   if [[ "${exit_code}" == 0 ]]; then
-    [[ -z "${export_summary}" ]] || printf '%s\n' "${export_summary}"
+    if [[ "${published}" == 1 ]]; then
+      printf 'ASTER_PHASE1_CONFORMANCE_EXPORT_SHA256=%s\n' "${digest}"
+      printf 'ASTER_PHASE1_CONFORMANCE_EXPORT_BYTES=%s\n' "${size}"
+    fi
     printf '%s\n' 'Aster runtime candidate conformance gate passed'
   elif [[ "${cleanup_failed}" != 0 || "${publication_failed}" != 0 ]]; then
     printf 'Aster runtime candidate conformance gate failed (cleanup)\n' >&2
@@ -898,7 +1025,8 @@ failure_stage=export-directory
 if [[ -n "${EXPORT_DIR}" ]]; then
   EXPORT_IDENTITY="$(/usr/bin/stat -c '%d|%i' -- "${EXPORT_DIR}" 2>/dev/null || true)"
   export_directory_safe || fail
-  [[ -z "$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" ]] || fail
+  export_entries="$(/usr/bin/find "${EXPORT_DIR}" -mindepth 1 -maxdepth 1 -printf '%f\n')" || fail
+  [[ -z "${export_entries}" ]] || fail
 fi
 readonly EXPORT_IDENTITY
 

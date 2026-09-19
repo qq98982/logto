@@ -3,6 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -38,6 +39,13 @@ const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 type Behavior =
   | 'success'
   | 'cleanup-run-removal-failure'
+  | 'run-dir-disappears'
+  | 'run-dir-becomes-file'
+  | 'run-dir-raced-replacement'
+  | 'export-dir-replaced'
+  | 'export-dir-becomes-link'
+  | 'staged-temp-changed'
+  | 'publish-unlink-failure'
   | 'cleanup-query-failure'
   | 'fixture-cleanup-failure'
   | 'plan-failure'
@@ -405,6 +413,11 @@ appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\
 appendFileSync(path.join(captureRoot, 'started.log'), descriptor.projectName + '\\n');
 const behavior = ${JSON.stringify(behavior)};
 const reachesPlan = behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
+  behavior === 'run-dir-disappears' || behavior === 'run-dir-becomes-file' ||
+  behavior === 'run-dir-raced-replacement' ||
+  behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
+  behavior === 'staged-temp-changed' ||
+  behavior === 'publish-unlink-failure' ||
   behavior === 'plan-failure' ||
   behavior === 'cleanup-query-failure' || behavior === 'fixture-cleanup-failure';
 if (behavior === 'signal') setInterval(() => {}, 2147483647);
@@ -443,7 +456,11 @@ writeFileSync(path.join(captureRoot, 'bridge-diagnostic.json'), JSON.stringify({
 }));
 if (!reachesPlan) process.exit(adapter.status === 0 ? 2 : 1);
 if (adapter.status !== 0 || JSON.parse(adapter.stdout).status !== 'PASSED') process.exit(3);
-if (behavior === 'success' || behavior === 'cleanup-run-removal-failure') {
+if (behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
+    behavior === 'run-dir-disappears' || behavior === 'run-dir-becomes-file' ||
+    behavior === 'run-dir-raced-replacement' ||
+    behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
+    behavior === 'staged-temp-changed' || behavior === 'publish-unlink-failure') {
   const artifact = JSON.stringify({
     schemaVersion: 1, mode: 'runtime-candidate', sanitizerSuccess: true,
     provenance: { imageDigest: process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST },
@@ -544,6 +561,31 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     repository,
     'packages/integration-tests/lib/compatibility/phase-1/artifact-contract.js'
   );
+  const cleanupBoundary =
+    '  if [[ "${cleanup_failed}" == 0 ]]; then\n    if run_directory_owned && run_directory_fd_owned; then';
+  const cleanupMutation: Partial<Record<Behavior, string>> = {
+    'run-dir-disappears': '  /usr/bin/mv -T -- "${RUN_DIR}" "${RUN_DIR}.moved"',
+    'run-dir-becomes-file':
+      '  /usr/bin/mv -T -- "${RUN_DIR}" "${RUN_DIR}.moved"\n  printf occupied >"${RUN_DIR}"',
+    'export-dir-replaced':
+      '  /usr/bin/mv -T -- "${EXPORT_DIR}" "${EXPORT_DIR}.moved"\n  /usr/bin/mkdir -m 700 -- "${EXPORT_DIR}"',
+    'export-dir-becomes-link':
+      '  /usr/bin/mv -T -- "${EXPORT_DIR}" "${EXPORT_DIR}.moved"\n  /usr/bin/ln -s -- "${EXPORT_DIR}.moved" "${EXPORT_DIR}"',
+    'staged-temp-changed':
+      '  /usr/bin/chmod 0400 -- "${EXPORT_DIR}/${EXPORT_TEMP_NAME}"\n  /usr/bin/chmod 0500 -- "${RUN_ROOT}"',
+  };
+  const mutation = cleanupMutation[behavior];
+  if (mutation && !lifecycleSource.includes(cleanupBoundary)) {
+    throw new Error('cleanup mutation boundary missing');
+  }
+  const removalBoundary = '      /usr/bin/rm -rf -- "${RUN_DIR}" || cleanup_failed=1';
+  if (behavior === 'run-dir-raced-replacement' && !lifecycleSource.includes(removalBoundary)) {
+    throw new Error('run directory removal boundary missing');
+  }
+  const publicationBoundary = '    finalCreated = true;\n    await unlink(temporary);';
+  if (behavior === 'publish-unlink-failure' && !lifecycleSource.includes(publicationBoundary)) {
+    throw new Error('export publication boundary missing');
+  }
   const transformedLifecycle = lifecycleSource
     .replace(
       "readonly SUITE_REPOSITORY='https://gitlab.com/openid/conformance-suite.git'",
@@ -564,6 +606,20 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     .replace(
       'PNPM_BIN="$(trusted_binary pnpm)"',
       `PNPM_BIN="$(trusted_binary ${JSON.stringify(fakePnpm)})"`
+    )
+    .replace(cleanupBoundary, mutation ? `${mutation}\n${cleanupBoundary}` : cleanupBoundary)
+    .replace(
+      removalBoundary,
+      behavior === 'run-dir-raced-replacement'
+        ? '      /usr/bin/mv -T -- "${RUN_DIR}" "${RUN_DIR}.moved"\n      /usr/bin/mkdir -m 700 -- "${RUN_DIR}"\n' +
+            removalBoundary
+        : removalBoundary
+    )
+    .replace(
+      publicationBoundary,
+      behavior === 'publish-unlink-failure'
+        ? '    finalCreated = true;\n    throw new Error("injected unlink failure");\n    await unlink(temporary);'
+        : publicationBoundary
     );
   const dockerAuthorityStart = wrapperSource.indexOf("DOCKER_PATH=''");
   const nodeAuthorityStart = wrapperSource.indexOf("NODE_PATH=''", dockerAuthorityStart);
@@ -884,6 +940,136 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     } finally {
       await chmod(fixture.runRoot, 0o700);
     }
+  });
+
+  it.each(['run-dir-disappears', 'run-dir-becomes-file'] as const)(
+    'does not publish when the staged run directory %s',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      const output = path.join(fixture.buildRoot, 'published');
+      await mkdir(output, { mode: 0o700 });
+
+      await expect(
+        executeFile(fixture.lifecycle, [], {
+          cwd: fixture.repository,
+          env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+          timeout: 30_000,
+        })
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+      });
+      const runRoots = await readFile(path.join(fixture.captureRoot, 'run-roots.log'), 'utf8');
+      const runDirectory = runRoots.trim();
+      const moved = await stat(`${runDirectory}.moved`);
+      expect(moved.isDirectory()).toBe(true);
+      if (behavior === 'run-dir-disappears') {
+        await expect(lstat(runDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+      } else {
+        const replacement = await lstat(runDirectory);
+        expect(replacement.isFile()).toBe(true);
+      }
+      expect(await readdir(output)).toEqual([]);
+      expect(await activeResources(fixture)).toBe(false);
+    }
+  );
+
+  it('rejects a substitute run directory deleted after the original was moved', async () => {
+    const fixture = await createFixture('run-dir-raced-replacement');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    await expect(
+      executeFile(fixture.lifecycle, [], {
+        cwd: fixture.repository,
+        env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+        timeout: 30_000,
+      })
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+    });
+    const runRoots = await readFile(path.join(fixture.captureRoot, 'run-roots.log'), 'utf8');
+    const runDirectory = runRoots.trim();
+    const original = await stat(`${runDirectory}.moved`);
+    expect(original.isDirectory()).toBe(true);
+    await expect(lstat(runDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readdir(output)).toEqual([]);
+    expect(await activeResources(fixture)).toBe(false);
+  });
+
+  it.each(['export-dir-replaced', 'export-dir-becomes-link'] as const)(
+    'discards staged bytes when the export directory %s',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      const output = path.join(fixture.buildRoot, 'published');
+      await mkdir(output, { mode: 0o700 });
+
+      await expect(
+        executeFile(fixture.lifecycle, [], {
+          cwd: fixture.repository,
+          env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+          timeout: 30_000,
+        })
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+      });
+      expect(await readdir(`${output}.moved`)).toEqual([]);
+      expect(await readdir(output)).toEqual([]);
+      const replacement = await lstat(output);
+      expect(replacement.isSymbolicLink()).toBe(behavior === 'export-dir-becomes-link');
+      expect(await readdir(fixture.runRoot)).toEqual([]);
+      expect(await activeResources(fixture)).toBe(false);
+    }
+  );
+
+  it('reports failure when staged bytes cannot be removed without changing their identity', async () => {
+    const fixture = await createFixture('staged-temp-changed');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    try {
+      await expect(
+        executeFile(fixture.lifecycle, [], {
+          cwd: fixture.repository,
+          env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+          timeout: 30_000,
+        })
+      ).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+        stderr: expect.stringContaining('failed (cleanup)'),
+      });
+      const entries = await readdir(output);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatch(/^\.aster-conformance-[0-9a-f]{32}\.tmp$/u);
+      const staged = await lstat(path.join(output, entries[0] ?? 'missing'));
+      expect(staged.mode % 0o1000).toBe(0o400);
+      await expect(lstat(path.join(output, exportName))).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await chmod(fixture.runRoot, 0o700);
+    }
+  });
+
+  it('removes a final link if publication stops before removing its temporary link', async () => {
+    const fixture = await createFixture('publish-unlink-failure');
+    const output = path.join(fixture.buildRoot, 'published');
+    await mkdir(output, { mode: 0o700 });
+
+    await expect(
+      executeFile(fixture.lifecycle, [], {
+        cwd: fixture.repository,
+        env: lifecycleEnvironment(fixture, systemCandidateChannel, output),
+        timeout: 30_000,
+      })
+    ).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.not.stringContaining('Aster runtime candidate conformance gate passed'),
+    });
+    expect(await readdir(output)).toEqual([]);
+    expect(await readdir(fixture.runRoot)).toEqual([]);
+    expect(await activeResources(fixture)).toBe(false);
   });
 
   it.each([
