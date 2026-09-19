@@ -28,7 +28,7 @@ const maximumAuthorityItems = 1000;
 const maximumGitDeltaItems = 4096;
 // Canonical Phase 0-to-combined-harness/client status, path, and mode set.
 const reviewedCombinedDeltaSha256 =
-  '5722c1bccdef6fc6de92a50d924886f74d7fade315172349b63fe5e7fe3504e0';
+  '13a2c534e95d958563a61b312205b6b59012e354f4b6474e3c54348ab46136d2';
 const commitPattern = /^[\da-f]{40}$/u;
 const sha256Pattern = /^[\da-f]{64}$/u;
 const repositoryPathPattern = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*[\u0000-\u001f\u007f]).+$/u;
