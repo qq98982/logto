@@ -67,6 +67,18 @@ fail() {
   exit 1
 }
 
+fail_service() {
+  local stage=$1 service=$2 known
+  for known in "${SERVICES[@]}"; do
+    if [[ "${service}" == "${known}" ]]; then
+      failure_stage="${stage}:${service}"
+      fail
+    fi
+  done
+  failure_stage="${stage}"
+  fail
+}
+
 require_safe_build_root() {
   local root=$1
 
@@ -333,7 +345,10 @@ podman_timeout() {
   local seconds=120 remaining
   if [[ -n "${PODMAN_WAIT_DEADLINE}" ]]; then
     remaining=$((PODMAN_WAIT_DEADLINE - SECONDS))
-    ((remaining > 0)) || fail
+    if ((remaining <= 0)); then
+      failure_stage=podman-deadline
+      fail
+    fi
     ((remaining < seconds)) && seconds=${remaining}
   fi
   "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s "${seconds}s" "$@"
@@ -346,29 +361,32 @@ compose() {
 
 wait_for_services() {
   local service container_id metadata inspected_id status exit_code health project service_label http_status
-  local ready
+  local ready blocked_service=$1
 
   while ((SECONDS < deadline)); do
     ready=1
     for service in "$@"; do
       container_id="$(compose ps --all -q "${service}" 2>/dev/null || true)"
-      [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { ready=0; break; }
+      [[ "${container_id}" =~ ^[0-9a-f]{12,64}$ ]] || { blocked_service=${service}; ready=0; break; }
       if [[ -n "${PODMAN_API_VERSION}" ]]; then
-        metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail
+        metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail_service podman-inspect "${service}"
         IFS='|' read -r inspected_id status exit_code health project service_label <<<"${metadata}"
         [[ "${inspected_id}" =~ ^[0-9a-f]{64}$ && "${inspected_id}" == "${container_id}"* && \
-          "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail
+          "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail_service podman-inspect-identity "${service}"
         if [[ "${status}" == running && "${health}" != healthy && -n "${health}" ]]; then
           validate_engine_socket "${ENGINE_SOCKET}"
           http_status="$(podman_timeout "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
             "${CURL_BIN}" --silent --show-error --max-time 20 --output /dev/null \
               --write-out '%{http_code}' --unix-socket "${ENGINE_SOCKET}" \
-              "http://localhost/v${PODMAN_API_VERSION}/libpod/containers/${inspected_id}/healthcheck")" || fail
-          [[ "${http_status}" == 200 ]] || fail
-          metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail
+              "http://localhost/v${PODMAN_API_VERSION}/libpod/containers/${inspected_id}/healthcheck")" || fail_service podman-health-rpc "${service}"
+          if [[ "${http_status}" != 200 ]]; then
+            [[ "${http_status}" =~ ^[0-9]{3}$ ]] || http_status=invalid
+            fail_service "podman-health-http-${http_status}" "${service}"
+          fi
+          metadata="$(docker_cli inspect --format '{{.Id}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "${container_id}")" || fail_service podman-inspect "${service}"
           IFS='|' read -r inspected_id status exit_code health project service_label <<<"${metadata}"
           [[ "${inspected_id}" =~ ^[0-9a-f]{64}$ && "${inspected_id}" == "${container_id}"* && \
-            "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail
+            "${project}" == "${project_name}" && "${service_label}" == "${service}" ]] || fail_service podman-inspect-identity "${service}"
         fi
       else
         metadata="$(docker_cli inspect --format '{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${container_id}")" || fail
@@ -386,18 +404,30 @@ wait_for_services() {
           ;;
       esac
       if [[ -n "${PODMAN_API_VERSION}" && "${status}" == exited && "${exit_code}" != 0 ]]; then
-        fail
+        fail_service podman-container-exit "${service}"
       fi
-      ((ready == 1)) || break
+      if ((ready != 1)); then
+        blocked_service=${service}
+        break
+      fi
     done
     ((ready == 1)) && return 0
     /usr/bin/sleep 1
   done
+  if [[ -n "${PODMAN_API_VERSION}" ]]; then
+    fail_service podman-readiness-deadline "${blocked_service}"
+  fi
   fail
 }
 
 start_podman_stage() {
-  ((SECONDS < deadline)) || fail
+  local stage=$1
+  shift
+  if ((SECONDS >= deadline)); then
+    failure_stage="podman-start-deadline:${stage}"
+    fail
+  fi
+  failure_stage="podman-start:${stage}"
   compose up --no-deps --detach "$@" >/dev/null || fail
   wait_for_services "$@"
 }
@@ -791,6 +821,7 @@ if [[ -n "${PODMAN_API_VERSION}" ]]; then
   deadline=$((SECONDS + 600))
   PODMAN_WAIT_DEADLINE=${deadline}
   start_podman_stage \
+    dependencies \
     oracle-primary-postgres oracle-primary-redis \
     oracle-foreign-postgres oracle-foreign-redis \
     oracle-phase0-postgres oracle-phase0-redis \
@@ -798,10 +829,11 @@ if [[ -n "${PODMAN_API_VERSION}" ]]; then
     candidate-phase0-postgres candidate-phase0-redis \
     candidate-connector-host candidate-saml-host candidate-script-host
   start_podman_stage \
+    init-and-oracle-core \
     oracle-primary-core oracle-foreign-core oracle-phase0-core \
     candidate-primary-init candidate-foreign-init candidate-phase0-core
-  start_podman_stage candidate-primary-core candidate-foreign-core
-  start_podman_stage candidate-fixture-coordinator
+  start_podman_stage candidate-core candidate-primary-core candidate-foreign-core
+  start_podman_stage fixture-coordinator candidate-fixture-coordinator
 else
   compose up --detach "${SERVICES[@]}" >/dev/null || fail
   deadline=$((SECONDS + 600))
@@ -841,8 +873,10 @@ http_ready() {
   return 1
 }
 for port in "${PORTS[@]}"; do
+  failure_stage="http-readiness:${port}"
   http_ready "${port}" '/oidc/.well-known/openid-configuration' 'issuer' || fail
 done
+failure_stage=topology-readiness
 [[ -S "${FIXTURE_SOCKET}" ]] || fail
 
 key_set_sha256() {

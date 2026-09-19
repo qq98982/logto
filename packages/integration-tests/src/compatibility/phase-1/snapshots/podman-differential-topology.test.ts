@@ -102,17 +102,22 @@ it('starts every Podman service after its healthy or completed dependencies', as
         .trim()
         .split(/\s+/u)
     );
-  expect(stages).toHaveLength(4);
+  expect(stages.map(([group]) => group)).toEqual([
+    'dependencies',
+    'init-and-oracle-core',
+    'candidate-core',
+    'fixture-coordinator',
+  ]);
   const seen = new Set<string>();
-  for (const stage of stages) {
-    for (const name of stage) {
+  for (const [, ...services] of stages) {
+    for (const name of services) {
       expect(seen.has(name)).toBe(false);
       expect(topology.services).toHaveProperty(name);
       for (const dependency of Object.keys(topology.services[name]?.depends_on ?? {})) {
         expect(seen.has(dependency)).toBe(true);
       }
     }
-    for (const name of stage) {
+    for (const name of services) {
       seen.add(name);
     }
   }
@@ -134,6 +139,112 @@ it('starts every Podman service after its healthy or completed dependencies', as
   );
   expect(runner).toContain('PODMAN_WAIT_DEADLINE=${deadline}');
   expect(runner).toContain('wait_for_services "${SERVICES[@]}"\nPODMAN_WAIT_DEADLINE=');
+  expect(runner).toContain(
+    'for port in "${PORTS[@]}"; do\n  failure_stage="http-readiness:${port}"'
+  );
+  expect(runner).toContain('done\nfailure_stage=topology-readiness\n[[ -S "${FIXTURE_SOCKET}" ]]');
+});
+
+it('reports only fixed Podman failure stages, allowlisted services, and sanitized HTTP status', async () => {
+  const runner = await readFile(launcher, 'utf8');
+  const extract = (name: string): string => {
+    const start = runner.indexOf(`${name}() {`);
+    expect(start).toBeGreaterThan(0);
+    return runner.slice(start, runner.indexOf('\n}\n', start) + 3);
+  };
+  const setup = `set -euo pipefail
+RUNTIME_GATE=differential
+failure_stage=compose-up
+SERVICES=(candidate-primary-core)
+PODMAN_API_VERSION=4.9.3
+PODMAN_WAIT_DEADLINE=''
+ENGINE_SOCKET=unused
+ENV_BIN=env
+PRIVATE_HOME=/tmp
+CURL_BIN=curl
+project_name=fixture
+probe_id=${'a'.repeat(64)}
+fail() { printf 'Aster runtime candidate gate failed (%s: %s)\\n' "$RUNTIME_GATE" "$failure_stage" >&2; exit 1; }
+${extract('fail_service')}
+${extract('wait_for_services')}
+${extract('start_podman_stage')}
+compose() { if [[ "$1" == up ]]; then return 1; fi; printf '%s' "$probe_id"; }
+docker_cli() {
+  [[ "$scenario" != inspect-failure ]] || return 1
+  if [[ "$scenario" == container-exit ]]; then
+    printf '%s|exited|1||fixture|candidate-primary-core' "$probe_id"
+  else
+    printf '%s|running|0|starting|fixture|candidate-primary-core' "$probe_id"
+  fi
+}
+validate_engine_socket() { :; }
+podman_timeout() { [[ "$scenario" != health-rpc ]] || return 124; printf '%s' "$health_http"; }
+`;
+  await Promise.all(
+    [
+      [
+        'start',
+        '',
+        'deadline=$((SECONDS + 10)); start_podman_stage candidate-core candidate-primary-core',
+        'podman-start:candidate-core',
+      ],
+      [
+        'inspect-failure',
+        '',
+        'deadline=$((SECONDS + 10)); wait_for_services candidate-primary-core',
+        'podman-inspect:candidate-primary-core',
+      ],
+      [
+        'container-exit',
+        '',
+        'deadline=$((SECONDS + 10)); wait_for_services candidate-primary-core',
+        'podman-container-exit:candidate-primary-core',
+      ],
+      [
+        'health-rpc',
+        '',
+        'deadline=$((SECONDS + 10)); wait_for_services candidate-primary-core',
+        'podman-health-rpc:candidate-primary-core',
+      ],
+      [
+        'health',
+        '503',
+        'deadline=$((SECONDS + 10)); wait_for_services candidate-primary-core',
+        'podman-health-http-503:candidate-primary-core',
+      ],
+      [
+        'health',
+        '503;private',
+        'deadline=$((SECONDS + 10)); wait_for_services candidate-primary-core',
+        'podman-health-http-invalid:candidate-primary-core',
+      ],
+      [
+        'deadline',
+        '',
+        'deadline=0; wait_for_services candidate-primary-core',
+        'podman-readiness-deadline:candidate-primary-core',
+      ],
+    ].map(async ([scenario, healthHttp, command, stage]) =>
+      expect(
+        executeFile('/usr/bin/bash', [
+          '-c',
+          `${setup}scenario=${scenario}; health_http='${healthHttp}'; ${command}`,
+        ])
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: `Aster runtime candidate gate failed (differential: ${stage})\n`,
+      })
+    )
+  );
+  await expect(
+    executeFile('/usr/bin/bash', [
+      '-c',
+      `${setup}fail_service podman-inspect 'not-allowlisted:private'`,
+    ])
+  ).rejects.toMatchObject({
+    code: 1,
+    stderr: 'Aster runtime candidate gate failed (differential: podman-inspect)\n',
+  });
 });
 
 it('bounds Podman RPCs by remaining startup time without extending later gate work', async () => {
