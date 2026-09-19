@@ -122,7 +122,7 @@ it('starts every Podman service after its healthy or completed dependencies', as
     }
   }
   expect(seen).toEqual(new Set(Object.keys(topology.services)));
-  expect(runner).toContain('compose up --no-deps --detach "$@"');
+  expect(runner).toContain('compose up --no-deps --detach "${service}"');
   expect(runner).toContain(
     'if [[ -n "${ENGINE_SOCKET}" ]]; then\n    validate_engine_socket "${ENGINE_SOCKET}"'
   );
@@ -143,6 +143,25 @@ it('starts every Podman service after its healthy or completed dependencies', as
     'for port in "${PORTS[@]}"; do\n  failure_stage="http-readiness:${port}"'
   );
   expect(runner).toContain('done\nfailure_stage=topology-readiness\n[[ -S "${FIXTURE_SOCKET}" ]]');
+});
+
+it('serializes Podman service creation while retaining the stage readiness barrier', async () => {
+  const runner = await readFile(launcher, 'utf8');
+  const start = runner.indexOf('start_podman_stage() {');
+  const stageFunction = runner.slice(start, runner.indexOf('\n}\n', start) + 3);
+  const { stdout } = await executeFile('/usr/bin/bash', [
+    '-c',
+    `set -euo pipefail
+deadline=$((SECONDS + 10))
+${stageFunction}
+compose() { printf 'up:%s\n' "\${*: -1}" >&3; }
+wait_for_services() { printf 'wait:%s\n' "$*" >&3; }
+fail() { exit 1; }
+start_podman_stage candidate-core candidate-primary-core candidate-foreign-core 3>&1`,
+  ]);
+  expect(stdout).toBe(
+    'up:candidate-primary-core\nup:candidate-foreign-core\nwait:candidate-primary-core candidate-foreign-core\n'
+  );
 });
 
 it('reports only fixed Podman failure stages, allowlisted services, and sanitized HTTP status', async () => {

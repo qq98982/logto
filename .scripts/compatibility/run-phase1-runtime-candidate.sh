@@ -421,14 +421,16 @@ wait_for_services() {
 }
 
 start_podman_stage() {
-  local stage=$1
+  local stage=$1 service
   shift
-  if ((SECONDS >= deadline)); then
-    failure_stage="podman-start-deadline:${stage}"
-    fail
-  fi
-  failure_stage="podman-start:${stage}"
-  compose up --no-deps --detach "$@" >/dev/null || fail
+  for service in "$@"; do
+    if ((SECONDS >= deadline)); then
+      failure_stage="podman-start-deadline:${stage}"
+      fail
+    fi
+    failure_stage="podman-start:${stage}"
+    compose up --no-deps --detach "${service}" >/dev/null || fail
+  done
   wait_for_services "$@"
 }
 
