@@ -1327,16 +1327,16 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
       });
       const declarations = requireBrowserDeclarations(runnerStatus, testInstanceId, module);
       for (const declaration of declarations) {
+        await markBrowserDeclarationVisited(declaration, testInstanceId, {
+          ...dependencies,
+          deadline: moduleDeadline,
+        }, module);
         await driveDeclaredBrowserUrl(declaration, {
           ...dependencies,
           deadline: moduleDeadline,
           cookieJar,
           module,
         });
-        await markBrowserDeclarationVisited(declaration, testInstanceId, {
-          ...dependencies,
-          deadline: moduleDeadline,
-        }, module);
       }
     }
     const infoResponse = await basicRequestJson({

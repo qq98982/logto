@@ -342,6 +342,188 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     );
   });
 
+  it('acknowledges a browser declaration before its callback finishes the running test', async () => {
+    const runner = await loadRunner();
+    const requests: string[] = [];
+    const tests = new Map<string, Readonly<{ name: string; variant: Record<string, string> }>>();
+    let nextTest = 0;
+    let firstFinished = false;
+    let lateVisits = 0;
+    const declaredUrl = 'https://suite.example/browser/finish-on-callback';
+    const firstId = 'B00000000000001';
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? 'GET';
+      requests.push(`${method} ${url.pathname}`);
+      if (url.pathname === '/api/plan') {
+        return jsonResponse(
+          {
+            name: planName,
+            id: planInstanceId,
+            modules: expectedManifest.map(({ testModule, variant }) => ({
+              testModule,
+              variant,
+              instances: [],
+            })),
+          },
+          201
+        );
+      }
+      if (url.pathname === '/api/runner' && method === 'POST') {
+        const manifestEntry = expectedManifest[nextTest];
+        if (!manifestEntry) {
+          throw new Error('unexpected module');
+        }
+        const id = nextTest === 0 ? firstId : `T${String(nextTest).padStart(14, '0')}`;
+        tests.set(id, { name: manifestEntry.testModule, variant: manifestEntry.variant });
+        nextTest += 1;
+        return jsonResponse({ name: manifestEntry.testModule, id }, 201);
+      }
+      if (url.pathname === `/api/runner/${firstId}/wait-state`) {
+        return jsonResponse({ state: firstFinished ? 'FINISHED' : 'WAITING' });
+      }
+      if (url.pathname.endsWith('/wait-state')) {
+        return jsonResponse({ state: 'FINISHED' });
+      }
+      if (url.pathname === `/api/runner/${firstId}` && method === 'GET') {
+        return jsonResponse({
+          name: 'oidcc-server',
+          id: firstId,
+          browser: {
+            urls: [declaredUrl],
+            urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
+            browserApiRequests: [],
+            uriInputRequests: [],
+          },
+        });
+      }
+      if (url.pathname === `/api/runner/browser/${firstId}/visit` && method === 'POST') {
+        expect(url.searchParams.get('url')).toBe(declaredUrl);
+        if (firstFinished) {
+          lateVisits += 1;
+          return jsonResponse({ error: 'test is no longer running' }, 404);
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (url.pathname === '/browser/finish-on-callback') {
+        expect(method).toBe('GET');
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://suite.example/test/a/aster-phase1/callback?code=done' },
+        });
+      }
+      if (url.pathname === '/test/a/aster-phase1/callback') {
+        firstFinished = true;
+        return new Response('complete', { status: 200 });
+      }
+      if (url.pathname.startsWith('/api/info/')) {
+        const id = url.pathname.slice('/api/info/'.length);
+        const test = tests.get(id);
+        if (!test) {
+          throw new Error('unknown test');
+        }
+        return jsonResponse({
+          testId: id,
+          testName: test.name,
+          variant: {
+            ...test.variant,
+            server_metadata: 'discovery',
+            client_registration: 'static_client',
+          },
+          planId: planInstanceId,
+          status: 'FINISHED',
+          result: 'PASSED',
+        });
+      }
+      if (url.pathname === `/api/runner/${firstId}` && method === 'DELETE') {
+        return jsonResponse({ name: 'oidcc-server', id: firstId });
+      }
+      throw new Error(`unexpected request ${method} ${url.href}`);
+    };
+
+    const terminal = await runner
+      .runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: fetchImplementation,
+      })
+      .catch((error: unknown) => {
+        expect(lateVisits).toBe(0);
+        throw error;
+      });
+
+    expect(lateVisits).toBe(0);
+    expect(requests.indexOf(`POST /api/runner/browser/${firstId}/visit`)).toBeLessThan(
+      requests.indexOf('GET /test/a/aster-phase1/callback')
+    );
+    expect(firstFinished).toBe(true);
+    expect(nextTest).toBe(35);
+    expect(terminal).toMatchObject({
+      status: 'PASSED',
+      result: { moduleCount: 35, passedModuleCount: 35 },
+    });
+  });
+
+  it('rejects a suite visit 404 before driving the declared browser URL', async () => {
+    const runner = await loadRunner();
+    const requests: string[] = [];
+    const testId = 'B00000000000001';
+    const declaredUrl = 'https://suite.example/browser/start-one';
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? 'GET';
+      requests.push(`${method} ${url.pathname}`);
+      if (url.pathname === '/api/plan') {
+        return jsonResponse(
+          {
+            name: planName,
+            id: planInstanceId,
+            modules: expectedManifest.map(({ testModule, variant }) => ({
+              testModule,
+              variant,
+              instances: [],
+            })),
+          },
+          201
+        );
+      }
+      if (url.pathname === '/api/runner' && method === 'POST') {
+        return jsonResponse({ name: 'oidcc-server', id: testId }, 201);
+      }
+      if (url.pathname === `/api/runner/${testId}/wait-state`) {
+        return jsonResponse({ state: 'WAITING' });
+      }
+      if (url.pathname === `/api/runner/${testId}` && method === 'GET') {
+        return jsonResponse({
+          name: 'oidcc-server',
+          id: testId,
+          browser: {
+            urls: [declaredUrl],
+            urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
+            browserApiRequests: [],
+            uriInputRequests: [],
+          },
+        });
+      }
+      if (url.pathname === `/api/runner/browser/${testId}/visit` && method === 'POST') {
+        return jsonResponse({ error: 'test is no longer running' }, 404);
+      }
+      if (url.pathname === `/api/runner/${testId}` && method === 'DELETE') {
+        return jsonResponse({ name: 'oidcc-server', id: testId });
+      }
+      throw new Error(`unexpected request ${method} ${url.href}`);
+    };
+
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: fetchImplementation,
+      })
+    ).rejects.toMatchObject({ category: 'suite-api', module: 'oidcc-server' });
+    expect(requests).toContain(`POST /api/runner/browser/${testId}/visit`);
+    expect(requests).toContain(`DELETE /api/runner/${testId}`);
+    expect(requests).not.toContain('GET /browser/start-one');
+  });
+
   it('drives declared browser URLs with one module cookie jar and response-led Experience state', async () => {
     const runner = await loadRunner();
     const tests = new Map<string, Readonly<{ name: string; variant: Record<string, string> }>>();
@@ -460,6 +642,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         return new Response(null, { status: 204 });
       }
       if (url.origin === suiteBaseUrl && url.pathname === '/browser/start-one') {
+        expect(visited.has('https://suite.example/browser/start-one')).toBe(true);
         expect(method).toBe('GET');
         expect(headers.get('cookie')).toBeNull();
         return redirectResponse('https://server.example/oidc/auth/authorize-one', 302, [
@@ -557,6 +740,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         return new Response('complete', { status: 200 });
       }
       if (url.origin === suiteBaseUrl && url.pathname === '/browser/start-two') {
+        expect(visited.has('https://suite.example/browser/start-two?phase=2')).toBe(true);
         expect(method).toBe('POST');
         expect(url.search).toBe('');
         expect(init?.body).toBe('phase=2');
@@ -581,6 +765,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         return new Response('complete', { status: 200 });
       }
       if (url.origin === suiteBaseUrl && url.pathname === '/browser/start-three') {
+        expect(visited.has('https://suite.example/browser/start-three')).toBe(true);
         expect(method).toBe('GET');
         return redirectResponse('https://server.example/oidc/auth/invalid-redirect', 302);
       }
