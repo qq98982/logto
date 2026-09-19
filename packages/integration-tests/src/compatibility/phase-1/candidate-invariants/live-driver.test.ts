@@ -60,6 +60,26 @@ const result = (
 });
 
 describe('Phase 1 live candidate invariant driver adapter', () => {
+  it('passes the explicit engine socket only to the invariant driver', async () => {
+    const runner = import.meta.jest.fn(async (_request: CommandRunnerRequest) =>
+      result(terminal())
+    );
+    const execute = createPhase1LiveCandidateInvariantExecutor({
+      repositoryRoot: '/home/henry/repo/logto',
+      environment: {
+        PATH: '/usr/bin:/bin',
+        ASTER_PHASE1_TOPOLOGY_ID: projectName,
+        ASTER_PHASE1_ENGINE_SOCKET: '/run/user/1000/private.sock',
+      },
+      runner,
+    });
+    await execute(invariantId, context());
+    expect(runner.mock.calls[0]?.[0].env).toEqual({
+      PATH: '/usr/bin:/bin',
+      ASTER_PHASE1_ENGINE_SOCKET: '/run/user/1000/private.sock',
+    });
+  });
+
   it('binds one invariant to the exact candidate topology and closed process request', async () => {
     const runner = import.meta.jest.fn(async (_request: CommandRunnerRequest) =>
       result(terminal())
@@ -134,6 +154,14 @@ describe('Phase 1 live candidate invariant driver adapter', () => {
     ['missing topology', {}],
     ['wrong topology', { ASTER_PHASE1_TOPOLOGY_ID: 'wrong' }],
     ['missing PATH', { ASTER_PHASE1_TOPOLOGY_ID: projectName }],
+    [
+      'empty explicit engine socket',
+      {
+        PATH: '/usr/bin:/bin',
+        ASTER_PHASE1_TOPOLOGY_ID: projectName,
+        ASTER_PHASE1_ENGINE_SOCKET: '',
+      },
+    ],
   ] as const)('rejects %s before invoking the runner', async (_name, environment) => {
     const runner = import.meta.jest.fn(async () => result(terminal()));
     const execute = createPhase1LiveCandidateInvariantExecutor({

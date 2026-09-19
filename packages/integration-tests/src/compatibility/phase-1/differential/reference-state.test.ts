@@ -13,6 +13,7 @@ import type { Phase1Profile } from '../profile-types.js';
 import {
   createReferenceScenarioStateProjector,
   parseReferenceStateDriverSnapshot,
+  readReferenceStateDriver,
   type ReferenceStateDriverSnapshot,
 } from './reference-state.js';
 
@@ -343,6 +344,30 @@ const projectAdminState = async (
   });
 
 describe('Phase 1 reference scenario state', () => {
+  it('rejects an explicitly empty engine socket before invoking the state driver', async () => {
+    const runner = import.meta.jest.fn();
+    await expect(
+      readReferenceStateDriver(
+        {
+          source: 'primary',
+          projectName: 'aster-phase1-0123456789abcdef',
+          expectedService: 'oracle-primary-postgres',
+          containerId: '1'.repeat(64),
+          scenarioId: 'token.authorization-code',
+          stepId: 'state',
+          signal: new AbortController().signal,
+        },
+        {
+          driverPath:
+            '/home/henry/repo/logto/.scripts/compatibility/phase1-reference-state-driver.sh',
+          environment: { PATH: '/usr/bin:/bin', ASTER_PHASE1_ENGINE_SOCKET: '' },
+          runner,
+        }
+      )
+    ).rejects.toThrow();
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it('requires a clean admin authorization state before auto-consent', async () => {
     const valid = adminPreConsentSnapshot();
 

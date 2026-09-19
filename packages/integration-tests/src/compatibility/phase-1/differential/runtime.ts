@@ -160,7 +160,10 @@ const createMirrorControlRuntime = (
         foreignService: `${implementation}-foreign-postgres`,
         symbols: binding.symbols,
         driverPath,
-        environment: { PATH: process.env.PATH },
+        environment: {
+          PATH: process.env.PATH,
+          ASTER_PHASE1_ENGINE_SOCKET: process.env.ASTER_PHASE1_ENGINE_SOCKET,
+        },
       });
       projectors.set(input.fixture, projector);
 
@@ -218,7 +221,10 @@ const createCandidateRuntime = (
         foreignService: 'candidate-foreign-postgres',
         symbols: binding.symbols,
         driverPath,
-        environment: { PATH: process.env.PATH },
+        environment: {
+          PATH: process.env.PATH,
+          ASTER_PHASE1_ENGINE_SOCKET: process.env.ASTER_PHASE1_ENGINE_SOCKET,
+        },
       });
       projectors.set(input.fixture, projector);
 

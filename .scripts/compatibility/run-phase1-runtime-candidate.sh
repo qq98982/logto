@@ -104,6 +104,23 @@ assert_build_root_identity() {
   [[ "${device}" == "${BUILD_ROOT_DEVICE}" && "${inode}" == "${BUILD_ROOT_INODE}" ]] || fail
 }
 
+ENGINE_SOCKET="${ASTER_PHASE1_ENGINE_SOCKET-}"
+ENGINE_SOCKET_EXPLICIT="${ASTER_PHASE1_ENGINE_SOCKET+x}"
+validate_engine_socket() {
+  local socket=$1 parent
+
+  [[ "${socket}" == /* && "${#socket}" -le 100 && "${socket}" != *'//'* && \
+    "${socket}" != *'/./'* && "${socket}" != *'/../'* && \
+    ! "${socket}" =~ [[:cntrl:]] && -S "${socket}" && ! -L "${socket}" ]] || fail
+  [[ "$(/usr/bin/realpath -e -- "${socket}" 2>/dev/null || true)" == "${socket}" ]] || fail
+  [[ "$(/usr/bin/stat -c '%u|%F' -- "${socket}" 2>/dev/null || true)" == \
+    "$(/usr/bin/id -u)|socket" ]] || fail
+  parent="$(/usr/bin/dirname -- "${socket}")"
+  [[ "$(/usr/bin/realpath -e -- "${parent}" 2>/dev/null || true)" == "${parent}" ]] || fail
+  [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "${parent}" 2>/dev/null || true)" == \
+    "$(/usr/bin/id -u)|700|directory" ]] || fail
+}
+
 trusted_binary() {
   local name=$1 candidate resolved owner group mode
   if [[ "${name}" == /* ]]; then
@@ -206,6 +223,8 @@ port_is_listened_by_pid() {
 
 capture_build_root_identity
 readonly BUILD_ROOT_DEVICE BUILD_ROOT_INODE
+if [[ -n "${ENGINE_SOCKET_EXPLICIT}" ]]; then validate_engine_socket "${ENGINE_SOCKET}"; fi
+readonly ENGINE_SOCKET ENGINE_SOCKET_EXPLICIT
 
 BROWSER_CACHE="${BUILD_ROOT}/aster-playwright-browsers"
 require_private_root "${BROWSER_CACHE}"
@@ -288,7 +307,13 @@ project_name="aster-phase1-$(random_hex 8)"
 readonly project_name
 
 docker_cli() {
-  "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" "${DOCKER_BIN}" "$@"
+  if [[ -n "${ENGINE_SOCKET}" ]]; then
+    validate_engine_socket "${ENGINE_SOCKET}"
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
+      DOCKER_HOST="unix://${ENGINE_SOCKET}" "${DOCKER_BIN}" "$@"
+  else
+    "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" "${DOCKER_BIN}" "$@"
+  fi
 }
 
 compose() {
@@ -803,6 +828,9 @@ PUBLIC_ENV=(
   ASTER_FIXTURE_SOCKET="${FIXTURE_SOCKET}"
   ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"
 )
+if [[ -n "${ENGINE_SOCKET}" ]]; then
+  PUBLIC_ENV+=(ASTER_PHASE1_ENGINE_SOCKET="${ENGINE_SOCKET}")
+fi
 failure_stage="${RUNTIME_GATE}"
 case "${RUNTIME_GATE}" in
   differential) gate_command='run-differential'; artifact_name='phase-1-differential.json' ;;

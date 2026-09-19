@@ -1,6 +1,11 @@
 /* eslint-disable no-use-extend-native/no-use-extend-native -- Exact service, network, and volume authority comparisons use ES2023 non-mutating sorting. */
-import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer, type Socket } from 'node:net';
 import path from 'node:path';
+import { promisify } from 'node:util';
+
+const executeFile = promisify(execFile);
 
 type ComposeService = Readonly<Record<string, unknown>>;
 type ComposeDocument = Readonly<{
@@ -58,6 +63,186 @@ const phase0CandidateServices = [
 ] as const;
 
 describe('runtime-candidate differential topology', () => {
+  it('accepts only an owned socket in a private canonical directory', async () => {
+    const source = await readFile(runtimeRunnerPath, 'utf8');
+    const functionStart = source.indexOf('validate_engine_socket() {');
+    const functionEnd = source.indexOf('\n}\n', functionStart) + 3;
+    expect(functionStart).toBeGreaterThan(0);
+    const script = `fail() { exit 1; }; ${source.slice(functionStart, functionEnd)}\nvalidate_engine_socket "$1"`;
+    const root = await mkdtemp('/var/tmp/henry-build/phase1-engine-socket-');
+    const socket = path.join(root, 'engine.sock');
+    const alias = path.join(root, 'alias.sock');
+    const server = createServer();
+    try {
+      await chmod(root, 0o700);
+      await new Promise<void>((resolve) => {
+        server.listen(socket, resolve);
+      });
+      await executeFile('/usr/bin/bash', ['-c', script, '--', socket]);
+      await symlink(socket, alias);
+      await expect(executeFile('/usr/bin/bash', ['-c', script, '--', alias])).rejects.toThrow();
+      await chmod(root, 0o755);
+      await expect(executeFile('/usr/bin/bash', ['-c', script, '--', socket])).rejects.toThrow();
+      await expect(
+        executeFile('/usr/bin/bash', ['-c', script, '--', 'tcp://127.0.0.1:2375'])
+      ).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('routes only an explicit socket through closed Docker and Node environments', async () => {
+    const source = await readFile(runtimeRunnerPath, 'utf8');
+    expect(source).toContain(['ENGINE_SOCKET="', '$', '{ASTER_PHASE1_ENGINE_SOCKET-}"'].join(''));
+    expect(source).toContain(
+      ['DOCKER_HOST="unix://', '$', '{ENGINE_SOCKET}" "', '$', '{DOCKER_BIN}"'].join('')
+    );
+    expect(source).toContain(
+      ['PUBLIC_ENV+=(ASTER_PHASE1_ENGINE_SOCKET="', '$', '{ENGINE_SOCKET}")'].join('')
+    );
+    expect(source).toContain(['validate_engine_socket "', '$', '{ENGINE_SOCKET}"'].join(''));
+    expect(source).toContain('trusted_system_binary /usr/bin/docker');
+    expect(source).toContain(
+      ['ENGINE_SOCKET_EXPLICIT="', '$', '{ASTER_PHASE1_ENGINE_SOCKET+x}"'].join('')
+    );
+    expect(source).not.toContain('--root /dev/shm');
+  });
+
+  it('routes each state and invariant driver through an explicit socket and rejects aliases', async () => {
+    const root = await mkdtemp('/var/tmp/henry-build/phase1-driver-socket-');
+    const socket = path.join(root, 'engine.sock');
+    const alias = path.join(root, 'alias.sock');
+    const fakeDocker = path.join(root, 'docker');
+    const calls = path.join(root, 'fake-calls');
+    const requests = new Set<Socket>();
+    const connections = new Set<Socket>();
+    const server = createServer((connection) => {
+      connections.add(connection);
+      connection.once('data', () => {
+        requests.add(connection);
+        connection.end('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+      });
+      connection.on('close', () => connections.delete(connection));
+    });
+    const projectArgs = ['--project-name', 'aster-phase1-0123456789abcdef'];
+    const drivers = [
+      {
+        name: 'phase1-reference-state-driver.sh',
+        args: [
+          '--container-id',
+          '1'.repeat(64),
+          ...projectArgs,
+          '--expected-service',
+          'oracle-primary-postgres',
+          '--scenario-id',
+          'token.authorization-code',
+          '--step-id',
+          'state',
+        ],
+      },
+      {
+        name: 'phase1-candidate-state-driver.sh',
+        args: [
+          '--container-id',
+          '1'.repeat(64),
+          ...projectArgs,
+          '--expected-service',
+          'candidate-primary-postgres',
+          '--scenario-id',
+          'token.authorization-code',
+          '--step-id',
+          'state',
+        ],
+      },
+      {
+        name: 'phase1-candidate-invariants-driver.sh',
+        args: [
+          '--invariant-id',
+          'database.owner-role-membership-boundary',
+          ...projectArgs,
+          '--primary-container-id',
+          '1'.repeat(64),
+          '--foreign-container-id',
+          '2'.repeat(64),
+        ],
+      },
+    ];
+    try {
+      await chmod(root, 0o700);
+      await writeFile(fakeDocker, `#!/usr/bin/env bash\nprintf 'called\\n' >> '${calls}'\n`, {
+        mode: 0o700,
+      });
+      await new Promise<void>((resolve) => {
+        server.listen(socket, resolve);
+      });
+      await symlink(socket, alias);
+      await Promise.all(
+        drivers.map(async ({ name, args }) => {
+          const driver = path.join(repositoryRoot, '.scripts/compatibility', name);
+          await expect(
+            executeFile(driver, args, {
+              env: { PATH: `${root}:/usr/bin:/bin`, ASTER_PHASE1_ENGINE_SOCKET: alias },
+              timeout: 3000,
+            })
+          ).rejects.toThrow();
+          await expect(
+            executeFile(driver, args, {
+              env: { PATH: `${root}:/usr/bin:/bin`, ASTER_PHASE1_ENGINE_SOCKET: '' },
+              timeout: 3000,
+            })
+          ).rejects.toThrow();
+          await expect(
+            executeFile(driver, args, {
+              env: { PATH: `${root}:/usr/bin:/bin`, ASTER_PHASE1_ENGINE_SOCKET: socket },
+              timeout: 3000,
+            })
+          ).rejects.toThrow();
+        })
+      );
+      expect(requests.size).toBeGreaterThanOrEqual(drivers.length);
+      await expect(readFile(calls, 'utf8')).rejects.toThrow();
+    } finally {
+      for (const connection of connections) {
+        connection.destroy();
+      }
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+      });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('forwards the socket to both state drivers without changing other fixture environments', async () => {
+    const runtime = await readFile(
+      path.join(
+        repositoryRoot,
+        'packages/integration-tests/src/compatibility/phase-1/differential/runtime.ts'
+      ),
+      'utf8'
+    );
+    const state = await readFile(
+      path.join(
+        repositoryRoot,
+        'packages/integration-tests/src/compatibility/phase-1/differential/reference-state.ts'
+      ),
+      'utf8'
+    );
+    expect(
+      runtime.match(/ASTER_PHASE1_ENGINE_SOCKET: process\.env\.ASTER_PHASE1_ENGINE_SOCKET/gu)
+    ).toHaveLength(2);
+    expect(state).toContain(
+      'ASTER_PHASE1_ENGINE_SOCKET: options.environment.ASTER_PHASE1_ENGINE_SOCKET'
+    );
+    expect(state).toContain('...(options.environment?.ASTER_PHASE1_ENGINE_SOCKET && {');
+  });
+
   it('copies reviewed Oracle and measured candidate services exactly', async () => {
     const [document, formal, candidate] = await Promise.all([
       readCompose(topologyPath),

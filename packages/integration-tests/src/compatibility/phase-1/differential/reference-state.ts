@@ -370,7 +370,8 @@ export const readReferenceStateDriver = async (
     if (
       request.signal.aborted ||
       !path.isAbsolute(options.driverPath) ||
-      path.resolve(options.driverPath) !== options.driverPath
+      path.resolve(options.driverPath) !== options.driverPath ||
+      options.environment?.ASTER_PHASE1_ENGINE_SOCKET === ''
     ) {
       return fail();
     }
@@ -389,7 +390,12 @@ export const readReferenceStateDriver = async (
         request.stepId,
       ]),
       stdin: '',
-      env: Object.freeze({ PATH: options.environment?.PATH ?? '/usr/bin:/bin' }),
+      env: Object.freeze({
+        PATH: options.environment?.PATH ?? '/usr/bin:/bin',
+        ...(options.environment?.ASTER_PHASE1_ENGINE_SOCKET && {
+          ASTER_PHASE1_ENGINE_SOCKET: options.environment.ASTER_PHASE1_ENGINE_SOCKET,
+        }),
+      }),
       timeoutMs: 20_000,
       maxStdoutBytes: maximumOutputBytes,
       maxStderrBytes: 4096,

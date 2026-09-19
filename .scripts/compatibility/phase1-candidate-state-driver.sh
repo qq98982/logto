@@ -69,7 +69,23 @@ case "$scenario_id" in
   *) fail ;;
 esac
 
-DOCKER_BIN="$(trusted_binary docker)"
+engine_socket="${ASTER_PHASE1_ENGINE_SOCKET-}"
+if [[ -n "${ASTER_PHASE1_ENGINE_SOCKET+x}" ]]; then
+  [[ "${engine_socket}" == /* && "${#engine_socket}" -le 100 && \
+    "${engine_socket}" != *'//'* && "${engine_socket}" != *'/./'* && \
+    "${engine_socket}" != *'/../'* && ! "${engine_socket}" =~ [[:cntrl:]] && \
+    -S "${engine_socket}" && ! -L "${engine_socket}" ]] || fail
+  [[ "$(/usr/bin/realpath -e -- "${engine_socket}" 2>/dev/null || true)" == "${engine_socket}" ]] || fail
+  [[ "$(/usr/bin/stat -c '%u|%F' -- "${engine_socket}" 2>/dev/null || true)" == "$(/usr/bin/id -u)|socket" ]] || fail
+  socket_parent="$(/usr/bin/dirname -- "${engine_socket}")"
+  [[ "$(/usr/bin/realpath -e -- "${socket_parent}" 2>/dev/null || true)" == "${socket_parent}" ]] || fail
+  [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "${socket_parent}" 2>/dev/null || true)" == "$(/usr/bin/id -u)|700|directory" ]] || fail
+  DOCKER_BIN="$(trusted_binary /usr/bin/docker)"
+  [[ "$(/usr/bin/stat -c %u -- "${DOCKER_BIN}")" == 0 ]] || fail
+  export DOCKER_HOST="unix://${engine_socket}"
+else
+  DOCKER_BIN="$(trusted_binary docker)"
+fi
 readonly DOCKER_BIN
 labels="$($DOCKER_BIN inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}|{{ index .Config.Labels "com.docker.compose.project" }}' "$container_id" 2>/dev/null || true)"
 [[ "$labels" == "${expected_service}|${project_name}" ]] || fail

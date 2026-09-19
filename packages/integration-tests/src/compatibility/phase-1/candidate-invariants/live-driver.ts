@@ -274,6 +274,7 @@ export const createPhase1LiveCandidateInvariantExecutor = (
       if (
         typeof projectName !== 'string' ||
         !projectNamePattern.test(projectName) ||
+        environment.ASTER_PHASE1_ENGINE_SOCKET === '' ||
         typeof pathValue !== 'string' ||
         pathValue.length === 0 ||
         pathValue.length > 4096 ||
@@ -300,7 +301,12 @@ export const createPhase1LiveCandidateInvariantExecutor = (
             containers.foreign,
           ],
           stdin: '',
-          env: { PATH: pathValue },
+          env: {
+            PATH: pathValue,
+            ...(environment.ASTER_PHASE1_ENGINE_SOCKET && {
+              ASTER_PHASE1_ENGINE_SOCKET: environment.ASTER_PHASE1_ENGINE_SOCKET,
+            }),
+          },
           timeoutMs,
           maxStdoutBytes: maximumOutputBytes,
           maxStderrBytes: maximumOutputBytes,
