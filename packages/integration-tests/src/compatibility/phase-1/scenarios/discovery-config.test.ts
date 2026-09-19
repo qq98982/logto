@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-assignment -- The focused runtime fixture is deliberately structural and Jest asymmetric matchers are typed as any. */
+import { exportJWK, generateKeyPair } from 'jose';
+
 import { compareJson } from '../../compare.js';
 import { SymbolTable } from '../../symbol-table.js';
 import { createProvisionedPhase1Fixture, type Phase1FixtureProvisioner } from '../fixtures.js';
@@ -90,6 +92,10 @@ const selectedDiscovery = {
   id_token_signing_alg_values_supported: profile.oidc.idTokenSigningAlgorithmsSupported,
   claim_types_supported: profile.oidc.claimTypesSupported,
 };
+const candidateDiscovery = {
+  ...selectedDiscovery,
+  id_token_signing_alg_values_supported: ['RS256', 'ES384'],
+};
 
 const jwks = {
   keys: [
@@ -104,22 +110,36 @@ const jwks = {
     },
   ],
 };
+const jwksRawHeaders = (body: unknown, tag: string) =>
+  [
+    ['content-length', String(Buffer.byteLength(JSON.stringify(body)))],
+    ['etag', `"${tag}"`],
+  ] as const;
 
-const response = (body: unknown, mediaType = 'application/json') => ({
+const response = (
+  body: unknown,
+  mediaType = 'application/json',
+  headers: ReadonlyArray<readonly [string, string]> = []
+) => ({
   status: 200,
-  headers: [['content-type', mediaType] as const],
+  headers: [['content-type', mediaType] as const, ...headers],
   body: JSON.stringify(body),
 });
 
 const context = (
   documents: readonly unknown[],
-  implementation: 'oracle' | 'candidate' = 'oracle'
+  implementation: 'oracle' | 'candidate' = 'oracle',
+  jwksHeaders: ReadonlyArray<readonly [string, string]> = []
 ): Phase1ScenarioRunContext => {
   const request = import.meta.jest.fn();
 
   for (const [index, document] of documents.entries()) {
     request.mockResolvedValueOnce(
-      response(document, index === 2 ? 'application/jwk-set+json' : 'application/json')
+      response(
+        document,
+        index === 2 ? 'application/jwk-set+json' : 'application/json',
+        index === 2 ? jwksHeaders : []
+      )
     );
   }
 
@@ -156,6 +176,153 @@ const context = (
 };
 
 describe('discovery.config', () => {
+  it('projects the approved discovery algorithm addition forward from oracle to candidate', async () => {
+    const { publicKey } = await generateKeyPair('RS256');
+    const published = {
+      keys: [
+        { ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig', kid: 'rsa-key' },
+        ...jwks.keys,
+      ],
+    };
+    const baseline = await runDiscoveryConfig(context([discovery, discovery, jwks]));
+    const candidate = await runDiscoveryConfig(
+      context([candidateDiscovery, candidateDiscovery, published], 'candidate')
+    );
+
+    expect(compareJson(baseline[0]?.value, candidate[0]?.value)).toEqual([]);
+    expect(baseline[0]?.value.body).toMatchObject({
+      id_token_signing_alg_values_supported: ['RS256', 'ES384'],
+    });
+    expect(candidate[0]?.value.body).toMatchObject({
+      id_token_signing_alg_values_supported: ['RS256', 'ES384'],
+    });
+    await expect(
+      runDiscoveryConfig(context([candidateDiscovery, candidateDiscovery, jwks]))
+    ).rejects.toThrow('Phase 1 discovery field is invalid: id_token_signing_alg_values_supported');
+    await Promise.all(
+      [
+        selectedDiscovery,
+        { ...candidateDiscovery, id_token_signing_alg_values_supported: ['ES384', 'RS256'] },
+        {
+          ...candidateDiscovery,
+          id_token_signing_alg_values_supported: ['RS256', 'ES384', 'HS256'],
+        },
+        { ...candidateDiscovery, aster_extra_field: true },
+      ].map(async (invalid) => {
+        await expect(
+          runDiscoveryConfig(context([invalid, invalid, published], 'candidate'))
+        ).rejects.toThrow();
+      })
+    );
+  });
+
+  it('validates candidate RSA and EC publication before comparing the common JWKS projection', async () => {
+    const { publicKey } = await generateKeyPair('RS256');
+    const { publicKey: largerPublicKey } = await generateKeyPair('RS256', { modulusLength: 3072 });
+    const rsa = { ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig', kid: 'rsa-key' };
+    const largeRsa = { ...rsa, ...(await exportJWK(largerPublicKey)) };
+    const candidateJwks = { keys: [rsa, ...jwks.keys] };
+    const oracle = await runDiscoveryConfig(context([discovery, discovery, jwks]));
+    const candidate = await runDiscoveryConfig(
+      context([candidateDiscovery, candidateDiscovery, candidateJwks], 'candidate')
+    );
+
+    expect(compareJson(oracle[2]?.value, candidate[2]?.value)).toEqual([]);
+    expect(candidate[2]?.value.body).toEqual(oracle[2]?.value.body);
+
+    const invalid = [
+      ['wrong algorithm', { keys: [{ ...rsa, alg: 'PS256' }, ...jwks.keys] }],
+      ['wrong use', { keys: [{ ...rsa, use: 'enc' }, ...jwks.keys] }],
+      [
+        'malformed additional RSA',
+        { keys: [rsa, { ...rsa, kid: 'extra-rsa', use: 'enc' }, ...jwks.keys] },
+      ],
+      ['private member', { keys: [{ ...rsa, d: 'private-material' }, ...jwks.keys] }],
+      ['unknown public member', { keys: [{ ...rsa, key_ops: ['verify'] }, ...jwks.keys] }],
+      ['wrong exponent', { keys: [{ ...rsa, e: 'Aw' }, ...jwks.keys] }],
+      ['padded exponent', { keys: [{ ...rsa, e: 'AQAB=' }, ...jwks.keys] }],
+      ['short modulus', { keys: [{ ...rsa, n: rsa.n?.slice(2) }, ...jwks.keys] }],
+      ['long modulus', { keys: [largeRsa, ...jwks.keys] }],
+      [
+        'modulus without high bit',
+        { keys: [{ ...rsa, n: Buffer.alloc(256, 0x7f).toString('base64url') }, ...jwks.keys] },
+      ],
+      ['noncanonical modulus', { keys: [{ ...rsa, n: `${rsa.n}=` }, ...jwks.keys] }],
+      ['duplicate kid', { keys: [{ ...rsa, kid: jwks.keys[0]?.kid }, ...jwks.keys] }],
+      ['duplicate RSA kid', { keys: [rsa, rsa, ...jwks.keys] }],
+      ['missing RSA', jwks],
+      ['missing EC', { keys: [rsa] }],
+      ['wrong EC algorithm', { keys: [rsa, { ...jwks.keys[0], alg: 'ES256' }] }],
+      [
+        'unapproved key family',
+        { keys: [rsa, ...jwks.keys, { kid: 'other', kty: 'oct', k: 'secret' }] },
+      ],
+      ['extra JWKS field', { ...candidateJwks, metadata: true }],
+    ] as const;
+
+    await Promise.all(
+      invalid.map(async ([, document]) => {
+        await expect(
+          runDiscoveryConfig(
+            context([candidateDiscovery, candidateDiscovery, document], 'candidate')
+          )
+        ).rejects.toThrow('Phase 1 JWKS metadata is invalid');
+      })
+    );
+    await expect(
+      runDiscoveryConfig(context([discovery, discovery, candidateJwks]))
+    ).rejects.toThrow('Phase 1 JWKS metadata is invalid');
+  });
+
+  it('rejects an even-modulus extra RSA key before comparing the common EC keys', async () => {
+    const { publicKey } = await generateKeyPair('RS256');
+    const rsa = { ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig', kid: 'rsa-key' };
+    const evenModulus = Buffer.alloc(256, 0x80).toString('base64url');
+    const malformedJwks = {
+      keys: [rsa, { ...rsa, kid: 'extra-rsa', n: evenModulus }, ...jwks.keys],
+    };
+
+    await expect(
+      runDiscoveryConfig(
+        context([candidateDiscovery, candidateDiscovery, malformedJwks], 'candidate')
+      )
+    ).rejects.toThrow('Phase 1 JWKS metadata is invalid');
+  });
+
+  it('derives Content-Length and ETag from the validated common JWKS body', async () => {
+    const { publicKey } = await generateKeyPair('RS256');
+    const published = {
+      keys: [
+        { ...(await exportJWK(publicKey)), alg: 'RS256', use: 'sig', kid: 'rsa-key' },
+        ...jwks.keys,
+      ],
+    };
+    const oracleHeaders = jwksRawHeaders(jwks, 'oracle-raw-jwks');
+    const candidateHeaders = jwksRawHeaders(published, 'candidate-raw-jwks');
+    const oracle = await runDiscoveryConfig(
+      context([discovery, discovery, jwks], 'oracle', oracleHeaders)
+    );
+    const candidate = await runDiscoveryConfig(
+      context([candidateDiscovery, candidateDiscovery, published], 'candidate', candidateHeaders)
+    );
+
+    expect(candidateHeaders[0][1]).not.toBe(oracleHeaders[0][1]);
+    expect(candidate[2]?.value.headers['content-length']).toEqual(
+      oracle[2]?.value.headers['content-length']
+    );
+    expect(candidate[2]?.value.headers.etag).toEqual(oracle[2]?.value.headers.etag);
+    expect(compareJson(oracle[2]?.value, candidate[2]?.value)).toEqual([]);
+    await expect(
+      runDiscoveryConfig(
+        context(
+          [candidateDiscovery, candidateDiscovery, { ...published, unknown: true }],
+          'candidate',
+          candidateHeaders
+        )
+      )
+    ).rejects.toThrow('Phase 1 JWKS metadata is invalid');
+  });
+
   it('projects approved oracle fields and rejects candidate extra metadata', async () => {
     const baseline = await runDiscoveryConfig(context([discovery, discovery, jwks]));
     const extra = { ...discovery, aster_extra_field: true };
@@ -200,7 +367,7 @@ describe('discovery.config', () => {
     ).rejects.toThrow('Phase 1 candidate discovery contains unapproved metadata');
     await expect(
       runDiscoveryConfig(context([selectedDiscovery, selectedDiscovery, jwks], 'candidate'))
-    ).resolves.toBeDefined();
+    ).rejects.toThrow('Phase 1 candidate discovery contains unapproved metadata');
 
     await expect(runDiscoveryConfig(context([discovery, extra, jwks]))).rejects.toThrow(
       'Phase 1 discovery endpoints are not equivalent'

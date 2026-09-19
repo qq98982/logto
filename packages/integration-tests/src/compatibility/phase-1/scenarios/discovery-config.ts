@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import { importJWK } from 'jose';
+
 import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
 import type { RawProtocolResponse } from '../clients/oidc.js';
@@ -12,6 +14,8 @@ import { projectDiscoveryObservation } from '../projections/discovery.js';
 
 const jsonMediaTypes = new Set(['application/json', 'application/jwk-set+json']);
 const publicJwkMembers = new Set(['alg', 'crv', 'e', 'kid', 'kty', 'n', 'use', 'x', 'y']);
+const rsaPublicJwkMembers = new Set(['alg', 'e', 'kid', 'kty', 'n', 'use']);
+const rsaRequiredMetadata = { kty: 'RSA', alg: 'RS256', use: 'sig', e: 'AQAB' };
 
 const isJsonObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' &&
@@ -118,21 +122,70 @@ const assertProfileSelectedDiscovery = (
   if (!isJsonObject(selected)) {
     throw new Error('Phase 1 discovery projection is invalid');
   }
+  const approvedCandidateDocument = {
+    ...selected,
+    id_token_signing_alg_values_supported: ['RS256', 'ES384'],
+  };
 
-  if (
-    phase1ImplementationForProfile(context.profile) === 'candidate' &&
-    !isDeepStrictEqual(document, selected)
+  if (phase1ImplementationForProfile(context.profile) === 'candidate') {
+    if (!isDeepStrictEqual(document, approvedCandidateDocument)) {
+      throw new Error('Phase 1 candidate discovery contains unapproved metadata');
+    }
+  } else if (
+    !isDeepStrictEqual(
+      document.id_token_signing_alg_values_supported,
+      oidc.idTokenSigningAlgorithmsSupported
+    )
   ) {
-    throw new Error('Phase 1 candidate discovery contains unapproved metadata');
+    throw new Error('Phase 1 discovery field is invalid: id_token_signing_alg_values_supported');
   }
 
-  return selected;
+  return approvedCandidateDocument;
 };
 
-const assertAndSelectJwks = (
+const isCanonicalRsa2048Modulus = (value: JsonValue | undefined): boolean => {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    return false;
+  }
+  const modulus = Buffer.from(value, 'base64url');
+
+  return (
+    modulus.length === 256 &&
+    (modulus[0] ?? 0) >= 0x80 &&
+    (modulus.at(-1) ?? 0) % 2 === 1 &&
+    modulus.toString('base64url') === value
+  );
+};
+
+const assertCandidateRsaKey = async (key: JsonObject): Promise<string> => {
+  if (
+    Object.keys(key).length !== rsaPublicJwkMembers.size ||
+    Object.keys(key).some((member) => !rsaPublicJwkMembers.has(member)) ||
+    Object.entries(rsaRequiredMetadata).some(([member, value]) => key[member] !== value) ||
+    typeof key.kid !== 'string' ||
+    key.kid.length === 0 ||
+    !isCanonicalRsa2048Modulus(key.n)
+  ) {
+    throw new Error('Phase 1 JWKS metadata is invalid');
+  }
+
+  try {
+    const imported = await importJWK(key, 'RS256');
+
+    if (imported instanceof Uint8Array || imported.type !== 'public') {
+      throw new TypeError('Invalid RSA public key');
+    }
+  } catch {
+    throw new Error('Phase 1 JWKS metadata is invalid');
+  }
+
+  return key.kid;
+};
+
+const assertAndSelectJwks = async (
   document: JsonObject,
   context: Parameters<Phase1ScenarioRun>[0]
-): JsonObject => {
+): Promise<JsonObject> => {
   const { keys } = document;
 
   if (
@@ -145,22 +198,40 @@ const assertAndSelectJwks = (
   }
 
   const expected = context.profile.oidc.jwksKeyMetadata;
-  const selectedKeys = keys.map((key): JsonObject => {
-    if (
-      !isJsonObject(key) ||
-      Object.keys(key).some((member) => !publicJwkMembers.has(member)) ||
-      key.kty !== expected.kty ||
-      key.use !== expected.use ||
-      key.alg !== expected.alg ||
-      key.crv !== expected.crv ||
-      typeof key.kid !== 'string' ||
-      key.kid.length === 0
-    ) {
-      throw new Error('Phase 1 JWKS metadata is invalid');
-    }
+  const candidate = phase1ImplementationForProfile(context.profile) === 'candidate';
+  const validatedKeys = await Promise.all(
+    keys.map(async (key) => {
+      if (!isJsonObject(key)) {
+        throw new Error('Phase 1 JWKS metadata is invalid');
+      }
+      if (candidate && key.kty === 'RSA') {
+        return { kid: await assertCandidateRsaKey(key) };
+      }
+      if (
+        Object.keys(key).some((member) => !publicJwkMembers.has(member)) ||
+        key.kty !== expected.kty ||
+        key.use !== expected.use ||
+        key.alg !== expected.alg ||
+        key.crv !== expected.crv ||
+        typeof key.kid !== 'string' ||
+        key.kid.length === 0
+      ) {
+        throw new Error('Phase 1 JWKS metadata is invalid');
+      }
 
-    return key;
-  });
+      return { kid: key.kid, selected: key };
+    })
+  );
+  const selectedKeys = validatedKeys.flatMap(({ selected }) => (selected ? [selected] : []));
+
+  if (
+    candidate &&
+    (validatedKeys.length === selectedKeys.length ||
+      selectedKeys.length === 0 ||
+      new Set(validatedKeys.map(({ kid }) => kid)).size !== validatedKeys.length)
+  ) {
+    throw new Error('Phase 1 JWKS metadata is invalid');
+  }
 
   return { keys: selectedKeys };
 };
@@ -205,7 +276,7 @@ export const runDiscoveryConfig: Phase1ScenarioRun = async (context) => {
     context.profile.oidc.jwksPath.slice(1),
     { includeCookies: false }
   );
-  const jwks = assertAndSelectJwks(requireJsonResponse(jwksResponse, 'jwks'), context);
+  const jwks = await assertAndSelectJwks(requireJsonResponse(jwksResponse, 'jwks'), context);
   const after = await context.projectFixtureState();
 
   if (!isDeepStrictEqual(before, after)) {
