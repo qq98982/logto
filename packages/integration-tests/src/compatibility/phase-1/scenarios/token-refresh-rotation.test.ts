@@ -1,3 +1,6 @@
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
+
+import { phase1DifferentialScenarios } from './index.js';
 import {
   createTokenScenarioHarness,
   createTokenTestSigner,
@@ -40,6 +43,7 @@ describe('token.refresh-rotation', () => {
       jwk: signer.jwk,
       userInfoBody: {
         sub: 'runtime-subject',
+        name: 'Observed User',
         email: tokenTestRuntimeValues.email,
         email_verified: true,
       },
@@ -59,6 +63,12 @@ describe('token.refresh-rotation', () => {
     const steps = await runTokenRefreshRotation(harness.context, {
       withPositiveOidcFlow: harness.flow,
     });
+    const scenario = phase1DifferentialScenarios.find(({ id }) => id === 'token.refresh-rotation');
+
+    if (!scenario) {
+      throw new Error('Phase 1 refresh scenario is unavailable');
+    }
+    expect(validateExactPhase1ScenarioSteps(scenario, steps)).toHaveLength(3);
 
     expect(steps.map(({ stepId }) => stepId)).toEqual([
       'code-token',
@@ -100,8 +110,13 @@ describe('token.refresh-rotation', () => {
           kind: 'userinfo-email',
           response: {
             status: 200,
+            mediaType: { type: 'application', subtype: 'json', parameters: {} },
+            headers: { 'content-type': ['application/json'] },
+            semanticState: null,
+            sideEffects: null,
             body: {
               sub: '<user.phase1-user>',
+              name: 'Observed User',
               email: '<fixture.data.email>',
               email_verified: true,
             },

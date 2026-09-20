@@ -1,5 +1,7 @@
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
 
+import { phase1DifferentialScenarios } from './index.js';
 import {
   createTokenScenarioHarness,
   createTokenTestSigner,
@@ -80,6 +82,7 @@ describe('token.code-reuse-rejected', () => {
       jwk: signer.jwk,
       userInfoBody: {
         sub: 'runtime-subject',
+        name: 'Observed User',
         email: tokenTestRuntimeValues.email,
         email_verified: true,
       },
@@ -100,6 +103,14 @@ describe('token.code-reuse-rejected', () => {
     const steps = await runTokenCodeReuseRejected(harness.context, {
       withPositiveOidcFlow: harness.flow,
     });
+    const scenario = phase1DifferentialScenarios.find(
+      ({ id }) => id === 'token.code-reuse-rejected'
+    );
+
+    if (!scenario) {
+      throw new Error('Phase 1 code-reuse scenario is unavailable');
+    }
+    expect(validateExactPhase1ScenarioSteps(scenario, steps)).toHaveLength(3);
 
     expect(steps.map(({ stepId }) => stepId)).toEqual(['first-exchange', 'replay', 'state']);
     expect(harness.requests).toHaveLength(3);
@@ -127,8 +138,13 @@ describe('token.code-reuse-rejected', () => {
           kind: 'userinfo-email',
           response: {
             status: 200,
+            mediaType: { type: 'application', subtype: 'json', parameters: {} },
+            headers: { 'content-type': ['application/json'] },
+            semanticState: null,
+            sideEffects: null,
             body: {
               sub: '<user.phase1-user>',
+              name: 'Observed User',
               email: '<fixture.data.email>',
               email_verified: true,
             },

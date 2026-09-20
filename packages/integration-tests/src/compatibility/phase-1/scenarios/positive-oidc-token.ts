@@ -17,13 +17,15 @@ import {
   createPhase1NormalizationContext,
   phase1ImplementationForProfile,
 } from '../native-surface-profile.js';
-import { normalizeClaims, normalizeTokenResponse } from '../normalizers.js';
+import { normalizeTokenResponse } from '../normalizers.js';
 import { hasValidOptionalProfileTimestamps } from '../profile-timestamps.js';
 import {
   projectHttpObservation,
   projectSemanticStateObservation,
   projectTokenErrorObservation,
   projectTokenObservation,
+  projectUserInfoObservation,
+  requireProjectionJson,
   type Phase1HttpProjection,
 } from '../projections/index.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
@@ -719,17 +721,25 @@ export const projectPositiveTokenUserInfoEmail = async (
   ) {
     throw new Error('Phase 1 UserInfo email pair is invalid');
   }
-  const body = normalizeClaims(
-    { sub, email, email_verified: emailVerified },
+  const userinfo = projectUserInfoObservation(
+    {
+      status: response.status,
+      headers: response.headers,
+      body: response.body,
+      semanticState: null,
+      sideEffects: null,
+    },
     normalizationContext,
-    'access-token',
-    { profile: 'userinfo' }
+    { scenarioId: 'userinfo.openid', stepId: 'userinfo' }
   );
 
   return Object.freeze({
     ...token,
     outcomes: Object.freeze([
-      Object.freeze({ kind: 'userinfo-email', response: { status: response.status, body } }),
+      Object.freeze({
+        kind: 'userinfo-email',
+        response: requireProjectionJson(userinfo, 'Phase 1 UserInfo projection is invalid'),
+      }),
     ]),
   });
 };
