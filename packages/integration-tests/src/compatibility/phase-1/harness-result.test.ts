@@ -12,6 +12,7 @@ import {
   type Phase1EvidenceFileName,
 } from './artifact-contract.js';
 import { phase1BrowserFlowIds } from './browser/contracts.js';
+import { createPhase1BasicAcceptedResultFixture } from './conformance/basic-result.test-fixture.js';
 import { writePhase1EvidenceManifest } from './evidence-manifest.js';
 import {
   assertPhase1HarnessResultUploadable,
@@ -113,7 +114,7 @@ const writeHarnessEvidence = async (
   root: string,
   bundle: Phase1ProfileBundle,
   mode: Phase1ArtifactMode,
-  options: Readonly<{ planNameResults?: boolean }> = {}
+  options: Readonly<{ planNameResults?: boolean; forgedBasicResult?: boolean }> = {}
 ) => {
   const provenance = {
     harnessCommit,
@@ -127,6 +128,12 @@ const writeHarnessEvidence = async (
         ? [...planIds]
         : ['official-result-alpha', 'official-result-beta']
       : [];
+  const basicResult = JSON.parse(JSON.stringify(createPhase1BasicAcceptedResultFixture())) as {
+    modules: Array<{ result: string }>;
+  };
+  if (options.forgedBasicResult) {
+    basicResult.modules[0]!.result = 'FAILED';
+  }
   const values: Record<Phase1EvidenceFileName, unknown> = {
     'phase-1-browser.json': {
       schemaVersion: 1,
@@ -185,7 +192,14 @@ const writeHarnessEvidence = async (
               planId,
               resultId: officialResultIds[index],
               resultSha256: 'e'.repeat(64),
-              result: projection('official-plan-result', officialResultIds[index]!),
+              result:
+                planId === 'oidcc-basic-certification-test-plan'
+                  ? {
+                      label: 'official-plan-result',
+                      projectionSha256: 'e'.repeat(64),
+                      value: basicResult,
+                    }
+                  : projection('official-plan-result', officialResultIds[index]!),
             }))
           : [],
     },
@@ -212,7 +226,7 @@ const writeHarnessEvidence = async (
 
 const createFixture = async (
   mode: Phase1ArtifactMode,
-  options: Readonly<{ planNameResults?: boolean }> = {}
+  options: Readonly<{ planNameResults?: boolean; forgedBasicResult?: boolean }> = {}
 ) => {
   const root = await createRoot();
   const evidenceDirectory = path.join(root, 'evidence');
@@ -382,6 +396,17 @@ describe('Phase 1 harness result', () => {
     ]);
 
     const invalid = await createFixture('runtime-candidate', { planNameResults: true });
+    await expect(
+      writePhase1HarnessResult({
+        profileBundle: invalid.bundle,
+        evidenceManifest: invalid.manifest,
+      })
+    ).rejects.toThrow(/^Invalid phase 1 harness result$/u);
+  });
+
+  it('rejects a manifest-bound Basic projection with a forged raw module result', async () => {
+    const invalid = await createFixture('runtime-candidate', { forgedBasicResult: true });
+
     await expect(
       writePhase1HarnessResult({
         profileBundle: invalid.bundle,

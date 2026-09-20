@@ -20,6 +20,7 @@ type ComposeService = Readonly<{
   healthcheck?: Readonly<{ test?: readonly string[] }>;
   labels?: Readonly<Record<string, string>>;
   ports?: unknown;
+  pids_limit?: number;
   privileged?: unknown;
   cap_add?: unknown;
   network_mode?: unknown;
@@ -99,9 +100,13 @@ describe('runtime-candidate official OIDF conformance topology', () => {
       'suite-mongo',
     ]);
 
-    for (const service of Object.values(document.services)) {
+    for (const [name, service] of Object.entries(document.services)) {
       expect(service.labels).toEqual(expect.objectContaining(cleanupLabels));
-      expect(service).not.toHaveProperty('ports');
+      if (name === 'candidate-conformance-core') {
+        expect(service.ports).toEqual(['127.0.0.1:3443:3443']);
+      } else {
+        expect(service).not.toHaveProperty('ports');
+      }
       expect(service).not.toHaveProperty('privileged');
       expect(service).not.toHaveProperty('cap_add');
       expect(service).not.toHaveProperty('network_mode');
@@ -214,11 +219,22 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     const runnerScriptMount = `${required(
       'ASTER_PHASE1_CONFORMANCE_RUNNER_FILE'
     )}:/opt/aster/phase1-conformance-runner.mjs:ro`;
+    const runnerHandoffMount = `${required(
+      'ASTER_PHASE1_CONFORMANCE_SCREENSHOT_HANDOFF_FILE'
+    )}:/opt/aster/phase1-screenshot-handoff.mjs:ro`;
+    const screenshotRoot = required('ASTER_PHASE1_SCREENSHOT_IPC_ROOT');
+    const screenshotMount = `${screenshotRoot}:${screenshotRoot}:rw`;
     const topologySource = JSON.stringify(document);
 
     expect(services['oidf-runner']?.volumes).toContain(runnerSecretMount);
     expect(services['oidf-runner']?.volumes).toContain(runnerDriverMount);
     expect(services['oidf-runner']?.volumes).toContain(runnerScriptMount);
+    expect(services['oidf-runner']?.volumes).toContain(runnerHandoffMount);
+    expect(services['oidf-runner']?.volumes).toContain(screenshotMount);
+    expect(services['oidf-runner']?.environment).toMatchObject({
+      ASTER_PHASE1_SCREENSHOT_IPC_ROOT: screenshotRoot,
+    });
+    expect(services['oidf-runner']?.pids_limit).toBe(64);
     expect(services['oidf-runner']?.volumes).not.toContain(
       'candidate-fixture:/run/aster-fixture:rw'
     );
@@ -384,6 +400,11 @@ describe('runtime-candidate official OIDF conformance topology', () => {
       expect(lifecycle).toContain(secretName);
     }
     expect(lifecycle).toContain('compose_up_phase oidf-runner');
+    expect(lifecycle).toContain('phase1-screenshot-capture.mjs');
+    expect(lifecycle).toContain('phase1-screenshot-handoff.mjs');
+    expect(lifecycle).toContain('ASTER_PHASE1_SCREENSHOT_REVIEW_ROOT=');
+    expect(lifecycle).toContain('ASTER_PHASE1_SCREENSHOT_IPC_ROOT=');
+    expect(lifecycle).toContain('sanitize_screenshot_root');
     expect(lifecycle).toContain('compose ps --all -q');
     expect(lifecycle).not.toContain('/dev/shm');
     expect(lifecycle).not.toContain('/var/lib/docker');
@@ -394,7 +415,9 @@ describe('runtime-candidate official OIDF conformance topology', () => {
 
     expect(wrapper).toContain('HOME="${root}"');
     expect(wrapper).toContain('DOCKER_HOST="unix://${engine_socket}"');
-    expect(wrapper).toContain('"engineSocket", "topologyId"');
+    expect(wrapper).toContain(
+      '"handoffBlob", "handoffSha256", "screenshotRoot", "engineSocket", "topologyId"'
+    );
     expect(wrapper).toContain('"${engine_docker[@]}" ps -aq --no-trunc');
     expect(wrapper).toContain('"${runner_container_id}" "${driver_container_path}" "$@"');
     expect(wrapper).not.toContain('"${runner_container_id}" /usr/bin/node');

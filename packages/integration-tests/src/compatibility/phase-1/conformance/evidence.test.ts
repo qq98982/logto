@@ -1,5 +1,6 @@
 import type { Phase1Profile } from '../profile-types.js';
 
+import { createPhase1BasicAcceptedResultFixture } from './basic-result.test-fixture.js';
 import { phase1ConformanceSuiteCommit, phase1ConformanceSuiteRepository } from './config.js';
 import { createPhase1ConformanceEvidence, hashCanonicalConformanceJson } from './evidence.js';
 import {
@@ -36,9 +37,10 @@ const runResult = (): Phase1ConformanceRunResult => ({
     {
       planId: 'oidcc-basic-certification-test-plan',
       resultId: 'oidf-result-opaque-001',
-      status: 'PASSED',
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
       variant: { responseType: 'code', clientRegistration: 'static_client' },
-      result: { outcome: 'passed', checks: { basicPlan: true } },
+      result: createPhase1BasicAcceptedResultFixture(),
     },
   ],
 });
@@ -150,16 +152,28 @@ const brandedRunResult = async (
             status: 'PASSED',
             result: { configured: true, redirectUriMatches: true },
           }
-        : {
-            schemaVersion: 1,
-            kind: 'phase1-conformance-official-terminal',
-            suiteCommit: phase1ConformanceSuiteCommit,
-            planId: input.planId,
-            variant: input.variant,
-            status: 'PASSED',
-            resultId,
-            result: { outcome: 'passed', checks: { completed: true } },
-          };
+        : input.planId === 'oidcc-basic-certification-test-plan'
+          ? {
+              schemaVersion: 1,
+              kind: 'phase1-conformance-basic-terminal',
+              suiteCommit: phase1ConformanceSuiteCommit,
+              planId: input.planId,
+              variant: input.variant,
+              status: 'FINISHED',
+              acceptance: 'ACCEPTED',
+              resultId,
+              result: createPhase1BasicAcceptedResultFixture(),
+            }
+          : {
+              schemaVersion: 1,
+              kind: 'phase1-conformance-official-terminal',
+              suiteCommit: phase1ConformanceSuiteCommit,
+              planId: input.planId,
+              variant: input.variant,
+              status: 'PASSED',
+              resultId,
+              result: { outcome: 'passed', checks: { completed: true } },
+            };
       return {
         pid: 1234,
         processGroupId: 1234,
@@ -218,7 +232,7 @@ describe('Phase 1 conformance evidence', () => {
       expect(plan.resultSha256).toBe(hashCanonicalConformanceJson(plan.result.value));
     }
     expect(Object.isFrozen(evidence)).toBe(true);
-    expect(JSON.stringify(evidence)).not.toMatch(/log|stderr|stdout|private/iu);
+    expect(JSON.stringify(evidence)).not.toMatch(/stderr|stdout|private/iu);
   });
 
   it.each(['review-candidate', 'mirror-control'] as const)(

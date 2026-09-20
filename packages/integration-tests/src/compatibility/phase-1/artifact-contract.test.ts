@@ -52,6 +52,41 @@ describe('Phase 1 artifact authority', () => {
     expect(phase1PublicAdapterIds).toBe(phase1ConformanceAdapterControlIds);
   });
 
+  it('allows reviewer provenance only inside a Basic module screenshot review', () => {
+    const review = {
+      reviewer: 'gpt-5.6-sol',
+      reviewRecordSha256: 'a'.repeat(64),
+    };
+
+    expect(() => {
+      assertPhase1PublicArtifactValue({
+        planResults: [
+          {
+            planId: 'oidcc-basic-certification-test-plan',
+            result: { value: { modules: [{ review }] } },
+          },
+        ],
+      });
+    }).not.toThrow();
+    for (const invalid of [
+      review,
+      { planResults: [{ reviewer: review.reviewer }] },
+      { planResults: [{ result: { value: { modules: [{ review }] } } }] },
+      {
+        planResults: [
+          {
+            planId: 'oidcc-config-certification-test-plan',
+            result: { value: { modules: [{ review }] } },
+          },
+        ],
+      },
+    ]) {
+      expect(() => {
+        assertPhase1PublicArtifactValue(invalid);
+      }).toThrow();
+    }
+  });
+
   it('allows only contract-approved logical resume credentials at exact step paths', () => {
     const valid = {
       scenarios: [

@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 
 import type { Phase1Profile } from '../profile-types.js';
 
+import { createPhase1BasicAcceptedResultFixture } from './basic-result.test-fixture.js';
 import { phase1ConformanceSuiteCommit, phase1ConformanceSuiteRepository } from './config.js';
 import {
   phase1ConformanceAdapterControlIds,
@@ -126,6 +127,19 @@ const terminalFor = (
       adapterControlId: input.staticClient?.id,
       status: 'PASSED',
       result: { configured: true, redirectUriMatches: true },
+    };
+  }
+  if (input.planId === 'oidcc-basic-certification-test-plan') {
+    return {
+      schemaVersion: 1,
+      kind: 'phase1-conformance-basic-terminal',
+      suiteCommit: phase1ConformanceSuiteCommit,
+      planId: input.planId,
+      variant: input.variant,
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
+      resultId,
+      result: createPhase1BasicAcceptedResultFixture(),
     };
   }
   return {
@@ -480,7 +494,7 @@ describe('Phase 1 conformance runner', () => {
       'oidcc-config-certification-test-plan',
     ]);
     expect(result.officialResults.map(({ result: value }) => value)).toEqual([
-      { outcome: 'passed', checks: { completed: true } },
+      createPhase1BasicAcceptedResultFixture(),
       { outcome: 'passed', checks: { completed: true } },
     ]);
     const configInput = JSON.parse(requests[3]!.stdin) as { target: Record<string, unknown> };

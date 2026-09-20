@@ -8,6 +8,7 @@ import { phase1BrowserFlowIds } from '../browser/contracts.js';
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
 import { authorizePhase1RunForTesting, type Phase1RunAuthorization } from '../cli.js';
+import { createPhase1BasicAcceptedResultFixture } from '../conformance/basic-result.test-fixture.js';
 import {
   createPhase1ConformanceGateRuntimeContext,
   type Phase1ConformanceRuntimeContext,
@@ -386,10 +387,12 @@ const conformance = (
       resultId: 'oidf-result-opaque-002',
     },
   ].map(({ planId, resultId }) => {
-    const result = createPhase1ProjectionEnvelope('official-plan-result', {
-      outcome: 'passed',
-      checks: { completed: true },
-    });
+    const result = createPhase1ProjectionEnvelope(
+      'official-plan-result',
+      planId === 'oidcc-basic-certification-test-plan'
+        ? createPhase1BasicAcceptedResultFixture()
+        : { outcome: 'passed', checks: { completed: true } }
+    );
 
     return { planId, resultId, resultSha256: result.projectionSha256, result };
   });
@@ -805,6 +808,38 @@ describe('Phase 1 evidence execution coordinator', () => {
     await expect(stat(path.join(root, 'phase-1-browser.json'))).resolves.toMatchObject({
       nlink: 1,
     });
+  });
+
+  it('rejects a hash-consistent Basic projection with a forged raw module result', () => {
+    const root = '/var/tmp/henry-build/task15-forged-basic';
+    const runtime = conformanceEvidenceGateContext(root);
+    const artifact = JSON.parse(JSON.stringify(conformance(runtime))) as {
+      planResults: Array<{
+        planId: string;
+        resultSha256: string;
+        result: {
+          projectionSha256: string;
+          value: { modules: Array<{ result: string }> };
+        };
+      }>;
+    };
+    const basic = artifact.planResults.find(
+      ({ planId }) => planId === 'oidcc-basic-certification-test-plan'
+    );
+    if (!basic) {
+      throw new TypeError('missing Basic plan fixture');
+    }
+    const firstModule = basic.result.value.modules[0];
+    if (!firstModule) {
+      throw new TypeError('missing Basic module fixture');
+    }
+    firstModule.result = 'FAILED';
+    basic.result.projectionSha256 = hashCanonicalPhase1Json(basic.result.value);
+    basic.resultSha256 = basic.result.projectionSha256;
+
+    expect(() =>
+      validatePhase1EvidenceArtifactForTesting('phase-1-conformance.json', artifact, runtime)
+    ).toThrow(/^Invalid phase 1 Basic conformance result$/u);
   });
 
   it('reuses the immutable oracle snapshot without rewriting it', async () => {

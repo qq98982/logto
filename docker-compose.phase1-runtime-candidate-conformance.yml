@@ -108,6 +108,7 @@
           "aliases": ["aster-server.aster-phase1-conformance.svc.cluster.local"]
         }
       },
+      "ports": ["127.0.0.1:3443:3443"],
       "volumes": [
         "${ASTER_PHASE1_CONFORMANCE_PRIMARY_CONFIG_FILE:?required}:/etc/aster/phase1/primary.conf:ro",
         "candidate-primary-keyring:/var/lib/aster/primary:ro",
@@ -297,7 +298,8 @@
       "environment": {
         "NODE_EXTRA_CA_CERTS": "/etc/aster/pki/root-ca.crt",
         "SSL_CERT_FILE": "/etc/aster/pki/root-ca.crt",
-        "ASTER_PHASE1_OIDF_RUNNER_MODE": "wait-for-driver-exec"
+        "ASTER_PHASE1_OIDF_RUNNER_MODE": "wait-for-driver-exec",
+        "ASTER_PHASE1_SCREENSHOT_IPC_ROOT": "${ASTER_PHASE1_SCREENSHOT_IPC_ROOT:?required}"
       },
       "healthcheck": {
         "test": [
@@ -316,8 +318,11 @@
         "${ASTER_PHASE1_CONFORMANCE_SECRET_DIRECTORY:?required}:/run/aster-secrets:ro",
         "${ASTER_PHASE1_CONFORMANCE_EVIDENCE_DIRECTORY:?required}:/var/lib/aster/evidence:rw",
         "${ASTER_PHASE1_CONFORMANCE_DRIVER_FILE:?required}:/opt/aster/phase1-conformance-driver.sh:ro",
-        "${ASTER_PHASE1_CONFORMANCE_RUNNER_FILE:?required}:/opt/aster/phase1-conformance-runner.mjs:ro"
+        "${ASTER_PHASE1_CONFORMANCE_RUNNER_FILE:?required}:/opt/aster/phase1-conformance-runner.mjs:ro",
+        "${ASTER_PHASE1_CONFORMANCE_SCREENSHOT_HANDOFF_FILE:?required}:/opt/aster/phase1-screenshot-handoff.mjs:ro",
+        "${ASTER_PHASE1_SCREENSHOT_IPC_ROOT:?required}:${ASTER_PHASE1_SCREENSHOT_IPC_ROOT:?required}:rw"
       ],
+      "pids_limit": 64,
       "tmpfs": [
         "/tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777"
       ],

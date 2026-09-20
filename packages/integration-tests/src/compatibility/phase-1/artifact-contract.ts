@@ -204,9 +204,29 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
         typeof ownedScenarioId === 'string' &&
         resumeCredentialStepIdsByScenario.get(ownedScenarioId)?.has(resumeStepId) === true &&
         hasAllowedLogicalCredentialShape;
+      const owningPlanResult: unknown =
+        isArtifactRecord(value) && Array.isArray(value.planResults) && path[1] !== undefined
+          ? value.planResults[Number(path[1])]
+          : undefined;
+      const allowedBasicReviewMetadata =
+        isArtifactRecord(owningPlanResult) &&
+        owningPlanResult.planId === 'oidcc-basic-certification-test-plan' &&
+        (key === 'reviewer' || key === 'reviewRecordSha256') &&
+        typeof nested === 'string' &&
+        path.length === 7 &&
+        path[0] === 'planResults' &&
+        typeof path[1] === 'string' &&
+        denseArrayIndexPattern.test(path[1]) &&
+        path[2] === 'result' &&
+        path[3] === 'value' &&
+        path[4] === 'modules' &&
+        typeof path[5] === 'string' &&
+        denseArrayIndexPattern.test(path[5]) &&
+        path[6] === 'review';
 
       if (
         !allowedResumeCredential &&
+        !allowedBasicReviewMetadata &&
         ((!registeredScenarioStep &&
           !permittedSensitiveMetadataKeys.has(normalized) &&
           (normalized.includes('secret') || normalized.includes('password'))) ||
@@ -216,7 +236,9 @@ export const assertPhase1PublicArtifactValue = (value: unknown): void => {
       ) {
         throw new TypeError('private artifact property');
       }
-      assertEvidenceIsSanitized({ value: allowedResumeCredential ? 'metadata' : key });
+      assertEvidenceIsSanitized({
+        value: allowedResumeCredential || allowedBasicReviewMetadata ? 'metadata' : key,
+      });
       visit(nested, [...path, key], ownedScenarioId);
     }
   };

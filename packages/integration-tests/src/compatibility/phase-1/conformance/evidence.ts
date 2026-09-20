@@ -11,6 +11,7 @@ import {
 import { assertPhase1EvidenceIsSanitized } from '../evidence.js';
 import { cloneAndDeepFreeze, snapshotClosedDataGraph } from '../model.js';
 
+import { requirePhase1BasicAcceptedResult } from './basic-result.js';
 import {
   phase1ConformanceAdapterControlIds,
   assertValidatedPhase1ConformanceRunResult,
@@ -140,21 +141,32 @@ export const createPhase1ConformanceEvidence = (
       });
     });
     const planResults = snapshot.officialResults.map((value) => {
+      const basicPlan = isRecord(value) && value.planId === 'oidcc-basic-certification-test-plan';
       if (
         !isRecord(value) ||
-        !exactKeys(value, ['planId', 'resultId', 'status', 'variant', 'result']) ||
+        !exactKeys(
+          value,
+          basicPlan
+            ? ['planId', 'resultId', 'status', 'acceptance', 'variant', 'result']
+            : ['planId', 'resultId', 'status', 'variant', 'result']
+        ) ||
         typeof value.planId !== 'string' ||
         !planIds.includes(value.planId as (typeof planIds)[number]) ||
         typeof value.resultId !== 'string' ||
         !resultIdPattern.test(value.resultId) ||
         planIds.includes(value.resultId as (typeof planIds)[number]) ||
-        value.status !== 'PASSED' ||
+        (basicPlan
+          ? value.status !== 'FINISHED' || value.acceptance !== 'ACCEPTED'
+          : value.status !== 'PASSED') ||
         !isDeepStrictEqual(
           value.variant,
           expectedVariants[value.planId as keyof typeof expectedVariants]
         )
       ) {
         throw new TypeError(diagnostic);
+      }
+      if (basicPlan) {
+        requirePhase1BasicAcceptedResult(value.result);
       }
       const result = projectionEnvelope('official-plan-result', value.result);
 

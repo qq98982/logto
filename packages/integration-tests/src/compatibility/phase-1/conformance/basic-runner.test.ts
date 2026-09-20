@@ -1,7 +1,18 @@
 /* eslint-disable max-lines, complexity, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the exact Basic plan manifest, serial suite exchange, and one cohesive fake HTTP state machine. */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -17,6 +28,10 @@ const runnerPath = path.resolve(
 const driverPath = path.resolve(
   process.cwd(),
   '../../.scripts/compatibility/phase1-conformance-driver.sh'
+);
+const screenshotHandoffPath = path.resolve(
+  process.cwd(),
+  '../../.scripts/compatibility/phase1-screenshot-handoff.mjs'
 );
 const basicVariant = Object.freeze({
   clientRegistration: 'static_client',
@@ -79,12 +94,14 @@ type BasicRunnerDependencies = Readonly<{
   fetch?: typeof fetch;
   readSecret?: (path: string) => Uint8Array;
   now?: () => number;
+  wallClock?: () => number;
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
   requestTimeoutMs?: number;
   moduleTimeoutMs?: number;
   totalTimeoutMs?: number;
   maximumResponseBytes?: number;
+  screenshotIpcRoot?: string;
 }>;
 
 type RunnerModule = Readonly<{
@@ -95,8 +112,47 @@ type RunnerModule = Readonly<{
   ) => Promise<Readonly<Record<string, unknown>>>;
 }>;
 
-const loadRunner = async (): Promise<RunnerModule> =>
-  (await import(pathToFileURL(runnerPath).href)) as RunnerModule;
+type ScreenshotBinding = Readonly<Record<string, unknown>>;
+type ScreenshotHandoff = Readonly<{
+  binding: ScreenshotBinding;
+  captureDirectory: string;
+  responseFile: string;
+  imageBytes: Uint8Array;
+  imageSha256: string;
+  imageBytesLength: number;
+  renderedUrl: string;
+  cookies: ReadonlyArray<Readonly<Record<string, unknown>>>;
+}>;
+type ScreenshotHandoffModule = Readonly<{
+  createScreenshotBinding: (value: Record<string, unknown>) => ScreenshotBinding;
+  beginScreenshotHandoff: (input: Readonly<Record<string, unknown>>) => Promise<ScreenshotHandoff>;
+  consumeScreenshotResponse: (handoff: ScreenshotHandoff) => void;
+  awaitScreenshotReview: (
+    handoff: ScreenshotHandoff
+  ) => Promise<Readonly<{ reviewer: string; reviewRecordSha256: string }>>;
+}>;
+
+const loadRunner = async (): Promise<RunnerModule> => {
+  const runner = (await import(pathToFileURL(runnerPath).href)) as RunnerModule;
+  return {
+    ...runner,
+    runOidfBasicPlan: async (input, dependencies = {}) => {
+      if (dependencies.screenshotIpcRoot) {
+        return runner.runOidfBasicPlan(input, dependencies);
+      }
+      await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+      const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+      try {
+        return await runner.runOidfBasicPlan(input, { ...dependencies, screenshotIpcRoot: root });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  };
+};
+
+const loadScreenshotHandoff = async (): Promise<ScreenshotHandoffModule> =>
+  (await import(pathToFileURL(screenshotHandoffPath).href)) as ScreenshotHandoffModule;
 
 const validInput = () => ({
   schemaVersion: 1,
@@ -124,6 +180,33 @@ const renderedImplicitCallback = (submissionUrl: string): Response =>
     { status: 200, headers: { 'content-type': 'text/html;charset=UTF-8' } }
   );
 
+const screenshotEvidenceParent = '/var/tmp/henry-build/aster-phase1-screenshot-evidence';
+const testPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+);
+
+const waitForPrivateFile = async (file: string, attempt = 0): Promise<void> => {
+  try {
+    await access(file);
+  } catch {
+    if (attempt >= 199) {
+      throw new Error(`timed out waiting for ${file}`);
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    return waitForPrivateFile(file, attempt + 1);
+  }
+};
+
+const writePrivateAtomic = async (file: string, value: string | Uint8Array): Promise<void> => {
+  const temporary = `${file}.tmp`;
+  await writeFile(temporary, value, { mode: 0o600 });
+  await chmod(temporary, 0o600);
+  await rename(temporary, file);
+};
+
 const readSecret = (secretPath: string): Uint8Array => {
   const values: Readonly<Record<string, string>> = {
     '/run/aster-secrets/phase1-user': 'user-secret-value',
@@ -143,6 +226,215 @@ const readSecret = (secretPath: string): Uint8Array => {
   }
 
   return new TextEncoder().encode(value);
+};
+
+const requiredScreenshotNames: readonly string[] = [
+  'oidcc-prompt-login',
+  'oidcc-max-age-1',
+  'oidcc-ensure-registered-redirect-uri',
+];
+
+// Supply the three mandatory suite/browser/IPC exchanges in otherwise focused plan fixtures.
+const runWithRequiredScreenshots = async (
+  runner: RunnerModule,
+  dependencies: BasicRunnerDependencies & { fetch: typeof fetch },
+  excludedModules: readonly string[] = []
+) => {
+  await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+  const root =
+    dependencies.screenshotIpcRoot ?? (await mkdtemp(`${screenshotEvidenceParent}/run.`));
+  const workers: Array<Promise<void>> = [];
+  const workerFailures: unknown[] = [];
+  let active:
+    | {
+        id: string;
+        name: string;
+        logins: number;
+        errorPage: boolean;
+        image?: string;
+        entry: Record<string, unknown>;
+      }
+    | undefined;
+  const fetchImplementation: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? 'GET';
+    if (url.pathname === '/api/runner' && method === 'POST') {
+      const response = await dependencies.fetch(input, init);
+      const module = (await response.clone().json()) as { id: string; name: string };
+      active = undefined;
+      if (requiredScreenshotNames.includes(module.name) && !excludedModules.includes(module.name)) {
+        const errorPage = module.name === 'oidcc-ensure-registered-redirect-uri';
+        active = {
+          ...module,
+          logins: 0,
+          errorPage,
+          entry: {
+            _id: `entry-${module.id}`,
+            testId: module.id,
+            src: errorPage ? 'ExpectRedirectUriErrorPage' : 'ExpectSecondLoginPage',
+            msg: errorPage
+              ? 'Show redirect URI error page'
+              : 'The server must ask the user to login for a second time; a screenshot of this must be uploaded.',
+            result: 'REVIEW',
+          },
+        };
+      }
+      return response;
+    }
+    if (!active) {
+      return dependencies.fetch(input, init);
+    }
+    const state = active;
+    const placeholderId = `P${String(basicModuleNames.indexOf(state.name)).padStart(9, '0')}`;
+    const redirect = (location: string) =>
+      new Response(null, { status: 302, headers: { location } });
+    if (url.pathname === `/api/runner/${state.id}/wait-state`) {
+      const finished = state.errorPage ? Boolean(state.image) : state.logins === 2;
+      return jsonResponse(
+        finished
+          ? { state: 'FINISHED' }
+          : state.logins === 0
+            ? { state: 'WAITING' }
+            : { timeout: true }
+      );
+    }
+    if (url.pathname === `/api/runner/${state.id}` && method === 'GET') {
+      const declared = `https://server.example/oidc/auth/required-${state.logins}`;
+      return jsonResponse({
+        id: state.id,
+        name: state.name,
+        browser: {
+          urls: [declared],
+          urlsWithMethod: [{ url: declared, method: 'GET' }],
+          browserApiRequests: [],
+          uriInputRequests: [],
+          uploadsRequired: state.errorPage || state.logins === 1 ? 1 : 0,
+        },
+      });
+    }
+    if (url.pathname === `/api/runner/browser/${state.id}/visit`) {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.startsWith('/oidc/auth/required-')) {
+      return redirect(state.errorPage ? '/error/required' : '/sign-in?app_id=oidf-basic-1');
+    }
+    if (url.pathname === '/error/required') {
+      return new Response('<html>Invalid redirect URI</html>', { status: 400 });
+    }
+    if (url.pathname === '/api/experience' || url.pathname === '/api/experience/identification') {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/api/experience/verification/password') {
+      return jsonResponse({ verificationId: 'verification-required' });
+    }
+    if (url.pathname === '/api/experience/submit') {
+      return jsonResponse({ redirectTo: 'https://server.example/oidc/auth/resume-required' });
+    }
+    if (url.pathname === '/oidc/auth/resume-required') {
+      return redirect(`${suiteBaseUrl}/test/a/aster-phase1/callback?code=required`);
+    }
+    if (url.pathname === '/test/a/aster-phase1/callback') {
+      return renderedImplicitCallback(
+        `${suiteBaseUrl}/test/a/aster-phase1/implicit/Required123456789012`
+      );
+    }
+    if (url.pathname === '/test/a/aster-phase1/implicit/Required123456789012') {
+      state.logins += 1;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === `/api/log/${state.id}`) {
+      if (!state.image) {
+        const directory = path.join(root, planInstanceId, state.id, placeholderId);
+        const worker = (async () => {
+          await waitForPrivateFile(path.join(directory, 'capture-request.json'));
+          const request = JSON.parse(
+            await readFile(path.join(directory, 'capture-request.json'), 'utf8')
+          ) as Record<string, unknown>;
+          const { url: renderedUrl, issuerOrigin: _origin, cookies, ...binding } = request;
+          expect(binding).toMatchObject({
+            testId: state.id,
+            moduleName: state.name,
+            placeholderId,
+          });
+          const imageSha256 = createHash('sha256').update(testPng).digest('hex');
+          await writePrivateAtomic(path.join(directory, 'capture.png'), testPng);
+          await writePrivateAtomic(
+            path.join(directory, 'capture-response.json'),
+            JSON.stringify({
+              ...binding,
+              result: 'CAPTURED',
+              renderedUrl,
+              imageFile: 'capture.png',
+              imageSha256,
+              imageBytes: testPng.byteLength,
+              observedCondition: true,
+              cookies,
+            })
+          );
+          await waitForPrivateFile(path.join(directory, 'review-request.json'));
+          await writePrivateAtomic(
+            path.join(directory, 'manual-review.json'),
+            JSON.stringify({
+              ...binding,
+              imageSha256,
+              reviewer: `sol-fixture-${state.id}`,
+              review: 'APPROVE',
+              reviewedAt: Date.now(),
+            })
+          );
+        })();
+        workers.push(
+          (async () => {
+            try {
+              await worker;
+            } catch (error: unknown) {
+              workerFailures.push(error);
+            }
+          })()
+        );
+      }
+      return jsonResponse([
+        { ...state.entry, ...(state.image ? { img: state.image } : { upload: placeholderId }) },
+      ]);
+    }
+    if (url.pathname === `/api/log/${state.id}/images/${placeholderId}` && method === 'POST') {
+      state.image = String(init?.body);
+      return jsonResponse({ ...state.entry, img: state.image });
+    }
+    if (url.pathname === `/api/info/${state.id}`) {
+      return jsonResponse({
+        testId: state.id,
+        testName: state.name,
+        planId: planInstanceId,
+        status: 'FINISHED',
+        result: 'REVIEW',
+        variant: {
+          ...moduleVariant(state.name),
+          server_metadata: 'discovery',
+          client_registration: 'static_client',
+        },
+      });
+    }
+    return dependencies.fetch(input, init);
+  };
+  try {
+    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+      ...dependencies,
+      moduleTimeoutMs: dependencies.moduleTimeoutMs ?? 4000,
+      screenshotIpcRoot: root,
+      fetch: fetchImplementation,
+    });
+    await Promise.all(workers);
+    if (workerFailures.length > 0) {
+      throw workerFailures[0];
+    }
+    return terminal;
+  } finally {
+    await Promise.allSettled(workers);
+    if (!dependencies.screenshotIpcRoot) {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
 };
 
 const firstModuleEvidenceExchange = (
@@ -240,7 +532,578 @@ const firstModuleEvidenceExchange = (
   return { fetchImplementation, requests };
 };
 
+const callbackPlaceholderExchange = (
+  scenario: Readonly<{
+    moduleName?: string;
+    initialQueueDelay?: boolean;
+    finalResult?: string;
+    finalEntry?: Readonly<Record<string, unknown>>;
+    extraResult?: string;
+    missingFinalEntry?: boolean;
+    skipCallback?: boolean;
+    authenticate?: boolean;
+    finishWithoutBrowser?: boolean;
+  }> = {}
+) => {
+  const moduleName = scenario.moduleName ?? 'oidcc-response-type-missing';
+  const testId = `C${String(basicModuleNames.indexOf(moduleName)).padStart(14, '0')}`;
+  const placeholder = {
+    _id: '507f1f77bcf86cd799439031',
+    testId,
+    src:
+      moduleName === 'oidcc-prompt-login' || moduleName === 'oidcc-max-age-1'
+        ? 'ExpectSecondLoginPage'
+        : moduleName === 'oidcc-response-type-missing'
+          ? 'ExpectResponseTypeMissingErrorPage'
+          : 'ExpectRedirectUriErrorPage',
+    msg:
+      moduleName === 'oidcc-prompt-login' || moduleName === 'oidcc-max-age-1'
+        ? 'The server must ask the user to login for a second time; a screenshot of this must be uploaded.'
+        : moduleName === 'oidcc-response-type-missing'
+          ? 'Upload a screenshot of the error page showing a missing response type error.'
+          : 'Show redirect URI error page',
+    result: 'REVIEW',
+  };
+  const completedPlaceholder = {
+    ...placeholder,
+    image_no_longer_required: true,
+    ...scenario.finalEntry,
+  };
+  const requests: string[] = [];
+  const startedModules: string[] = [];
+  let callbackCompleted = false;
+  let waits = 0;
+  let statusPolls = 0;
+  const finalLog = [
+    ...(scenario.missingFinalEntry ? [] : [completedPlaceholder]),
+    {
+      testId,
+      src: scenario.authenticate
+        ? 'CheckIdTokenSignature'
+        : 'CheckErrorFromAuthorizationEndpointErrorInvalidRequestOrUnsupportedResponseType',
+      result: 'SUCCESS',
+    },
+    ...(scenario.extraResult
+      ? [{ testId, src: 'UnrelatedCondition', result: scenario.extraResult }]
+      : []),
+    {
+      testId,
+      src: moduleName,
+      result: 'FINISHED',
+      testmodule_result: scenario.finalResult ?? 'PASSED',
+    },
+  ];
+  const fetchImplementation: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? 'GET';
+    requests.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/api/plan') {
+      return jsonResponse(
+        {
+          name: planName,
+          id: planInstanceId,
+          modules: expectedManifest.map((entry) => ({ ...entry, instances: [] })),
+        },
+        201
+      );
+    }
+    if (url.pathname === '/api/runner' && method === 'POST') {
+      const entry = expectedManifest[startedModules.length];
+      if (!entry) {
+        throw new Error('unexpected module');
+      }
+      const id = `C${String(startedModules.length).padStart(14, '0')}`;
+      startedModules.push(entry.testModule);
+      return jsonResponse({ name: entry.testModule, id }, 201);
+    }
+    if (url.pathname.endsWith('/wait-state')) {
+      if (
+        url.pathname !== `/api/runner/${testId}/wait-state` ||
+        callbackCompleted ||
+        scenario.finishWithoutBrowser
+      ) {
+        return jsonResponse({ state: 'FINISHED' });
+      }
+      waits += 1;
+      if (waits > 2) {
+        throw new Error('unexpected wait before callback completion');
+      }
+      return jsonResponse(waits === 1 ? { state: 'WAITING' } : { timeout: true });
+    }
+    if (url.pathname === `/api/runner/${testId}` && method === 'GET') {
+      statusPolls += 1;
+      const declarations =
+        scenario.initialQueueDelay && statusPolls === 1
+          ? []
+          : [{ url: 'https://server.example/oidc/auth', method: 'GET' }];
+      return jsonResponse({
+        id: testId,
+        name: moduleName,
+        browser: {
+          urls: declarations.map(({ url: declared }) => declared),
+          urlsWithMethod: declarations,
+          browserApiRequests: [],
+          uriInputRequests: [],
+          uploadsRequired: 1,
+        },
+      });
+    }
+    if (url.pathname === `/api/runner/browser/${testId}/visit`) {
+      return new Response(null, { status: 204 });
+    }
+    if (url.origin === 'https://server.example' && url.pathname === '/oidc/auth') {
+      if (scenario.skipCallback) {
+        return new Response('invalid request', { status: 400 });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: scenario.authenticate
+            ? '/sign-in?app_id=oidf-basic-1'
+            : `${suiteBaseUrl}/test/a/aster-phase1/callback?error=invalid_request`,
+        },
+      });
+    }
+    if (url.pathname === '/api/experience' || url.pathname === '/api/experience/identification') {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/api/experience/verification/password') {
+      return jsonResponse({ verificationId: 'optional-authentication' });
+    }
+    if (url.pathname === '/api/experience/submit') {
+      return jsonResponse({ redirectTo: 'https://server.example/oidc/auth/optional-login' });
+    }
+    if (url.pathname === '/oidc/auth/optional-login') {
+      return new Response(null, {
+        status: 302,
+        headers: { location: '/consent?app_id=oidf-basic-1' },
+      });
+    }
+    if (url.pathname === '/api/interaction/consent') {
+      return jsonResponse(
+        method === 'GET'
+          ? { application: { id: 'oidf-basic-1' } }
+          : { redirectTo: 'https://server.example/oidc/auth/optional-consent' }
+      );
+    }
+    if (url.pathname === '/oidc/auth/optional-consent') {
+      return new Response(null, {
+        status: 302,
+        headers: { location: `${suiteBaseUrl}/test/a/aster-phase1/callback?code=optional` },
+      });
+    }
+    if (url.pathname === '/test/a/aster-phase1/callback') {
+      return renderedImplicitCallback(
+        `${suiteBaseUrl}/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt`
+      );
+    }
+    if (url.pathname === '/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt') {
+      if (method !== 'POST' || init?.body !== '') {
+        throw new Error('invalid callback submission');
+      }
+      callbackCompleted = true;
+      return new Response(null, { status: 204 });
+    }
+    const info = /^\/api\/info\/C([0-9]{14})$/u.exec(url.pathname);
+    if (info) {
+      const entry = expectedManifest[Number(info[1])]!;
+      return jsonResponse({
+        testId: `C${info[1]}`,
+        testName: entry.testModule,
+        variant: {
+          ...entry.variant,
+          server_metadata: 'discovery',
+          client_registration: 'static_client',
+        },
+        planId: planInstanceId,
+        status: 'FINISHED',
+        result: entry.testModule === moduleName ? (scenario.finalResult ?? 'PASSED') : 'PASSED',
+      });
+    }
+    const log = /^\/api\/log\/(C[0-9]{14})$/u.exec(url.pathname);
+    if (log) {
+      if (log[1] === testId) {
+        return jsonResponse(
+          callbackCompleted ? finalLog : [{ ...placeholder, upload: 'Optional01' }]
+        );
+      }
+      return jsonResponse([{ testId: log[1], src: 'CheckIdToken', result: 'SUCCESS' }]);
+    }
+    if (url.pathname === `/api/runner/${testId}` && method === 'DELETE') {
+      return jsonResponse({ id: testId, name: moduleName });
+    }
+    throw new Error('unexpected callback-placeholder exchange');
+  };
+  return { fetchImplementation, requests, startedModules, finalLog, testId };
+};
+
 describe('official OIDF Basic plan runner input and manifest', () => {
+  it('retains all 35 private ordered ledgers with original byte hashes and no sensitive payloads', async () => {
+    const runner = await loadRunner();
+    await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+    const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+    const exchange = callbackPlaceholderExchange();
+    const hashes = new Map<string, string>();
+    const payloadCanary = 'private-payload-not-for-audit';
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const response = await exchange.fetchImplementation(input, init);
+      if (
+        !url.pathname.startsWith('/api/info/') &&
+        !/^\/api\/log\/[A-Za-z0-9]+$/u.test(url.pathname)
+      ) {
+        return response;
+      }
+      const parsed = (await response.json()) as
+        | Record<string, unknown>
+        | Array<Record<string, unknown>>;
+      const value = Array.isArray(parsed)
+        ? [
+            {
+              _id: 'block-start',
+              testId: url.pathname.split('/').at(-1),
+              src: '-START-BLOCK-',
+              msg: payloadCanary,
+            },
+            ...parsed.map((row) => ({
+              ...row,
+              data: payloadCanary,
+              env: { token: payloadCanary },
+            })),
+            {
+              _id: 'metadata-row',
+              testId: url.pathname.split('/').at(-1),
+              src: 'AuditMetadata',
+              requirements: ['OIDCC-3.1.2.1'],
+              msg: payloadCanary,
+              cookies: payloadCanary,
+            },
+          ]
+        : { ...parsed, configuration: { client_secret: payloadCanary }, tokens: payloadCanary };
+      const bytes = `${JSON.stringify(value, null, 2)}\n`;
+      hashes.set(url.pathname, createHash('sha256').update(bytes).digest('hex'));
+      return new Response(bytes, {
+        status: response.status,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    try {
+      const terminal = await runWithRequiredScreenshots(runner, {
+        readSecret,
+        fetch: fetchImplementation,
+        screenshotIpcRoot: root,
+      });
+      const result = terminal.result as { modules: Array<Record<string, unknown>> };
+      const audits = await Promise.all(
+        result.modules.map(async (summary) => {
+          const directory = path.join(root, planInstanceId, String(summary.testId));
+          const file = path.join(directory, 'module-audit.json');
+          const source = await readFile(file, 'utf8');
+          const audit = JSON.parse(source) as {
+            conditions: Array<Record<string, unknown>>;
+            conditionCount: number;
+            review: unknown;
+            info: Record<string, unknown>;
+          };
+          const [directoryStat, fileStat] = await Promise.all([stat(directory), stat(file)]);
+          expect(directoryStat.mode % 0o1000).toBe(0o700);
+          expect(fileStat.mode % 0o1000).toBe(0o600);
+          expect(fileStat.uid).toBe(process.getuid?.());
+          expect(source).not.toContain(payloadCanary);
+          expect(source).not.toMatch(
+            /"(?:msg|img|payload|env|cookies|tokens|client_secret)"|data:image/iu
+          );
+          expect(audit).toMatchObject({
+            suiteCommit: phase1ConformanceSuiteCommit,
+            planName,
+            planInstanceId,
+            moduleName: summary.testName,
+            testId: summary.testId,
+            accepted: true,
+            failureCategory: null,
+            conditionLogSha256: summary.conditionLogSha256,
+            review: summary.review,
+            info: {
+              testId: summary.testId,
+              testName: summary.testName,
+              status: 'FINISHED',
+              result: summary.result,
+              planId: planInstanceId,
+            },
+          });
+          expect(Object.keys(audit.info).sort()).toEqual([
+            'planId',
+            'result',
+            'status',
+            'testId',
+            'testName',
+            'variant',
+          ]);
+          expect(audit.conditionCount).toBe(audit.conditions.length);
+          if (audit.review) {
+            expect(audit.conditions[0]?.imageSha256).toBe(
+              (audit.review as Record<string, unknown>).imageSha256
+            );
+            expect(audit).toMatchObject({
+              captureId: expect.stringMatching(/^[a-f0-9]{32}$/u) as unknown,
+            });
+          }
+          return audit;
+        })
+      );
+      expect(audits).toHaveLength(35);
+      expect(audits[1]).toMatchObject({
+        infoSha256: hashes.get(`/api/info/${exchange.testId}`),
+        conditionLogSha256: hashes.get(`/api/log/${exchange.testId}`),
+        conditionCount: 5,
+      });
+      expect(audits[1]?.conditions.map(({ src }) => src)).toEqual([
+        '-START-BLOCK-',
+        'ExpectResponseTypeMissingErrorPage',
+        'CheckErrorFromAuthorizationEndpointErrorInvalidRequestOrUnsupportedResponseType',
+        'oidcc-response-type-missing',
+        'AuditMetadata',
+      ]);
+      expect(audits[1]?.conditions[1]).toMatchObject({
+        resultPresent: true,
+        result: 'REVIEW',
+        image_no_longer_required: true,
+      });
+      expect(audits[1]?.conditions[4]).toEqual({
+        _id: 'metadata-row',
+        testId: exchange.testId,
+        src: 'AuditMetadata',
+        resultPresent: false,
+        result: null,
+        requirements: ['OIDCC-3.1.2.1'],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects unknown leading-punctuation sources instead of treating them as suite block markers', async () => {
+    const runner = await loadRunner();
+    const exchange = callbackPlaceholderExchange();
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      if (new URL(String(input)).pathname === '/api/log/C00000000000000') {
+        return jsonResponse([
+          { _id: 'bad-marker', testId: 'C00000000000000', src: '-UNKNOWN-BLOCK-' },
+        ]);
+      }
+      return exchange.fetchImplementation(input, init);
+    };
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: fetchImplementation,
+      })
+    ).rejects.toMatchObject({ category: 'module-audit', module: 'oidcc-server' });
+  });
+
+  it.each(['missing', 'modified', 'wrong permissions'] as const)(
+    'rejects final acceptance when an earlier audit is %s',
+    async (mutation) => {
+      const runner = await loadRunner();
+      await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+      const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+      const exchange = callbackPlaceholderExchange();
+      const file = path.join(root, planInstanceId, 'C00000000000000', 'module-audit.json');
+      const fetchImplementation: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/info/C00000000000034') {
+          if (mutation === 'missing') {
+            await rm(file);
+          } else if (mutation === 'modified') {
+            await writeFile(file, '{}', { mode: 0o600 });
+          } else {
+            await chmod(file, 0o644);
+          }
+        }
+        return exchange.fetchImplementation(input, init);
+      };
+      try {
+        await expect(
+          runWithRequiredScreenshots(runner, {
+            readSecret,
+            fetch: fetchImplementation,
+            screenshotIpcRoot: root,
+          })
+        ).rejects.toMatchObject({ category: 'module-audit' });
+        expect(exchange.startedModules).toHaveLength(35);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  );
+
+  it.each(requiredScreenshotNames)(
+    'rejects mandatory %s reporting PASSED without capture proof',
+    async (moduleName) => {
+      const runner = await loadRunner();
+      const exchange = callbackPlaceholderExchange({ moduleName, finishWithoutBrowser: true });
+      await expect(
+        runWithRequiredScreenshots(
+          runner,
+          {
+            readSecret,
+            fetch: exchange.fetchImplementation,
+          },
+          [moduleName]
+        )
+      ).rejects.toMatchObject({ category: 'module-result', module: moduleName });
+      expect(exchange.requests).toContain(`GET /api/info/${exchange.testId}`);
+    }
+  );
+
+  it.each(requiredScreenshotNames)(
+    'rejects mandatory %s reporting REVIEW without capture proof',
+    async (moduleName) => {
+      const runner = await loadRunner();
+      const exchange = callbackPlaceholderExchange({
+        moduleName,
+        finishWithoutBrowser: true,
+        finalResult: 'REVIEW',
+      });
+      await expect(
+        runWithRequiredScreenshots(
+          runner,
+          {
+            readSecret,
+            fetch: exchange.fetchImplementation,
+          },
+          [moduleName]
+        )
+      ).rejects.toMatchObject({ category: 'condition-log', module: moduleName });
+    }
+  );
+
+  it.each(['oidcc-response-type-missing', 'oidcc-ensure-request-object-with-redirect-uri'])(
+    'allows %s to authenticate and consent before its callback retires the optional placeholder',
+    async (moduleName) => {
+      const runner = await loadRunner();
+      const exchange = callbackPlaceholderExchange({ moduleName, authenticate: true });
+      const terminal = await runWithRequiredScreenshots(runner, {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+      });
+      expect(terminal).toMatchObject({
+        status: 'FINISHED',
+        acceptance: 'ACCEPTED',
+        result: { moduleCount: 35, passedModuleCount: 32, reviewedModuleCount: 3 },
+      });
+      expect(exchange.requests).toContain('POST /api/experience/verification/password');
+      expect(exchange.requests).toContain('POST /api/interaction/consent');
+      expect(exchange.requests).toContain(
+        'POST /test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+      );
+      expect(
+        exchange.requests.some((request) => request.includes(`/api/log/${exchange.testId}/images/`))
+      ).toBe(false);
+    }
+  );
+
+  it('never retires the registered-redirect placeholder through a successful callback', async () => {
+    const runner = await loadRunner();
+    const moduleName = 'oidcc-ensure-registered-redirect-uri';
+    const exchange = callbackPlaceholderExchange({ moduleName });
+    await expect(
+      runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation }, [
+        moduleName,
+      ])
+    ).rejects.toMatchObject({ category: 'screenshot-condition', module: moduleName });
+  });
+
+  it.each([false, true])(
+    'accepts all 35 modules when the callback retires its optional placeholder (initial queue delay: %s)',
+    async (initialQueueDelay) => {
+      const runner = await loadRunner();
+      const exchange = callbackPlaceholderExchange({ initialQueueDelay });
+      const terminal = await runWithRequiredScreenshots(runner, {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+      });
+      const result = terminal.result as {
+        modules: ReadonlyArray<Readonly<Record<string, unknown>>>;
+      };
+      expect(exchange.startedModules).toEqual(basicModuleNames);
+      expect(terminal).toMatchObject({
+        status: 'FINISHED',
+        acceptance: 'ACCEPTED',
+        result: { moduleCount: 35, passedModuleCount: 32, reviewedModuleCount: 3 },
+      });
+      expect(result.modules[1]).toEqual({
+        testId: exchange.testId,
+        testName: 'oidcc-response-type-missing',
+        status: 'FINISHED',
+        result: 'PASSED',
+        conditionLogSha256: createHash('sha256')
+          .update(JSON.stringify(exchange.finalLog))
+          .digest('hex'),
+        review: null,
+      });
+      expect(exchange.requests).toContain(
+        'POST /test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+      );
+      expect(exchange.requests.some((request) => request.includes('/images/'))).toBe(false);
+    }
+  );
+
+  it.each([
+    ['missing flag', { finalEntry: { image_no_longer_required: undefined } }],
+    ['false flag', { finalEntry: { image_no_longer_required: false } }],
+    ['string flag', { finalEntry: { image_no_longer_required: 'true' } }],
+    ['wrong entry', { finalEntry: { _id: 'different-entry' } }],
+    ['wrong condition', { finalEntry: { src: 'ExpectRedirectUriErrorPage' } }],
+    ['wrong message', { finalEntry: { msg: 'different condition' } }],
+    ['wrong test', { finalEntry: { testId: 'C99999999999999' } }],
+    ['remaining upload', { finalEntry: { upload: 'Optional01' } }],
+    ['image present', { finalEntry: { img: null } }],
+    ['missing entry', { missingFinalEntry: true }],
+    ['unrelated REVIEW', { extraResult: 'REVIEW' }],
+    ['hidden FAILURE', { extraResult: 'FAILURE' }],
+    ['hidden WARNING', { extraResult: 'WARNING' }],
+    ['official REVIEW', { finalResult: 'REVIEW' }],
+  ] as const)('rejects callback-retired placeholder with %s', async (_name, scenario) => {
+    const runner = await loadRunner();
+    const exchange = callbackPlaceholderExchange(scenario);
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+      })
+    ).rejects.toMatchObject({ category: 'condition-log', module: 'oidcc-response-type-missing' });
+    expect(exchange.startedModules).toHaveLength(2);
+    expect(exchange.requests).toContain(`DELETE /api/runner/${exchange.testId}`);
+  });
+
+  it('requires a second-sign-in capture even if the callback would retire its placeholder', async () => {
+    const runner = await loadRunner();
+    const exchange = callbackPlaceholderExchange({ moduleName: 'oidcc-prompt-login' });
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+      })
+    ).rejects.toMatchObject({ category: 'screenshot-condition', module: 'oidcc-prompt-login' });
+    expect(exchange.requests).not.toContain(`GET /api/info/${exchange.testId}`);
+  });
+
+  it('does not retire an optional placeholder without completing the actual callback', async () => {
+    const runner = await loadRunner();
+    const exchange = callbackPlaceholderExchange({ skipCallback: true });
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+      })
+    ).rejects.toMatchObject({
+      category: 'screenshot-condition',
+      module: 'oidcc-response-type-missing',
+    });
+    expect(exchange.requests).not.toContain(`GET /api/info/${exchange.testId}`);
+  });
+
   it('accepts Basic through the shell driver plan allowlist', async () => {
     const root = await mkdtemp('/var/tmp/henry-build/oidf-basic-driver-');
     const copiedDriver = path.join(root, 'phase1-conformance-driver.sh');
@@ -278,6 +1141,555 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     );
   });
 
+  it('accepts identical PNG bytes only through distinct bound captures and review records', async () => {
+    const handoffModule = await loadScreenshotHandoff();
+    await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+    await chmod(screenshotEvidenceParent, 0o700);
+    const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+    await chmod(root, 0o700);
+    const imageSha256 = createHash('sha256').update(testPng).digest('hex');
+
+    const perform = async (sequence: number) => {
+      const createdAt = Date.now();
+      const binding = handoffModule.createScreenshotBinding({
+        schemaVersion: 1,
+        suiteCommit: phase1ConformanceSuiteCommit,
+        planName,
+        planInstanceId,
+        moduleName: sequence === 1 ? 'oidcc-prompt-login' : 'oidcc-max-age-1',
+        testId: `S${String(sequence).padStart(14, '0')}`,
+        placeholderId: sequence === 1 ? 'CaptureA01' : 'CaptureB02',
+        conditionId: 'ExpectSecondLoginPage',
+        captureId: String(sequence).padStart(32, '0'),
+        captureKind: 'second-sign-in',
+        createdAt,
+        deadline: createdAt + 10_000,
+      });
+      const captureDirectory = path.join(
+        root,
+        String(binding.planInstanceId),
+        String(binding.testId),
+        String(binding.placeholderId)
+      );
+      const requestFile = path.join(captureDirectory, 'capture-request.json');
+      const responseFile = path.join(captureDirectory, 'capture-response.json');
+      const reviewRequestFile = path.join(captureDirectory, 'review-request.json');
+      const manualReviewFile = path.join(captureDirectory, 'manual-review.json');
+      const worker = (async () => {
+        await waitForPrivateFile(requestFile);
+        const request = JSON.parse(await readFile(requestFile, 'utf8')) as Record<string, unknown>;
+        const { url: _url, issuerOrigin: _issuerOrigin, cookies: _cookies, ...common } = request;
+        await writePrivateAtomic(path.join(captureDirectory, 'capture.png'), testPng);
+        await writePrivateAtomic(
+          responseFile,
+          JSON.stringify({
+            ...common,
+            result: 'CAPTURED',
+            renderedUrl: request.url,
+            imageFile: 'capture.png',
+            imageSha256,
+            imageBytes: testPng.byteLength,
+            observedCondition: true,
+            cookies: [],
+          })
+        );
+        await waitForPrivateFile(reviewRequestFile);
+        const review = {
+          ...common,
+          imageSha256,
+          reviewer: `sol-session-${sequence}`,
+          review: 'APPROVE',
+          reviewedAt: Date.now(),
+        };
+        const source = JSON.stringify(review);
+        await writePrivateAtomic(manualReviewFile, source);
+        return source;
+      })();
+      const handoff = await handoffModule.beginScreenshotHandoff({
+        root,
+        binding,
+        url: 'https://server.example/sign-in?app_id=oidf-basic-1',
+        issuerOrigin: 'https://server.example',
+        cookies: [],
+      });
+      handoffModule.consumeScreenshotResponse(handoff);
+      const review = await handoffModule.awaitScreenshotReview(handoff);
+      const source = await worker;
+      expect(review.reviewRecordSha256).toBe(createHash('sha256').update(source).digest('hex'));
+      return { handoff, review };
+    };
+
+    try {
+      const [first, second] = await Promise.all([perform(1), perform(2)]);
+      expect(first.handoff.imageSha256).toBe(second.handoff.imageSha256);
+      expect(first.handoff.binding.captureId).not.toBe(second.handoff.binding.captureId);
+      expect(first.review.reviewRecordSha256).not.toBe(second.review.reviewRecordSha256);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a stale independently reviewed record', async () => {
+    const handoffModule = await loadScreenshotHandoff();
+    await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+    await chmod(screenshotEvidenceParent, 0o700);
+    const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+    await chmod(root, 0o700);
+    const createdAt = Date.now();
+    const binding = handoffModule.createScreenshotBinding({
+      schemaVersion: 1,
+      suiteCommit: phase1ConformanceSuiteCommit,
+      planName,
+      planInstanceId,
+      moduleName: 'oidcc-prompt-login',
+      testId: 'S00000000000003',
+      placeholderId: 'CaptureC03',
+      conditionId: 'ExpectSecondLoginPage',
+      captureId: '00000000000000000000000000000003',
+      captureKind: 'second-sign-in',
+      createdAt,
+      deadline: createdAt + 10_000,
+    });
+    const captureDirectory = path.join(
+      root,
+      String(binding.planInstanceId),
+      String(binding.testId),
+      String(binding.placeholderId)
+    );
+    const requestFile = path.join(captureDirectory, 'capture-request.json');
+    const responseFile = path.join(captureDirectory, 'capture-response.json');
+    const reviewRequestFile = path.join(captureDirectory, 'review-request.json');
+    const imageSha256 = createHash('sha256').update(testPng).digest('hex');
+    const worker = (async () => {
+      await waitForPrivateFile(requestFile);
+      const request = JSON.parse(await readFile(requestFile, 'utf8')) as Record<string, unknown>;
+      const { url: _url, issuerOrigin: _issuerOrigin, cookies: _cookies, ...common } = request;
+      await writePrivateAtomic(path.join(captureDirectory, 'capture.png'), testPng);
+      await writePrivateAtomic(
+        responseFile,
+        JSON.stringify({
+          ...common,
+          result: 'CAPTURED',
+          renderedUrl: request.url,
+          imageFile: 'capture.png',
+          imageSha256,
+          imageBytes: testPng.byteLength,
+          observedCondition: true,
+          cookies: [],
+        })
+      );
+      await waitForPrivateFile(reviewRequestFile);
+      await writePrivateAtomic(
+        path.join(captureDirectory, 'manual-review.json'),
+        JSON.stringify({
+          ...common,
+          imageSha256,
+          reviewer: 'sol-session-stale',
+          review: 'APPROVE',
+          reviewedAt: createdAt - 1,
+        })
+      );
+    })();
+
+    try {
+      const handoff = await handoffModule.beginScreenshotHandoff({
+        root,
+        binding,
+        url: 'https://server.example/sign-in?app_id=oidf-basic-1',
+        issuerOrigin: 'https://server.example',
+        cookies: [],
+      });
+      handoffModule.consumeScreenshotResponse(handoff);
+      await expect(handoffModule.awaitScreenshotReview(handoff)).rejects.toThrow(
+        'Invalid phase 1 screenshot handoff'
+      );
+      await worker;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('captures and independently approves the real second sign-in before credentials', async () => {
+    const runner = await loadRunner();
+    await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+    await chmod(screenshotEvidenceParent, 0o700);
+    const screenshotIpcRoot = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+    await chmod(screenshotIpcRoot, 0o700);
+    const promptIndex = basicModuleNames.indexOf('oidcc-prompt-login');
+    const promptId = `R${String(promptIndex).padStart(14, '0')}`;
+    const placeholderId = 'AbCdEf1234';
+    const logEntryId = '507f1f77bcf86cd799439011';
+    const promptMessage =
+      'The server must ask the user to login for a second time; a screenshot of this must be uploaded.';
+    const captureDirectory = path.join(screenshotIpcRoot, planInstanceId, promptId, placeholderId);
+    const captureRequestFile = path.join(captureDirectory, 'capture-request.json');
+    const captureResponseFile = path.join(captureDirectory, 'capture-response.json');
+    const reviewRequestFile = path.join(captureDirectory, 'review-request.json');
+    const manualReviewFile = path.join(captureDirectory, 'manual-review.json');
+    const imageFile = path.join(captureDirectory, 'capture.png');
+    const imageSha256 = createHash('sha256').update(testPng).digest('hex');
+    const tests = new Map<string, Readonly<{ name: string; variant: Record<string, string> }>>();
+    let nextTest = 0;
+    let promptWaits = 0;
+    let promptStatusPolls = 0;
+    let currentLogin: 'first' | 'second' = 'first';
+    let secondLoginCompleted = false;
+    let secondAuthorizationCookie = '';
+    let uploadedEntry: Readonly<Record<string, unknown>> | undefined;
+    let reviewSource = '';
+
+    const worker = (async () => {
+      await waitForPrivateFile(captureRequestFile);
+      const request = JSON.parse(await readFile(captureRequestFile, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      expect(request).toMatchObject({
+        schemaVersion: 1,
+        suiteCommit: phase1ConformanceSuiteCommit,
+        planName,
+        planInstanceId,
+        moduleName: 'oidcc-prompt-login',
+        testId: promptId,
+        placeholderId,
+        conditionId: 'ExpectSecondLoginPage',
+        captureKind: 'second-sign-in',
+        issuerOrigin: 'https://server.example',
+      });
+      expect(request.url).toBe('https://server.example/sign-in?app_id=oidf-basic-1');
+      const requestCookies = request.cookies as Array<Record<string, unknown>>;
+      expect(requestCookies.every(({ domain }) => domain === 'server.example')).toBe(true);
+      expect(
+        requestCookies.some(({ name, httpOnly }) => name === '_aster' && httpOnly === true)
+      ).toBe(true);
+      expect(
+        requestCookies.some(({ name, sameSite }) => name === '_aster' && sameSite === 'Strict')
+      ).toBe(true);
+      expect(requestCookies.some(({ name }) => name === 'suite_session')).toBe(false);
+      const { url: _url, issuerOrigin: _issuerOrigin, cookies: _cookies, ...binding } = request;
+      const responseCookies = [
+        {
+          name: '_aster',
+          value: 'rendered-second',
+          domain: 'server.example',
+          path: '/',
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: 'Strict',
+        },
+        {
+          name: '_aster_session',
+          value: 'session-one',
+          domain: 'server.example',
+          path: '/',
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: 'None',
+        },
+      ];
+      await writePrivateAtomic(`${imageFile}`, testPng);
+      await writePrivateAtomic(
+        captureResponseFile,
+        JSON.stringify({
+          ...binding,
+          result: 'CAPTURED',
+          renderedUrl: request.url,
+          imageFile: 'capture.png',
+          imageSha256,
+          imageBytes: testPng.byteLength,
+          observedCondition: true,
+          cookies: responseCookies,
+        })
+      );
+      await waitForPrivateFile(reviewRequestFile);
+      const reviewRequest = JSON.parse(await readFile(reviewRequestFile, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      expect(reviewRequest).toEqual({
+        ...binding,
+        imageFile: 'capture.png',
+        imageSha256,
+        imageBytes: testPng.byteLength,
+      });
+      const manualReview = {
+        ...binding,
+        imageSha256,
+        reviewer: 'sol-session-basic-001',
+        review: 'APPROVE',
+        reviewedAt: Date.now(),
+      };
+      reviewSource = JSON.stringify(manualReview);
+      await writePrivateAtomic(manualReviewFile, reviewSource);
+      return request;
+    })();
+
+    const redirectResponse = (location: string, cookies: readonly string[] = []): Response => {
+      const headers = new Headers({ location });
+      for (const cookie of cookies) {
+        headers.append('set-cookie', cookie);
+      }
+      return new Response(null, { status: 302, headers });
+    };
+    const initialReviewEntry = () => ({
+      _id: logEntryId,
+      testId: promptId,
+      src: 'ExpectSecondLoginPage',
+      msg: promptMessage,
+      result: 'REVIEW',
+      upload: placeholderId,
+    });
+    const fetchImplementation: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? 'GET';
+      const headers = new Headers(init?.headers);
+      if (url.origin === suiteBaseUrl && url.pathname === '/api/plan') {
+        return jsonResponse(
+          {
+            name: planName,
+            id: planInstanceId,
+            modules: expectedManifest.map(({ testModule, variant }) => ({
+              testModule,
+              variant,
+              instances: [],
+            })),
+          },
+          201
+        );
+      }
+      if (url.origin === suiteBaseUrl && url.pathname === '/api/runner' && method === 'POST') {
+        const manifestEntry = expectedManifest[nextTest];
+        if (!manifestEntry) {
+          throw new Error('unexpected module');
+        }
+        const id = `R${String(nextTest).padStart(14, '0')}`;
+        tests.set(id, { name: manifestEntry.testModule, variant: manifestEntry.variant });
+        nextTest += 1;
+        return jsonResponse({ name: manifestEntry.testModule, id }, 201);
+      }
+      const wait = /^\/api\/runner\/([A-Za-z0-9]{15})\/wait-state$/u.exec(url.pathname);
+      if (wait) {
+        if (wait[1] !== promptId) {
+          return jsonResponse({ state: 'FINISHED' });
+        }
+        promptWaits += 1;
+        if (promptWaits === 1) {
+          return jsonResponse({ state: 'WAITING' });
+        }
+        if (promptWaits === 2) {
+          return jsonResponse({ timeout: true });
+        }
+        expect(secondLoginCompleted).toBe(true);
+        return jsonResponse({ state: 'FINISHED' });
+      }
+      if (url.origin === suiteBaseUrl && url.pathname === `/api/runner/${promptId}`) {
+        promptStatusPolls += 1;
+        const second = promptStatusPolls === 2;
+        return jsonResponse({
+          name: 'oidcc-prompt-login',
+          id: promptId,
+          browser: {
+            urls: [`https://suite.example/browser/prompt-${second ? 'second' : 'first'}`],
+            urlsWithMethod: [
+              {
+                url: `https://suite.example/browser/prompt-${second ? 'second' : 'first'}`,
+                method: 'GET',
+              },
+            ],
+            browserApiRequests: [],
+            uriInputRequests: [],
+            uploadsRequired: second ? 1 : 0,
+          },
+        });
+      }
+      if (
+        url.origin === suiteBaseUrl &&
+        url.pathname === `/api/runner/browser/${promptId}/visit` &&
+        method === 'POST'
+      ) {
+        return new Response(null, { status: 204 });
+      }
+      if (url.origin === suiteBaseUrl && url.pathname === '/browser/prompt-first') {
+        return redirectResponse('https://server.example/oidc/auth/prompt-first', [
+          'suite_session=alpha; Path=/; Secure; HttpOnly; SameSite=Lax',
+        ]);
+      }
+      if (url.origin === suiteBaseUrl && url.pathname === '/browser/prompt-second') {
+        return redirectResponse('https://server.example/oidc/auth/prompt-second');
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/oidc/auth/prompt-first') {
+        currentLogin = 'first';
+        return redirectResponse('/sign-in?app_id=oidf-basic-1', [
+          '_aster=interaction-first; Path=/; Secure; HttpOnly; SameSite=Strict',
+        ]);
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/oidc/auth/prompt-second') {
+        secondAuthorizationCookie = headers.get('cookie') ?? '';
+        currentLogin = 'second';
+        return redirectResponse('/sign-in?app_id=oidf-basic-1', [
+          '_aster=interaction-second; Path=/; Secure; HttpOnly; SameSite=Strict',
+        ]);
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/api/experience') {
+        if (currentLogin === 'second') {
+          expect(uploadedEntry).toBeDefined();
+          expect(headers.get('cookie')).toContain('_aster=rendered-second');
+          expect(headers.get('cookie')).not.toContain('_aster=interaction-second');
+        }
+        return new Response(null, { status: 204 });
+      }
+      if (
+        url.origin === 'https://server.example' &&
+        url.pathname === '/api/experience/verification/password'
+      ) {
+        return jsonResponse({ verificationId: `verification-${currentLogin}` });
+      }
+      if (
+        url.origin === 'https://server.example' &&
+        url.pathname === '/api/experience/identification'
+      ) {
+        return new Response(null, { status: 204 });
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/api/experience/submit') {
+        return jsonResponse({
+          redirectTo: `https://server.example/oidc/auth/resume-${currentLogin}`,
+        });
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/oidc/auth/resume-first') {
+        return redirectResponse('https://suite.example/test/a/aster-phase1/callback?state=first', [
+          '_aster_session=session-one; Path=/; Secure; HttpOnly; SameSite=None',
+        ]);
+      }
+      if (url.origin === 'https://server.example' && url.pathname === '/oidc/auth/resume-second') {
+        return redirectResponse('https://suite.example/test/a/aster-phase1/callback?state=second');
+      }
+      if (url.origin === suiteBaseUrl && url.pathname === '/test/a/aster-phase1/callback') {
+        expect(headers.get('cookie')).toContain('suite_session=alpha');
+        return renderedImplicitCallback(
+          url.searchParams.get('state') === 'first'
+            ? 'https://suite.example/test/a/aster-phase1/implicit/AbCdEfGhIjKlMnOpQrSt'
+            : 'https://suite.example/test/a/aster-phase1/implicit/0123456789abcdefghij'
+        );
+      }
+      if (
+        url.origin === suiteBaseUrl &&
+        url.pathname.startsWith('/test/a/aster-phase1/implicit/')
+      ) {
+        if (url.pathname.endsWith('/0123456789abcdefghij')) {
+          secondLoginCompleted = true;
+        }
+        return new Response(null, { status: 204 });
+      }
+      const upload = new RegExp(`^/api/log/${promptId}/images/(${placeholderId})$`, 'u').exec(
+        url.pathname
+      );
+      if (url.origin === suiteBaseUrl && upload && method === 'POST') {
+        const imageData = String(init?.body);
+        expect(
+          createHash('sha256')
+            .update(Buffer.from(imageData.split(',')[1]!, 'base64'))
+            .digest('hex')
+        ).toBe(imageSha256);
+        uploadedEntry = {
+          _id: logEntryId,
+          testId: promptId,
+          src: 'ExpectSecondLoginPage',
+          msg: promptMessage,
+          result: 'REVIEW',
+          img: imageData,
+          updatedAt: Date.now(),
+        };
+        return jsonResponse(uploadedEntry);
+      }
+      const info = /^\/api\/info\/([A-Za-z0-9]{15})$/u.exec(url.pathname);
+      if (url.origin === suiteBaseUrl && info) {
+        const test = tests.get(info[1]!);
+        if (!test) {
+          throw new Error('unknown test');
+        }
+        return jsonResponse({
+          testId: info[1],
+          testName: test.name,
+          variant: {
+            ...test.variant,
+            server_metadata: 'discovery',
+            client_registration: 'static_client',
+          },
+          planId: planInstanceId,
+          status: 'FINISHED',
+          result: info[1] === promptId ? 'REVIEW' : 'PASSED',
+        });
+      }
+      const log = /^\/api\/log\/([A-Za-z0-9]{15})$/u.exec(url.pathname);
+      if (url.origin === suiteBaseUrl && log) {
+        if (log[1] !== promptId) {
+          return jsonResponse([]);
+        }
+        return jsonResponse([uploadedEntry ?? initialReviewEntry()]);
+      }
+      throw new Error(`unexpected request ${method} ${url.href}`);
+    };
+
+    try {
+      const terminal = await runWithRequiredScreenshots(
+        runner,
+        {
+          readSecret,
+          fetch: fetchImplementation,
+          screenshotIpcRoot,
+        },
+        ['oidcc-prompt-login']
+      );
+      await worker;
+      expect(nextTest).toBe(35);
+      expect(promptStatusPolls).toBe(2);
+      expect(secondAuthorizationCookie).toContain('_aster_session=session-one');
+      expect(terminal).toMatchObject({
+        kind: 'phase1-conformance-basic-terminal',
+        status: 'FINISHED',
+        acceptance: 'ACCEPTED',
+        result: {
+          outcome: 'accepted',
+          moduleCount: 35,
+          passedModuleCount: 32,
+          reviewedModuleCount: 3,
+        },
+      });
+      const terminalResult = terminal.result as Readonly<{
+        modules: ReadonlyArray<Readonly<Record<string, unknown>>>;
+      }>;
+      expect(terminalResult.modules[promptIndex]).toEqual({
+        testId: promptId,
+        testName: 'oidcc-prompt-login',
+        status: 'FINISHED',
+        result: 'REVIEW',
+        conditionLogSha256: createHash('sha256')
+          .update(JSON.stringify([uploadedEntry]))
+          .digest('hex'),
+        review: {
+          placeholderId,
+          conditionId: 'ExpectSecondLoginPage',
+          imageSha256,
+          reviewRecordSha256: createHash('sha256').update(reviewSource).digest('hex'),
+          reviewer: 'sol-session-basic-001',
+          decision: 'APPROVE',
+        },
+      });
+      expect(JSON.stringify(terminal)).not.toMatch(
+        /https?:|suite_session|rendered-second|captureId/iu
+      );
+      await expect(access(captureRequestFile)).rejects.toThrow();
+      await expect(access(captureResponseFile)).rejects.toThrow();
+      await expect(access(imageFile)).resolves.toBeUndefined();
+      await expect(access(reviewRequestFile)).resolves.toBeUndefined();
+      await expect(access(manualReviewFile)).resolves.toBeUndefined();
+    } finally {
+      await rm(screenshotIpcRoot, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])(
     'reports a required screenshot after browser declarations finish (second declaration: %s)',
     async (secondDeclaration) => {
@@ -292,7 +1704,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
           fetch: fetchImplementation,
         })
       ).rejects.toMatchObject({
-        category: 'manual-review-required',
+        category: 'screenshot-condition',
         module: 'oidcc-server',
         message: 'Invalid official OIDF Basic plan run',
       });
@@ -300,18 +1712,11 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       expect(requests).toContain('DELETE /api/runner/E00000000000001');
       expect(
         requests.filter((request) => request === 'GET /api/runner/E00000000000001')
-      ).toHaveLength(secondDeclaration ? 3 : 2);
+      ).toHaveLength(2);
       expect(
         requests.some((request) => request.includes('/api/log') || request.includes('/images'))
       ).toBe(false);
-      if (secondDeclaration) {
-        expect(requests.indexOf('GET /api/runner/E00000000000001')).toBeLessThan(
-          requests.indexOf('POST /api/runner/browser/E00000000000001/visit')
-        );
-        expect(requests.indexOf('GET /browser/second-authorization')).toBeLessThan(
-          requests.lastIndexOf('GET /api/runner/E00000000000001')
-        );
-      }
+      expect(requests).not.toContain('POST /api/runner/browser/E00000000000001/visit');
     }
   );
 
@@ -342,12 +1747,10 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         readSecret,
         fetch: fetchImplementation,
       })
-    ).rejects.toMatchObject({ category: 'manual-review-required', module: 'oidcc-server' });
+    ).rejects.toMatchObject({ category: 'condition-log', module: 'oidcc-server' });
     expect(requests).toContain('GET /api/info/E00000000000001');
     expect(requests.filter((request) => request === 'POST /api/runner')).toHaveLength(1);
-    expect(
-      requests.some((request) => request.includes('/api/log') || request.includes('/images'))
-    ).toBe(false);
+    expect(requests.includes('GET /api/log/E00000000000001')).toBe(true);
   });
 
   it.each([
@@ -373,6 +1776,100 @@ describe('official OIDF Basic plan runner input and manifest', () => {
           fetch: fetchImplementation,
         })
       ).rejects.toMatchObject({ category: 'module-result', module: 'oidcc-server' });
+    }
+  );
+
+  it.each(['FAILURE', 'WARNING', 'REVIEW'] as const)(
+    'rejects a hidden %s condition even when official module status is PASSED',
+    async (result) => {
+      const runner = await loadRunner();
+      const testId = 'L00000000000001';
+      await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+      const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+      const fetchImplementation: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/plan') {
+          return jsonResponse(
+            {
+              name: planName,
+              id: planInstanceId,
+              modules: expectedManifest.map(({ testModule, variant }) => ({
+                testModule,
+                variant,
+                instances: [],
+              })),
+            },
+            201
+          );
+        }
+        if (url.pathname === '/api/runner' && init?.method === 'POST') {
+          return jsonResponse({ name: 'oidcc-server', id: testId }, 201);
+        }
+        if (url.pathname === `/api/runner/${testId}/wait-state`) {
+          return jsonResponse({ state: 'FINISHED' });
+        }
+        if (url.pathname === `/api/info/${testId}`) {
+          return jsonResponse({
+            testId,
+            testName: 'oidcc-server',
+            variant: {
+              ...expectedManifest[0]!.variant,
+              server_metadata: 'discovery',
+              client_registration: 'static_client',
+            },
+            planId: planInstanceId,
+            status: 'FINISHED',
+            result: 'PASSED',
+          });
+        }
+        if (url.pathname === `/api/log/${testId}`) {
+          return jsonResponse([
+            { _id: 'before', testId, src: 'Start' },
+            {
+              _id: '507f1f77bcf86cd799439012',
+              testId,
+              src: 'UnexpectedCondition',
+              msg: 'must not be accepted',
+              result,
+              ...(result === 'REVIEW' && { upload: 'OtherAb123' }),
+            },
+            { _id: 'after', testId, src: 'CheckOtherCondition', result: 'SUCCESS' },
+          ]);
+        }
+        if (url.pathname === `/api/runner/${testId}` && init?.method === 'DELETE') {
+          return jsonResponse({ name: 'oidcc-server', id: testId });
+        }
+        throw new Error(`unexpected request ${url.pathname}`);
+      };
+
+      try {
+        await expect(
+          runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+            readSecret,
+            fetch: fetchImplementation,
+            screenshotIpcRoot: root,
+          })
+        ).rejects.toMatchObject({ category: 'condition-log', module: 'oidcc-server' });
+        const audit = JSON.parse(
+          await readFile(path.join(root, planInstanceId, testId, 'module-audit.json'), 'utf8')
+        ) as {
+          conditions: Array<Record<string, unknown>>;
+        };
+        expect(audit).toMatchObject({
+          accepted: false,
+          failureCategory: 'condition-log',
+          conditionCount: 3,
+          info: { status: 'FINISHED', result: 'PASSED' },
+        });
+        expect(audit.conditions.map((entry) => entry._id)).toEqual([
+          'before',
+          '507f1f77bcf86cd799439012',
+          'after',
+        ]);
+        expect(audit.conditions.map((entry) => entry.result)).toEqual([null, result, 'SUCCESS']);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     }
   );
 
@@ -440,7 +1937,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     expect(calls).toBe(1);
   });
 
-  it('runs the exact 35 modules serially and accepts only 35 PASSED results', async () => {
+  it('runs the exact 35 modules serially with three mandatory reviewed captures', async () => {
     const runner = await loadRunner();
     const calls: Array<Readonly<{ url: URL; init: RequestInit | undefined }>> = [];
     const tests = new Map<string, Readonly<{ name: string; variant: Record<string, string> }>>();
@@ -495,16 +1992,21 @@ describe('official OIDF Basic plan runner input and manifest', () => {
           result: 'PASSED',
         });
       }
+      const log = /^\/api\/log\/([A-Za-z0-9]{15})$/u.exec(url.pathname);
+      if (log) {
+        expect(tests.has(log[1]!)).toBe(true);
+        return jsonResponse([]);
+      }
       throw new Error(`unexpected request ${url.pathname}`);
     };
 
-    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+    const terminal = await runWithRequiredScreenshots(runner, {
       readSecret,
       fetch: fetchImplementation,
     });
 
     expect(nextTest).toBe(35);
-    expect(calls).toHaveLength(106);
+    expect(calls).toHaveLength(132);
     const planCall = calls[0]!;
     expect(planCall.url.searchParams.get('planName')).toBe(planName);
     expect(JSON.parse(planCall.url.searchParams.get('variant') ?? '')).toEqual({
@@ -525,16 +2027,44 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     expect(runnerCalls.map(({ url }) => JSON.parse(url.searchParams.get('variant') ?? ''))).toEqual(
       expectedManifest.map(({ variant }) => variant)
     );
-    expect(calls.some(({ url }) => url.pathname.startsWith('/api/log'))).toBe(false);
+    expect(calls.filter(({ url }) => url.pathname.startsWith('/api/log/'))).toHaveLength(32);
     expect(terminal).toEqual({
       schemaVersion: 1,
-      kind: 'phase1-conformance-official-terminal',
+      kind: 'phase1-conformance-basic-terminal',
       suiteCommit: phase1ConformanceSuiteCommit,
       planId: planName,
       variant: basicVariant,
-      status: 'PASSED',
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
       resultId: planInstanceId,
-      result: { outcome: 'passed', moduleCount: 35, passedModuleCount: 35 },
+      result: {
+        outcome: 'accepted',
+        moduleCount: 35,
+        passedModuleCount: 32,
+        reviewedModuleCount: 3,
+        modules: expectedManifest.map(({ testModule }, index) => ({
+          testId: `T${String(index).padStart(14, '0')}`,
+          testName: testModule,
+          status: 'FINISHED',
+          result: requiredScreenshotNames.includes(testModule) ? 'REVIEW' : 'PASSED',
+          conditionLogSha256: requiredScreenshotNames.includes(testModule)
+            ? (expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown)
+            : createHash('sha256').update('[]').digest('hex'),
+          review: requiredScreenshotNames.includes(testModule)
+            ? {
+                placeholderId: `P${String(index).padStart(9, '0')}`,
+                conditionId:
+                  testModule === 'oidcc-ensure-registered-redirect-uri'
+                    ? 'ExpectRedirectUriErrorPage'
+                    : 'ExpectSecondLoginPage',
+                imageSha256: createHash('sha256').update(testPng).digest('hex'),
+                reviewRecordSha256: expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown,
+                reviewer: `sol-fixture-T${String(index).padStart(14, '0')}`,
+                decision: 'APPROVE',
+              }
+            : null,
+        })),
+      },
     });
     expect(JSON.stringify(terminal)).not.toMatch(
       /user-secret-value|basic-one-secret|basic-two-secret|post-one-secret|suite_session=|https?:/iu
@@ -644,13 +2174,16 @@ describe('official OIDF Basic plan runner input and manifest', () => {
           result: 'PASSED',
         });
       }
+      if (url.pathname.startsWith('/api/log/')) {
+        return jsonResponse([]);
+      }
       if (url.pathname === `/api/runner/${firstId}` && method === 'DELETE') {
         return jsonResponse({ name: 'oidcc-server', id: firstId });
       }
       throw new Error(`unexpected request ${method} ${url.href}`);
     };
 
-    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+    const terminal = await runWithRequiredScreenshots(runner, {
       readSecret,
       fetch: fetchImplementation,
     });
@@ -664,8 +2197,9 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     expect(firstFinished).toBe(true);
     expect(nextTest).toBe(35);
     expect(terminal).toMatchObject({
-      status: 'PASSED',
-      result: { moduleCount: 35, passedModuleCount: 35 },
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
+      result: { moduleCount: 35, passedModuleCount: 32, reviewedModuleCount: 3 },
     });
   });
 
@@ -994,6 +2528,9 @@ describe('official OIDF Basic plan runner input and manifest', () => {
           result: 'PASSED',
         });
       }
+      if (url.origin === suiteBaseUrl && url.pathname.startsWith('/api/log/')) {
+        return jsonResponse([]);
+      }
       if (
         url.origin === suiteBaseUrl &&
         url.pathname === '/api/runner/browser/B00000000000001/visit' &&
@@ -1161,7 +2698,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       throw new Error(`unexpected request ${method} ${url.href}`);
     };
 
-    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+    const terminal = await runWithRequiredScreenshots(runner, {
       readSecret,
       fetch: fetchImplementation,
       now: () => virtualNow,
@@ -1176,7 +2713,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
     expect(nextTest).toBe(35);
     expect(navigation.some((entry) => entry.includes('/sign-in'))).toBe(false);
     expect(navigation.some((entry) => entry.includes('/consent?'))).toBe(false);
-    expect(navigation.some((entry) => entry.includes('/api/log'))).toBe(false);
+    expect(navigation.filter((entry) => entry.includes('/api/log/'))).toHaveLength(32);
     expect(visited).toEqual(
       new Set([
         'https://suite.example/browser/start-one',
@@ -1185,8 +2722,9 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       ])
     );
     expect(terminal).toMatchObject({
-      status: 'PASSED',
-      result: { moduleCount: 35, passedModuleCount: 35 },
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
+      result: { moduleCount: 35, passedModuleCount: 32, reviewedModuleCount: 3 },
     });
   });
 

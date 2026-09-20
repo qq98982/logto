@@ -23,6 +23,7 @@ import {
 } from './artifact-contract.js';
 import { candidateInvariantRegistryIds } from './candidate-invariants/index.js';
 import { parsePhase1CapabilityDocument } from './capabilities.js';
+import { requirePhase1BasicAcceptedResult } from './conformance/basic-result.js';
 import {
   loadPhase1EvidenceManifestFromDisk,
   readPhase1EvidenceManifestArtifactForHarnessResult,
@@ -342,9 +343,13 @@ const deriveEvidenceSummary = (
       typeof result.planId !== 'string' ||
       typeof result.resultId !== 'string' ||
       typeof result.resultSha256 !== 'string' ||
-      !sha256Pattern.test(result.resultSha256)
+      !sha256Pattern.test(result.resultSha256) ||
+      !isArtifactRecord(result.result)
     ) {
       return fail();
+    }
+    if (result.planId === 'oidcc-basic-certification-test-plan') {
+      requirePhase1BasicAcceptedResult(result.result.value);
     }
     return Object.freeze({ planId: result.planId, resultId: result.resultId });
   });

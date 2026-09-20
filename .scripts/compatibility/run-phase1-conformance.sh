@@ -11,6 +11,7 @@ readonly DEFAULT_ROOT="${BUILD_ROOT}/aster-phase1-conformance"
 readonly TRUSTED_PATH='/usr/bin:/bin'
 readonly DRIVER_RELATIVE='.scripts/compatibility/phase1-conformance-driver.sh'
 readonly RUNNER_RELATIVE='.scripts/compatibility/phase1-conformance-runner.mjs'
+readonly HANDOFF_RELATIVE='.scripts/compatibility/phase1-screenshot-handoff.mjs'
 readonly WRAPPER_RELATIVE='.scripts/compatibility/run-phase1-conformance.sh'
 readonly RUNTIME_DESCRIPTOR_NAME='runtime-candidate-conformance.json'
 readonly RUNTIME_DESCRIPTOR_KIND='aster-phase1-runtime-candidate-conformance-descriptor'
@@ -22,6 +23,7 @@ readonly REPO_ROOT
 readonly SCRIPT_PATH="${REPO_ROOT}/${WRAPPER_RELATIVE}"
 readonly DRIVER_PATH="${REPO_ROOT}/${DRIVER_RELATIVE}"
 readonly RUNNER_PATH="${REPO_ROOT}/${RUNNER_RELATIVE}"
+readonly HANDOFF_PATH="${REPO_ROOT}/${HANDOFF_RELATIVE}"
 
 fail() {
   printf '%s\n' 'phase 1 conformance wrapper failed' >&2
@@ -134,7 +136,7 @@ if [[ "${actual_head}" != "${harness_commit}" ]] || \
   [[ -n "$("${git_authority[@]}" -C "${REPO_ROOT}" status --porcelain=v1 --untracked-files=all 2>/dev/null || true)" ]]; then
   fail
 fi
-for repository_file in "${WRAPPER_RELATIVE}" "${DRIVER_RELATIVE}"; do
+for repository_file in "${WRAPPER_RELATIVE}" "${DRIVER_RELATIVE}" "${HANDOFF_RELATIVE}"; do
   if ! "${git_authority[@]}" -C "${REPO_ROOT}" ls-files --error-unmatch -- "${repository_file}" \
     >/dev/null 2>&1; then
     fail
@@ -201,7 +203,8 @@ try {
 const keys = [
   "schemaVersion", "kind", "projectName", "runnerContainerId", "suiteCommit",
   "suiteImageId", "candidateImageId", "runnerImageId", "driverPath", "driverBlob",
-  "driverSha256", "runnerPath", "runnerBlob", "runnerSha256", "engineSocket", "topologyId",
+  "driverSha256", "runnerPath", "runnerBlob", "runnerSha256", "handoffPath",
+  "handoffBlob", "handoffSha256", "screenshotRoot", "engineSocket", "topologyId",
 ];
 const actualKeys = Object.keys(value ?? {});
 const image = /^sha256:[0-9a-f]{64}$/;
@@ -217,6 +220,10 @@ if (
   !/^[0-9a-f]{40}$/.test(value.driverBlob) || !/^[0-9a-f]{64}$/.test(value.driverSha256) ||
   value.runnerPath !== "/opt/aster/phase1-conformance-runner.mjs" ||
   !/^[0-9a-f]{40}$/.test(value.runnerBlob) || !/^[0-9a-f]{64}$/.test(value.runnerSha256) ||
+  value.handoffPath !== "/opt/aster/phase1-screenshot-handoff.mjs" ||
+  !/^[0-9a-f]{40}$/.test(value.handoffBlob) || !/^[0-9a-f]{64}$/.test(value.handoffSha256) ||
+  value.screenshotRoot !== `${buildRoot}/aster-phase1-screenshot-evidence/${value.screenshotRoot.split('/').at(-1)}` ||
+  !/^run\.[A-Za-z0-9_-]{6,64}$/.test(value.screenshotRoot.split('/').at(-1) ?? '') ||
   value.engineSocket !== `/run/user/${uid}/aster-p1c-${crypto.createHash("sha256").update(`${buildRoot}/aster-phase1-conformance-podman-graph`).digest("hex").slice(0, 20)}.sock` ||
   value.topologyId !== expectedTopology ||
   /password|secret|token|private.?key|credential/i.test(JSON.stringify(value))
@@ -225,7 +232,7 @@ for (const key of keys.slice(2)) process.stdout.write(`${value[key]}\n`);
 NODE
 )" || fail
   mapfile -t descriptor_values <<<"${descriptor_output}"
-  [[ "${#descriptor_values[@]}" == 14 ]] || fail
+  [[ "${#descriptor_values[@]}" == 18 ]] || fail
   project_name="${descriptor_values[0]}"
   runner_container_id="${descriptor_values[1]}"
   suite_commit="${descriptor_values[2]}"
@@ -238,8 +245,12 @@ NODE
   runner_container_path="${descriptor_values[9]}"
   runner_blob="${descriptor_values[10]}"
   runner_sha256="${descriptor_values[11]}"
-  engine_socket="${descriptor_values[12]}"
-  topology_id="${descriptor_values[13]}"
+  handoff_container_path="${descriptor_values[12]}"
+  handoff_blob="${descriptor_values[13]}"
+  handoff_sha256="${descriptor_values[14]}"
+  screenshot_root="${descriptor_values[15]}"
+  engine_socket="${descriptor_values[16]}"
+  topology_id="${descriptor_values[17]}"
   [[ "${suite_commit}" == "${SUITE_COMMIT}" && "${topology_id}" == "${RUNTIME_TOPOLOGY_ID}" ]] || fail
   if [[ ! -S "${engine_socket}" || -L "${engine_socket}" ]] || \
     [[ "$(realpath -e -- "${engine_socket}" 2>/dev/null || true)" != "${engine_socket}" ]] || \
@@ -264,6 +275,26 @@ NODE
   actual_runner_sha256="$(sha256sum "${RUNNER_PATH}" 2>/dev/null | awk '{print $1}')"
   [[ "${runner_blob}" == "${expected_runner_blob}" && "${runner_blob}" == "${actual_runner_blob}" && \
     "${runner_sha256}" == "${actual_runner_sha256}" ]] || fail
+  if [[ ! -f "${HANDOFF_PATH}" || -L "${HANDOFF_PATH}" ]] || \
+    [[ "$(realpath -e -- "${HANDOFF_PATH}" 2>/dev/null || true)" != "${HANDOFF_PATH}" ]] || \
+    [[ "$(stat -c %u -- "${HANDOFF_PATH}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    fail
+  fi
+  handoff_mode="$(stat -c %a -- "${HANDOFF_PATH}" 2>/dev/null || true)"
+  [[ "${handoff_mode}" =~ ^[0-7]{3,4}$ ]] || fail
+  ((8#${handoff_mode} & 8#022)) && fail
+  expected_handoff_blob="$("${git_authority[@]}" -C "${REPO_ROOT}" rev-parse "HEAD:${HANDOFF_RELATIVE}" 2>/dev/null || true)"
+  actual_handoff_blob="$("${git_authority[@]}" -C "${REPO_ROOT}" hash-object --no-filters "${HANDOFF_PATH}" 2>/dev/null || true)"
+  actual_handoff_sha256="$(sha256sum "${HANDOFF_PATH}" 2>/dev/null | awk '{print $1}')"
+  [[ "${handoff_blob}" == "${expected_handoff_blob}" && \
+    "${handoff_blob}" == "${actual_handoff_blob}" && \
+    "${handoff_sha256}" == "${actual_handoff_sha256}" ]] || fail
+  if [[ ! -d "${screenshot_root}" || -L "${screenshot_root}" ]] || \
+    [[ "$(realpath -e -- "${screenshot_root}" 2>/dev/null || true)" != "${screenshot_root}" ]] || \
+    [[ "$(stat -c '%u|%g|%a|%F' -- "${screenshot_root}" 2>/dev/null || true)" != \
+      "$(id -u)|$(id -g)|700|directory" ]]; then
+    fail
+  fi
 
   engine_docker=(
     env -i PATH="${TRUSTED_PATH}" HOME="${root}"
@@ -279,7 +310,7 @@ NODE
   "${NODE_PATH}" -e '
 const fs = require("node:fs");
 const [project, runnerId, suiteImage, candidateImage, runnerImage, driverSource, driverTarget,
-  runnerSource, runnerTarget, topology] = process.argv.slice(1);
+  runnerSource, runnerTarget, handoffSource, handoffTarget, screenshotRoot, topology] = process.argv.slice(1);
 const fail = () => process.exit(1);
 let containers;
 try { containers = Reflect.get(JSON, "parse")(fs.readFileSync(0, "utf8")); } catch { fail(); }
@@ -296,6 +327,9 @@ for (const container of containers) {
     labels?.["com.docker.compose.project"] !== project ||
     labels?.["com.aster.phase1.topology"] !== topology || !services.delete(service)
   ) fail();
+  const publishedPorts = Object.entries(container?.NetworkSettings?.Ports ?? {})
+    .filter(([, bindings]) => Array.isArray(bindings) && bindings.length > 0);
+  if (service !== "candidate-conformance-core" && publishedPorts.length !== 0) fail();
   if (service === "candidate-primary-init") {
     if (container?.State?.Status !== "exited" || container?.State?.ExitCode !== 0) fail();
   } else if (container?.State?.Status !== "running" || container?.State?.Health?.Status !== "healthy") fail();
@@ -309,11 +343,26 @@ if (services.size !== 0) fail();
 const runner = containers.find(({ Id }) => Id === runnerId);
 const driverMount = runner?.Mounts?.find(({ Destination }) => Destination === driverTarget);
 const runnerMount = runner?.Mounts?.find(({ Destination }) => Destination === runnerTarget);
+const handoffMount = runner?.Mounts?.find(({ Destination }) => Destination === handoffTarget);
+const screenshotMount = runner?.Mounts?.find(({ Destination }) => Destination === screenshotRoot);
+const environment = new Map((runner?.Config?.Env ?? []).map((entry) => {
+  const separator = entry.indexOf("=");
+  return [entry.slice(0, separator), entry.slice(separator + 1)];
+}));
+const core = containers.find(({ Config }) => Config?.Labels?.["com.docker.compose.service"] === "candidate-conformance-core");
+const ports = core?.NetworkSettings?.Ports;
 if (!driverMount || driverMount.Type !== "bind" || driverMount.Source !== driverSource || driverMount.RW !== false ||
-  !runnerMount || runnerMount.Type !== "bind" || runnerMount.Source !== runnerSource || runnerMount.RW !== false) fail();
+  !runnerMount || runnerMount.Type !== "bind" || runnerMount.Source !== runnerSource || runnerMount.RW !== false ||
+  !handoffMount || handoffMount.Type !== "bind" || handoffMount.Source !== handoffSource || handoffMount.RW !== false ||
+  !screenshotMount || screenshotMount.Type !== "bind" || screenshotMount.Source !== screenshotRoot || screenshotMount.RW !== true ||
+  environment.get("ASTER_PHASE1_SCREENSHOT_IPC_ROOT") !== screenshotRoot ||
+  !ports || Object.keys(ports).length !== 1 || !Array.isArray(ports["3443/tcp"]) ||
+  ports["3443/tcp"].length !== 1 || ports["3443/tcp"][0]?.HostIp !== "127.0.0.1" ||
+  ports["3443/tcp"][0]?.HostPort !== "3443") fail();
 ' "${project_name}" "${runner_container_id}" "${suite_image_id}" "${candidate_image_id}" \
     "${runner_image_id}" "${driver}" "${driver_container_path}" "${RUNNER_PATH}" \
-    "${runner_container_path}" "${topology_id}" \
+    "${runner_container_path}" "${HANDOFF_PATH}" "${handoff_container_path}" \
+    "${screenshot_root}" "${topology_id}" \
     <<<"${inspect_output}" || fail
 
   exec "${engine_docker[@]}" exec --interactive \

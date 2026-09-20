@@ -3,6 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import {
+  awaitScreenshotReview,
+  beginScreenshotHandoff,
+  consumeScreenshotResponse,
+  createScreenshotBinding,
+  requireScreenshotCookies,
+  screenshotConditionMappings,
+  verifyModuleAudits,
+  writeModuleAudit,
+} from './phase1-screenshot-handoff.mjs';
+
 const suiteCommit = '0dc0e3a21ec411e92c808e5b2e2258592c22b594';
 const configPlanName = 'oidcc-config-certification-test-plan';
 const configTestName = 'oidcc-discovery-endpoint-verification';
@@ -10,8 +21,15 @@ const basicPlanName = 'oidcc-basic-certification-test-plan';
 const alias = 'aster-phase1';
 const configDescription = 'Aster phase 1 Config certification';
 const basicDescription = 'Aster phase 1 Basic certification';
+const mandatoryScreenshotModules = Object.freeze([
+  'oidcc-prompt-login',
+  'oidcc-max-age-1',
+  'oidcc-ensure-registered-redirect-uri',
+]);
 const maximumInputBytes = 65_536;
 const maximumResponseBytes = 65_536;
+const maximumConditionLogBytes = 16_777_216;
+const maximumImageUploadResponseBytes = 1_048_576;
 const requestTimeoutMs = 40_000;
 const terminalTimeoutMs = 220_000;
 const basicModuleTimeoutMs = 300_000;
@@ -555,6 +573,8 @@ class MemoryCookieJar {
       let hostOnly = true;
       let cookiePath = this.defaultPath(url.pathname);
       let secure = false;
+      let httpOnly = false;
+      let sameSite = 'Lax';
       let expired = false;
       let expiresAt = null;
       let maxAgeSeen = false;
@@ -580,6 +600,13 @@ class MemoryCookieJar {
           cookiePath = attributeValue;
         } else if (key === 'secure') {
           secure = true;
+        } else if (key === 'httponly') {
+          httpOnly = true;
+        } else if (key === 'samesite') {
+          const normalized = attributeValue.toLowerCase();
+          if (normalized === 'strict') sameSite = 'Strict';
+          else if (normalized === 'lax') sameSite = 'Lax';
+          else if (normalized === 'none') sameSite = 'None';
         } else if (key === 'max-age' && /^-?[0-9]+$/u.test(attributeValue)) {
           maxAgeSeen = true;
           const seconds = Number(attributeValue);
@@ -595,13 +622,24 @@ class MemoryCookieJar {
         }
       }
       if (!valid) continue;
+      if (sameSite === 'None' && !secure) continue;
       const key = `${domain}\u0000${cookiePath}\u0000${name}`;
       if (expired || value.length === 0) {
         this.cookies.delete(key);
       } else {
         this.cookies.set(
           key,
-          Object.freeze({ name, value, domain, hostOnly, path: cookiePath, secure, expiresAt })
+          Object.freeze({
+            name,
+            value,
+            domain,
+            hostOnly,
+            path: cookiePath,
+            expiresAt,
+            httpOnly,
+            secure,
+            sameSite,
+          })
         );
       }
     }
@@ -632,6 +670,83 @@ class MemoryCookieJar {
       .sort((left, right) => right.path.length - left.path.length)
       .map(({ name, value }) => `${name}=${value}`)
       .join('; ');
+  }
+
+  issuerCookies(url) {
+    const host = url.hostname.toLowerCase();
+    const current = this.now();
+    const cookies = [];
+    for (const [key, cookie] of this.cookies) {
+      if (cookie.expiresAt !== null && cookie.expiresAt <= current) {
+        this.cookies.delete(key);
+        continue;
+      }
+      const domainMatches = cookie.hostOnly
+        ? host === cookie.domain
+        : host === cookie.domain || host.endsWith(`.${cookie.domain}`);
+      if (!domainMatches) continue;
+      cookies.push(
+        Object.freeze({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.hostOnly ? cookie.domain : `.${cookie.domain}`,
+          path: cookie.path,
+          expires: cookie.expiresAt === null ? -1 : cookie.expiresAt / 1000,
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+        })
+      );
+    }
+    return Object.freeze(
+      cookies.toSorted((left, right) =>
+        `${left.domain}\u0000${left.path}\u0000${left.name}`.localeCompare(
+          `${right.domain}\u0000${right.path}\u0000${right.name}`
+        )
+      )
+    );
+  }
+
+  replaceIssuerCookies(url, values) {
+    const cookies = requireScreenshotCookies(values);
+    const host = url.hostname.toLowerCase();
+    const current = this.now();
+    for (const [key, cookie] of this.cookies) {
+      const domainMatches = cookie.hostOnly
+        ? host === cookie.domain
+        : host === cookie.domain || host.endsWith(`.${cookie.domain}`);
+      if (domainMatches) this.cookies.delete(key);
+    }
+    for (const cookie of cookies) {
+      const hostOnly = !cookie.domain.startsWith('.');
+      const domain = cookie.domain.replace(/^\./u, '').toLowerCase();
+      const domainMatches = hostOnly
+        ? host === domain
+        : host === domain || host.endsWith(`.${domain}`);
+      const expiresAt = cookie.expires === -1 ? null : Math.floor(cookie.expires * 1000);
+      if (
+        !domainMatches ||
+        (expiresAt !== null && expiresAt <= current) ||
+        (cookie.sameSite === 'None' && !cookie.secure)
+      ) {
+        throw invalidBasic('screenshot-handoff');
+      }
+      const key = `${domain}\u0000${cookie.path}\u0000${cookie.name}`;
+      this.cookies.set(
+        key,
+        Object.freeze({
+          name: cookie.name,
+          value: cookie.value,
+          domain,
+          hostOnly,
+          path: cookie.path,
+          expiresAt,
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+        })
+      );
+    }
   }
 
   defaultPath(pathname) {
@@ -957,6 +1072,7 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     };
   }
   let pending;
+  let screenshotEvidence = null;
   for (let step = 0; step < 32; step += 1) {
     const response =
       pending?.response ??
@@ -972,6 +1088,12 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const nextUrl = redirectTarget(response, currentUrl, context.config, context.module);
       if (nextUrl.origin === context.config.issuerOrigin && nextUrl.pathname === '/sign-in') {
+        if (context.screenshot?.mapping.captureKind === 'second-sign-in') {
+          if (screenshotEvidence !== null) {
+            throw invalidBasic('screenshot-condition', context.module);
+          }
+          screenshotEvidence = await captureAndReviewScreenshot(nextUrl, context);
+        }
         pending = await performExperienceLogin(nextUrl, context);
       } else if (nextUrl.origin === context.config.issuerOrigin && nextUrl.pathname === '/consent') {
         pending = await performConsent(nextUrl, context);
@@ -1011,13 +1133,37 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
         'browser-flow',
         context.module
       );
-      return;
+      if (
+        context.screenshot &&
+        screenshotEvidence === null &&
+        (context.screenshot.mapping.captureKind !== 'ui-error' ||
+          mandatoryScreenshotModules.includes(context.module))
+      ) {
+        throw invalidBasic('screenshot-condition', context.module);
+      }
+      return Object.freeze({
+        screenshotEvidence,
+        callbackPlaceholder:
+          screenshotEvidence === null ? context.screenshot : null,
+      });
     }
     if (
       (response.status >= 200 && response.status < 300) ||
       (response.status >= 400 && response.status < 500 && currentUrl.origin === context.config.issuerOrigin)
     ) {
-      return;
+      if (context.screenshot) {
+        if (
+          context.screenshot.mapping.captureKind !== 'ui-error' ||
+          currentUrl.origin !== context.config.issuerOrigin ||
+          currentUrl.pathname === '/oidc/auth' ||
+          currentUrl.pathname.startsWith('/oidc/auth/') ||
+          screenshotEvidence !== null
+        ) {
+          throw invalidBasic('screenshot-condition', context.module);
+        }
+        screenshotEvidence = await captureAndReviewScreenshot(currentUrl, context);
+      }
+      return Object.freeze({ screenshotEvidence, callbackPlaceholder: null });
     }
     throw invalidBasic('browser-flow', context.module);
   }
@@ -1046,8 +1192,7 @@ const requireBrowserDeclarations = (value, expectedTestId, module) => {
   ) {
     throw invalidBasic('suite-api', module);
   }
-  return Object.freeze(
-    value.browser.urls.map((url, index) => {
+  const declarations = value.browser.urls.map((url, index) => {
       const withMethod = value.browser.urlsWithMethod[index];
       if (
         typeof url !== 'string' ||
@@ -1059,8 +1204,11 @@ const requireBrowserDeclarations = (value, expectedTestId, module) => {
         throw invalidBasic('browser-flow', module);
       }
       return Object.freeze({ url, method: withMethod.method });
-    })
-  );
+    });
+  return Object.freeze({
+    declarations: Object.freeze(declarations),
+    uploadsRequired: value.browser.uploadsRequired,
+  });
 };
 
 const markBrowserDeclarationVisited = async (declaration, testInstanceId, dependencies, module) => {
@@ -1296,11 +1444,335 @@ const requireBasicInfoResponse = (value, expectedTestId, expectedPlanId, manifes
   ) {
     throw invalidBasic('module-result', manifestEntry.testModule);
   }
-  if (value.result === 'REVIEW') {
-    throw invalidBasic('manual-review-required', manifestEntry.testModule);
-  }
-  if (value.result !== 'PASSED') {
+  if (
+    !['PASSED', 'REVIEW'].includes(value.result) ||
+    (mandatoryScreenshotModules.includes(manifestEntry.testModule) && value.result !== 'REVIEW')
+  ) {
     throw invalidBasic('module-result', manifestEntry.testModule);
+  }
+  return value.result;
+};
+
+const requireCleanConditionLog = (conditionLog, module) => {
+  if (conditionLog.entries.some(({ result }) => result === 'FAILURE' || result === 'WARNING')) {
+    throw invalidBasic('condition-log', module);
+  }
+};
+
+const fetchBasicConditionLog = async (testId, dependencies, module, deferFindings = false) => {
+  const response = await basicRequestBytes({
+    ...dependencies,
+    responseBytes: maximumConditionLogBytes,
+    url: `${dependencies.config.suiteBaseUrl}/api/log/${testId}?public=false`,
+    init: {
+      method: 'GET',
+      redirect: 'error',
+      credentials: 'omit',
+      headers: { accept: 'application/json' },
+    },
+    expectedStatuses: [200],
+    category: 'condition-log',
+    module,
+  });
+  const entries = decodeBasicJson(response.bytes, 'condition-log', module);
+  if (!Array.isArray(entries)) throw invalidBasic('condition-log', module);
+  for (const entry of entries) {
+    if (
+      !isRecord(entry) ||
+      entry.testId !== testId ||
+      typeof entry.src !== 'string' ||
+      entry.src.length < 1 ||
+      entry.src.length > 256 ||
+      (entry.result !== undefined && typeof entry.result !== 'string')
+    ) {
+      throw invalidBasic('condition-log', module);
+    }
+  }
+  const conditionLog = Object.freeze({
+    entries: Object.freeze(entries),
+    sha256: crypto.createHash('sha256').update(response.bytes).digest('hex'),
+  });
+  if (!deferFindings) requireCleanConditionLog(conditionLog, module);
+  return conditionLog;
+};
+
+const auditStatusValues = new Set([
+  'NOT_YET_CREATED', 'CREATED', 'CONFIGURED', 'RUNNING', 'WAITING', 'INTERRUPTED', 'FINISHED',
+]);
+const auditResultValues = new Set(['PASSED', 'FAILED', 'WARNING', 'REVIEW', 'SKIPPED', 'UNKNOWN']);
+const auditConditionValues = new Set([
+  ...auditStatusValues, ...auditResultValues, 'FAILURE', 'INFO', 'SUCCESS',
+]);
+
+const conditionLedger = (conditionLog, module) => conditionLog.entries.map((entry) => {
+  const resultPresent = Object.hasOwn(entry, 'result');
+  if (
+    (entry._id !== undefined && (typeof entry._id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(entry._id))) ||
+    (entry.src !== '-START-BLOCK-' &&
+      !/^[A-Za-z0-9_][A-Za-z0-9_. -]{0,255}$/u.test(entry.src)) ||
+    (resultPresent && !auditConditionValues.has(entry.result)) ||
+    (Object.hasOwn(entry, 'requirements') && (
+      !Array.isArray(entry.requirements) || entry.requirements.length > 256 ||
+      entry.requirements.some((value) => typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value))
+    )) ||
+    (Object.hasOwn(entry, 'upload') && (typeof entry.upload !== 'string' || !/^[A-Za-z0-9]{10}$/u.test(entry.upload))) ||
+    (Object.hasOwn(entry, 'image_no_longer_required') && typeof entry.image_no_longer_required !== 'boolean')
+  ) throw invalidBasic('module-audit', module);
+  let imageSha256;
+  if (Object.hasOwn(entry, 'img')) {
+    const match = typeof entry.img === 'string' && /^data:image\/(?:png|jpeg);base64,([A-Za-z0-9+/]+={0,2})$/u.exec(entry.img);
+    if (!match) throw invalidBasic('module-audit', module);
+    const bytes = Buffer.from(match[1], 'base64');
+    if (bytes.byteLength < 1 || bytes.byteLength > 512_000 || bytes.toString('base64') !== match[1]) {
+      throw invalidBasic('module-audit', module);
+    }
+    imageSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  }
+  return Object.freeze({
+    _id: entry._id ?? null,
+    testId: entry.testId,
+    src: entry.src,
+    resultPresent,
+    result: resultPresent ? entry.result : null,
+    ...(Object.hasOwn(entry, 'requirements') && { requirements: [...entry.requirements] }),
+    ...(Object.hasOwn(entry, 'upload') && { upload: entry.upload }),
+    ...(Object.hasOwn(entry, 'image_no_longer_required') && { image_no_longer_required: entry.image_no_longer_required }),
+    ...(imageSha256 !== undefined && { imageSha256 }),
+  });
+});
+
+const persistBasicModuleAudit = ({
+  root, planInstanceId, testId, manifestEntry, info, infoSha256, conditionLog, screenshotEvidence,
+  failureCategory = null,
+}) => {
+  const module = manifestEntry.testModule;
+  if (
+    !isRecord(info) || info.testId !== testId || info.testName !== module ||
+    info.planId !== planInstanceId || !auditStatusValues.has(info.status) ||
+    !auditResultValues.has(info.result) ||
+    !exactObject(info.variant, combinedBasicVariant(manifestEntry.variant))
+  ) throw invalidBasic('module-audit', module);
+  try {
+    return writeModuleAudit(root, {
+      schemaVersion: 1,
+      kind: 'phase1-conformance-module-audit',
+      suiteCommit,
+      planName: basicPlanName,
+      planInstanceId,
+      moduleName: module,
+      testId,
+      info: {
+        testId: info.testId, testName: info.testName, status: info.status, result: info.result,
+        variant: { ...info.variant }, planId: info.planId,
+      },
+      infoSha256,
+      conditionLogSha256: conditionLog.sha256,
+      conditionCount: conditionLog.entries.length,
+      conditions: conditionLedger(conditionLog, module),
+      captureId: screenshotEvidence?.captureId ?? null,
+      review: screenshotEvidence === null ? null : {
+        placeholderId: screenshotEvidence.placeholderId,
+        conditionId: screenshotEvidence.conditionId,
+        imageSha256: screenshotEvidence.imageSha256,
+        reviewRecordSha256: screenshotEvidence.reviewRecordSha256,
+        reviewer: screenshotEvidence.reviewer,
+        decision: 'APPROVE',
+      },
+      accepted: failureCategory === null,
+      failureCategory,
+    });
+  } catch {
+    throw invalidBasic('module-audit', module);
+  }
+};
+
+const requireScreenshotPlaceholder = (conditionLog, testId, module) => {
+  const mapping = screenshotConditionMappings[module];
+  if (!mapping) throw invalidBasic('screenshot-condition', module);
+  const reviews = conditionLog.entries.filter(({ result }) => result === 'REVIEW');
+  if (reviews.length !== 1) throw invalidBasic('condition-log', module);
+  const entry = reviews[0];
+  if (
+    entry.testId !== testId ||
+    entry.src !== mapping.conditionId ||
+    entry.msg !== mapping.message ||
+    typeof entry._id !== 'string' ||
+    entry._id.length < 1 ||
+    entry._id.length > 128 ||
+    typeof entry.upload !== 'string' ||
+    !/^[A-Za-z0-9]{10}$/u.test(entry.upload) ||
+    entry.img !== undefined
+  ) {
+    throw invalidBasic('screenshot-condition', module);
+  }
+  return Object.freeze({
+    mapping,
+    placeholderId: entry.upload,
+    logEntryId: entry._id,
+  });
+};
+
+const requireScreenshotUploadResponse = (
+  value,
+  expected,
+  testId,
+  module,
+  imageDataUrl
+) => {
+  if (
+    !isRecord(value) ||
+    value._id !== expected.logEntryId ||
+    value.testId !== testId ||
+    value.src !== expected.mapping.conditionId ||
+    value.msg !== expected.mapping.message ||
+    value.result !== 'REVIEW' ||
+    value.img !== imageDataUrl ||
+    Object.hasOwn(value, 'upload')
+  ) {
+    throw invalidBasic('screenshot-upload', module);
+  }
+};
+
+const captureAndReviewScreenshot = async (captureUrl, context) => {
+  const screenshot = context.screenshot;
+  if (!screenshot) throw invalidBasic('screenshot-handoff', context.module);
+  const remaining = context.deadline - context.now();
+  const createdAt = context.wallClock();
+  if (
+    !Number.isFinite(remaining) ||
+    remaining <= 0 ||
+    !Number.isSafeInteger(createdAt) ||
+    createdAt < 0 ||
+    typeof context.screenshotIpcRoot !== 'string'
+  ) {
+    throw invalidBasic('screenshot-handoff', context.module);
+  }
+  const deadline = createdAt + Math.floor(remaining);
+  if (!Number.isSafeInteger(deadline) || deadline <= createdAt) {
+    throw invalidBasic('screenshot-handoff', context.module);
+  }
+  let handoff;
+  try {
+    const binding = createScreenshotBinding({
+      schemaVersion: 1,
+      suiteCommit,
+      planName: basicPlanName,
+      planInstanceId: context.planInstanceId,
+      moduleName: context.module,
+      testId: context.testInstanceId,
+      placeholderId: screenshot.placeholderId,
+      conditionId: screenshot.mapping.conditionId,
+      captureId: crypto.randomBytes(16).toString('hex'),
+      captureKind: screenshot.mapping.captureKind,
+      createdAt,
+      deadline,
+    });
+    handoff = await beginScreenshotHandoff({
+      root: context.screenshotIpcRoot,
+      binding,
+      url: captureUrl.href,
+      issuerOrigin: context.config.issuerOrigin,
+      cookies: context.cookieJar.issuerCookies(new URL(context.config.issuerOrigin)),
+    });
+    try {
+      context.cookieJar.replaceIssuerCookies(
+        new URL(context.config.issuerOrigin),
+        handoff.cookies
+      );
+    } finally {
+      consumeScreenshotResponse(handoff);
+    }
+    const imageDataUrl = `data:image/png;base64,${handoff.imageBytes.toString('base64')}`;
+    const uploadResponse = await basicRequestBytes({
+      ...context,
+      responseBytes: maximumImageUploadResponseBytes,
+      url: `${context.config.suiteBaseUrl}/api/log/${context.testInstanceId}/images/${screenshot.placeholderId}`,
+      init: {
+        method: 'POST',
+        redirect: 'error',
+        credentials: 'omit',
+        headers: { accept: 'application/json', 'content-type': 'text/plain;charset=UTF-8' },
+        body: imageDataUrl,
+      },
+      expectedStatuses: [200],
+      category: 'screenshot-upload',
+      module: context.module,
+    });
+    requireScreenshotUploadResponse(
+      decodeBasicJson(uploadResponse.bytes, 'screenshot-upload', context.module),
+      screenshot,
+      context.testInstanceId,
+      context.module,
+      imageDataUrl
+    );
+    const review = await awaitScreenshotReview(handoff);
+    return Object.freeze({
+      placeholderId: screenshot.placeholderId,
+      conditionId: screenshot.mapping.conditionId,
+      imageSha256: handoff.imageSha256,
+      reviewRecordSha256: review.reviewRecordSha256,
+      reviewer: review.reviewer,
+      decision: 'APPROVE',
+      captureId: handoff.binding.captureId,
+      logEntryId: screenshot.logEntryId,
+      imageDataUrl,
+    });
+  } catch (error) {
+    if (error instanceof BasicRunError) throw error;
+    throw invalidBasic('screenshot-handoff', context.module);
+  }
+};
+
+const validateFinalConditionLog = (
+  conditionLog,
+  officialResult,
+  screenshotEvidence,
+  callbackPlaceholder,
+  testId,
+  module
+) => {
+  requireCleanConditionLog(conditionLog, module);
+  const reviews = conditionLog.entries.filter(({ result }) => result === 'REVIEW');
+  if (officialResult === 'PASSED') {
+    if (screenshotEvidence !== null) {
+      throw invalidBasic('condition-log', module);
+    }
+    if (callbackPlaceholder === null) {
+      if (reviews.length !== 0) throw invalidBasic('condition-log', module);
+      return;
+    }
+    const mapping = screenshotConditionMappings[module];
+    const review = reviews[0];
+    // A successful protocol callback can retire only its own optional UI-error placeholder.
+    if (
+      mapping?.captureKind !== 'ui-error' ||
+      reviews.length !== 1 ||
+      review.testId !== testId ||
+      review._id !== callbackPlaceholder.logEntryId ||
+      review.src !== mapping.conditionId ||
+      review.msg !== mapping.message ||
+      review.image_no_longer_required !== true ||
+      Object.hasOwn(review, 'img') ||
+      Object.hasOwn(review, 'upload')
+    ) {
+      throw invalidBasic('condition-log', module);
+    }
+    return;
+  }
+  const mapping = screenshotConditionMappings[module];
+  if (!mapping || screenshotEvidence === null || reviews.length !== 1) {
+    throw invalidBasic('condition-log', module);
+  }
+  const review = reviews[0];
+  if (
+    review.testId !== testId ||
+    review._id !== screenshotEvidence.logEntryId ||
+    review.src !== mapping.conditionId ||
+    review.msg !== mapping.message ||
+    review.img !== screenshotEvidence.imageDataUrl ||
+    Object.hasOwn(review, 'upload')
+  ) {
+    throw invalidBasic('condition-log', module);
   }
 };
 
@@ -1339,6 +1811,8 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
   // repeated module classes are disambiguated while the plan-selected values still take priority.
   runnerUrl.searchParams.set('variant', JSON.stringify(manifestEntry.variant));
   let testInstanceId;
+  let screenshotEvidence = null;
+  let callbackPlaceholder = null;
   try {
     const runnerResponse = await basicRequestJson({
       ...dependencies,
@@ -1406,24 +1880,71 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
         category: 'suite-api',
         module,
       });
-      const declarations = requireBrowserDeclarations(runnerStatus, testInstanceId, module);
-      if (waitTimedOut && declarations.length === 0 && runnerStatus.browser.uploadsRequired > 0) {
-        throw invalidBasic('manual-review-required', module);
+      const browserStatus = requireBrowserDeclarations(runnerStatus, testInstanceId, module);
+      const { declarations, uploadsRequired } = browserStatus;
+      // WAITING can be observed before the suite queues its browser declaration.
+      if (
+        !waitTimedOut &&
+        uploadsRequired > 0 &&
+        declarations.length === 0
+      ) {
+        continue;
+      }
+      let pendingScreenshot = null;
+      if (uploadsRequired > 0) {
+        if (
+          uploadsRequired !== 1 ||
+          declarations.length !== 1 ||
+          screenshotEvidence !== null ||
+          callbackPlaceholder !== null ||
+          !screenshotConditionMappings[module]
+        ) {
+          throw invalidBasic('screenshot-condition', module);
+        }
+        pendingScreenshot = requireScreenshotPlaceholder(
+          await fetchBasicConditionLog(testInstanceId, {
+            ...dependencies,
+            deadline: moduleDeadline,
+          }, module),
+          testInstanceId,
+          module
+        );
+      }
+      if (waitTimedOut && declarations.length === 0 && uploadsRequired > 0) {
+        throw invalidBasic('screenshot-condition', module);
       }
       for (const declaration of declarations) {
         await markBrowserDeclarationVisited(declaration, testInstanceId, {
           ...dependencies,
           deadline: moduleDeadline,
         }, module);
-        await driveDeclaredBrowserUrl(declaration, {
+        const browserResult = await driveDeclaredBrowserUrl(declaration, {
           ...dependencies,
           deadline: moduleDeadline,
           cookieJar,
           module,
+          planInstanceId,
+          testInstanceId,
+          screenshot: pendingScreenshot,
         });
+        if (browserResult.screenshotEvidence !== null) {
+          if (screenshotEvidence !== null) throw invalidBasic('screenshot-condition', module);
+          screenshotEvidence = browserResult.screenshotEvidence;
+        }
+        if (browserResult.callbackPlaceholder !== null) {
+          if (callbackPlaceholder !== null) throw invalidBasic('screenshot-condition', module);
+          callbackPlaceholder = browserResult.callbackPlaceholder;
+        }
+      }
+      if (
+        pendingScreenshot !== null &&
+        screenshotEvidence === null &&
+        callbackPlaceholder === null
+      ) {
+        throw invalidBasic('screenshot-condition', module);
       }
     }
-    const infoResponse = await basicRequestJson({
+    const infoResponseBytes = await basicRequestBytes({
       ...dependencies,
       deadline: moduleDeadline,
       url: `${dependencies.config.suiteBaseUrl}/api/info/${testInstanceId}?public=false`,
@@ -1437,7 +1958,76 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
       category: 'suite-api',
       module,
     });
-    requireBasicInfoResponse(infoResponse, testInstanceId, planInstanceId, manifestEntry);
+    const infoResponse = decodeBasicJson(infoResponseBytes.bytes, 'suite-api', module);
+    const infoSha256 = crypto.createHash('sha256').update(infoResponseBytes.bytes).digest('hex');
+    let officialResult;
+    let infoError;
+    try {
+      officialResult = requireBasicInfoResponse(infoResponse, testInstanceId, planInstanceId, manifestEntry);
+    } catch (error) {
+      infoError = error;
+    }
+    let conditionLog;
+    try {
+      conditionLog = await fetchBasicConditionLog(
+        testInstanceId,
+        { ...dependencies, deadline: moduleDeadline },
+        module,
+        true
+      );
+    } catch (error) {
+      throw infoError ?? error;
+    }
+    const auditInput = {
+      root: dependencies.screenshotIpcRoot,
+      planInstanceId,
+      testId: testInstanceId,
+      manifestEntry,
+      info: infoResponse,
+      infoSha256,
+      conditionLog,
+      screenshotEvidence,
+    };
+    try {
+      if (infoError) throw infoError;
+      validateFinalConditionLog(
+        conditionLog, officialResult, screenshotEvidence, callbackPlaceholder, testInstanceId, module
+      );
+    } catch (error) {
+      try {
+        persistBasicModuleAudit({
+          ...auditInput,
+          failureCategory: error instanceof BasicRunError ? error.category : 'module-result',
+        });
+      } catch {
+        // Preserve the original failure if malformed evidence cannot be retained safely.
+      }
+      throw error;
+    }
+    const audit = persistBasicModuleAudit(auditInput);
+    return Object.freeze({
+      summary: Object.freeze({
+        testId: testInstanceId,
+        testName: module,
+        status: 'FINISHED',
+        result: officialResult,
+        conditionLogSha256: conditionLog.sha256,
+        review:
+          screenshotEvidence === null
+            ? null
+            : Object.freeze({
+                placeholderId: screenshotEvidence.placeholderId,
+                conditionId: screenshotEvidence.conditionId,
+                imageSha256: screenshotEvidence.imageSha256,
+                reviewRecordSha256: screenshotEvidence.reviewRecordSha256,
+                reviewer: screenshotEvidence.reviewer,
+                decision: 'APPROVE',
+              }),
+      }),
+      captureId: screenshotEvidence?.captureId ?? null,
+      reviewRecordSha256: screenshotEvidence?.reviewRecordSha256 ?? null,
+      audit,
+    });
   } catch (error) {
     if (testInstanceId) await cancelBasicModule(testInstanceId, dependencies);
     if (error instanceof BasicRunError) {
@@ -1452,16 +2042,20 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
     const fetchImplementation = dependencies.fetch ?? globalThis.fetch;
     const readSecret = dependencies.readSecret ?? ((secretPath) => fs.readFileSync(secretPath));
     const now = dependencies.now ?? Date.now;
+    const wallClock = dependencies.wallClock ?? Date.now;
     const setTimer = dependencies.setTimer ?? globalThis.setTimeout;
     const clearTimer = dependencies.clearTimer ?? globalThis.clearTimeout;
     const perRequestTimeout = dependencies.requestTimeoutMs ?? requestTimeoutMs;
     const moduleTimeout = dependencies.moduleTimeoutMs ?? basicModuleTimeoutMs;
     const totalTimeout = dependencies.totalTimeoutMs ?? basicTerminalTimeoutMs;
     const responseBytes = dependencies.maximumResponseBytes ?? maximumResponseBytes;
+    const screenshotIpcRoot =
+      dependencies.screenshotIpcRoot ?? process.env.ASTER_PHASE1_SCREENSHOT_IPC_ROOT;
     if (
       typeof fetchImplementation !== 'function' ||
       typeof readSecret !== 'function' ||
       typeof now !== 'function' ||
+      typeof wallClock !== 'function' ||
       typeof setTimer !== 'function' ||
       typeof clearTimer !== 'function' ||
       !Number.isSafeInteger(perRequestTimeout) ||
@@ -1475,7 +2069,8 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
       totalTimeout > basicTerminalTimeoutMs ||
       !Number.isSafeInteger(responseBytes) ||
       responseBytes < 1 ||
-      responseBytes > maximumResponseBytes
+      responseBytes > maximumResponseBytes ||
+      (screenshotIpcRoot !== undefined && typeof screenshotIpcRoot !== 'string')
     ) {
       throw invalidBasic();
     }
@@ -1490,6 +2085,7 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
     const planResponse = await basicRequestJson({
       fetchImplementation,
       now,
+      wallClock,
       setTimer,
       clearTimer,
       perRequestTimeout,
@@ -1518,6 +2114,7 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
     const runtimeDependencies = Object.freeze({
       fetchImplementation,
       now,
+      wallClock,
       setTimer,
       clearTimer,
       perRequestTimeout,
@@ -1526,22 +2123,69 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
       responseBytes,
       config,
       secrets,
+      screenshotIpcRoot,
     });
+    const modules = [];
+    const testIds = new Set();
+    const captureIds = new Set();
+    const reviewRecordIds = new Set();
+    const audits = [];
     for (const manifestEntry of oidfBasicPlanManifest) {
-      await runBasicModule(manifestEntry, planInstanceId, runtimeDependencies);
+      const completed = await runBasicModule(manifestEntry, planInstanceId, runtimeDependencies);
+      if (
+        completed.summary.testName !== manifestEntry.testModule ||
+        testIds.has(completed.summary.testId)
+      ) {
+        throw invalidBasic('module-result', manifestEntry.testModule);
+      }
+      testIds.add(completed.summary.testId);
+      if (completed.summary.review === null) {
+        if (completed.captureId !== null || completed.reviewRecordSha256 !== null) {
+          throw invalidBasic('screenshot-review', manifestEntry.testModule);
+        }
+      } else {
+        if (
+          completed.captureId === null ||
+          completed.reviewRecordSha256 === null ||
+          captureIds.has(completed.captureId) ||
+          reviewRecordIds.has(completed.reviewRecordSha256)
+        ) {
+          throw invalidBasic('screenshot-review', manifestEntry.testModule);
+        }
+        captureIds.add(completed.captureId);
+        reviewRecordIds.add(completed.reviewRecordSha256);
+      }
+      modules.push(completed.summary);
+      audits.push(completed.audit);
+    }
+    if (modules.length !== oidfBasicPlanManifest.length || testIds.size !== modules.length) {
+      throw invalidBasic('module-result');
+    }
+    const passedModuleCount = modules.filter(({ result }) => result === 'PASSED').length;
+    const reviewedModuleCount = modules.filter(({ result }) => result === 'REVIEW').length;
+    if (passedModuleCount + reviewedModuleCount !== oidfBasicPlanManifest.length) {
+      throw invalidBasic('module-result');
+    }
+    try {
+      verifyModuleAudits(screenshotIpcRoot, planInstanceId, audits);
+    } catch {
+      throw invalidBasic('module-audit');
     }
     return Object.freeze({
       schemaVersion: 1,
-      kind: 'phase1-conformance-official-terminal',
+      kind: 'phase1-conformance-basic-terminal',
       suiteCommit,
       planId: basicPlanName,
       variant: config.variant,
-      status: 'PASSED',
+      status: 'FINISHED',
+      acceptance: 'ACCEPTED',
       resultId: planInstanceId,
       result: Object.freeze({
-        outcome: 'passed',
+        outcome: 'accepted',
         moduleCount: oidfBasicPlanManifest.length,
-        passedModuleCount: oidfBasicPlanManifest.length,
+        passedModuleCount,
+        reviewedModuleCount,
+        modules: Object.freeze(modules),
       }),
     });
   } catch (error) {

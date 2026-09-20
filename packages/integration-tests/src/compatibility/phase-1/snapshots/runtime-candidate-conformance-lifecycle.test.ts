@@ -31,6 +31,10 @@ const driverSourcePath = path.join(
   repositoryRoot,
   '.scripts/compatibility/phase1-conformance-driver.sh'
 );
+const handoffSourcePath = path.join(
+  repositoryRoot,
+  '.scripts/compatibility/phase1-screenshot-handoff.mjs'
+);
 const candidateInput = `sha256:${'5'.repeat(64)}`;
 const candidateImageId = `sha256:${'c'.repeat(64)}`;
 const exportName = 'phase-1-conformance.json';
@@ -56,7 +60,12 @@ type Behavior =
   | 'wrong-project'
   | 'wrong-image'
   | 'wrong-driver'
-  | 'wrong-runner';
+  | 'wrong-runner'
+  | 'wrong-handoff'
+  | 'wrong-handoff-mount'
+  | 'wrong-screenshot-mount'
+  | 'wrong-screenshot-env'
+  | 'wrong-port';
 
 type Fixture = Readonly<{
   root: string;
@@ -135,17 +144,29 @@ const imageFor = (service, environment) => {
   if (service === 'suite-nginx') return imageIds.nginx;
   return imageIds.runner;
 };
-const containerDocument = (project, service, environment) => ({
+const containerDocument = (project, service, environment, behavior) => ({
   Id: idFor(project, service),
   Image: imageFor(service, environment),
   State: service === 'candidate-primary-init'
     ? { Status: 'exited', ExitCode: 0 }
     : { Status: 'running', ExitCode: 0, Health: { Status: 'healthy' } },
-  Config: { Labels: {
-    'com.docker.compose.project': project,
-    'com.docker.compose.service': service,
-    'com.aster.phase1.topology': 'runtime-candidate-conformance',
-  } },
+  Config: {
+    Env: service === 'oidf-runner'
+      ? ['ASTER_PHASE1_SCREENSHOT_IPC_ROOT=' + (behavior === 'wrong-screenshot-env'
+          ? environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT + '-changed'
+          : environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT)]
+      : [],
+    Labels: {
+      'com.docker.compose.project': project,
+      'com.docker.compose.service': service,
+      'com.aster.phase1.topology': 'runtime-candidate-conformance',
+    },
+  },
+  NetworkSettings: {
+    Ports: service === 'candidate-conformance-core'
+      ? { '3443/tcp': [{ HostIp: behavior === 'wrong-port' ? '0.0.0.0' : '127.0.0.1', HostPort: '3443' }] }
+      : {},
+  },
   Mounts: service === 'oidf-runner'
     ? [
         {
@@ -159,6 +180,20 @@ const containerDocument = (project, service, environment) => ({
           Source: environment.ASTER_PHASE1_CONFORMANCE_RUNNER_FILE,
           Destination: '/opt/aster/phase1-conformance-runner.mjs',
           RW: false,
+        },
+        {
+          Type: 'bind',
+          Source: behavior === 'wrong-handoff-mount'
+            ? environment.ASTER_PHASE1_CONFORMANCE_SCREENSHOT_HANDOFF_FILE + '-changed'
+            : environment.ASTER_PHASE1_CONFORMANCE_SCREENSHOT_HANDOFF_FILE,
+          Destination: '/opt/aster/phase1-screenshot-handoff.mjs',
+          RW: false,
+        },
+        {
+          Type: 'bind',
+          Source: environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT,
+          Destination: environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT,
+          RW: behavior !== 'wrong-screenshot-mount',
         },
       ]
     : [],
@@ -270,7 +305,7 @@ if (args[0] === 'inspect' && args[1] === '--format') {
   for (const [project, value] of Object.entries(state.projects)) {
     const service = value.containers[id];
     if (!service) continue;
-    const document = containerDocument(project, service, value.environment);
+    const document = containerDocument(project, service, value.environment, state.behavior);
     process.stdout.write([
       document.Id, document.State.Status, document.State.Health?.Status ?? '',
       document.State.ExitCode, document.Image, project, service, 'runtime-candidate-conformance',
@@ -284,7 +319,7 @@ if (args[0] === 'inspect') {
   const documents = args.slice(1).map((id) => {
     for (const [project, value] of Object.entries(state.projects)) {
       const service = value.containers[id];
-      if (service) return containerDocument(project, service, value.environment);
+      if (service) return containerDocument(project, service, value.environment, state.behavior);
     }
     process.exit(1);
   });
@@ -428,6 +463,7 @@ if (behavior === 'wrong-project') descriptor.projectName = 'aster-phase1-conform
 if (behavior === 'wrong-image') descriptor.runnerImageId = 'sha256:' + 'd'.repeat(64);
 if (behavior === 'wrong-driver') descriptor.driverSha256 = '0'.repeat(64);
 if (behavior === 'wrong-runner') descriptor.runnerSha256 = '0'.repeat(64);
+if (behavior === 'wrong-handoff') descriptor.handoffSha256 = '0'.repeat(64);
 if (!reachesPlan) {
   writeFileSync(descriptorPath, JSON.stringify(descriptor) + '\\n');
   chmodSync(descriptorPath, 0o400);
@@ -505,6 +541,13 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
 
   await Promise.all([
     mkdir(path.join(repository, '.scripts/compatibility'), { recursive: true, mode: 0o700 }),
+    mkdir(
+      path.join(
+        repository,
+        'node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test'
+      ),
+      { recursive: true, mode: 0o700 }
+    ),
     mkdir(path.join(repository, 'packages/integration-tests/lib/compatibility/phase-1'), {
       recursive: true,
       mode: 0o700,
@@ -512,6 +555,10 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     mkdir(path.join(aster, 'compatibility'), { recursive: true, mode: 0o700 }),
     mkdir(suite, { recursive: true, mode: 0o700 }),
     mkdir(buildRoot, { mode: 0o700 }),
+    mkdir(path.join(buildRoot, 'aster-playwright-browsers'), {
+      recursive: true,
+      mode: 0o700,
+    }),
     mkdir(captureRoot, { mode: 0o700 }),
   ]);
   await writeFile(path.join(suite, 'pom.xml'), '<project/>\n');
@@ -538,6 +585,7 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
         fixtureProvisioned: false,
         fixtureCleanupFailure: behavior === 'fixture-cleanup-failure',
         keyOnlyBaseline: true,
+        behavior,
       })
     ),
     writeFile(dockerLog, ''),
@@ -548,10 +596,11 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     }),
   ]);
   await executeFile(process.execPath, ['--check', fakeDocker]);
-  const [lifecycleSource, wrapperSource, driverSource] = await Promise.all([
+  const [lifecycleSource, wrapperSource, driverSource, handoffSource] = await Promise.all([
     readFile(lifecycleSourcePath, 'utf8'),
     readFile(wrapperSourcePath, 'utf8'),
     readFile(driverSourcePath, 'utf8'),
+    readFile(handoffSourcePath, 'utf8'),
   ]);
   const lifecycle = path.join(
     repository,
@@ -650,6 +699,15 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
       )
       .replaceAll('"${DOCKER_PATH}"', JSON.stringify(fakeDocker));
   const runner = path.join(repository, '.scripts/compatibility/phase1-conformance-runner.mjs');
+  const captureHelper = path.join(
+    repository,
+    '.scripts/compatibility/phase1-screenshot-capture.mjs'
+  );
+  const handoff = path.join(repository, '.scripts/compatibility/phase1-screenshot-handoff.mjs');
+  const playwrightPackage = path.join(
+    repository,
+    'node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test'
+  );
   await Promise.all([
     writeFile(lifecycle, transformedLifecycle, { mode: 0o755 }),
     writeFile(wrapper, transformedWrapper, { mode: 0o755 }),
@@ -677,6 +735,42 @@ process.exit(1);
 `,
       { mode: 0o644 }
     ),
+    writeFile(
+      captureHelper,
+      `#!/usr/bin/node
+import fs from 'node:fs';
+import path from 'node:path';
+const root = process.env.ASTER_PHASE1_SCREENSHOT_IPC_ROOT;
+if (${JSON.stringify(behavior === 'signal')}) {
+  const capture = path.join(root, 'BasicPlan0001', 'PromptLogin0001', 'Prompt0001');
+  fs.mkdirSync(capture, { recursive: true, mode: 0o700 });
+  for (const directory of [path.dirname(path.dirname(capture)), path.dirname(capture), capture]) {
+    fs.chmodSync(directory, 0o700);
+  }
+  for (const [name, value] of [
+    ['capture-request.json', '{"cookies":"private-cookie-value"}'],
+    ['capture-response.json', '{"cookies":"updated-cookie-value"}'],
+    ['capture-response.json.tmp', 'private-cookie-value'],
+    ['capture.png', 'png'],
+    ['review-request.json', '{}'],
+    ['manual-review.json', '{}'],
+  ]) fs.writeFileSync(path.join(capture, name), value, { mode: 0o600 });
+  fs.writeFileSync(path.join(path.dirname(capture), 'module-audit.json'), '{}', { mode: 0o600 });
+}
+process.stderr.write('phase 1 screenshot capture ready: ' + process.env.ASTER_PHASE1_SCREENSHOT_IPC_ROOT + '\\n');
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
+setInterval(() => {}, 2147483647);
+`,
+      { mode: 0o755 }
+    ),
+    writeFile(handoff, handoffSource, { mode: 0o644 }),
+    writeFile(
+      path.join(playwrightPackage, 'package.json'),
+      '{"name":"@playwright/test","version":"1.62.1","main":"index.js"}\n',
+      { mode: 0o644 }
+    ),
+    writeFile(path.join(playwrightPackage, 'index.js'), 'module.exports = {};\n', { mode: 0o644 }),
     writeFile(
       pki,
       '#!/bin/sh\nset -eu\nroot=$1\nmkdir -m 700 "$root/pki" "$root/pki/host-only" "$root/pki/aster" "$root/pki/suite"\nprintf key >"$root/pki/host-only/root-ca.key"\nprintf key >"$root/pki/aster/tls.key"\nprintf key >"$root/pki/suite/tls.key"\nprintf cert >"$root/pki/root-ca.crt"\nprintf cert >"$root/pki/aster/tls.crt"\nprintf cert >"$root/pki/suite/tls.crt"\nchmod 400 "$root/pki/host-only/root-ca.key" "$root/pki/aster/tls.key" "$root/pki/suite/tls.key"\nchmod 444 "$root/pki/root-ca.crt" "$root/pki/aster/tls.crt" "$root/pki/suite/tls.crt"\n',
@@ -888,6 +982,55 @@ afterEach(async () => {
 });
 
 describe('runtime-candidate conformance lifecycle and runner bridge', () => {
+  it.each([
+    ['audit above 128 KiB', 'module-audit.json', 131_073, true],
+    ['audit at 16 MiB', 'module-audit.json', 16_777_216, true],
+    ['audit above 16 MiB', 'module-audit.json', 16_777_217, false],
+    ['review above 128 KiB', 'review-request.json', 131_073, false],
+    ['image above 512000 bytes', 'capture.png', 512_001, false],
+  ] as const)(
+    'enforces retained screenshot size limits: %s',
+    async (_label, name, bytes, accepted) => {
+      const root = await mkdtemp('/var/tmp/henry-build/aster-screenshot-audit-cleanup-test.');
+      try {
+        const moduleDirectory = path.join(root, 'BasicPlan0001', 'PromptLogin0001');
+        const directory =
+          name === 'module-audit.json' ? moduleDirectory : path.join(moduleDirectory, 'Prompt0001');
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        const file = path.join(directory, name);
+        const contents = `{}${' '.repeat(bytes - 2)}`;
+        await writeFile(file, contents, { mode: 0o600 });
+        const lifecycle = await readFile(lifecycleSourcePath, 'utf8');
+        const start = lifecycle.indexOf('sanitize_screenshot_root() {\n');
+        const end = lifecycle.indexOf('\nexport_artifact() {', start);
+        if (start < 0 || end <= start) {
+          throw new Error('screenshot cleanup function missing');
+        }
+        const cleanup = executeFile(
+          '/usr/bin/bash',
+          [
+            '-c',
+            `${lifecycle.slice(start, end)}\nCLOSED_ENV=(env -i PATH=/usr/bin:/bin)\nNODE_BIN=$1\nSCREENSHOT_ROOT=$2\nsanitize_screenshot_root`,
+            'screenshot-cleanup-test',
+            process.execPath,
+            root,
+          ],
+          { timeout: 10_000 }
+        );
+        if (accepted) {
+          expect(await cleanup).toMatchObject({ stdout: '', stderr: '' });
+          expect(await readFile(file, 'utf8')).toBe(contents);
+          const metadata = await stat(file);
+          expect(metadata.mode % 0o1000).toBe(0o600);
+        } else {
+          await expect(cleanup).rejects.toMatchObject({ code: 1, stdout: '' });
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+  );
+
   it('exports only the original sanitized JSON bytes after successful cleanup', async () => {
     const fixture = await createFixture('success');
     const output = path.join(fixture.buildRoot, 'published');
@@ -1214,6 +1357,10 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       'runnerPath',
       'runnerBlob',
       'runnerSha256',
+      'handoffPath',
+      'handoffBlob',
+      'handoffSha256',
+      'screenshotRoot',
       'engineSocket',
       'topologyId',
     ]);
@@ -1483,6 +1630,11 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     'wrong-image',
     'wrong-driver',
     'wrong-runner',
+    'wrong-handoff',
+    'wrong-handoff-mount',
+    'wrong-screenshot-mount',
+    'wrong-screenshot-env',
+    'wrong-port',
   ] as const)('fails closed for %s descriptor or runtime identity', async (behavior) => {
     const fixture = await createFixture(behavior);
 
@@ -1504,8 +1656,29 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
   it('cleans the owned project and run directory on TERM', async () => {
     const fixture = await createFixture('signal');
     const exit = await interruptLifecycleAt(fixture, 'started.log');
+    const screenshotBase = path.join(fixture.buildRoot, 'aster-phase1-screenshot-evidence');
+    const screenshotRuns = await readdir(screenshotBase);
+    expect(screenshotRuns).toHaveLength(1);
+    const retained = path.join(
+      screenshotBase,
+      screenshotRuns[0] ?? 'missing',
+      'BasicPlan0001',
+      'PromptLogin0001',
+      'Prompt0001'
+    );
+    const retainedNames = await readdir(retained);
+    const audit = path.join(path.dirname(retained), 'module-audit.json');
 
     expect(exit.code === 143 || exit.signal === 'SIGTERM').toBe(true);
+    expect(retainedNames.toSorted()).toEqual([
+      'capture.png',
+      'manual-review.json',
+      'review-request.json',
+    ]);
+    for (const name of retainedNames) {
+      expect(await readFile(path.join(retained, name), 'utf8')).not.toMatch(/cookie-value/u);
+    }
+    expect(await readFile(audit, 'utf8')).toBe('{}');
     expect(await activeResources(fixture)).toBe(false);
     expect(await readdir(fixture.runRoot)).toEqual([]);
   });

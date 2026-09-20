@@ -6,6 +6,7 @@ import {
 } from '../cli.js';
 import type { Phase1Profile } from '../profile-types.js';
 
+import { createPhase1BasicAcceptedResultFixture } from './basic-result.test-fixture.js';
 import { phase1ConformanceSuiteCommit, phase1ConformanceSuiteRepository } from './config.js';
 import {
   createPhase1ConformanceGateRuntimeContext,
@@ -205,19 +206,28 @@ const processResult = (
           status: 'PASSED',
           result: { configured: true, redirectUriMatches: true },
         }
-      : {
-          schemaVersion: 1,
-          kind: 'phase1-conformance-official-terminal',
-          suiteCommit: phase1ConformanceSuiteCommit,
-          planId: input.planId,
-          variant: input.variant,
-          status: 'PASSED',
-          resultId:
-            input.planId === 'oidcc-basic-certification-test-plan'
-              ? 'oidf-result-opaque-001'
-              : 'oidf-result-opaque-002',
-          result: { outcome: 'passed', checks: { completed: true } },
-        };
+      : input.planId === 'oidcc-basic-certification-test-plan'
+        ? {
+            schemaVersion: 1,
+            kind: 'phase1-conformance-basic-terminal',
+            suiteCommit: phase1ConformanceSuiteCommit,
+            planId: input.planId,
+            variant: input.variant,
+            status: 'FINISHED',
+            acceptance: 'ACCEPTED',
+            resultId: 'oidf-result-opaque-001',
+            result: createPhase1BasicAcceptedResultFixture(),
+          }
+        : {
+            schemaVersion: 1,
+            kind: 'phase1-conformance-official-terminal',
+            suiteCommit: phase1ConformanceSuiteCommit,
+            planId: input.planId,
+            variant: input.variant,
+            status: 'PASSED',
+            resultId: 'oidf-result-opaque-002',
+            result: { outcome: 'passed', checks: { completed: true } },
+          };
 
   return {
     pid: 1234,

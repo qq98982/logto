@@ -16,6 +16,10 @@ import { assertConformanceExecution } from '../profile-semantics/conformance.js'
 import type { Phase1Profile } from '../profile-types.js';
 
 import {
+  requirePhase1BasicAcceptedResult,
+  type Phase1BasicAcceptedResult,
+} from './basic-result.js';
+import {
   createPhase1ConformanceConfig,
   phase1ConformanceSuiteCommit,
   type Phase1ConformancePlanId,
@@ -64,13 +68,26 @@ export type Phase1ConformanceAdapterControl = Readonly<{
   projection: Readonly<Record<string, unknown>>;
 }>;
 
-export type Phase1ConformanceOfficialResult = Readonly<{
+type Phase1ConformanceOfficialResultBase = Readonly<{
   planId: Phase1ConformancePlanId;
   resultId: string;
-  status: 'PASSED';
   variant: Readonly<Record<string, unknown>>;
   result: Readonly<Record<string, unknown>>;
 }>;
+
+export type Phase1ConformanceOfficialResult =
+  | (Phase1ConformanceOfficialResultBase &
+      Readonly<{
+        planId: 'oidcc-basic-certification-test-plan';
+        status: 'FINISHED';
+        acceptance: 'ACCEPTED';
+        result: Phase1BasicAcceptedResult;
+      }>)
+  | (Phase1ConformanceOfficialResultBase &
+      Readonly<{
+        planId: 'oidcc-config-certification-test-plan';
+        status: 'PASSED';
+      }>);
 
 export type Phase1ConformanceRunResult = Readonly<{
   schemaVersion: 1;
@@ -97,13 +114,24 @@ const killGraceMs = 100;
 const groupReapTimeoutMs = 2000;
 const groupPollMs = 10;
 const resultIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/u;
-const terminalKeys = Object.freeze([
+const officialTerminalKeys = Object.freeze([
   'schemaVersion',
   'kind',
   'suiteCommit',
   'planId',
   'variant',
   'status',
+  'resultId',
+  'result',
+] as const);
+const basicTerminalKeys = Object.freeze([
+  'schemaVersion',
+  'kind',
+  'suiteCommit',
+  'planId',
+  'variant',
+  'status',
+  'acceptance',
   'resultId',
   'result',
 ] as const);
@@ -427,27 +455,53 @@ const parseOfficialTerminal = (
     'oidcc-basic-certification-test-plan',
     'oidcc-config-certification-test-plan',
   ]);
+  if (!snapshot || Array.isArray(snapshot)) throw new TypeError(diagnostic);
+  const resultId = snapshot.resultId;
+  const commonValid =
+    snapshot.schemaVersion === 1 &&
+    snapshot.suiteCommit === phase1ConformanceSuiteCommit &&
+    snapshot.planId === plan.id &&
+    isDeepStrictEqual(snapshot.variant, plan.variant) &&
+    typeof resultId === 'string' &&
+    resultIdPattern.test(resultId) &&
+    !reservedIds.has(resultId);
+
+  if (!commonValid) throw new TypeError(diagnostic);
+  const result = requireSanitizedResult(snapshot.result);
+
+  if (plan.id === 'oidcc-basic-certification-test-plan') {
+    if (
+      !exactKeys(snapshot, basicTerminalKeys) ||
+      snapshot.kind !== 'phase1-conformance-basic-terminal' ||
+      snapshot.status !== 'FINISHED' ||
+      snapshot.acceptance !== 'ACCEPTED'
+    ) {
+      throw new TypeError(diagnostic);
+    }
+    const accepted = requirePhase1BasicAcceptedResult(result);
+
+    return cloneAndDeepFreeze({
+      planId: plan.id,
+      resultId,
+      status: 'FINISHED' as const,
+      acceptance: 'ACCEPTED' as const,
+      variant: plan.variant,
+      result: accepted,
+    });
+  }
   if (
-    !snapshot ||
-    Array.isArray(snapshot) ||
-    !exactKeys(snapshot, terminalKeys) ||
-    snapshot.schemaVersion !== 1 ||
+    !exactKeys(snapshot, officialTerminalKeys) ||
     snapshot.kind !== 'phase1-conformance-official-terminal' ||
-    snapshot.suiteCommit !== phase1ConformanceSuiteCommit ||
-    snapshot.planId !== plan.id ||
-    !isDeepStrictEqual(snapshot.variant, plan.variant) ||
-    snapshot.status !== 'PASSED' ||
-    typeof snapshot.resultId !== 'string' ||
-    !resultIdPattern.test(snapshot.resultId) ||
-    reservedIds.has(snapshot.resultId)
-  )
+    snapshot.status !== 'PASSED'
+  ) {
     throw new TypeError(diagnostic);
+  }
   return cloneAndDeepFreeze({
     planId: plan.id,
-    resultId: snapshot.resultId,
+    resultId,
     status: 'PASSED' as const,
     variant: plan.variant,
-    result: requireSanitizedResult(snapshot.result),
+    result,
   });
 };
 const parseControlTerminal = (

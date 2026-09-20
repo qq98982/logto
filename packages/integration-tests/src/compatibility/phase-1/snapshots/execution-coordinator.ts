@@ -20,6 +20,7 @@ import { assertCandidateInvariantProjectionIsSanitized } from '../candidate-inva
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { createPhase1LiveCandidateInvariantExecutor } from '../candidate-invariants/live-driver.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
+import { requirePhase1BasicAcceptedResult } from '../conformance/basic-result.js';
 import {
   assertValidatedPhase1ConformanceRuntimeContext,
   createPhase1ConformanceGateRuntimeContext,
@@ -495,6 +496,9 @@ const validateConformance = (
       result.resultSha256 !== envelope.projectionSha256
     ) {
       fail();
+    }
+    if (result.planId === 'oidcc-basic-certification-test-plan') {
+      requirePhase1BasicAcceptedResult(envelope.value);
     }
     observedResultIds.push(resultId);
   }

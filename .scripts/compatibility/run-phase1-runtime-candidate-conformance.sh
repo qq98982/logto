@@ -13,6 +13,8 @@ readonly DEFAULT_RUN_ROOT="${BUILD_ROOT}/aster-phase1-runtime-candidate-conforma
 readonly TOPOLOGY_ID='runtime-candidate-conformance'
 readonly RUNNER_DRIVER_PATH='/opt/aster/phase1-conformance-driver.sh'
 readonly RUNNER_SCRIPT_PATH='/opt/aster/phase1-conformance-runner.mjs'
+readonly RUNNER_HANDOFF_PATH='/opt/aster/phase1-screenshot-handoff.mjs'
+readonly SCREENSHOT_ISSUER_ORIGIN='https://aster-server.aster-phase1-conformance.svc.cluster.local:3443'
 readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
 readonly MONGO_IMAGE='docker.io/library/mongo:6.0.13@sha256:b415b12f638e2685d06c58ab7fb5943577c50fadec6d9340ef67d21aeac72070'
 readonly NGINX_IMAGE='docker.io/library/nginx:1.27.3-alpine@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4'
@@ -30,6 +32,9 @@ readonly SUITE_DOCKERFILE="${REPO_ROOT}/Dockerfile.phase1-oidf-suite"
 readonly PKI_SCRIPT="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-pki.sh"
 readonly DRIVER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-driver.sh"
 readonly RUNNER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-runner.mjs"
+readonly HANDOFF_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-screenshot-handoff.mjs"
+readonly CAPTURE_HELPER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-screenshot-capture.mjs"
+readonly PLAYWRIGHT_MODULE="${REPO_ROOT}/node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test/index.js"
 readonly PHASE1_CLI="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js"
 readonly ARTIFACT_CONTRACT="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/artifact-contract.js"
 readonly EXPORT_NAME='phase-1-conformance.json'
@@ -171,6 +176,16 @@ readonly BUILD_ROOT_DEVICE BUILD_ROOT_INODE
 RUN_ROOT="${ASTER_RUN_ROOT:-${DEFAULT_RUN_ROOT}}"
 require_private_root "${RUN_ROOT}"
 readonly RUN_ROOT
+BROWSER_CACHE="${BUILD_ROOT}/aster-playwright-browsers"
+require_private_root "${BROWSER_CACHE}"
+SCREENSHOT_EVIDENCE_ROOT="${BUILD_ROOT}/aster-phase1-screenshot-evidence"
+require_private_root "${SCREENSHOT_EVIDENCE_ROOT}"
+SCREENSHOT_ROOT="$(/usr/bin/mktemp -d "${SCREENSHOT_EVIDENCE_ROOT}/run.XXXXXX")"
+[[ "$(/usr/bin/realpath -e -- "${SCREENSHOT_ROOT}" 2>/dev/null || true)" == "${SCREENSHOT_ROOT}" ]] || fail
+[[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${SCREENSHOT_ROOT}" 2>/dev/null || true)" == \
+  "$(/usr/bin/id -u)|$(/usr/bin/id -g)|700|directory" ]] || fail
+readonly BROWSER_CACHE SCREENSHOT_EVIDENCE_ROOT SCREENSHOT_ROOT
+printf 'ASTER_PHASE1_SCREENSHOT_REVIEW_ROOT=%s\n' "${SCREENSHOT_ROOT}" >&2
 RUN_DIR="$(/usr/bin/mktemp -d "${RUN_ROOT}/run.XXXXXX")"
 RUN_DIR_IDENTITY="$(/usr/bin/stat -c '%d|%i' -- "${RUN_DIR}")"
 readonly RUN_DIR RUN_DIR_IDENTITY
@@ -295,6 +310,9 @@ container_ids=()
 NODE_RUN_PID=''
 NODE_RUN_PGID=''
 NODE_RUN_TOKEN=''
+SCREENSHOT_HELPER_PID=''
+SCREENSHOT_HELPER_PGID=''
+SCREENSHOT_HELPER_TOKEN=''
 SETUP_RUN_PID=''
 SETUP_RUN_PGID=''
 SETUP_RUN_TOKEN=''
@@ -460,6 +478,71 @@ remove_oidf_private_material() {
     "${OIDF_CLEANUP_RESPONSE}" "${FIXTURE_BASELINE_PROVISION_DESCRIPTOR}" \
     "${FIXTURE_BASELINE_PROVISION_RESPONSE}" "${FIXTURE_BASELINE_CLEANUP_DESCRIPTOR}" \
     "${FIXTURE_BASELINE_CLEANUP_RESPONSE}"
+}
+
+sanitize_screenshot_root() {
+  "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - "${SCREENSHOT_ROOT}" <<'NODE'
+import { lstat, readdir, realpath, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
+
+const root = process.argv[2];
+const uid = process.getuid();
+const gid = process.getgid();
+const patterns = [
+  /^[A-Za-z0-9]{13}$/u,
+  /^[A-Za-z0-9]{15}$/u,
+  /^[A-Za-z0-9]{10}$/u,
+];
+const privateJson = new Set(['review-request.json', 'manual-review.json']);
+const sensitive = new Set(['capture-request.json', 'capture-response.json']);
+const assertDirectory = async (directory) => {
+  const metadata = await lstat(directory);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || metadata.uid !== uid ||
+    metadata.gid !== gid || metadata.mode % 0o1000 !== 0o700 ||
+    await realpath(directory) !== directory) throw new Error('screenshot directory');
+};
+const walk = async (directory, depth) => {
+  await assertDirectory(directory);
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (depth >= patterns.length || !patterns[depth].test(entry.name))
+        throw new Error('screenshot tree');
+      await walk(target, depth + 1);
+      continue;
+    }
+    if ((depth === 2 || depth === patterns.length) && entry.name.endsWith('.tmp')) {
+      await unlink(target);
+      continue;
+    }
+    if (depth === 2 && entry.name === 'module-audit.json') {
+      if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('screenshot audit type');
+      const metadata = await lstat(target);
+      if (metadata.uid !== uid || metadata.gid !== gid || metadata.mode % 0o1000 !== 0o600 ||
+        metadata.size < 1 || metadata.size > 16_777_216) throw new Error('screenshot audit');
+      continue;
+    }
+    if (depth !== patterns.length) throw new Error('screenshot file depth');
+    if (sensitive.has(entry.name)) {
+      await unlink(target);
+      continue;
+    }
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('screenshot file type');
+    const metadata = await lstat(target);
+    if (metadata.uid !== uid || metadata.gid !== gid || metadata.mode % 0o1000 !== 0o600)
+      throw new Error('screenshot file metadata');
+    if (entry.name === 'capture.png') {
+      if (metadata.size < 1 || metadata.size > 512_000) throw new Error('screenshot image');
+    } else if (privateJson.has(entry.name)) {
+      if (metadata.size < 1 || metadata.size > 131_072) throw new Error('screenshot review');
+    } else {
+      throw new Error('screenshot file name');
+    }
+  }
+};
+
+await walk(root, 0);
+NODE
 }
 
 export_artifact() {
@@ -758,6 +841,16 @@ cleanup() {
   NODE_RUN_PGID=''
   NODE_RUN_TOKEN=''
 
+  if [[ -n "${SCREENSHOT_HELPER_PGID}" ]]; then
+    terminate_owned_process_group \
+      "${SCREENSHOT_HELPER_PID}" "${SCREENSHOT_HELPER_PGID}" "${SCREENSHOT_HELPER_TOKEN}" || \
+      cleanup_failed=1
+  fi
+  SCREENSHOT_HELPER_PID=''
+  SCREENSHOT_HELPER_PGID=''
+  SCREENSHOT_HELPER_TOKEN=''
+  sanitize_screenshot_root || cleanup_failed=1
+
   cleanup_oidf_fixture || cleanup_failed=1
   remove_oidf_private_material || cleanup_failed=1
 
@@ -1037,7 +1130,8 @@ readonly EXPORT_IDENTITY
 failure_stage=authority
 [[ "$#" == 0 ]] || fail
 for file in "${COMPOSE_FILE}" "${SUITE_DOCKERFILE}" "${PKI_SCRIPT}" "${DRIVER_FILE}" \
-  "${RUNNER_FILE}" "${PHASE1_CLI}"; do
+  "${RUNNER_FILE}" "${HANDOFF_FILE}" "${CAPTURE_HELPER_FILE}" "${PLAYWRIGHT_MODULE}" \
+  "${PHASE1_CLI}"; do
   [[ -f "${file}" && ! -L "${file}" ]] || fail
 done
 repo_origin="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || true)"
@@ -1060,7 +1154,20 @@ ACTUAL_RUNNER_SCRIPT_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" hash-object
 # shellcheck disable=SC2016
 RUNNER_SCRIPT_SHA256="$("${SHA256_BIN}" "${RUNNER_FILE}" | "${AWK_BIN}" '{print $1}')"
 [[ "${RUNNER_SCRIPT_SHA256}" =~ ^[0-9a-f]{64}$ ]] || fail
+HANDOFF_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" rev-parse 'HEAD:.scripts/compatibility/phase1-screenshot-handoff.mjs' 2>/dev/null || true)"
+ACTUAL_HANDOFF_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" hash-object --no-filters "${HANDOFF_FILE}" 2>/dev/null || true)"
+[[ "${HANDOFF_BLOB}" =~ ^[0-9a-f]{40}$ && "${ACTUAL_HANDOFF_BLOB}" == "${HANDOFF_BLOB}" ]] || fail
+# shellcheck disable=SC2016
+HANDOFF_SHA256="$("${SHA256_BIN}" "${HANDOFF_FILE}" | "${AWK_BIN}" '{print $1}')"
+[[ "${HANDOFF_SHA256}" =~ ^[0-9a-f]{64}$ ]] || fail
+CAPTURE_HELPER_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" rev-parse 'HEAD:.scripts/compatibility/phase1-screenshot-capture.mjs' 2>/dev/null || true)"
+ACTUAL_CAPTURE_HELPER_BLOB="$("${GIT_AUTHORITY[@]}" -C "${REPO_ROOT}" hash-object --no-filters "${CAPTURE_HELPER_FILE}" 2>/dev/null || true)"
+[[ "${CAPTURE_HELPER_BLOB}" =~ ^[0-9a-f]{40}$ && \
+  "${ACTUAL_CAPTURE_HELPER_BLOB}" == "${CAPTURE_HELPER_BLOB}" ]] || fail
+[[ "$(/usr/bin/realpath -e -- "${PLAYWRIGHT_MODULE}" 2>/dev/null || true)" == \
+  "${PLAYWRIGHT_MODULE}" ]] || fail
 readonly H_HEAD DRIVER_BLOB DRIVER_SHA256 RUNNER_SCRIPT_BLOB RUNNER_SCRIPT_SHA256
+readonly HANDOFF_BLOB HANDOFF_SHA256 CAPTURE_HELPER_BLOB
 
 ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"
 CANDIDATE_IMAGE_INPUT="${ASTER_PHASE1_CANDIDATE_IMAGE-}"
@@ -1231,6 +1338,8 @@ run_owned_command 60 /dev/null /dev/null \
   printf 'ASTER_PHASE1_CONFORMANCE_EVIDENCE_DIRECTORY=%s\n' "${EVIDENCE_DIR}"
   printf 'ASTER_PHASE1_CONFORMANCE_DRIVER_FILE=%s\n' "${DRIVER_FILE}"
   printf 'ASTER_PHASE1_CONFORMANCE_RUNNER_FILE=%s\n' "${RUNNER_FILE}"
+  printf 'ASTER_PHASE1_CONFORMANCE_SCREENSHOT_HANDOFF_FILE=%s\n' "${HANDOFF_FILE}"
+  printf 'ASTER_PHASE1_SCREENSHOT_IPC_ROOT=%s\n' "${SCREENSHOT_ROOT}"
 } >"${COMPOSE_ENV}"
 /usr/bin/chmod 0400 "${COMPOSE_ENV}"
 
@@ -1252,6 +1361,27 @@ failure_stage=fixture-baseline
 prepare_oidf_fixture_baseline || fail
 failure_stage=fixture-provision
 provision_oidf_fixture || fail
+failure_stage=screenshot-helper
+SCREENSHOT_HELPER_DEADLINE="$("${CLOSED_ENV[@]}" "${NODE_BIN}" -e \
+  'process.stdout.write(String(Date.now() + 11100000))')"
+[[ "${SCREENSHOT_HELPER_DEADLINE}" =~ ^[0-9]{13}$ ]] || fail
+SCREENSHOT_HELPER_TOKEN="$(random_hex 32)"
+ASTER_PHASE1_PROCESS_TOKEN="${SCREENSHOT_HELPER_TOKEN}" "${SETSID_BIN}" \
+  env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" LC_ALL=C \
+    PLAYWRIGHT_BROWSERS_PATH="${BROWSER_CACHE}" \
+    ASTER_PHASE1_PROCESS_TOKEN="${SCREENSHOT_HELPER_TOKEN}" \
+    ASTER_PHASE1_SCREENSHOT_IPC_ROOT="${SCREENSHOT_ROOT}" \
+    "${NODE_BIN}" "${CAPTURE_HELPER_FILE}" \
+      --issuer-origin "${SCREENSHOT_ISSUER_ORIGIN}" \
+      --root-ca-file "${RUN_DIR}/pki/root-ca.crt" \
+      --certificate-file "${RUN_DIR}/pki/aster/tls.crt" \
+      --playwright-module "${PLAYWRIGHT_MODULE}" \
+      --deadline "${SCREENSHOT_HELPER_DEADLINE}" >/dev/null &
+SCREENSHOT_HELPER_PID=$!
+SCREENSHOT_HELPER_PGID="${SCREENSHOT_HELPER_PID}"
+/usr/bin/sleep 1
+kill -0 "${SCREENSHOT_HELPER_PID}" 2>/dev/null || fail
+process_has_ownership_token "${SCREENSHOT_HELPER_PID}" "${SCREENSHOT_HELPER_TOKEN}" || fail
 compose_up_phase oidf-runner || fail
 wait_for_topology oidf-runner
 wait_for_topology "${SERVICES[@]}"
@@ -1264,11 +1394,12 @@ failure_stage=descriptor
   "${DESCRIPTOR_FILE}" "${project_name}" "${RUNNER_CONTAINER_ID}" "${SUITE_COMMIT}" \
   "${SUITE_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "${RUNNER_IMAGE_ID}" "${RUNNER_DRIVER_PATH}" \
   "${DRIVER_BLOB}" "${DRIVER_SHA256}" "${RUNNER_SCRIPT_PATH}" "${RUNNER_SCRIPT_BLOB}" \
-  "${RUNNER_SCRIPT_SHA256}" "${PODMAN_SOCKET}" "${TOPOLOGY_ID}" <<'NODE'
+  "${RUNNER_SCRIPT_SHA256}" "${RUNNER_HANDOFF_PATH}" "${HANDOFF_BLOB}" \
+  "${HANDOFF_SHA256}" "${SCREENSHOT_ROOT}" "${PODMAN_SOCKET}" "${TOPOLOGY_ID}" <<'NODE'
 import { writeFileSync } from 'node:fs';
 const [output, projectName, runnerContainerId, suiteCommit, suiteImageId, candidateImageId,
   runnerImageId, driverPath, driverBlob, driverSha256, runnerPath, runnerBlob, runnerSha256,
-  engineSocket, topologyId] = process.argv.slice(2);
+  handoffPath, handoffBlob, handoffSha256, screenshotRoot, engineSocket, topologyId] = process.argv.slice(2);
 writeFileSync(output, `${JSON.stringify({
   schemaVersion: 1,
   kind: 'aster-phase1-runtime-candidate-conformance-descriptor',
@@ -1284,6 +1415,10 @@ writeFileSync(output, `${JSON.stringify({
   runnerPath,
   runnerBlob,
   runnerSha256,
+  handoffPath,
+  handoffBlob,
+  handoffSha256,
+  screenshotRoot,
   engineSocket,
   topologyId,
 })}\n`, { flag: 'wx', mode: 0o400 });
@@ -1320,6 +1455,14 @@ NODE_RUN_PID=''
 NODE_RUN_PGID=''
 NODE_RUN_TOKEN=''
 [[ "${node_run_status}" == 0 ]] || fail
+if ! terminate_owned_process_group \
+  "${SCREENSHOT_HELPER_PID}" "${SCREENSHOT_HELPER_PGID}" "${SCREENSHOT_HELPER_TOKEN}"; then
+  fail
+fi
+SCREENSHOT_HELPER_PID=''
+SCREENSHOT_HELPER_PGID=''
+SCREENSHOT_HELPER_TOKEN=''
+sanitize_screenshot_root || fail
 
 artifact_path="${EVIDENCE_DIR}/${EXPORT_NAME}"
 [[ -f "${artifact_path}" && ! -L "${artifact_path}" ]] || fail
