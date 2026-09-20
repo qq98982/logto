@@ -473,6 +473,7 @@ describe('phase 1 screenshot capture helper', () => {
 
   it.each([
     'valid',
+    'request-object',
     'same-origin-redirect',
     'registered-callback',
     'unregistered-callback',
@@ -600,7 +601,11 @@ describe('phase 1 screenshot capture helper', () => {
       const requestBinding = {
         ...currentBinding,
         moduleName:
-          scenario === 'wrong-module' ? 'oidcc-response-type-missing' : currentBinding.moduleName,
+          scenario === 'wrong-module'
+            ? 'oidcc-response-type-missing'
+            : scenario === 'request-object'
+              ? 'oidcc-ensure-request-object-with-redirect-uri'
+              : currentBinding.moduleName,
         conditionId:
           scenario === 'wrong-condition'
             ? 'ExpectResponseTypeMissingErrorPage'
@@ -665,7 +670,7 @@ describe('phase 1 screenshot capture helper', () => {
         stderr += data;
       });
       try {
-        if (scenario === 'valid') {
+        if (scenario === 'valid' || scenario === 'request-object') {
           await waitForFile(path.join(directory, 'capture-response.json'), currentBinding.deadline);
           const result = JSON.parse(
             await readFile(path.join(directory, 'capture-response.json'), 'utf8')
@@ -673,6 +678,7 @@ describe('phase 1 screenshot capture helper', () => {
           const png = await readFile(path.join(directory, 'capture.png'));
           expect(result).toMatchObject({
             ...currentBinding,
+            moduleName: requestBinding.moduleName,
             observedCondition: true,
             renderedUrl: `${issuerOrigin}${pathname}`,
             cookies: [cookie],

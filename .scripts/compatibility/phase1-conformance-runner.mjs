@@ -1051,6 +1051,29 @@ const implicitSubmissionUrl = (response, config, module) => {
   return url;
 };
 
+const supportsRequestParameter = async (context) => {
+  const response = await basicRequestBytes({
+    ...context,
+    url: context.config.discoveryUrl,
+    init: {
+      method: 'GET', redirect: 'error', credentials: 'omit',
+      headers: { accept: 'application/json' },
+    },
+    expectedStatuses: [200], category: 'browser-flow', module: context.module,
+  });
+  if (response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    throw invalidBasic('browser-flow', context.module);
+  }
+  const metadata = decodeBasicJson(response.bytes, 'browser-flow', context.module);
+  if (!isRecord(metadata) || metadata.issuer !== context.config.issuer ||
+    metadata.authorization_endpoint !== `${context.config.issuer}/auth` ||
+    (Object.hasOwn(metadata, 'request_parameter_supported') &&
+      typeof metadata.request_parameter_supported !== 'boolean')) {
+    throw invalidBasic('browser-flow', context.module);
+  }
+  return metadata.request_parameter_supported === true;
+};
+
 const driveDeclaredBrowserUrl = async (declaration, context) => {
   let currentUrl = requireAllowedNavigationUrl(
     declaration.url,
@@ -1058,11 +1081,21 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     'browser-flow',
     context.module
   );
-  if (context.module === 'oidcc-ensure-registered-redirect-uri') {
+  const unsupportedRequestObject = context.module === 'oidcc-ensure-request-object-with-redirect-uri' &&
+    !(await supportsRequestParameter(context));
+  if (context.module === 'oidcc-ensure-registered-redirect-uri' || unsupportedRequestObject) {
     if (declaration.method !== 'GET' || declaration.url !== currentUrl.href ||
       currentUrl.origin !== context.config.issuerOrigin || currentUrl.pathname !== '/oidc/auth' ||
       context.screenshot?.mapping.captureKind !== 'ui-error' ||
       context.screenshot.mapping.conditionId !== 'ExpectRedirectUriErrorPage') {
+      throw invalidBasic('screenshot-condition', context.module);
+    }
+    if (unsupportedRequestObject && (
+      currentUrl.searchParams.getAll('request').length !== 1 ||
+      !currentUrl.searchParams.get('request')?.trim() ||
+      currentUrl.searchParams.getAll('redirect_uri').length !== 1 ||
+      currentUrl.searchParams.get('redirect_uri') !== `${context.config.callbackUri}_invalid`
+    )) {
       throw invalidBasic('screenshot-condition', context.module);
     }
     return Object.freeze({

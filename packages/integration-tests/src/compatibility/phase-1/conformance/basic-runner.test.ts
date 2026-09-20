@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, complexity, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the exact Basic plan manifest, serial suite exchange, and one cohesive fake HTTP state machine. */
-import { spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   access,
@@ -13,8 +13,10 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
+import { createServer, request as requestHttps } from 'node:https';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 
 import { phase1ConformanceSuiteCommit } from './config.js';
 
@@ -241,10 +243,20 @@ const redirectErrorDeclaration = Object.freeze({
 // Supply the three mandatory suite/browser/IPC exchanges in otherwise focused plan fixtures.
 const runWithRequiredScreenshots = async (
   runner: RunnerModule,
-  dependencies: BasicRunnerDependencies & { fetch: typeof fetch },
+  dependencies: BasicRunnerDependencies & {
+    fetch: typeof fetch;
+    input?: ReturnType<typeof validInput>;
+    requestObjectCapture?: Readonly<{ url: string; browser?: boolean }>;
+  },
   excludedModules: readonly string[] = [],
   errorDeclaration: Readonly<{ url: string; method: string }> = redirectErrorDeclaration
 ) => {
+  const {
+    input: fixtureInput = validInput(),
+    requestObjectCapture,
+    ...runtimeDependencies
+  } = dependencies;
+  const issuerOrigin = new URL(fixtureInput.target.issuer).origin;
   await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
   const root =
     dependencies.screenshotIpcRoot ?? (await mkdtemp(`${screenshotEvidenceParent}/run.`));
@@ -267,8 +279,15 @@ const runWithRequiredScreenshots = async (
       const response = await dependencies.fetch(input, init);
       const module = (await response.clone().json()) as { id: string; name: string };
       active = undefined;
-      if (requiredScreenshotNames.includes(module.name) && !excludedModules.includes(module.name)) {
-        const errorPage = module.name === 'oidcc-ensure-registered-redirect-uri';
+      if (
+        (requiredScreenshotNames.includes(module.name) ||
+          (module.name === 'oidcc-ensure-request-object-with-redirect-uri' &&
+            requestObjectCapture)) &&
+        !excludedModules.includes(module.name)
+      ) {
+        const errorPage =
+          module.name === 'oidcc-ensure-registered-redirect-uri' ||
+          module.name === 'oidcc-ensure-request-object-with-redirect-uri';
         active = {
           ...module,
           logins: 0,
@@ -290,6 +309,10 @@ const runWithRequiredScreenshots = async (
       return dependencies.fetch(input, init);
     }
     const state = active;
+    const expectedErrorUrl =
+      state.name === 'oidcc-ensure-request-object-with-redirect-uri'
+        ? requestObjectCapture!.url
+        : errorDeclaration.url.replace('https://server.example', issuerOrigin);
     const placeholderId = `P${String(basicModuleNames.indexOf(state.name)).padStart(9, '0')}`;
     const redirect = (location: string) =>
       new Response(null, { status: 302, headers: { location } });
@@ -305,8 +328,8 @@ const runWithRequiredScreenshots = async (
     }
     if (url.pathname === `/api/runner/${state.id}` && method === 'GET') {
       const declared = state.errorPage
-        ? errorDeclaration.url
-        : `https://server.example/oidc/auth/required-${state.logins}`;
+        ? expectedErrorUrl
+        : `${issuerOrigin}/oidc/auth/required-${state.logins}`;
       return jsonResponse({
         id: state.id,
         name: state.name,
@@ -324,7 +347,10 @@ const runWithRequiredScreenshots = async (
     if (url.pathname === `/api/runner/browser/${state.id}/visit`) {
       return new Response(null, { status: 204 });
     }
-    if (state.errorPage && url.origin === 'https://server.example') {
+    if (url.href === fixtureInput.target.discoveryUrl) {
+      return dependencies.fetch(input, init);
+    }
+    if (state.errorPage && url.origin === issuerOrigin) {
       throw new Error('redirect-error navigation must belong exclusively to the capture worker');
     }
     if (url.pathname.startsWith('/oidc/auth/required-')) {
@@ -340,7 +366,7 @@ const runWithRequiredScreenshots = async (
       return jsonResponse({ verificationId: 'verification-required' });
     }
     if (url.pathname === '/api/experience/submit') {
-      return jsonResponse({ redirectTo: 'https://server.example/oidc/auth/resume-required' });
+      return jsonResponse({ redirectTo: `${issuerOrigin}/oidc/auth/resume-required` });
     }
     if (url.pathname === '/oidc/auth/resume-required') {
       return redirect(`${suiteBaseUrl}/test/a/aster-phase1/callback?code=required`);
@@ -364,28 +390,38 @@ const runWithRequiredScreenshots = async (
           ) as Record<string, unknown>;
           const { url: renderedUrl, issuerOrigin: _origin, cookies, ...binding } = request;
           if (state.errorPage) {
-            expect(renderedUrl).toBe(errorDeclaration.url);
+            expect(renderedUrl).toBe(expectedErrorUrl);
           }
           expect(binding).toMatchObject({
             testId: state.id,
             moduleName: state.name,
             placeholderId,
           });
-          const imageSha256 = createHash('sha256').update(testPng).digest('hex');
-          await writePrivateAtomic(path.join(directory, 'capture.png'), testPng);
-          await writePrivateAtomic(
-            path.join(directory, 'capture-response.json'),
-            JSON.stringify({
-              ...binding,
-              result: 'CAPTURED',
-              renderedUrl,
-              imageFile: 'capture.png',
-              imageSha256,
-              imageBytes: testPng.byteLength,
-              observedCondition: true,
-              cookies,
-            })
-          );
+          const realCapture =
+            state.name === 'oidcc-ensure-request-object-with-redirect-uri' &&
+            requestObjectCapture?.browser;
+          if (realCapture) {
+            await waitForPrivateFile(path.join(directory, 'capture.png'));
+          }
+          const imageSha256 = createHash('sha256')
+            .update(realCapture ? await readFile(path.join(directory, 'capture.png')) : testPng)
+            .digest('hex');
+          if (!realCapture) {
+            await writePrivateAtomic(path.join(directory, 'capture.png'), testPng);
+            await writePrivateAtomic(
+              path.join(directory, 'capture-response.json'),
+              JSON.stringify({
+                ...binding,
+                result: 'CAPTURED',
+                renderedUrl,
+                imageFile: 'capture.png',
+                imageSha256,
+                imageBytes: testPng.byteLength,
+                observedCondition: true,
+                cookies,
+              })
+            );
+          }
           await waitForPrivateFile(path.join(directory, 'review-request.json'));
           await writePrivateAtomic(
             path.join(directory, 'manual-review.json'),
@@ -433,8 +469,8 @@ const runWithRequiredScreenshots = async (
     return dependencies.fetch(input, init);
   };
   try {
-    const terminal = await runner.runOidfBasicPlan(JSON.stringify(validInput()), {
-      ...dependencies,
+    const terminal = await runner.runOidfBasicPlan(JSON.stringify(fixtureInput), {
+      ...runtimeDependencies,
       moduleTimeoutMs: dependencies.moduleTimeoutMs ?? 4000,
       screenshotIpcRoot: root,
       fetch: fetchImplementation,
@@ -558,6 +594,12 @@ const callbackPlaceholderExchange = (
     skipCallback?: boolean;
     authenticate?: boolean;
     finishWithoutBrowser?: boolean;
+    discovery?: Readonly<Record<string, unknown>>;
+    discoveryStatus?: number;
+    discoveryType?: string;
+    discoveryBody?: string;
+    declaredUrl?: string;
+    declaredMethod?: string;
   }> = {}
 ) => {
   const moduleName = scenario.moduleName ?? 'oidcc-response-type-missing';
@@ -612,6 +654,27 @@ const callbackPlaceholderExchange = (
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
     requests.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/oidc/.well-known/openid-configuration') {
+      expect(init?.redirect).toBe('error');
+      expect(init?.credentials).toBe('omit');
+      expect(new Headers(init?.headers).has('cookie')).toBe(false);
+      expect(new Headers(init?.headers).has('authorization')).toBe(false);
+      expect(init?.signal).toBeDefined();
+      return new Response(
+        scenario.discoveryBody ??
+          JSON.stringify(
+            scenario.discovery ?? {
+              issuer: validInput().target.issuer,
+              authorization_endpoint: `${validInput().target.issuer}/auth`,
+              request_parameter_supported: true,
+            }
+          ),
+        {
+          status: scenario.discoveryStatus ?? 200,
+          headers: { 'content-type': scenario.discoveryType ?? 'application/json' },
+        }
+      );
+    }
     if (url.pathname === '/api/plan') {
       return jsonResponse(
         {
@@ -650,7 +713,12 @@ const callbackPlaceholderExchange = (
       const declarations =
         scenario.initialQueueDelay && statusPolls === 1
           ? []
-          : [{ url: 'https://server.example/oidc/auth', method: 'GET' }];
+          : [
+              {
+                url: scenario.declaredUrl ?? 'https://server.example/oidc/auth',
+                method: scenario.declaredMethod ?? 'GET',
+              },
+            ];
       return jsonResponse({
         id: testId,
         name: moduleName,
@@ -753,6 +821,312 @@ const callbackPlaceholderExchange = (
 };
 
 describe('official OIDF Basic plan runner input and manifest', () => {
+  const unsupportedRequestDiscovery = {
+    issuer: validInput().target.issuer,
+    authorization_endpoint: `${validInput().target.issuer}/auth`,
+    request_parameter_supported: false,
+  };
+  it.each([
+    { discovery: { ...unsupportedRequestDiscovery, request_parameter_supported: null } },
+    { discovery: { ...unsupportedRequestDiscovery, request_parameter_supported: 'false' } },
+    { discovery: { ...unsupportedRequestDiscovery, request_parameter_supported: 0 } },
+    { discovery: { ...unsupportedRequestDiscovery, issuer: 'https://other.example/oidc' } },
+    {
+      discovery: {
+        ...unsupportedRequestDiscovery,
+        authorization_endpoint: 'https://other.example/oidc/auth',
+      },
+    },
+    { discoveryBody: '{' },
+    { discoveryStatus: 302 },
+    { discoveryStatus: 503 },
+    { discoveryType: 'text/html' },
+  ])('rejects invalid module 33 discovery before any authorization request', async (scenario) => {
+    const runner = await loadRunner();
+    const moduleName = 'oidcc-ensure-request-object-with-redirect-uri';
+    const exchange = callbackPlaceholderExchange({ moduleName, ...scenario });
+    await expect(
+      runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation })
+    ).rejects.toMatchObject({ category: 'browser-flow', module: moduleName });
+    expect(exchange.requests).toContain('GET /oidc/.well-known/openid-configuration');
+    expect(exchange.requests).not.toContain('GET /oidc/auth');
+  });
+
+  it.each([
+    { declaredMethod: 'POST' },
+    {
+      query:
+        'redirect_uri=https%3A%2F%2Fsuite.example%2Ftest%2Fa%2Faster-phase1%2Fcallback_invalid',
+    },
+    {
+      query:
+        'request=&redirect_uri=https%3A%2F%2Fsuite.example%2Ftest%2Fa%2Faster-phase1%2Fcallback_invalid',
+    },
+    {
+      query:
+        'request=one&request=two&redirect_uri=https%3A%2F%2Fsuite.example%2Ftest%2Fa%2Faster-phase1%2Fcallback_invalid',
+    },
+    {
+      query:
+        'request=opaque&redirect_uri=https%3A%2F%2Fsuite.example%2Ftest%2Fa%2Faster-phase1%2Fcallback',
+    },
+    {
+      query:
+        'request=opaque&redirect_uri=https%3A%2F%2Fsuite.example%2Ftest%2Fa%2Faster-phase1%2Fcallback_invalid&redirect_uri=other',
+    },
+  ])(
+    'rejects unsupported module 33 without its exact GET/request/invalid-outer declaration',
+    async (scenario) => {
+      const runner = await loadRunner();
+      const moduleName = 'oidcc-ensure-request-object-with-redirect-uri';
+      const declaredUrl = `${validInput().target.issuer}/auth?${scenario.query ?? `request=opaque&redirect_uri=${encodeURIComponent(`${validInput().target.callbackUri}_invalid`)}`}`;
+      const exchange = callbackPlaceholderExchange({
+        moduleName,
+        discovery: unsupportedRequestDiscovery,
+        declaredUrl,
+        declaredMethod: scenario.declaredMethod,
+      });
+      await expect(
+        runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation })
+      ).rejects.toMatchObject({ category: 'screenshot-condition', module: moduleName });
+      expect(exchange.requests).not.toContain('GET /oidc/auth');
+      expect(exchange.requests).not.toContain('POST /oidc/auth');
+    }
+  );
+
+  it.each([
+    { finalEntry: { image_no_longer_required: false } },
+    { extraResult: 'WARNING' },
+    { extraResult: 'FAILURE' },
+  ])('requires clean exact placeholder retirement for supported module 33', async (scenario) => {
+    const runner = await loadRunner();
+    const moduleName = 'oidcc-ensure-request-object-with-redirect-uri';
+    const exchange = callbackPlaceholderExchange({ moduleName, authenticate: true, ...scenario });
+    await expect(
+      runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation })
+    ).rejects.toMatchObject({ category: 'condition-log', module: moduleName });
+    expect(exchange.requests).toContain('GET /test/a/aster-phase1/callback');
+  });
+
+  it.each(['false', 'absent'] as const)(
+    'captures module 33 over real TLS with %s request support and no callback',
+    async (support) => {
+      const root = await mkdtemp('/var/tmp/henry-build/aster-request-object-capture.');
+      await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+      const ipcRoot = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+      const repository = path.resolve(process.cwd(), '../..');
+      const host = 'aster-server.aster-phase1-conformance.svc.cluster.local';
+      await promisify(execFile)(
+        path.join(repository, '.scripts/compatibility/phase1-conformance-pki.sh'),
+        [root, String(process.getuid?.()), String(process.getgid?.())],
+        { timeout: 30_000 }
+      );
+      const ca = await readFile(path.join(root, 'pki/root-ca.crt'));
+      const seen: Array<Readonly<{ path: string; cookie?: string; authorization?: string }>> = [];
+      let origin = '';
+      const server = createServer(
+        {
+          cert: await readFile(path.join(root, 'pki/aster/tls.crt')),
+          key: await readFile(path.join(root, 'pki/aster/tls.key')),
+        },
+        (request, response) => {
+          seen.push({
+            path: request.url ?? '',
+            cookie: request.headers.cookie,
+            authorization: request.headers.authorization,
+          });
+          response.setHeader('content-type', 'application/json; charset=utf-8');
+          if (request.url === '/oidc/.well-known/openid-configuration') {
+            response.setHeader(
+              'set-cookie',
+              'discovery-only=must-not-reach-authorization; Path=/; Secure'
+            );
+            response.end(
+              JSON.stringify({
+                issuer: `${origin}/oidc`,
+                authorization_endpoint: `${origin}/oidc/auth`,
+                ...(support === 'false' && { request_parameter_supported: false }),
+              })
+            );
+          } else if (request.url?.startsWith('/oidc/auth?')) {
+            response.statusCode = 400;
+            response.end(
+              JSON.stringify({
+                code: 'oidc.invalid_redirect_uri',
+                message:
+                  "`redirect_uri` did not match any of the client's registered `redirect_uris`.",
+                error: 'invalid_redirect_uri',
+                error_description:
+                  "redirect_uri did not match any of the client's registered redirect_uris",
+                iss: `${origin}/oidc`,
+              })
+            );
+          } else {
+            response.statusCode = 500;
+            response.end('{}');
+          }
+        }
+      );
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('missing TLS fixture address');
+      }
+      origin = `https://${host}:${address.port}`;
+      const fixtureInput = validInput();
+      fixtureInput.target.issuer = `${origin}/oidc`;
+      fixtureInput.target.discoveryUrl = `${origin}/oidc/.well-known/openid-configuration`;
+      const authorizationUrl = `${origin}/oidc/auth?request=opaque.request.object&redirect_uri=${encodeURIComponent(`${fixtureInput.target.callbackUri}_invalid`)}&state=original%2Bstate`;
+      const exchange = callbackPlaceholderExchange({
+        moduleName: 'oidcc-ensure-request-object-with-redirect-uri',
+      });
+      let helper: ReturnType<typeof spawn> | undefined;
+      let exited: Promise<number | undefined> | undefined;
+      let output = '';
+      let errors = '';
+      const fetchImplementation: typeof fetch = async (input, init) => {
+        if (String(input) !== fixtureInput.target.discoveryUrl) {
+          return exchange.fetchImplementation(input, init);
+        }
+        expect(init?.redirect).toBe('error');
+        expect(init?.credentials).toBe('omit');
+        expect(new Headers(init?.headers).has('cookie')).toBe(false);
+        expect(helper).toBeUndefined();
+        helper = spawn(
+          process.execPath,
+          [
+            path.join(repository, '.scripts/compatibility/phase1-screenshot-capture.mjs'),
+            '--issuer-origin',
+            origin,
+            '--root-ca-file',
+            path.join(root, 'pki/root-ca.crt'),
+            '--certificate-file',
+            path.join(root, 'pki/aster/tls.crt'),
+            '--playwright-module',
+            path.join(
+              repository,
+              'node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test/index.js'
+            ),
+            '--deadline',
+            String(Date.now() + 30_000),
+          ],
+          {
+            env: {
+              PATH: '/usr/bin:/bin',
+              HOME: root,
+              PLAYWRIGHT_BROWSERS_PATH: '/var/tmp/henry-build/aster-playwright-browsers',
+              ASTER_PHASE1_SCREENSHOT_IPC_ROOT: ipcRoot,
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }
+        );
+        exited = new Promise((resolve) => {
+          helper!.once('exit', (code) => {
+            resolve(code ?? undefined);
+          });
+        });
+        helper.stdout?.setEncoding('utf8').on('data', (text: string) => {
+          output += text;
+        });
+        helper.stderr?.setEncoding('utf8').on('data', (text: string) => {
+          errors += text;
+        });
+        return new Promise<Response>((resolve, reject) => {
+          const request = requestHttps(
+            {
+              hostname: '127.0.0.1',
+              port: address.port,
+              servername: host,
+              ca,
+              path: '/oidc/.well-known/openid-configuration',
+              method: 'GET',
+              signal: init?.signal ?? undefined,
+              headers: {
+                ...Object.fromEntries(new Headers(init?.headers).entries()),
+                host: new URL(fixtureInput.target.discoveryUrl).host,
+              },
+            },
+            (response) => {
+              const chunks: Uint8Array[] = [];
+              response.on('data', (chunk: Uint8Array) => {
+                chunks.push(chunk);
+              });
+              response.on('error', reject);
+              response.on('end', () => {
+                resolve(
+                  new Response(Buffer.concat(chunks), {
+                    status: response.statusCode,
+                    headers: {
+                      'content-type': String(response.headers['content-type']),
+                      ...(response.headers['set-cookie'] && {
+                        'set-cookie': response.headers['set-cookie'].join(','),
+                      }),
+                    },
+                  })
+                );
+              });
+            }
+          );
+          request.on('error', reject);
+          request.end();
+        });
+      };
+      try {
+        const runner = await loadRunner();
+        const terminal = await runWithRequiredScreenshots(runner, {
+          input: fixtureInput,
+          requestObjectCapture: { url: authorizationUrl, browser: true },
+          readSecret,
+          fetch: fetchImplementation,
+          screenshotIpcRoot: ipcRoot,
+          moduleTimeoutMs: 15_000,
+        });
+        expect(terminal).toMatchObject({
+          acceptance: 'ACCEPTED',
+          result: { reviewedModuleCount: 4 },
+        });
+        const result = terminal.result as { modules: Array<Record<string, unknown>> };
+        expect(result.modules[32]).toMatchObject({
+          result: 'REVIEW',
+          review: { conditionId: 'ExpectRedirectUriErrorPage', decision: 'APPROVE' },
+        });
+        expect(seen).toEqual([
+          {
+            path: '/oidc/.well-known/openid-configuration',
+            cookie: undefined,
+            authorization: undefined,
+          },
+          {
+            path: new URL(authorizationUrl).pathname + new URL(authorizationUrl).search,
+            cookie: undefined,
+            authorization: undefined,
+          },
+        ]);
+        expect(exchange.requests).not.toContain('GET /oidc/auth');
+        expect(exchange.requests).not.toContain('GET /test/a/aster-phase1/callback');
+      } finally {
+        helper?.kill('SIGTERM');
+        const code = await exited;
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => {
+          server.close(() => {
+            resolve();
+          });
+        });
+        await Promise.all([
+          rm(root, { recursive: true, force: true }),
+          rm(ipcRoot, { recursive: true, force: true }),
+        ]);
+        expect(code).toBe(0);
+        expect(output).toBe('');
+        expect(errors).toBe(`phase 1 screenshot capture ready: ${ipcRoot}\n`);
+      }
+    },
+    45_000
+  );
+
   it('retains all 35 private ordered ledgers with original byte hashes and no sensitive payloads', async () => {
     const runner = await loadRunner();
     await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });

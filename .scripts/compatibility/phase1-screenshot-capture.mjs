@@ -71,7 +71,7 @@ const errorConditions = Object.freeze({
 const requireFromHere = createRequire(import.meta.url);
 const redirectErrorModule = 'oidcc-ensure-registered-redirect-uri';
 const isFirstRedirectError = (binding, url) =>
-  binding.moduleName === redirectErrorModule &&
+  [redirectErrorModule, 'oidcc-ensure-request-object-with-redirect-uri'].includes(binding.moduleName) &&
   binding.conditionId === 'ExpectRedirectUriErrorPage' &&
   binding.captureKind === 'ui-error' && url.pathname === '/oidc/auth';
 
