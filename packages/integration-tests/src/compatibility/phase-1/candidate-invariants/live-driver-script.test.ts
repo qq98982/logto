@@ -405,7 +405,7 @@ if [[ "$1" == exec ]]; then
   elif [[ "$input" == *'phase1-wrapping-fence-late-probe'* ]]; then
     printf '%s' "${'$'}{WRAPPING_FENCE_TOKEN:-55000|true}"
   elif [[ "$input" == *'phase1-sign-seal-rewrap-probe'* ]]; then
-    printf '%s' "${'$'}{SIGN_SEAL_TOKEN:-1|1|1|1|true}"
+    printf '%s' "${'$'}{SIGN_SEAL_TOKEN:-1|1|1|1|1|1|true}"
   elif [[ "$input" == *'SET SESSION AUTHORIZATION aster_key_runtime'* ]]; then
     printf '%s' "${'$'}{REQUIRED_READABLE_TOKEN:-15000|42501|42501|42501|42501|true}"
   elif [[ "$input" == *'keystore.required-readable-key-set'* ]]; then
@@ -872,6 +872,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
 
     expect(sql).toContain('phase1-key-owner-probe');
     expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql.match(/aster_runtime\.provision_oidc_id_token_signing_key/gu)).toHaveLength(2);
     expect(sql).toContain('aster_runtime.provision_cookie_key');
     expect(sql).toContain('aster_runtime.activate_tenant_binding');
     expect(sql).toContain('aster_runtime.phase1_key_owner_probe');
@@ -904,6 +905,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
 
     expect(sql).toContain('phase1-metadata-dml-probe');
     expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql.match(/aster_runtime\.provision_oidc_id_token_signing_key/gu)).toHaveLength(1);
     expect(sql).toContain('aster_runtime.provision_cookie_key');
     expect(sql).toContain('aster_runtime.record_signing_use');
     expect(sql).toContain('aster_runtime.record_cookie_seal');
@@ -1140,7 +1142,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
     ).rejects.toThrow();
   });
 
-  it('keeps signing and cookie operations available across material rewrap', async () => {
+  it('keeps both signing purposes and cookie operations available across material rewrap', async () => {
     const fake = await fakeDocker();
     const { stdout, stderr } = await executeFile(driver, args(signSealInvariantId), {
       env: fake.env,
@@ -1152,13 +1154,18 @@ describe('Phase 1 candidate invariant shell driver', () => {
 
     expect(sql).toContain('phase1-sign-seal-rewrap-probe');
     expect(sql).toContain('aster_runtime.provision_signing_key');
+    expect(sql.match(/aster_runtime\.provision_oidc_id_token_signing_key/gu)).toHaveLength(1);
     expect(sql).toContain('aster_runtime.provision_cookie_key');
     expect(sql).toContain('aster_runtime.rewrap_signing_key_material');
+    expect(sql).toContain('aster_runtime.rewrap_oidc_id_token_signing_key_material');
     expect(sql).toContain('aster_runtime.rewrap_cookie_key_material');
     expect(sql).toContain('aster_runtime.record_signing_use');
+    expect(sql).toContain('aster_runtime.record_oidc_id_token_signing_use');
     expect(sql).toContain('aster_runtime.record_cookie_seal');
     expect(sql).toContain('aster_runtime.read_active_signing_key_material');
+    expect(sql).toContain('aster_runtime.read_active_oidc_id_token_signing_key_material');
     expect(sql).toContain('aster_runtime.read_cookie_key_material');
+    expect(sql).toContain('new_key.reference_count = 3');
     expect(sql).toContain('ROLLBACK;');
     expect(sql).toContain("'keystore.sign-seal-during-rewrap'");
     expect(sql).not.toMatch(/password|secret|private_key/iu);
@@ -1169,7 +1176,7 @@ describe('Phase 1 candidate invariant shell driver', () => {
 
     await expect(
       executeFile(driver, args(signSealInvariantId), {
-        env: { ...fake.env, SIGN_SEAL_TOKEN: 'false|true|true|true' },
+        env: { ...fake.env, SIGN_SEAL_TOKEN: '0|1|1|1|1|1|true' },
       })
     ).rejects.toThrow();
   });

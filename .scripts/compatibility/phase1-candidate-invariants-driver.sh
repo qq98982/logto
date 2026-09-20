@@ -1522,6 +1522,15 @@ SELECT aster_runtime.provision_signing_key(
   :'active_key_id',
   :'writer_generation'::bigint
 ) \g /dev/null
+SELECT aster_runtime.provision_oidc_id_token_signing_key(
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1',
+  'fffffffffffffffffffffffffffffff1', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('15', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('25', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('35', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
 SELECT aster_runtime.provision_cookie_key(
   'ccccccccccccccccccccccccccccccc1',
   'ddddddddddddddddddddddddddddddd1',
@@ -1534,6 +1543,7 @@ SELECT aster_runtime.provision_cookie_key(
 ) \g /dev/null
 SELECT aster_runtime.complete_bound_tenant_key_provisioning(
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1',
   'ccccccccccccccccccccccccccccccc1'
 ) \g /dev/null
 RESET SESSION AUTHORIZATION;
@@ -1556,6 +1566,15 @@ SELECT aster_runtime.provision_signing_key(
   :'active_key_id',
   :'writer_generation'::bigint
 ) \g /dev/null
+SELECT aster_runtime.provision_oidc_id_token_signing_key(
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2',
+  'fffffffffffffffffffffffffffffff2', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('16', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('26', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('36', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
 SELECT aster_runtime.provision_cookie_key(
   'ccccccccccccccccccccccccccccccc2',
   'ddddddddddddddddddddddddddddddd2',
@@ -1568,6 +1587,7 @@ SELECT aster_runtime.provision_cookie_key(
 ) \g /dev/null
 SELECT aster_runtime.complete_bound_tenant_key_provisioning(
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2',
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2',
   'ccccccccccccccccccccccccccccccc2'
 ) \g /dev/null
 RESET SESSION AUTHORIZATION;
@@ -1785,6 +1805,15 @@ SELECT aster_runtime.provision_signing_key(
   :'active_key_id',
   :'writer_generation'::bigint
 ) \g /dev/null
+SELECT aster_runtime.provision_oidc_id_token_signing_key(
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
+  'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('17', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('27', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('37', 24), 'hex'),
+  :'active_key_id',
+  :'writer_generation'::bigint
+) \g /dev/null
 SELECT aster_runtime.provision_cookie_key(
   'ddddddddddddddddddddddddddddddd1',
   'ccccccccccccccccccccccccccccccc1',
@@ -1797,6 +1826,7 @@ SELECT aster_runtime.provision_cookie_key(
 ) \g /dev/null
 SELECT aster_runtime.complete_bound_tenant_key_provisioning(
   'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee1',
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1',
   'ddddddddddddddddddddddddddddddd1'
 ) \g /dev/null
 RESET SESSION AUTHORIZATION;
@@ -3418,6 +3448,14 @@ SELECT aster_runtime.provision_signing_key(
   pg_catalog.decode(pg_catalog.repeat('83', 24), 'hex'),
   'aster-mk-6000000000000001', 1
 ) \g /dev/null
+SELECT aster_runtime.provision_oidc_id_token_signing_key(
+  'ddddddddddddddddddddddddddddddd9',
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee9', 1, '{}',
+  pg_catalog.decode(pg_catalog.repeat('8b', 32), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('8c', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('8d', 24), 'hex'),
+  'aster-mk-6000000000000001', 1
+) \g /dev/null
 SELECT aster_runtime.provision_cookie_key(
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb9',
   'ccccccccccccccccccccccccccccccc9', 1,
@@ -3428,6 +3466,7 @@ SELECT aster_runtime.provision_cookie_key(
 ) \g /dev/null
 SELECT aster_runtime.complete_bound_tenant_key_provisioning(
   '99999999999999999999999999999991',
+  'ddddddddddddddddddddddddddddddd9',
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb9'
 ) \g /dev/null
 RESET SESSION AUTHORIZATION;
@@ -3453,11 +3492,16 @@ SELECT * FROM aster_runtime.activate_tenant_binding(
 SELECT aster_runtime.record_signing_use(
   '99999999999999999999999999999991', 1
 ) \g /dev/null
+SELECT aster_runtime.record_oidc_id_token_signing_use(
+  'ddddddddddddddddddddddddddddddd9', 1
+) \g /dev/null
 SELECT aster_runtime.record_cookie_seal(
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb9', 1
 ) \g /dev/null
 SELECT pg_catalog.count(*) AS signing_before
 FROM aster_runtime.read_active_signing_key_material() \gset
+SELECT pg_catalog.count(*) AS oidc_signing_before
+FROM aster_runtime.read_active_oidc_id_token_signing_key_material() \gset
 SELECT pg_catalog.count(*) AS cookie_before
 FROM aster_runtime.read_cookie_key_material(false) \gset
 RESET SESSION AUTHORIZATION;
@@ -3497,6 +3541,15 @@ SELECT aster_runtime.rewrap_signing_key_material(
   pg_catalog.decode(pg_catalog.repeat('88', 24), 'hex'),
   'aster-mk-6000000000000002', 2
 ) \g /dev/null
+SELECT aster_runtime.rewrap_oidc_id_token_signing_key_material(
+  'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee9',
+  pg_catalog.decode(pg_catalog.repeat('8c', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('8d', 24), 'hex'),
+  'aster-mk-6000000000000001', 1,
+  pg_catalog.decode(pg_catalog.repeat('8e', 1200), 'hex'),
+  pg_catalog.decode(pg_catalog.repeat('8f', 24), 'hex'),
+  'aster-mk-6000000000000002', 2
+) \g /dev/null
 SELECT aster_runtime.rewrap_cookie_key_material(
   'ccccccccccccccccccccccccccccccc9',
   pg_catalog.decode(pg_catalog.repeat('85', 48), 'hex'),
@@ -3526,21 +3579,30 @@ SELECT * FROM aster_runtime.activate_tenant_binding(
 SELECT aster_runtime.record_signing_use(
   '99999999999999999999999999999991', 1
 ) \g /dev/null
+SELECT aster_runtime.record_oidc_id_token_signing_use(
+  'ddddddddddddddddddddddddddddddd9', 1
+) \g /dev/null
 SELECT aster_runtime.record_cookie_seal(
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb9', 1
 ) \g /dev/null
 SELECT pg_catalog.count(*) AS signing_after
 FROM aster_runtime.read_active_signing_key_material() \gset
+SELECT pg_catalog.count(*) AS oidc_signing_after
+FROM aster_runtime.read_active_oidc_id_token_signing_key_material() \gset
 SELECT pg_catalog.count(*) AS cookie_after
 FROM aster_runtime.read_cookie_key_material(false) \gset
 RESET SESSION AUTHORIZATION;
 
 SELECT CASE WHEN old_key.reference_count = 0
-  AND new_key.reference_count = 2
+  AND new_key.reference_count = 3
   AND signing.lifecycle_state = 'active'
   AND signing.generation = 1
   AND signing.public_metadata_fingerprint = pg_catalog.decode(pg_catalog.repeat('81', 32), 'hex')
   AND signing.last_signed_at IS NOT NULL
+  AND oidc_signing.lifecycle_state = 'active'
+  AND oidc_signing.generation = 1
+  AND oidc_signing.public_metadata_fingerprint = pg_catalog.decode(pg_catalog.repeat('8b', 32), 'hex')
+  AND oidc_signing.last_signed_at IS NOT NULL
   AND cookie.lifecycle_state = 'active'
   AND cookie.generation = 1
   AND cookie.public_metadata_fingerprint = pg_catalog.decode(pg_catalog.repeat('84', 32), 'hex')
@@ -3548,6 +3610,9 @@ SELECT CASE WHEN old_key.reference_count = 0
   AND signing_material.ciphertext = pg_catalog.decode(pg_catalog.repeat('87', 64), 'hex')
   AND signing_material.wrapping_key_id = 'aster-mk-6000000000000002'
   AND signing_material.writer_generation = 2
+  AND oidc_signing_material.ciphertext = pg_catalog.decode(pg_catalog.repeat('8e', 1200), 'hex')
+  AND oidc_signing_material.wrapping_key_id = 'aster-mk-6000000000000002'
+  AND oidc_signing_material.writer_generation = 2
   AND cookie_material.ciphertext = pg_catalog.decode(pg_catalog.repeat('89', 48), 'hex')
   AND cookie_material.wrapping_key_id = 'aster-mk-6000000000000002'
   AND cookie_material.writer_generation = 2
@@ -3555,11 +3620,16 @@ THEN 'true' ELSE 'false' END AS state_ok
 FROM aster_control.wrapping_key_registry AS old_key
 JOIN aster_control.wrapping_key_registry AS new_key ON true
 JOIN aster_tenant.signing_key_metadata AS signing ON true
+JOIN aster_tenant.oidc_id_token_signing_key_metadata AS oidc_signing
+  ON oidc_signing.tenant_id = signing.tenant_id
 JOIN aster_tenant.cookie_key_metadata AS cookie
   ON cookie.tenant_id = signing.tenant_id
 JOIN aster_tenant.signing_key_material AS signing_material
   ON signing_material.tenant_id = signing.tenant_id
  AND signing_material.material_id = signing.material_id
+JOIN aster_tenant.oidc_id_token_signing_key_material AS oidc_signing_material
+  ON oidc_signing_material.tenant_id = oidc_signing.tenant_id
+ AND oidc_signing_material.material_id = oidc_signing.material_id
 JOIN aster_tenant.cookie_key_material AS cookie_material
   ON cookie_material.tenant_id = cookie.tenant_id
  AND cookie_material.material_id = cookie.material_id
@@ -3567,11 +3637,11 @@ WHERE old_key.key_id = 'aster-mk-6000000000000001'
   AND new_key.key_id = 'aster-mk-6000000000000002'
   AND signing.tenant_id = 'phase1-sign-seal-tenant' \gset
 
-\echo :signing_before|:cookie_before|:signing_after|:cookie_after|:state_ok
+\echo :signing_before|:oidc_signing_before|:cookie_before|:signing_after|:oidc_signing_after|:cookie_after|:state_ok
 ROLLBACK;
 SQL
 )" || fail
-  [[ "$sign_seal_observation" == '1|1|1|1|true' ]] || fail
+  [[ "$sign_seal_observation" == '1|1|1|1|1|1|true' ]] || fail
 
   terminal="$($DOCKER_BIN exec --interactive --user postgres "$primary_container_id" \
     psql --no-psqlrc --quiet --tuples-only --no-align --single-transaction \
