@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-const jsonPrimitiveGuard = z.union([z.string(), z.number().finite(), z.boolean(), z.null()]);
+const jsonStringGuard = z.string();
+const jsonNumberGuard = z.number().finite();
+const jsonBooleanGuard = z.boolean();
+const jsonNullGuard = z.null();
+const nonJsonGuard = z.never();
 const plainObjectGuard = z.custom<Record<string, unknown>>((value) => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
@@ -11,13 +15,34 @@ const plainObjectGuard = z.custom<Record<string, unknown>>((value) => {
   return prototype === Object.prototype || prototype === null;
 });
 
-export const jsonValueGuard: z.ZodType<unknown> = z.lazy(() =>
-  z.union([
-    jsonPrimitiveGuard,
-    z.array(jsonValueGuard),
-    plainObjectGuard.pipe(z.record(jsonValueGuard)),
-  ])
-);
+// Dispatch by JSON type so valid nested values do not allocate errors for other union branches.
+export const jsonValueGuard: z.ZodType<unknown> = z.unknown().transform((value, context) => {
+  const guard =
+    value === null
+      ? jsonNullGuard
+      : Array.isArray(value)
+        ? jsonArrayGuard
+        : typeof value === 'object'
+          ? jsonObjectGuard
+          : typeof value === 'string'
+            ? jsonStringGuard
+            : typeof value === 'number'
+              ? jsonNumberGuard
+              : typeof value === 'boolean'
+                ? jsonBooleanGuard
+                : nonJsonGuard;
+  const parsed = guard.safeParse(value);
+
+  if (parsed.success) {
+    return parsed.data;
+  }
+  for (const issue of parsed.error.issues) {
+    context.addIssue(issue);
+  }
+  return z.NEVER;
+});
+const jsonArrayGuard = z.array(jsonValueGuard);
+const jsonObjectGuard = plainObjectGuard.pipe(z.record(jsonValueGuard));
 
 const httpUrlGuard = z
   .string()
