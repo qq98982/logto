@@ -2,6 +2,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import type { JsonObject, JsonValue } from '../../normalize.js';
+import { assertPhase1EvidenceIsSanitized, omitVerifiedIdTokenEmailPair } from '../evidence.js';
 import type { Phase1DifferentialScenarioId } from '../model.js';
 
 type ProjectionPair = Readonly<{ oracle: Readonly<JsonObject>; candidate: Readonly<JsonObject> }>;
@@ -375,6 +376,148 @@ const weakEtag = (
 const cacheClosed = (value: unknown): boolean =>
   isDeepStrictEqual(value, noStore) || isDeepStrictEqual(value, noCache);
 
+const emailPairSteps = Object.freeze([
+  { scenarioId: 'token.code-reuse-rejected', stepId: 'first-exchange' },
+  { scenarioId: 'token.refresh-rotation', stepId: 'refresh-token' },
+] as const satisfies ReadonlyArray<
+  Readonly<{
+    scenarioId: Phase1DifferentialScenarioId;
+    stepId: string;
+  }>
+>);
+
+const verifiedTokenArray = (tokens: unknown): tokens is readonly unknown[] => {
+  if (!Array.isArray(tokens) || tokens.length === 0) {
+    return false;
+  }
+  try {
+    assertPhase1EvidenceIsSanitized({ tokens });
+
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const emailAuthority = (
+  root: JsonObject,
+  stepId: string
+):
+  | Readonly<{
+      idClaims: Readonly<Record<string, unknown>>;
+      userinfo: Readonly<Record<string, unknown>>;
+      scope: string;
+    }>
+  | undefined => {
+  const value = valueAt(root, `/steps/${stepId}/value`);
+
+  if (!isRecord(value) || !verifiedTokenArray(value.tokens) || !isRecord(value.body)) {
+    return undefined;
+  }
+  const { tokens, body } = value;
+  const accessIndex = tokens.findIndex((token) => isRecord(token) && token.kind === 'access');
+  const idIndex = tokens.findIndex((token) => isRecord(token) && token.kind === 'id');
+  const access = tokens[accessIndex];
+  const id = tokens[idIndex];
+  const { scope } = body;
+
+  if (
+    accessIndex < 0 ||
+    idIndex < 0 ||
+    tokens.filter((token) => isRecord(token) && token.kind === 'access').length !== 1 ||
+    tokens.filter((token) => isRecord(token) && token.kind === 'id').length !== 1 ||
+    !isRecord(access) ||
+    access.format !== 'opaque' ||
+    !isRecord(id) ||
+    id.format !== 'jwt' ||
+    id.signatureVerified !== true ||
+    !isRecord(id.claims) ||
+    !isRecord(body.access) ||
+    body.access.$observation !== accessIndex ||
+    !isRecord(body.id) ||
+    body.id.$observation !== idIndex ||
+    body.tokenType !== 'Bearer' ||
+    typeof scope !== 'string' ||
+    !['openid', 'email'].every((required) => scope.split(' ').includes(required))
+  ) {
+    return undefined;
+  }
+  const { outcomes } = value;
+  const outcome: unknown =
+    Array.isArray(outcomes) && outcomes.length === 1 ? outcomes[0] : undefined;
+  const response =
+    isRecord(outcome) && outcome.kind === 'userinfo-email' ? outcome.response : undefined;
+  const userinfo = isRecord(response) && response.status === 200 ? response.body : undefined;
+
+  if (
+    !isRecord(userinfo) ||
+    typeof id.claims.sub !== 'string' ||
+    userinfo.sub !== id.claims.sub ||
+    !(
+      (typeof userinfo.email === 'string' && userinfo.email.length > 0) ||
+      userinfo.email === null
+    ) ||
+    typeof userinfo.email_verified !== 'boolean'
+  ) {
+    return undefined;
+  }
+
+  return Object.freeze({ idClaims: id.claims, userinfo, scope });
+};
+
+const projectEmailPair = (
+  scenarioId: Phase1DifferentialScenarioId,
+  oracle: Readonly<JsonObject>,
+  candidate: Readonly<JsonObject>
+): Readonly<JsonObject> => {
+  const rule = emailPairSteps.find(({ scenarioId: registered }) => registered === scenarioId);
+
+  if (!rule) {
+    return oracle;
+  }
+  const reference = emailAuthority(oracle, rule.stepId);
+  const actual = emailAuthority(candidate, rule.stepId);
+
+  if (!reference || !actual || reference.scope !== actual.scope) {
+    return oracle;
+  }
+  const { idClaims: referenceClaims, userinfo: referenceUserinfo } = reference;
+  const { idClaims: actualClaims, userinfo: actualUserinfo } = actual;
+
+  if (
+    !Object.hasOwn(referenceClaims, 'email') ||
+    !Object.hasOwn(referenceClaims, 'email_verified') ||
+    !(
+      (typeof referenceClaims.email === 'string' && referenceClaims.email.length > 0) ||
+      referenceClaims.email === null
+    ) ||
+    typeof referenceClaims.email_verified !== 'boolean' ||
+    referenceClaims.email !== referenceUserinfo.email ||
+    referenceClaims.email_verified !== referenceUserinfo.email_verified ||
+    !isDeepStrictEqual(referenceUserinfo, actualUserinfo) ||
+    referenceClaims.sub !== actualClaims.sub ||
+    Object.hasOwn(actualClaims, 'email') ||
+    Object.hasOwn(actualClaims, 'email_verified')
+  ) {
+    return oracle;
+  }
+  const tokens = valueAt(oracle, `/steps/${rule.stepId}/value/tokens`);
+  const idIndex = Array.isArray(tokens)
+    ? tokens.findIndex((token) => isRecord(token) && token.kind === 'id')
+    : -1;
+
+  if (idIndex < 0) {
+    return oracle;
+  }
+  const derivedTokens = omitVerifiedIdTokenEmailPair(tokens as readonly JsonValue[], idIndex);
+
+  return replaceAt(
+    oracle,
+    pointerSegments(`/steps/${rule.stepId}/value/tokens`),
+    derivedTokens as JsonValue
+  ) as Readonly<JsonObject>;
+};
+
 export const projectPhase1HttpCompatibility = (
   scenarioId: Phase1DifferentialScenarioId,
   oracleInput: Readonly<JsonObject>,
@@ -422,6 +565,8 @@ export const projectPhase1HttpCompatibility = (
       ) as Readonly<JsonObject>;
     }
   }
+
+  oracle = projectEmailPair(scenarioId, oracle, candidate);
 
   return Object.freeze({ oracle, candidate });
 };

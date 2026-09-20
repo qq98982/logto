@@ -17,7 +17,7 @@ import {
   createPhase1NormalizationContext,
   phase1ImplementationForProfile,
 } from '../native-surface-profile.js';
-import { normalizeTokenResponse } from '../normalizers.js';
+import { normalizeClaims, normalizeTokenResponse } from '../normalizers.js';
 import { hasValidOptionalProfileTimestamps } from '../profile-timestamps.js';
 import {
   projectHttpObservation,
@@ -684,6 +684,54 @@ export const projectPositiveTokenGrant = async (
       verifiedJwts: proofs,
     }
   );
+};
+
+export const projectPositiveTokenUserInfoEmail = async (
+  context: Phase1ScenarioRunContext,
+  grant: PositiveOidcTokenGrant,
+  token: Phase1HttpProjection,
+  normalizationContext: NormalizationContext
+): Promise<Phase1HttpProjection> => {
+  const scope = isJsonObject(token.body) ? token.body.scope : undefined;
+  const opaqueAccess = token.tokens.some(
+    (value) => isJsonObject(value) && value.kind === 'access' && value.format === 'opaque'
+  );
+
+  if (
+    !opaqueAccess ||
+    typeof scope !== 'string' ||
+    !['openid', 'email'].every((required) => scope.split(' ').includes(required))
+  ) {
+    return token;
+  }
+  const { userinfoPath } = context.profile.oidc;
+
+  if (!userinfoPath.startsWith('/') || userinfoPath.slice(1).startsWith('/')) {
+    throw new Error('Phase 1 UserInfo path is invalid');
+  }
+  const response = await readPositiveUserInfo(context, grant, userinfoPath.slice(1));
+  const { sub, email, email_verified: emailVerified } = response.body;
+
+  if (
+    typeof sub !== 'string' ||
+    !((typeof email === 'string' && email.length > 0) || email === null) ||
+    typeof emailVerified !== 'boolean'
+  ) {
+    throw new Error('Phase 1 UserInfo email pair is invalid');
+  }
+  const body = normalizeClaims(
+    { sub, email, email_verified: emailVerified },
+    normalizationContext,
+    'access-token',
+    { profile: 'userinfo' }
+  );
+
+  return Object.freeze({
+    ...token,
+    outcomes: Object.freeze([
+      Object.freeze({ kind: 'userinfo-email', response: { status: response.status, body } }),
+    ]),
+  });
 };
 
 const summarizeToken = (value: JsonValue | undefined, fallbackFormat?: 'opaque'): JsonValue => {

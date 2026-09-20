@@ -3,6 +3,7 @@ import {
   createTokenTestSigner,
   tokenGrantBody,
   tokenTestCredentials,
+  tokenTestRuntimeValues,
   tokenTestTarget,
 } from './positive-oidc-token.test-helpers.js';
 import { runTokenRefreshRotation } from './token-refresh-rotation.js';
@@ -37,6 +38,11 @@ describe('token.refresh-rotation', () => {
     const rotatedRefreshToken = 'private-rotated-refresh-token';
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [
         tokenGrantBody({
           accessToken: 'private-initial-opaque-access',
@@ -62,7 +68,11 @@ describe('token.refresh-rotation', () => {
     expect(harness.requests.map(({ operation }) => operation)).toEqual([
       'token-authorization-code',
       'token-refresh',
+      'userinfo-openid',
     ]);
+    expect(harness.requests[2]?.options?.headers).toMatchObject({
+      authorization: 'Bearer private-rotated-opaque-access',
+    });
     const refreshForm = new URLSearchParams(harness.requests[1]?.options?.body);
     expect(Object.fromEntries(refreshForm)).toEqual({
       grant_type: 'refresh_token',
@@ -85,6 +95,19 @@ describe('token.refresh-rotation', () => {
         { kind: 'refresh', format: 'opaque', present: true },
       ],
       sideEffects: { unrelatedMutation: false },
+      outcomes: [
+        {
+          kind: 'userinfo-email',
+          response: {
+            status: 200,
+            body: {
+              sub: '<user.phase1-user>',
+              email: '<fixture.data.email>',
+              email_verified: true,
+            },
+          },
+        },
+      ],
     });
     expect(steps[2]?.value).toMatchObject({
       generatedIds: { tokenFamily: '<token-family.1>' },
@@ -100,6 +123,11 @@ describe('token.refresh-rotation', () => {
 
     const incomplete = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [
         tokenGrantBody({
           accessToken: 'private-incomplete-initial-access',
@@ -136,5 +164,61 @@ describe('token.refresh-rotation', () => {
         withPositiveOidcFlow: incomplete.flow,
       })
     ).rejects.toThrow('Phase 1 refresh family state is invalid');
+  });
+
+  it('requires a boolean UserInfo verification claim and skips a narrowed scope', async () => {
+    const signer = await createTokenTestSigner();
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await signer.sign({
+      iss: `${tokenTestTarget.coreUrl}oidc`,
+      sub: 'runtime-subject',
+      aud: tokenTestCredentials.clientId,
+      iat: now,
+      exp: now + 3600,
+    });
+    const bodies = (scope: string) => [
+      tokenGrantBody({
+        accessToken: 'opaque-initial-access',
+        idToken,
+        refreshToken: 'opaque-initial-refresh',
+        scope,
+      }),
+      tokenGrantBody({
+        accessToken: 'opaque-rotated-access',
+        idToken,
+        refreshToken: 'opaque-rotated-refresh',
+        scope,
+      }),
+    ];
+    const invalid = createTokenScenarioHarness({
+      jwk: signer.jwk,
+      tokenBodies: bodies('openid email profile'),
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: null,
+      },
+    });
+    await expect(
+      runTokenRefreshRotation(invalid.context, { withPositiveOidcFlow: invalid.flow })
+    ).rejects.toThrow('Phase 1 UserInfo email pair is invalid');
+    expect(invalid.requests.map(({ operation }) => operation)).toEqual([
+      'token-authorization-code',
+      'token-refresh',
+      'userinfo-openid',
+    ]);
+
+    const narrowed = createTokenScenarioHarness({
+      jwk: signer.jwk,
+      tokenBodies: bodies('openid profile'),
+    });
+    const steps = await runTokenRefreshRotation(narrowed.context, {
+      withPositiveOidcFlow: narrowed.flow,
+    });
+    expect(narrowed.requests.map(({ operation }) => operation)).toEqual([
+      'token-authorization-code',
+      'token-refresh',
+    ]);
+    expect(steps[1]?.value).toHaveProperty('outcomes', []);
   });
 });

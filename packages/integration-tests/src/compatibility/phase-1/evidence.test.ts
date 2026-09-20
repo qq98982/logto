@@ -1,11 +1,22 @@
+import type { JsonValue } from '../normalize.js';
+import { SymbolTable } from '../symbol-table.js';
+
+import { createPhase1ProjectionEnvelope } from './evidence-envelope.js';
 import {
   assertPhase1EvidenceIsSanitized,
   createCandidateInvariantEvidence,
   createDifferentialEvidence,
+  createVerifiedTokenObservations,
+  omitVerifiedIdTokenEmailPair,
   phase1EvidenceGuard,
   runObservationNegativeControl,
+  verifyObservedJwt,
 } from './evidence.js';
 import { oracleCommit, phase0HarnessCommit } from './model.js';
+import {
+  createTokenTestSigner,
+  tokenTestTarget,
+} from './scenarios/positive-oidc-token.test-helpers.js';
 
 const provenance = {
   referenceCommit: oracleCommit,
@@ -30,6 +41,93 @@ const createCandidateEvidenceForOutcome = (outcome: unknown) =>
   });
 
 describe('phase 1 evidence', () => {
+  it('derives only a paired email omission from a verified ID Token observation', async () => {
+    const signer = await createTokenTestSigner();
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const signed = await signer.sign({
+      iss: 'https://oracle.example/oidc',
+      sub: 'subject',
+      aud: 'client',
+      iat: issuedAt,
+      exp: issuedAt + 3600,
+      name: 'Retained',
+      email: null,
+      email_verified: false,
+    });
+    const proof = await verifyObservedJwt(signed, { keys: [signer.jwk] });
+    const context = {
+      target: tokenTestTarget,
+      symbols: new SymbolTable(),
+      nativeSurfaceImplementation: 'oracle' as const,
+    };
+    const observed = createVerifiedTokenObservations(
+      { access_token: 'opaque-access', id_token: signed, token_type: 'Bearer' },
+      context,
+      { boundedClaimTimestampPaths: [], proofs: [proof] }
+    );
+    const derived = omitVerifiedIdTokenEmailPair(observed.tokens, 1);
+
+    expect(derived[0]).toEqual(observed.tokens[0]);
+    expect(derived[1]).toMatchObject({
+      kind: 'id',
+      format: 'jwt',
+      signatureVerified: true,
+      claims: { name: 'Retained', sub: 'subject' },
+    });
+    expect(derived[1]).not.toHaveProperty('claims.email');
+    expect(derived[1]).not.toHaveProperty('claims.email_verified');
+    expect(observed.tokens[1]).toHaveProperty('claims.email', null);
+    expect(() => createPhase1ProjectionEnvelope('oracle', { tokens: derived })).not.toThrow();
+
+    const unverified = JSON.parse(JSON.stringify(observed.tokens)) as readonly JsonValue[];
+    expect(() => omitVerifiedIdTokenEmailPair(unverified, 1)).toThrow();
+    expect(() => omitVerifiedIdTokenEmailPair(observed.tokens, 0)).toThrow();
+    expect(() => omitVerifiedIdTokenEmailPair(derived, 1)).toThrow();
+
+    const invalidVerification = await signer.sign({
+      iss: 'https://oracle.example/oidc',
+      sub: 'subject',
+      aud: 'client',
+      iat: issuedAt,
+      exp: issuedAt + 3600,
+      email: null,
+      email_verified: null,
+    });
+    const invalidProof = await verifyObservedJwt(invalidVerification, { keys: [signer.jwk] });
+    const malformed = createVerifiedTokenObservations(
+      { access_token: 'opaque-access', id_token: invalidVerification, token_type: 'Bearer' },
+      context,
+      { boundedClaimTimestampPaths: [], proofs: [invalidProof] }
+    );
+    expect(() => omitVerifiedIdTokenEmailPair(malformed.tokens, 1)).toThrow();
+  });
+  it.each([42, ''])('rejects a verified ID Token with malformed email %p', async (email) => {
+    const signer = await createTokenTestSigner();
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const signed = await signer.sign({
+      iss: 'https://oracle.example/oidc',
+      sub: 'subject',
+      aud: 'client',
+      iat: issuedAt,
+      exp: issuedAt + 3600,
+      email,
+      email_verified: false,
+    });
+    const proof = await verifyObservedJwt(signed, { keys: [signer.jwk] });
+    const observed = createVerifiedTokenObservations(
+      { access_token: 'opaque-access', id_token: signed, token_type: 'Bearer' },
+      {
+        target: tokenTestTarget,
+        symbols: new SymbolTable(),
+        nativeSurfaceImplementation: 'oracle',
+      },
+      { boundedClaimTimestampPaths: [], proofs: [proof] }
+    );
+
+    expect(() => omitVerifiedIdTokenEmailPair(observed.tokens, 1)).toThrow(
+      'Invalid phase 1 verified ID Token email pair'
+    );
+  });
   it('creates strict sanitized differential evidence', () => {
     const evidence = createDifferentialEvidence({
       scenarioId: 'discovery.config',

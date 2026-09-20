@@ -13,6 +13,7 @@ import {
   positiveOidcDataNormalizationContext,
   projectPositiveScenarioState,
   projectPositiveTokenGrant,
+  projectPositiveTokenUserInfoEmail,
   revokePositiveTokenGrant,
 } from './positive-oidc-token.js';
 
@@ -100,7 +101,7 @@ export const runTokenCodeReuseRejected = async (
         verifier: 'correct',
       });
       try {
-        const firstExchange = await projectPositiveTokenGrant(context, {
+        const projectedExchange = await projectPositiveTokenGrant(context, {
           scenarioId,
           stepId: 'first-exchange',
           grant: tokenGrant,
@@ -108,6 +109,12 @@ export const runTokenCodeReuseRejected = async (
           expectAccessJwt: false,
           validate: assertFirstExchangeState,
         });
+        const firstExchange = await projectPositiveTokenUserInfoEmail(
+          context,
+          tokenGrant,
+          projectedExchange,
+          normalizationContext
+        );
         const replay = await projectRejectedPositiveAuthorizationCode(
           context,
           authorizationGrant,

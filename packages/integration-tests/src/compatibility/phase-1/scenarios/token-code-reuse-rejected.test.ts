@@ -5,6 +5,7 @@ import {
   createTokenTestSigner,
   tokenGrantBody,
   tokenTestCredentials,
+  tokenTestRuntimeValues,
   tokenTestTarget,
 } from './positive-oidc-token.test-helpers.js';
 import { runTokenCodeReuseRejected } from './token-code-reuse-rejected.js';
@@ -77,6 +78,11 @@ describe('token.code-reuse-rejected', () => {
     });
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [],
       tokenResponses: [
         rawResponse(
@@ -96,12 +102,16 @@ describe('token.code-reuse-rejected', () => {
     });
 
     expect(steps.map(({ stepId }) => stepId)).toEqual(['first-exchange', 'replay', 'state']);
-    expect(harness.requests).toHaveLength(2);
+    expect(harness.requests).toHaveLength(3);
     expect(harness.requests.map(({ operation }) => operation)).toEqual([
       'token-code-first-exchange',
+      'userinfo-openid',
       'token-code-replay',
     ]);
-    expect(harness.requests[0]?.options?.body).toBe(harness.requests[1]?.options?.body);
+    expect(harness.requests[1]?.options?.headers).toMatchObject({
+      authorization: 'Bearer opaque-private-access-token',
+    });
+    expect(harness.requests[0]?.options?.body).toBe(harness.requests[2]?.options?.body);
     const replayForm = Object.fromEntries(new URLSearchParams(harness.requests[0]?.options?.body));
     expect(replayForm).toMatchObject({
       grant_type: 'authorization_code',
@@ -112,6 +122,19 @@ describe('token.code-reuse-rejected', () => {
     expect(replayForm.code_verifier).toMatch(/^[A-Za-z0-9_-]{64}$/u);
     expect(steps[0]?.value).toMatchObject({
       status: 200,
+      outcomes: [
+        {
+          kind: 'userinfo-email',
+          response: {
+            status: 200,
+            body: {
+              sub: '<user.phase1-user>',
+              email: '<fixture.data.email>',
+              email_verified: true,
+            },
+          },
+        },
+      ],
       tokens: [
         { kind: 'access', format: 'opaque' },
         { kind: 'id', format: 'jwt', signatureVerified: true },
@@ -149,6 +172,11 @@ describe('token.code-reuse-rejected', () => {
     });
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [],
       tokenResponses: [
         rawResponse(
@@ -170,6 +198,6 @@ describe('token.code-reuse-rejected', () => {
         withPositiveOidcFlow: harness.flow,
       })
     ).rejects.toThrow('Phase 1 authorization code replay state is invalid');
-    expect(harness.requests).toHaveLength(2);
+    expect(harness.requests).toHaveLength(3);
   });
 });

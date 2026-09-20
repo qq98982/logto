@@ -1,5 +1,20 @@
+/* eslint-disable max-lines -- The closed email-pair counterexamples exercise the existing projection and verified-token envelope together. */
 import { compareJson } from '../../compare.js';
+import { jsonValueGuard } from '../../model.js';
 import type { JsonObject, JsonValue } from '../../normalize.js';
+import { SymbolTable } from '../../symbol-table.js';
+import { createPhase1ProjectionEnvelope } from '../evidence-envelope.js';
+import {
+  assertPhase1EvidenceIsSanitized,
+  createVerifiedTokenObservations,
+  snapshotPhase1EvidencePreservingVerifiedTokens,
+  verifyObservedJwt,
+} from '../evidence.js';
+import {
+  createTokenTestSigner,
+  tokenTestTarget,
+  type TokenTestSigner,
+} from '../scenarios/positive-oidc-token.test-helpers.js';
 
 import { projectPhase1HttpCompatibility } from './http-compatibility.js';
 
@@ -14,6 +29,269 @@ const keyed = (stepId: string, value: JsonValue): JsonObject => {
 };
 
 describe('Phase 1 HTTP compatibility projection', () => {
+  it('projects a verified refresh ID email pair only with same-grant opaque UserInfo evidence', async () => {
+    const signer = await createTokenTestSigner();
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const common = {
+      iss: 'https://oracle.example/oidc',
+      sub: 'subject',
+      aud: 'client',
+      iat: issuedAt,
+      exp: issuedAt + 3600,
+      name: 'Same Name',
+    };
+    const makeStep = async (
+      claims: JsonObject,
+      scope = 'openid email profile',
+      options: Readonly<{
+        accessToken?: string;
+        userinfo?: JsonObject;
+        signer?: TokenTestSigner;
+      }> = {}
+    ) => {
+      const signingAuthority = options.signer ?? signer;
+      const token = await signingAuthority.sign({ ...common, ...claims });
+      const proofs = await Promise.all(
+        [token, ...(options.accessToken ? [options.accessToken] : [])].map(async (value) =>
+          verifyObservedJwt(value, { keys: [signingAuthority.jwk] })
+        )
+      );
+      const verified = createVerifiedTokenObservations(
+        {
+          access_token: options.accessToken ?? 'opaque-access',
+          id_token: token,
+          refresh_token: 'opaque-refresh',
+          token_type: 'Bearer',
+          scope,
+        },
+        {
+          target: tokenTestTarget,
+          symbols: new SymbolTable(),
+          nativeSurfaceImplementation: 'oracle',
+        },
+        { boundedClaimTimestampPaths: [], proofs }
+      );
+
+      return {
+        body: verified.body,
+        tokens: verified.tokens,
+        outcomes: [
+          {
+            kind: 'userinfo-email',
+            response: {
+              status: 200,
+              body: options.userinfo ?? {
+                sub: 'subject',
+                email: 'person@example.test',
+                email_verified: true,
+              },
+            },
+          },
+        ],
+      };
+    };
+    const reference = await makeStep({ email: 'person@example.test', email_verified: true });
+    const omitted = await makeStep({});
+    const project = (oracle: unknown, candidate: unknown) =>
+      projectPhase1HttpCompatibility(
+        'token.refresh-rotation',
+        keyed('refresh-token', oracle as JsonValue),
+        keyed('refresh-token', candidate as JsonValue)
+      );
+    const accepted = project(reference, omitted);
+
+    expect(compareJson(accepted.oracle, accepted.candidate)).toEqual([]);
+    expect(() => createPhase1ProjectionEnvelope('oracle', accepted.oracle)).not.toThrow();
+    expect(() => createPhase1ProjectionEnvelope('candidate', accepted.candidate)).not.toThrow();
+    const published = snapshotPhase1EvidencePreservingVerifiedTokens({
+      id: 'token.refresh-rotation',
+      oracle: createPhase1ProjectionEnvelope('oracle', accepted.oracle),
+      candidate: createPhase1ProjectionEnvelope('candidate', accepted.candidate),
+      differences: compareJson(accepted.oracle, accepted.candidate),
+    });
+    expect(() => {
+      assertPhase1EvidenceIsSanitized(published);
+    }).not.toThrow();
+    const mirror = project(reference, reference);
+    expect(compareJson(mirror.oracle, mirror.candidate)).toEqual([]);
+    expect(mirror.oracle).toHaveProperty('steps.refresh-token.value.tokens.1.claims.email');
+    expect(reference.tokens[1]).toHaveProperty('claims.email', 'person@example.test');
+    expect(accepted.oracle).not.toHaveProperty('steps.refresh-token.value.tokens.1.claims.email');
+    const code = projectPhase1HttpCompatibility(
+      'token.code-reuse-rejected',
+      keyed('first-exchange', reference as unknown as JsonValue),
+      keyed('first-exchange', omitted as unknown as JsonValue)
+    );
+    expect(compareJson(code.oracle, code.candidate)).toEqual([]);
+    expect(() => createPhase1ProjectionEnvelope('oracle', code.oracle)).not.toThrow();
+
+    const nullableUserInfo = { sub: 'subject', email: null, email_verified: false };
+    const nullableReference = await makeStep(
+      { email: null, email_verified: false },
+      'openid email profile',
+      { userinfo: nullableUserInfo }
+    );
+    const nullableOmission = await makeStep({}, 'openid email profile', {
+      userinfo: nullableUserInfo,
+    });
+    const nullable = project(nullableReference, nullableOmission);
+    expect(compareJson(nullable.oracle, nullable.candidate)).toEqual([]);
+    const invalidVerificationUserInfo = { sub: 'subject', email: null, email_verified: null };
+    const invalidReference = await makeStep(
+      { email: null, email_verified: null },
+      'openid email profile',
+      { userinfo: invalidVerificationUserInfo }
+    );
+    const invalidOmission = await makeStep({}, 'openid email profile', {
+      userinfo: invalidVerificationUserInfo,
+    });
+    const invalidVerification = project(invalidReference, invalidOmission);
+    expect(invalidVerification.oracle).toHaveProperty(
+      'steps.refresh-token.value.tokens.1.claims.email_verified',
+      null
+    );
+    expect(compareJson(invalidVerification.oracle, invalidVerification.candidate)).not.toEqual([]);
+
+    const compactAccess = await signer.sign({
+      ...common,
+      aud: 'urn:api',
+      client_id: 'client',
+      scope: 'read',
+    });
+    const compactOmission = await makeStep({}, 'openid email profile', {
+      accessToken: compactAccess,
+    });
+    const compact = project(reference, compactOmission);
+    expect(compareJson(compact.oracle, compact.candidate)).toContainEqual({
+      path: '/steps/refresh-token/value/tokens/1/claims/email',
+      oracle: 'person@example.test',
+    });
+
+    const otherAlgorithm = await createTokenTestSigner('RS256');
+    const algorithmMismatch = project(
+      reference,
+      await makeStep({}, 'openid email profile', { signer: otherAlgorithm })
+    );
+    expect(compareJson(algorithmMismatch.oracle, algorithmMismatch.candidate)).toContainEqual({
+      path: '/steps/refresh-token/value/tokens/1/header/alg',
+      oracle: 'ES384',
+      candidate: 'RS256',
+    });
+
+    for (const [index, candidate] of [
+      { ...omitted, tokens: JSON.parse(JSON.stringify(omitted.tokens)) as JsonValue[] },
+      { ...omitted, outcomes: [] },
+      {
+        ...omitted,
+        outcomes: [
+          {
+            kind: 'userinfo-email',
+            response: { status: 401, body: omitted.outcomes[0]?.response.body },
+          },
+        ],
+      },
+      {
+        ...omitted,
+        outcomes: [
+          {
+            kind: 'userinfo-email',
+            response: {
+              status: 200,
+              body: { sub: 'other', email: 'person@example.test', email_verified: true },
+            },
+          },
+        ],
+      },
+      {
+        ...omitted,
+        outcomes: [
+          {
+            kind: 'userinfo-email',
+            response: {
+              status: 200,
+              body: { sub: 'subject', email: 'other@example.test', email_verified: true },
+            },
+          },
+        ],
+      },
+      {
+        ...omitted,
+        tokens: omitted.tokens.map((token) =>
+          typeof token === 'object' &&
+          token !== null &&
+          !Array.isArray(token) &&
+          token.kind === 'access'
+            ? { ...token, format: 'jwt' }
+            : token
+        ),
+      },
+      { ...omitted, body: { ...omitted.body, scope: 'openid profile' } },
+      {
+        ...omitted,
+        tokens: omitted.tokens.map((token) =>
+          typeof token === 'object' &&
+          token !== null &&
+          !Array.isArray(token) &&
+          token.kind === 'id'
+            ? { ...token, kind: 'access' }
+            : token
+        ),
+      },
+    ].entries()) {
+      if (!jsonValueGuard.safeParse(candidate).success) {
+        throw new Error(`Invalid candidate fixture ${index}`);
+      }
+      const projected = project(reference, candidate);
+      expect(compareJson(projected.oracle, projected.candidate)).not.toEqual([]);
+    }
+
+    const changedClaims: readonly JsonObject[] = [
+      { email: 'person@example.test' },
+      { email_verified: true },
+      { email: null, email_verified: null },
+      { email: 'other@example.test', email_verified: true },
+      { email: 'person@example.test', email_verified: true, name: 'Different' },
+    ];
+    const changedSteps = await Promise.all(changedClaims.map(async (claims) => makeStep(claims)));
+    for (const different of changedSteps) {
+      const pair = project(reference, different);
+      expect(compareJson(pair.oracle, pair.candidate)).not.toEqual([]);
+      expect(pair.oracle).toHaveProperty('steps.refresh-token.value.tokens.1.claims.email');
+    }
+
+    const narrowedPairs = await Promise.all(
+      ['openid profile', 'email profile'].map(async (scope) =>
+        Promise.all([
+          makeStep({ email: 'person@example.test', email_verified: true }, scope),
+          makeStep({}, scope),
+        ])
+      )
+    );
+    for (const [narrowedReference, narrowedOmission] of narrowedPairs) {
+      const narrowed = project(narrowedReference, narrowedOmission);
+      expect(narrowed.oracle).toHaveProperty('steps.refresh-token.value.tokens.1.claims.email');
+    }
+    const changedName = project(reference, await makeStep({ name: 'Different' }));
+    expect(compareJson(changedName.oracle, changedName.candidate)).toContainEqual({
+      path: '/steps/refresh-token/value/tokens/1/claims/name',
+      oracle: 'Same Name',
+      candidate: 'Different',
+    });
+    const addedClaim = project(reference, await makeStep({ unapproved: 'added' }));
+    expect(compareJson(addedClaim.oracle, addedClaim.candidate)).toContainEqual({
+      path: '/steps/refresh-token/value/tokens/1/claims/unapproved',
+      candidate: 'added',
+    });
+
+    const reverse = project(omitted, reference);
+    expect(compareJson(reverse.oracle, reverse.candidate)).not.toEqual([]);
+    const unregistered = projectPhase1HttpCompatibility(
+      'token.authorization-code',
+      keyed('token', reference as unknown as JsonValue),
+      keyed('token', omitted as unknown as JsonValue)
+    );
+    expect(compareJson(unregistered.oracle, unregistered.candidate)).not.toEqual([]);
+  });
   it('removes only the exact oracle HTTP/1 persistence headers missing from the candidate', () => {
     const oracle = keyed('token', {
       headers: {
@@ -203,3 +481,4 @@ describe('Phase 1 HTTP compatibility projection', () => {
     ]);
   });
 });
+/* eslint-enable max-lines */

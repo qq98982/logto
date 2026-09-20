@@ -286,6 +286,46 @@ const normalizedTokenObservationGuard = z.array(
   ])
 );
 
+export const omitVerifiedIdTokenEmailPair = (
+  tokens: readonly JsonValue[],
+  idIndex: number
+): readonly JsonValue[] => {
+  const id = tokens[idIndex];
+
+  if (
+    !verifiedTokenArrays.has(tokens) ||
+    !Number.isSafeInteger(idIndex) ||
+    !normalizedTokenObservationGuard.safeParse(tokens).success ||
+    !isPlainJsonObject(id) ||
+    id.kind !== 'id' ||
+    id.format !== 'jwt' ||
+    id.signatureVerified !== true ||
+    !isPlainJsonObject(id.claims) ||
+    !Object.hasOwn(id.claims, 'email') ||
+    !Object.hasOwn(id.claims, 'email_verified') ||
+    !(
+      (typeof id.claims.email === 'string' && id.claims.email.length > 0) ||
+      id.claims.email === null
+    ) ||
+    typeof id.claims.email_verified !== 'boolean'
+  ) {
+    throw new TypeError('Invalid phase 1 verified ID Token email pair');
+  }
+  const claims = Object.fromEntries(
+    Object.entries(id.claims).filter(([name]) => name !== 'email' && name !== 'email_verified')
+  );
+  const derived = snapshotClosedDataGraph<readonly JsonValue[]>(
+    tokens.map((token, index) => (index === idIndex ? { ...id, claims } : token))
+  );
+
+  if (!derived || !normalizedTokenObservationGuard.safeParse(derived).success) {
+    throw new TypeError('Invalid phase 1 verified ID Token email pair');
+  }
+  verifiedTokenArrays.add(derived);
+
+  return derived;
+};
+
 const transferVerifiedTokenArrayProof = (source: unknown, snapshot: unknown): void => {
   if (typeof source !== 'object' || source === null) {
     return;

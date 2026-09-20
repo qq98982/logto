@@ -14,6 +14,7 @@ import {
   projectPositiveScenarioState,
   projectPositiveTokenGrant,
   projectPositiveTokenGrantSummary,
+  projectPositiveTokenUserInfoEmail,
   revokePositiveTokenGrant,
 } from './positive-oidc-token.js';
 
@@ -63,13 +64,19 @@ export const runTokenRefreshRotation = async (
         });
         const rotated = await exchangePositiveRefreshToken(context, initial);
         try {
-          const refreshToken = await projectPositiveTokenGrant(context, {
+          const projectedRefresh = await projectPositiveTokenGrant(context, {
             scenarioId,
             stepId: 'refresh-token',
             grant: rotated,
             normalizationContext,
             expectAccessJwt: false,
           });
+          const refreshToken = await projectPositiveTokenUserInfoEmail(
+            context,
+            rotated,
+            projectedRefresh,
+            normalizationContext
+          );
           const familyState = await projectPositiveScenarioState(context, {
             scenarioId,
             stepId: 'family-state',
