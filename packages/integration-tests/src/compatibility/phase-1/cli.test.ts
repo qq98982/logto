@@ -14,6 +14,7 @@ import {
   phase1BrowserSourceEvidence,
   phase1RegistrySourceEvidence,
   phase1ReviewSourceCommit,
+  phase0ReproducerForRun,
   preparePhase1ReviewProfileForTesting,
   runPhase1Cli,
   type Phase1CliDependencies,
@@ -23,6 +24,7 @@ import {
 } from './cli.js';
 import { snapshotClosedDataGraph } from './model.js';
 import { asterNativeSurfaceContract } from './native-surface.js';
+import { reproducePhase0Evidence } from './phase0-reproducer.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
 import type { Phase1Profile } from './profile-types.js';
 import type { Phase1ProfileBundle } from './profile.js';
@@ -484,6 +486,62 @@ describe('Phase 1 CLI grammar', () => {
       '--discovery-extra-control',
       '--candidate-invariant-controls',
     ] as const;
+    const command = parsePhase1Arguments(arguments_);
+    if (command.command === 'prepare-review-profile') {
+      throw new Error('unexpected command');
+    }
+    const profile = profileFixture();
+    const target = {
+      namespace: 'aster-phase1-conformance',
+      issuer: 'https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc',
+      suiteBaseUrl: 'https://conformance.aster-phase1-conformance.svc.cluster.local:8443',
+      discoveryUrl:
+        'https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc/.well-known/openid-configuration',
+      alias: 'aster-phase1',
+      callbackUri:
+        'https://conformance.aster-phase1-conformance.svc.cluster.local:8443/test/a/aster-phase1/callback',
+      tls: {
+        trustDomain: 'private per-run test trust domain',
+        issuer: 'short-lived restricted issuer keeps the CA signing key',
+        asterMaterial: 'Aster leaf private key and certificate plus public root bundle only',
+        suiteMaterial:
+          'conformance-suite leaf private key and certificate plus public root bundle only',
+        lifecycle: 'issuer, CA key, leaf keys, and namespace are destroyed after the run',
+      },
+    };
+    const conformanceProfile = {
+      ...profile,
+      conformance: {
+        ...profile.conformance,
+        target,
+      },
+    };
+    expect(phase0ReproducerForRun(command, conformanceProfile)).not.toBe(reproducePhase0Evidence);
+    for (const other of [
+      'run',
+      'run-differential',
+      'run-browser',
+      'run-candidate-invariants',
+    ] as const) {
+      expect(phase0ReproducerForRun({ ...command, command: other }, conformanceProfile)).toBe(
+        reproducePhase0Evidence
+      );
+    }
+    expect(
+      phase0ReproducerForRun({ ...command, mode: 'review-candidate' }, conformanceProfile)
+    ).toBe(reproducePhase0Evidence);
+    expect(() =>
+      phase0ReproducerForRun(command, {
+        ...conformanceProfile,
+        conformance: {
+          ...conformanceProfile.conformance,
+          target: {
+            ...conformanceProfile.conformance.target,
+            issuer: 'http://localhost:3331/oidc',
+          },
+        },
+      })
+    ).toThrow('Phase 0 reproduction failed.');
     expect(parsePhase1Arguments(arguments_)).toMatchObject({
       command: 'run-conformance',
       mode: 'runtime-candidate',

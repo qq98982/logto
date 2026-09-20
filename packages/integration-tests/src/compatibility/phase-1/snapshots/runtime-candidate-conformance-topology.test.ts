@@ -10,6 +10,7 @@ type ComposeService = Readonly<{
   command?: readonly string[];
   depends_on?: Readonly<Record<string, Readonly<{ condition?: string }>>>;
   environment?: Readonly<Record<string, unknown>>;
+  env_file?: readonly string[];
   networks?: Readonly<Record<string, Readonly<{ aliases?: readonly string[] }>>>;
   volumes?: readonly string[];
   tmpfs?: readonly string[];
@@ -62,6 +63,12 @@ const serviceNames = Object.freeze([
   'suite-mongo',
   'suite-server',
   'suite-nginx',
+  'oracle-phase0-postgres',
+  'oracle-phase0-redis',
+  'oracle-phase0-core',
+  'candidate-phase0-postgres',
+  'candidate-phase0-redis',
+  'candidate-phase0-core',
   'oidf-runner',
 ]);
 const candidateHost = 'aster-server.aster-phase1-conformance.svc.cluster.local';
@@ -88,6 +95,8 @@ describe('runtime-candidate official OIDF conformance topology', () => {
         internal: true,
         ipam: { config: [{ subnet: '172.30.248.0/24' }] },
       },
+      'oracle-phase0': { internal: true },
+      'candidate-phase0': { internal: true },
       'oidf-edge': {
         internal: true,
         ipam: { config: [{ subnet: '172.30.249.0/24' }] },
@@ -97,15 +106,34 @@ describe('runtime-candidate official OIDF conformance topology', () => {
       'candidate-primary-postgres',
       'candidate-primary-keyring',
       'candidate-fixture',
+      'oracle-phase0-postgres',
+      'oracle-phase0-redis',
+      'candidate-phase0-postgres',
+      'candidate-phase0-redis',
       'suite-mongo',
     ]);
 
     for (const [name, service] of Object.entries(document.services)) {
       expect(service.labels).toEqual(expect.objectContaining(cleanupLabels));
-      if (name === 'candidate-conformance-core') {
-        expect(service.ports).toEqual(['127.0.0.1:3443:3443']);
-      } else {
-        expect(service).not.toHaveProperty('ports');
+      switch (name) {
+        case 'candidate-conformance-core': {
+          expect(service.ports).toEqual(['127.0.0.1:3443:3443']);
+
+          break;
+        }
+        case 'oracle-phase0-core': {
+          expect(service.ports).toEqual(['127.0.0.1:3331:3001', '127.0.0.1:3431:3431']);
+
+          break;
+        }
+        case 'candidate-phase0-core': {
+          expect(service.ports).toEqual(['127.0.0.1:3341:3001', '127.0.0.1:3441:3441']);
+
+          break;
+        }
+        default: {
+          expect(service).not.toHaveProperty('ports');
+        }
       }
       expect(service).not.toHaveProperty('privileged');
       expect(service).not.toHaveProperty('cap_add');
@@ -202,7 +230,13 @@ describe('runtime-candidate official OIDF conformance topology', () => {
       const environment = JSON.stringify(service.environment ?? {});
 
       expect(environment).not.toMatch(/(?:PASSWORD|SECRET|TOKEN|KEY)":(?!"\/run\/secrets)/u);
-      if (name !== 'candidate-primary-postgres') {
+      if (
+        ![
+          'candidate-primary-postgres',
+          'oracle-phase0-postgres',
+          'candidate-phase0-postgres',
+        ].includes(name)
+      ) {
         expect(environment).not.toContain('POSTGRES_PASSWORD_FILE');
       }
     }
@@ -253,6 +287,41 @@ describe('runtime-candidate official OIDF conformance topology', () => {
       if (name !== 'oidf-runner') {
         expect(serialized(name)).not.toContain('/run/aster-secrets');
       }
+    }
+  });
+
+  it('keeps both Phase 0 mirrors on the same pinned image with independent state and real loopback endpoints', async () => {
+    const { services } = await readCompose();
+    for (const [side, port, adminPort] of [
+      ['oracle', 3331, 3431],
+      ['candidate', 3341, 3441],
+    ] as const) {
+      const network = `${side}-phase0`;
+      const core = services[`${network}-core`];
+      expect(core?.image).toBe(required('ASTER_PHASE1_PHASE0_CONTROL_IMAGE'));
+      expect(core?.environment).toEqual({
+        ENDPOINT: `http://localhost:${port}`,
+        ADMIN_ENDPOINT: `http://localhost:${adminPort}`,
+        ADMIN_PORT: String(adminPort),
+        TRUST_PROXY_HEADER: '1',
+      });
+      expect(core?.env_file).toEqual([
+        required(`ASTER_PHASE1_${side.toUpperCase()}_PHASE0_CONFIG_FILE`),
+      ]);
+      for (const kind of ['postgres', 'redis', 'core']) {
+        expect(services[`${network}-${kind}`]?.networks).toEqual({ [network]: {} });
+        expect(JSON.stringify(services[`${network}-${kind}`])).not.toContain(
+          'candidate-primary-keyring'
+        );
+      }
+      expect(services[`${network}-postgres`]?.volumes).toContain(
+        `${network}-postgres:/var/lib/postgresql/data`
+      );
+      expect(services[`${network}-redis`]?.volumes).toEqual([`${network}-redis:/data`]);
+      expect(core?.depends_on).toEqual({
+        [`${network}-postgres`]: { condition: 'service_healthy' },
+        [`${network}-redis`]: { condition: 'service_healthy' },
+      });
     }
   });
 
@@ -418,9 +487,7 @@ describe('runtime-candidate official OIDF conformance topology', () => {
 
     expect(wrapper).toContain('HOME="${root}"');
     expect(wrapper).toContain('DOCKER_HOST="unix://${engine_socket}"');
-    expect(wrapper).toContain(
-      '"handoffBlob", "handoffSha256", "screenshotRoot", "engineSocket", "topologyId"'
-    );
+    expect(wrapper).toContain('"handoffBlob", "handoffSha256", "screenshotRoot", "phase0ImageId"');
     expect(wrapper).toContain('"${engine_docker[@]}" ps -aq --no-trunc');
     expect(wrapper).toContain('"${runner_container_id}" "${driver_container_path}" "$@"');
     expect(wrapper).not.toContain('"${runner_container_id}" /usr/bin/node');

@@ -204,7 +204,8 @@ const keys = [
   "schemaVersion", "kind", "projectName", "runnerContainerId", "suiteCommit",
   "suiteImageId", "candidateImageId", "runnerImageId", "driverPath", "driverBlob",
   "driverSha256", "runnerPath", "runnerBlob", "runnerSha256", "handoffPath",
-  "handoffBlob", "handoffSha256", "screenshotRoot", "engineSocket", "topologyId",
+  "handoffBlob", "handoffSha256", "screenshotRoot", "phase0ImageId",
+  "phase0PostgresImageId", "phase0RedisImageId", "engineSocket", "topologyId",
 ];
 const actualKeys = Object.keys(value ?? {});
 const image = /^sha256:[0-9a-f]{64}$/;
@@ -216,6 +217,8 @@ if (
   !/^[0-9a-f]{64}$/.test(value.runnerContainerId) || value.suiteCommit !== expectedCommit ||
   !image.test(value.suiteImageId) || !image.test(value.candidateImageId) ||
   !image.test(value.runnerImageId) ||
+  !image.test(value.phase0ImageId) || !image.test(value.phase0PostgresImageId) ||
+  !image.test(value.phase0RedisImageId) ||
   value.driverPath !== "/opt/aster/phase1-conformance-driver.sh" ||
   !/^[0-9a-f]{40}$/.test(value.driverBlob) || !/^[0-9a-f]{64}$/.test(value.driverSha256) ||
   value.runnerPath !== "/opt/aster/phase1-conformance-runner.mjs" ||
@@ -232,7 +235,7 @@ for (const key of keys.slice(2)) process.stdout.write(`${value[key]}\n`);
 NODE
 )" || fail
   mapfile -t descriptor_values <<<"${descriptor_output}"
-  [[ "${#descriptor_values[@]}" == 18 ]] || fail
+  [[ "${#descriptor_values[@]}" == 21 ]] || fail
   project_name="${descriptor_values[0]}"
   runner_container_id="${descriptor_values[1]}"
   suite_commit="${descriptor_values[2]}"
@@ -249,8 +252,11 @@ NODE
   handoff_blob="${descriptor_values[13]}"
   handoff_sha256="${descriptor_values[14]}"
   screenshot_root="${descriptor_values[15]}"
-  engine_socket="${descriptor_values[16]}"
-  topology_id="${descriptor_values[17]}"
+  phase0_image_id="${descriptor_values[16]}"
+  phase0_postgres_image_id="${descriptor_values[17]}"
+  phase0_redis_image_id="${descriptor_values[18]}"
+  engine_socket="${descriptor_values[19]}"
+  topology_id="${descriptor_values[20]}"
   [[ "${suite_commit}" == "${SUITE_COMMIT}" && "${topology_id}" == "${RUNTIME_TOPOLOGY_ID}" ]] || fail
   if [[ ! -S "${engine_socket}" || -L "${engine_socket}" ]] || \
     [[ "$(realpath -e -- "${engine_socket}" 2>/dev/null || true)" != "${engine_socket}" ]] || \
@@ -302,21 +308,25 @@ NODE
   )
   mapfile -t project_container_ids < <("${engine_docker[@]}" ps -aq --no-trunc \
     --filter "label=com.docker.compose.project=${project_name}" 2>/dev/null)
-  [[ "${#project_container_ids[@]}" == 8 ]] || fail
+  [[ "${#project_container_ids[@]}" == 14 ]] || fail
   for container_id in "${project_container_ids[@]}"; do
     [[ "${container_id}" =~ ^[0-9a-f]{64}$ ]] || fail
   done
   inspect_output="$("${engine_docker[@]}" inspect "${project_container_ids[@]}" 2>/dev/null)" || fail
+  # shellcheck disable=SC2016
   "${NODE_PATH}" -e '
 const fs = require("node:fs");
 const [project, runnerId, suiteImage, candidateImage, runnerImage, driverSource, driverTarget,
-  runnerSource, runnerTarget, handoffSource, handoffTarget, screenshotRoot, topology] = process.argv.slice(1);
+  runnerSource, runnerTarget, handoffSource, handoffTarget, screenshotRoot, topology,
+  phase0Image, phase0PostgresImage, phase0RedisImage] = process.argv.slice(1);
 const fail = () => process.exit(1);
 let containers;
 try { containers = Reflect.get(JSON, "parse")(fs.readFileSync(0, "utf8")); } catch { fail(); }
 const services = new Set([
   "candidate-primary-postgres", "candidate-primary-init", "candidate-conformance-core",
   "candidate-fixture-coordinator", "suite-mongo", "suite-server", "suite-nginx", "oidf-runner",
+  "oracle-phase0-postgres", "oracle-phase0-redis", "oracle-phase0-core",
+  "candidate-phase0-postgres", "candidate-phase0-redis", "candidate-phase0-core",
 ]);
 if (!Array.isArray(containers) || containers.length !== services.size) fail();
 for (const container of containers) {
@@ -329,7 +339,42 @@ for (const container of containers) {
   ) fail();
   const publishedPorts = Object.entries(container?.NetworkSettings?.Ports ?? {})
     .filter(([, bindings]) => Array.isArray(bindings) && bindings.length > 0);
-  if (service !== "candidate-conformance-core" && publishedPorts.length !== 0) fail();
+  const control = /^(oracle|candidate)-phase0-(postgres|redis|core)$/.exec(service);
+  if (control) {
+    const [, side, kind] = control;
+    const network = `${project}_${side}-phase0`;
+    const networks = Object.keys(container?.NetworkSettings?.Networks ?? {});
+    if (networks.length !== 1 || networks[0] !== network ||
+      container.Image !== ({postgres: phase0PostgresImage, redis: phase0RedisImage, core: phase0Image})[kind]) fail();
+    if (kind === "core") {
+      const dataPort = side === "oracle" ? "3331" : "3341";
+      const adminPort = side === "oracle" ? "3431" : "3441";
+      const expected = {"3001/tcp": dataPort, [`${adminPort}/tcp`]: adminPort};
+      if (publishedPorts.length !== 2) fail();
+      for (const [port, bindings] of publishedPorts) {
+        if (!Object.hasOwn(expected, port) || bindings.length !== 1 ||
+          bindings[0]?.HostIp !== "127.0.0.1" || bindings[0]?.HostPort !== expected[port]) fail();
+      }
+      const env = Object.fromEntries((container?.Config?.Env ?? []).map((entry) => {
+        const index = entry.indexOf("=");
+        return [entry.slice(0, index), entry.slice(index + 1)];
+      }));
+      if (env.ENDPOINT !== `http://localhost:${dataPort}` ||
+        env.ADMIN_ENDPOINT !== `http://localhost:${adminPort}` || env.ADMIN_PORT !== adminPort) fail();
+      try {
+        const database = new URL(env.DB_URL);
+        const redis = new URL(env.REDIS_URL);
+        if (database.hostname !== `${side}-phase0-postgres` || database.port !== "5432" ||
+          database.protocol !== "postgres:" || database.pathname !== "/aster" ||
+          redis.hostname !== `${side}-phase0-redis` || redis.protocol !== "redis:" || redis.port !== "6379") fail();
+      } catch { fail(); }
+    } else {
+      const destination = kind === "postgres" ? "/var/lib/postgresql/data" : "/data";
+      const mounts = container?.Mounts?.filter(({Destination}) => Destination === destination);
+      if (publishedPorts.length !== 0 || mounts?.length !== 1 || mounts[0].Type !== "volume" ||
+        mounts[0].Name !== `${project}_${side}-phase0-${kind}`) fail();
+    }
+  } else if (service !== "candidate-conformance-core" && publishedPorts.length !== 0) fail();
   if (service === "candidate-primary-init") {
     if (container?.State?.Status !== "exited" || container?.State?.ExitCode !== 0) fail();
   } else if (container?.State?.Status !== "running" || container?.State?.Health?.Status !== "healthy") fail();
@@ -362,9 +407,13 @@ if (!driverMount || driverMount.Type !== "bind" || driverMount.Source !== driver
 ' "${project_name}" "${runner_container_id}" "${suite_image_id}" "${candidate_image_id}" \
     "${runner_image_id}" "${driver}" "${driver_container_path}" "${RUNNER_PATH}" \
     "${runner_container_path}" "${HANDOFF_PATH}" "${handoff_container_path}" \
-    "${screenshot_root}" "${topology_id}" \
+    "${screenshot_root}" "${topology_id}" "${phase0_image_id}" \
+    "${phase0_postgres_image_id}" "${phase0_redis_image_id}" \
     <<<"${inspect_output}" || fail
 
+  if [[ "$#" == 1 && "$1" == --verify-runtime ]]; then
+    exit 0
+  fi
   exec "${engine_docker[@]}" exec --interactive \
     "${runner_container_id}" "${driver_container_path}" "$@" 2>/dev/null
 fi

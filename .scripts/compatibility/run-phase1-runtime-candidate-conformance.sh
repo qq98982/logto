@@ -16,12 +16,15 @@ readonly RUNNER_SCRIPT_PATH='/opt/aster/phase1-conformance-runner.mjs'
 readonly RUNNER_HANDOFF_PATH='/opt/aster/phase1-screenshot-handoff.mjs'
 readonly SCREENSHOT_ISSUER_ORIGIN='https://aster-server.aster-phase1-conformance.svc.cluster.local:3443'
 readonly POSTGRES_IMAGE='docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73'
+readonly REDIS_IMAGE='docker.io/library/redis:6-alpine@sha256:d0c875bdacfb5c4d2c2d9124de3f53cee1dc9ceff8936bd459fabc135cb33015'
 readonly MONGO_IMAGE='docker.io/library/mongo:6.0.13@sha256:b415b12f638e2685d06c58ab7fb5943577c50fadec6d9340ef67d21aeac72070'
 readonly NGINX_IMAGE='docker.io/library/nginx:1.27.3-alpine@sha256:814a8e88df978ade80e584cc5b333144b9372a8e3c98872d07137dbf3b44d0e4'
 readonly RUNNER_IMAGE='docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32'
 readonly SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-conformance-core
-  candidate-fixture-coordinator suite-mongo suite-server suite-nginx oidf-runner
+  candidate-fixture-coordinator suite-mongo suite-server suite-nginx
+  oracle-phase0-postgres oracle-phase0-redis oracle-phase0-core
+  candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core oidf-runner
 )
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
@@ -34,6 +37,7 @@ readonly DRIVER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-dri
 readonly RUNNER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-conformance-runner.mjs"
 readonly HANDOFF_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-screenshot-handoff.mjs"
 readonly CAPTURE_HELPER_FILE="${REPO_ROOT}/.scripts/compatibility/phase1-screenshot-capture.mjs"
+readonly WRAPPER_FILE="${REPO_ROOT}/.scripts/compatibility/run-phase1-conformance.sh"
 readonly PLAYWRIGHT_MODULE="${REPO_ROOT}/node_modules/.pnpm/@playwright+test@1.62.1/node_modules/@playwright/test/index.js"
 readonly PHASE1_CLI="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/cli.js"
 readonly ARTIFACT_CONTRACT="${REPO_ROOT}/packages/integration-tests/lib/compatibility/phase-1/artifact-contract.js"
@@ -253,6 +257,10 @@ PRIMARY_KEYRING_DIR="${RUN_DIR}/primary-keyring"
 FIXTURE_DIR="${RUN_DIR}/fixture"
 PRIMARY_CONFIG_FILE="${RUN_DIR}/primary.conf"
 POSTGRES_PASSWORD_FILE="${RUN_DIR}/postgres-password"
+ORACLE_PHASE0_PASSWORD_FILE="${RUN_DIR}/oracle-phase0-password"
+CANDIDATE_PHASE0_PASSWORD_FILE="${RUN_DIR}/candidate-phase0-password"
+ORACLE_PHASE0_CONFIG_FILE="${RUN_DIR}/oracle-phase0.env"
+CANDIDATE_PHASE0_CONFIG_FILE="${RUN_DIR}/candidate-phase0.env"
 COMPOSE_ENV="${RUN_DIR}/compose.env"
 DESCRIPTOR_FILE="${CONFORMANCE_ROOT}/runtime-candidate-conformance.json"
 REVIEW_PROFILE="${RUN_DIR}/review-profile.json"
@@ -271,6 +279,8 @@ FIXTURE_BASELINE_CLEANUP_DESCRIPTOR="${FIXTURE_DIR}/baseline-release-cleanup.jso
 FIXTURE_BASELINE_CLEANUP_RESPONSE="${FIXTURE_DIR}/baseline-release-cleanup-response.json"
 readonly CONFORMANCE_ROOT EVIDENCE_DIR SECRET_DIR PRIVATE_HOME PRIVATE_TMP SUITE_CHECKOUT
 readonly PRIMARY_KEYRING_DIR FIXTURE_DIR PRIMARY_CONFIG_FILE POSTGRES_PASSWORD_FILE COMPOSE_ENV
+readonly ORACLE_PHASE0_PASSWORD_FILE CANDIDATE_PHASE0_PASSWORD_FILE
+readonly ORACLE_PHASE0_CONFIG_FILE CANDIDATE_PHASE0_CONFIG_FILE
 readonly DESCRIPTOR_FILE REVIEW_PROFILE
 readonly OIDF_PASSWORD_FILE OIDF_BASIC_1_SECRET_FILE OIDF_BASIC_2_SECRET_FILE
 readonly OIDF_POST_1_SECRET_FILE OIDF_PUBLIC_MAP_FILE OIDF_PROVISION_DESCRIPTOR
@@ -475,6 +485,8 @@ NODE
 
 remove_oidf_private_material() {
   /usr/bin/rm -f -- \
+    "${ORACLE_PHASE0_PASSWORD_FILE}" "${CANDIDATE_PHASE0_PASSWORD_FILE}" \
+    "${ORACLE_PHASE0_CONFIG_FILE}" "${CANDIDATE_PHASE0_CONFIG_FILE}" \
     "${OIDF_PASSWORD_FILE}" "${OIDF_BASIC_1_SECRET_FILE}" \
     "${OIDF_BASIC_2_SECRET_FILE}" "${OIDF_POST_1_SECRET_FILE}" \
     "${OIDF_PUBLIC_MAP_FILE}" "${OIDF_PROVISION_DESCRIPTOR}" \
@@ -1084,7 +1096,9 @@ remove_private_image_if_present() {
 
 expected_image_for_service() {
   case "$1" in
-    candidate-primary-postgres) printf '%s' "${POSTGRES_IMAGE_ID}" ;;
+    candidate-primary-postgres|oracle-phase0-postgres|candidate-phase0-postgres) printf '%s' "${POSTGRES_IMAGE_ID}" ;;
+    oracle-phase0-redis|candidate-phase0-redis) printf '%s' "${REDIS_IMAGE_ID}" ;;
+    oracle-phase0-core|candidate-phase0-core) printf '%s' "${PHASE0_IMAGE_ID}" ;;
     candidate-primary-init|candidate-conformance-core|candidate-fixture-coordinator) printf '%s' "${CANDIDATE_IMAGE_ID}" ;;
     suite-mongo) printf '%s' "${MONGO_IMAGE_ID}" ;;
     suite-server) printf '%s' "${SUITE_IMAGE_ID}" ;;
@@ -1186,6 +1200,7 @@ readonly H_HEAD DRIVER_BLOB DRIVER_SHA256 RUNNER_SCRIPT_BLOB RUNNER_SCRIPT_SHA25
 readonly HANDOFF_BLOB HANDOFF_SHA256 CAPTURE_HELPER_BLOB
 
 ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"
+ORACLE_IMAGE_INPUT="${ASTER_PHASE1_ORACLE_IMAGE:?required}"
 CANDIDATE_IMAGE_INPUT="${ASTER_PHASE1_CANDIDATE_IMAGE-}"
 CANDIDATE_ARCHIVE_INPUT="${ASTER_PHASE1_CANDIDATE_ARCHIVE-}"
 EXPECTED_CANDIDATE_IMAGE_ID="${ASTER_PHASE1_CANDIDATE_IMAGE_ID-}"
@@ -1204,7 +1219,7 @@ else
   assert_build_root_identity
   CANDIDATE_INPUT_CHANNEL='archive'
 fi
-readonly ASTER_ROOT CANDIDATE_IMAGE_INPUT CANDIDATE_ARCHIVE_INPUT
+readonly ASTER_ROOT CANDIDATE_IMAGE_INPUT CANDIDATE_ARCHIVE_INPUT ORACLE_IMAGE_INPUT
 readonly EXPECTED_CANDIDATE_IMAGE_ID CANDIDATE_INPUT_CHANNEL CANDIDATE_ARCHIVE_IDENTITY
 aster_origin="$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" remote get-url origin 2>/dev/null || true)"
 case "${aster_origin}" in
@@ -1258,7 +1273,21 @@ else
 fi
 CANDIDATE_IMAGE_ID="$(inspect_image_id "${EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID}")"
 [[ "${CANDIDATE_IMAGE_ID}" == "${EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID}" ]] || fail
-for image in "${POSTGRES_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMAGE}"; do
+PHASE0_IMAGE_ID="$(inspect_system_image_id "${ORACLE_IMAGE_INPUT}")"
+PHASE0_ARCHIVE="${RUN_DIR}/phase0-image.tar"
+run_owned_command 1800 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=1200 \
+  "${DOCKER_BIN}" image save --output "${PHASE0_ARCHIVE}" "${PHASE0_IMAGE_ID}" || fail
+[[ "$(candidate_archive_identity "${PHASE0_ARCHIVE}" 2>/dev/null || true)" != '' ]] || fail
+run_owned_command 600 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
+  XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
+  "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+    --events-backend=file load --input "${PHASE0_ARCHIVE}" || fail
+[[ "$(inspect_image_id "${PHASE0_IMAGE_ID}")" == "${PHASE0_IMAGE_ID}" ]] || fail
+/usr/bin/rm -f -- "${PHASE0_ARCHIVE}" || fail
+readonly PHASE0_IMAGE_ID
+for image in "${POSTGRES_IMAGE}" "${REDIS_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMAGE}"; do
   run_owned_command 900 /dev/null /dev/null \
     PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
     XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
@@ -1267,11 +1296,12 @@ for image in "${POSTGRES_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMA
       --events-backend=file pull "${image}" || fail
 done
 POSTGRES_IMAGE_ID="$(inspect_image_id "${POSTGRES_IMAGE}")"
+REDIS_IMAGE_ID="$(inspect_image_id "${REDIS_IMAGE}")"
 MONGO_IMAGE_ID="$(inspect_image_id "${MONGO_IMAGE}")"
 NGINX_IMAGE_ID="$(inspect_image_id "${NGINX_IMAGE}")"
 RUNNER_IMAGE_ID="$(inspect_image_id "${RUNNER_IMAGE}")"
 readonly SYSTEM_CANDIDATE_IMAGE_ID EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID CANDIDATE_IMAGE_ID
-readonly POSTGRES_IMAGE_ID MONGO_IMAGE_ID NGINX_IMAGE_ID RUNNER_IMAGE_ID
+readonly POSTGRES_IMAGE_ID REDIS_IMAGE_ID MONGO_IMAGE_ID NGINX_IMAGE_ID RUNNER_IMAGE_ID
 
 failure_stage=suite-checkout
 "${CLOSED_ENV[@]}" "${GIT_BIN}" --no-replace-objects -C "${SUITE_CHECKOUT}" init -q >/dev/null 2>&1 || fail
@@ -1307,6 +1337,18 @@ IFS='|' read -r inspected_suite_id inspected_suite_revision inspected_maven_reso
 readonly SUITE_IMAGE_ID
 
 failure_stage=private-material
+for side in oracle candidate; do
+  phase0_password="$(random_hex 32)"
+  printf '%s' "${phase0_password}" >"${RUN_DIR}/${side}-phase0-password"
+  {
+    printf 'DB_URL=postgres://aster:%s@%s-phase0-postgres:5432/aster\n' "${phase0_password}" "${side}"
+    printf 'REDIS_URL=redis://%s-phase0-redis:6379\n' "${side}"
+    printf 'SECRET_VAULT_KEK=%s\n' "$(random_hex 32)"
+    printf 'STATUS_API_KEY=%s\n' "$(random_hex 32)"
+  } >"${RUN_DIR}/${side}-phase0.env"
+  /usr/bin/chmod 0400 "${RUN_DIR}/${side}-phase0-password" "${RUN_DIR}/${side}-phase0.env"
+done
+unset phase0_password
 printf '%s\n' "$(random_hex 32)" >"${POSTGRES_PASSWORD_FILE}"
 printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$(random_uuid)" "$(random_hex 32)" >"${PRIMARY_CONFIG_FILE}"
 printf '%s' "$(random_hex 32)" >"${OIDF_PASSWORD_FILE}"
@@ -1341,6 +1383,11 @@ run_owned_command 60 /dev/null /dev/null \
 
 {
   printf 'ASTER_PHASE1_CONFORMANCE_PROJECT_NAME=%s\n' "${project_name}"
+  printf 'ASTER_PHASE1_PHASE0_CONTROL_IMAGE=%s\n' "${PHASE0_IMAGE_ID}"
+  printf 'ASTER_PHASE1_ORACLE_PHASE0_PASSWORD_FILE=%s\n' "${ORACLE_PHASE0_PASSWORD_FILE}"
+  printf 'ASTER_PHASE1_CANDIDATE_PHASE0_PASSWORD_FILE=%s\n' "${CANDIDATE_PHASE0_PASSWORD_FILE}"
+  printf 'ASTER_PHASE1_ORACLE_PHASE0_CONFIG_FILE=%s\n' "${ORACLE_PHASE0_CONFIG_FILE}"
+  printf 'ASTER_PHASE1_CANDIDATE_PHASE0_CONFIG_FILE=%s\n' "${CANDIDATE_PHASE0_CONFIG_FILE}"
   printf 'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST=%s\n' "${CANDIDATE_IMAGE_ID}"
   printf 'ASTER_PHASE1_OIDF_SUITE_IMAGE_DIGEST=%s\n' "${SUITE_IMAGE_ID}"
   printf 'ASTER_PHASE1_RUNTIME_UID=%s\n' "$(/usr/bin/id -u)"
@@ -1366,6 +1413,11 @@ run_owned_command 60 /dev/null /dev/null \
 failure_stage=topology
 project_started=1
 compose config --quiet >/dev/null 2>&1 || fail
+for service in oracle-phase0-postgres oracle-phase0-redis oracle-phase0-core \
+  candidate-phase0-postgres candidate-phase0-redis candidate-phase0-core; do
+  compose_up_phase "${service}" || fail
+  wait_for_topology "${service}"
+done
 compose_up_phase candidate-primary-postgres || fail
 wait_for_topology candidate-primary-postgres
 compose_up_phase suite-mongo || fail
@@ -1450,11 +1502,13 @@ failure_stage=descriptor
   "${SUITE_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "${RUNNER_IMAGE_ID}" "${RUNNER_DRIVER_PATH}" \
   "${DRIVER_BLOB}" "${DRIVER_SHA256}" "${RUNNER_SCRIPT_PATH}" "${RUNNER_SCRIPT_BLOB}" \
   "${RUNNER_SCRIPT_SHA256}" "${RUNNER_HANDOFF_PATH}" "${HANDOFF_BLOB}" \
-  "${HANDOFF_SHA256}" "${SCREENSHOT_ROOT}" "${PODMAN_SOCKET}" "${TOPOLOGY_ID}" <<'NODE'
+  "${HANDOFF_SHA256}" "${SCREENSHOT_ROOT}" "${PHASE0_IMAGE_ID}" "${POSTGRES_IMAGE_ID}" \
+  "${REDIS_IMAGE_ID}" "${PODMAN_SOCKET}" "${TOPOLOGY_ID}" <<'NODE'
 import { writeFileSync } from 'node:fs';
 const [output, projectName, runnerContainerId, suiteCommit, suiteImageId, candidateImageId,
   runnerImageId, driverPath, driverBlob, driverSha256, runnerPath, runnerBlob, runnerSha256,
-  handoffPath, handoffBlob, handoffSha256, screenshotRoot, engineSocket, topologyId] = process.argv.slice(2);
+  handoffPath, handoffBlob, handoffSha256, screenshotRoot, phase0ImageId, phase0PostgresImageId,
+  phase0RedisImageId, engineSocket, topologyId] = process.argv.slice(2);
 writeFileSync(output, `${JSON.stringify({
   schemaVersion: 1,
   kind: 'aster-phase1-runtime-candidate-conformance-descriptor',
@@ -1474,6 +1528,9 @@ writeFileSync(output, `${JSON.stringify({
   handoffBlob,
   handoffSha256,
   screenshotRoot,
+  phase0ImageId,
+  phase0PostgresImageId,
+  phase0RedisImageId,
   engineSocket,
   topologyId,
 })}\n`, { flag: 'wx', mode: 0o400 });
@@ -1481,6 +1538,10 @@ NODE
 [[ "$(/usr/bin/stat -c '%u|%g|%a|%F' -- "${DESCRIPTOR_FILE}")" == "$(/usr/bin/id -u)|$(/usr/bin/id -g)|400|regular file" ]] || fail
 
 failure_stage=conformance
+run_owned_command 60 /dev/null /dev/null \
+  PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}" \
+  ASTER_PHASE1_HARNESS_COMMIT="${H_HEAD}" ASTER_PHASE1_CONFORMANCE_ROOT="${CONFORMANCE_ROOT}" \
+  ASTER_PHASE1_CONFORMANCE_DRIVER="${DRIVER_FILE}" "${WRAPPER_FILE}" --verify-runtime || fail
 NODE_RUN_TOKEN="$(random_hex 32)"
 PUBLIC_ENV=(
   env -i
@@ -1491,6 +1552,12 @@ PUBLIC_ENV=(
   ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}"
   ASTER_PHASE1_BUILD_ROOT="${BUILD_ROOT}"
   ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST="${CANDIDATE_IMAGE_ID}"
+  ASTER_PHASE1_ORACLE_IMAGE_DIGEST="${PHASE0_IMAGE_ID}"
+  ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST="${PHASE0_IMAGE_ID}"
+  ASTER_PHASE1_PHASE0_ORACLE_URL='http://localhost:3331'
+  ASTER_PHASE1_PHASE0_ORACLE_ADMIN_URL='http://localhost:3431'
+  ASTER_PHASE1_PHASE0_CANDIDATE_URL='http://localhost:3341'
+  ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL='http://localhost:3441'
   ASTER_PHASE1_TOPOLOGY_ID="${project_name}"
   ASTER_PHASE1_CONFORMANCE_ROOT="${CONFORMANCE_ROOT}"
   ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"

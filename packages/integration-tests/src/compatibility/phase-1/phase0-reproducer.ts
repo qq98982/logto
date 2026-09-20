@@ -23,6 +23,8 @@ export type Phase0ReproducerDependencies = Readonly<{
   runCli: Phase0Cli;
 }>;
 
+export type Phase0ConformanceTarget = Readonly<{ issuer: string; suiteBaseUrl: string }>;
+
 const diagnostic = 'Phase 0 reproduction failed.';
 const expectedFiles = Object.freeze([
   'discovery.json',
@@ -95,7 +97,23 @@ const canonicalLocalHttpOrigin = (value: string): string => {
   }
 };
 
-const loadDedicatedTargets = (environment: RuntimeEnvironment) => {
+const conformanceOrigins = (target: Phase0ConformanceTarget): readonly string[] => {
+  const snapshot = snapshotClosedDataGraph<Phase0ConformanceTarget>(target) ?? fail();
+  if (
+    Object.keys(snapshot).toSorted().join(',') !== 'issuer,suiteBaseUrl' ||
+    snapshot.issuer !==
+      'https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc' ||
+    snapshot.suiteBaseUrl !== 'https://conformance.aster-phase1-conformance.svc.cluster.local:8443'
+  ) {
+    return fail();
+  }
+  return [new URL(snapshot.issuer).origin, new URL(snapshot.suiteBaseUrl).origin];
+};
+
+const loadDedicatedTargets = (
+  environment: RuntimeEnvironment,
+  conformanceTarget?: Phase0ConformanceTarget
+) => {
   const targets = Object.freeze({
     oracleUrl: canonicalLocalHttpOrigin(
       requiredEnvironmentValue(environment, 'ASTER_PHASE1_PHASE0_ORACLE_URL')
@@ -110,16 +128,28 @@ const loadDedicatedTargets = (environment: RuntimeEnvironment) => {
       requiredEnvironmentValue(environment, 'ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL')
     ),
   });
-  const measuredTargets = [
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_ADMIN_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_FOREIGN_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_FOREIGN_ADMIN_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_ADMIN_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_FOREIGN_URL'),
-    requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL'),
-  ].map((target) => canonicalLocalHttpOrigin(target));
+  if (
+    conformanceTarget !== undefined &&
+    (targets.oracleUrl !== 'http://localhost:3331' ||
+      targets.oracleAdminUrl !== 'http://localhost:3431' ||
+      targets.candidateUrl !== 'http://localhost:3341' ||
+      targets.candidateAdminUrl !== 'http://localhost:3441')
+  ) {
+    return fail();
+  }
+  const measuredTargets =
+    conformanceTarget === undefined
+      ? [
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_ADMIN_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_FOREIGN_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_ORACLE_FOREIGN_ADMIN_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_ADMIN_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_FOREIGN_URL'),
+          requiredEnvironmentValue(environment, 'ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL'),
+        ].map((target) => canonicalLocalHttpOrigin(target))
+      : conformanceOrigins(conformanceTarget);
   const allTargets = [...Object.values(targets), ...measuredTargets];
 
   if (new Set(allTargets).size !== allTargets.length) {
@@ -154,7 +184,8 @@ const readEvidenceFile = async (
 const reproduce = async (
   request: Phase0EvidenceReproductionRequest,
   environment: RuntimeEnvironment,
-  dependencies: Phase0ReproducerDependencies
+  dependencies: Phase0ReproducerDependencies,
+  conformanceTarget?: Phase0ConformanceTarget
 ): Promise<Phase0EvidenceReproduction> => {
   assertRequest(request);
   const root = requiredEnvironmentValue(environment, 'ASTER_PHASE1_CONFORMANCE_ROOT');
@@ -199,7 +230,7 @@ const reproduce = async (
         ) {
           return fail();
         }
-        const targets = loadDedicatedTargets(environment);
+        const targets = loadDedicatedTargets(environment, conformanceTarget);
         const cliEnvironment = Object.freeze({
           ASTER_ORACLE_URL: targets.oracleUrl,
           ASTER_ORACLE_ADMIN_URL: targets.oracleAdminUrl,
@@ -259,16 +290,26 @@ const reproduce = async (
 export const reproducePhase0Evidence: Phase0EvidenceReproducer = async (request) =>
   reproduce(request, process.env, { runCli: runCompatibilityCli });
 
+export const createConformancePhase0EvidenceReproducer = (
+  target: Phase0ConformanceTarget
+): Phase0EvidenceReproducer => {
+  const snapshot = snapshotClosedDataGraph<Phase0ConformanceTarget>(target) ?? fail();
+  conformanceOrigins(snapshot);
+  return async (request) =>
+    reproduce(request, process.env, { runCli: runCompatibilityCli }, snapshot);
+};
+
 export const reproducePhase0EvidenceForTesting = async (
   request: Phase0EvidenceReproductionRequest,
   environment: RuntimeEnvironment,
-  dependencies: Phase0ReproducerDependencies
+  dependencies: Phase0ReproducerDependencies,
+  conformanceTarget?: Phase0ConformanceTarget
 ): Promise<Phase0EvidenceReproduction> => {
   if (process.env.NODE_ENV !== 'test') {
     return fail();
   }
 
-  return reproduce(request, environment, dependencies);
+  return reproduce(request, environment, dependencies, conformanceTarget);
 };
 
 /* eslint-enable @typescript-eslint/no-unnecessary-condition */

@@ -284,6 +284,120 @@
         "com.aster.phase1.cleanup": "down-v"
       }
     },
+    "oracle-phase0-postgres": {
+      "image": "docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD_FILE": "/run/secrets/postgres-password",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s", "timeout": "3s", "retries": 40
+      },
+      "networks": { "oracle-phase0": {} },
+      "volumes": [
+        "oracle-phase0-postgres:/var/lib/postgresql/data",
+        "${ASTER_PHASE1_ORACLE_PHASE0_PASSWORD_FILE:?required}:/run/secrets/postgres-password:ro"
+      ],
+      "pids_limit": 64,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "oracle-phase0-redis": {
+      "image": "docker.io/library/redis:6-alpine@sha256:d0c875bdacfb5c4d2c2d9124de3f53cee1dc9ceff8936bd459fabc135cb33015",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s", "timeout": "3s", "retries": 40
+      },
+      "networks": { "oracle-phase0": {} },
+      "volumes": ["oracle-phase0-redis:/data"],
+      "pids_limit": 64,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "oracle-phase0-core": {
+      "image": "${ASTER_PHASE1_PHASE0_CONTROL_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "oracle-phase0-postgres": { "condition": "service_healthy" },
+        "oracle-phase0-redis": { "condition": "service_healthy" }
+      },
+      "env_file": ["${ASTER_PHASE1_ORACLE_PHASE0_CONFIG_FILE:?required}"],
+      "environment": {
+        "ENDPOINT": "http://localhost:3331",
+        "ADMIN_ENDPOINT": "http://localhost:3431",
+        "ADMIN_PORT": "3431",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3431"],
+        "interval": "3s", "timeout": "3s", "retries": 80
+      },
+      "networks": { "oracle-phase0": {} },
+      "ports": ["127.0.0.1:3331:3001", "127.0.0.1:3431:3431"],
+      "pids_limit": 256,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "candidate-phase0-postgres": {
+      "image": "docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+      "environment": {
+        "POSTGRES_USER": "aster",
+        "POSTGRES_PASSWORD_FILE": "/run/secrets/postgres-password",
+        "POSTGRES_DB": "aster"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U aster -d aster"],
+        "interval": "3s", "timeout": "3s", "retries": 40
+      },
+      "networks": { "candidate-phase0": {} },
+      "volumes": [
+        "candidate-phase0-postgres:/var/lib/postgresql/data",
+        "${ASTER_PHASE1_CANDIDATE_PHASE0_PASSWORD_FILE:?required}:/run/secrets/postgres-password:ro"
+      ],
+      "pids_limit": 64,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "candidate-phase0-redis": {
+      "image": "docker.io/library/redis:6-alpine@sha256:d0c875bdacfb5c4d2c2d9124de3f53cee1dc9ceff8936bd459fabc135cb33015",
+      "command": ["redis-server", "--appendonly", "yes"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "3s", "timeout": "3s", "retries": 40
+      },
+      "networks": { "candidate-phase0": {} },
+      "volumes": ["candidate-phase0-redis:/data"],
+      "pids_limit": 64,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "candidate-phase0-core": {
+      "image": "${ASTER_PHASE1_PHASE0_CONTROL_IMAGE:?required}",
+      "stop_signal": "SIGINT",
+      "depends_on": {
+        "candidate-phase0-postgres": { "condition": "service_healthy" },
+        "candidate-phase0-redis": { "condition": "service_healthy" }
+      },
+      "env_file": ["${ASTER_PHASE1_CANDIDATE_PHASE0_CONFIG_FILE:?required}"],
+      "environment": {
+        "ENDPOINT": "http://localhost:3341",
+        "ADMIN_ENDPOINT": "http://localhost:3441",
+        "ADMIN_PORT": "3441",
+        "TRUST_PROXY_HEADER": "1"
+      },
+      "healthcheck": {
+        "test": ["CMD-SHELL", "nc -z localhost 3001 && nc -z localhost 3441"],
+        "interval": "3s", "timeout": "3s", "retries": 80
+      },
+      "networks": { "candidate-phase0": {} },
+      "ports": ["127.0.0.1:3341:3001", "127.0.0.1:3441:3441"],
+      "pids_limit": 256,
+      "security_opt": ["no-new-privileges:true"],
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
     "oidf-runner": {
       "image": "docker.io/library/node:22.23.2-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
       "entrypoint": ["node", "-e"],
@@ -347,6 +461,8 @@
       "internal": true,
       "ipam": { "config": [{ "subnet": "172.30.248.0/24" }] }
     },
+    "oracle-phase0": { "internal": true },
+    "candidate-phase0": { "internal": true },
     "oidf-edge": {
       "internal": true,
       "ipam": { "config": [{ "subnet": "172.30.249.0/24" }] }
@@ -382,6 +498,18 @@
         "com.aster.phase1.topology": "runtime-candidate-conformance",
         "com.aster.phase1.cleanup": "down-v"
       }
+    },
+    "oracle-phase0-postgres": {
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "oracle-phase0-redis": {
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "candidate-phase0-postgres": {
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
+    },
+    "candidate-phase0-redis": {
+      "labels": { "com.aster.phase1.topology": "runtime-candidate-conformance", "com.aster.phase1.cleanup": "down-v" }
     },
     "suite-mongo": {
       "labels": {

@@ -1,9 +1,12 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake CLI records exact stage order and one invocation flag inside an isolated test boundary. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake CLI records exact stage order and one invocation flag inside an isolated test boundary. */
 import { chmod, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { phase0HarnessCommit } from './model.js';
-import { reproducePhase0EvidenceForTesting } from './phase0-reproducer.js';
+import {
+  reproducePhase0EvidenceForTesting,
+  type Phase0ReproducerDependencies,
+} from './phase0-reproducer.js';
 import type { Phase0EvidenceReproductionRequest } from './profile-semantics.js';
 
 const roots = new Set<string>();
@@ -55,7 +58,107 @@ const environment = (root: string, buildRoot = '/var/tmp/henry-build') => ({
   ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST: `sha256:${'1'.repeat(64)}`,
 });
 
+const conformanceTarget = Object.freeze({
+  issuer: 'https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc',
+  suiteBaseUrl: 'https://conformance.aster-phase1-conformance.svc.cluster.local:8443',
+});
+const conformanceEnvironment = (root: string) =>
+  Object.fromEntries(
+    Object.entries(environment(root)).filter(
+      ([name]) =>
+        !/^ASTER_PHASE1_(?:ORACLE|CANDIDATE)(?:_ADMIN|_FOREIGN|_FOREIGN_ADMIN)?_URL$/u.test(name)
+    )
+  );
+const conformanceCli = (calls: string[], failedStage?: string): Phase0ReproducerDependencies => ({
+  runCli: async (arguments_ = [], cliEnvironment = {}) => {
+    const stage = arguments_[0] ?? 'positive';
+    calls.push(stage);
+    if (stage === failedStage) {
+      return 1;
+    }
+    expect(cliEnvironment.ASTER_ORACLE_URL).toBe('http://localhost:3331');
+    expect(cliEnvironment.ASTER_CANDIDATE_URL).toBe('http://localhost:3341');
+    const directory = cliEnvironment.ASTER_EVIDENCE_DIR ?? '';
+    const names =
+      stage === 'positive'
+        ? ['discovery.json', 'password-code.json']
+        : [stage === '--fault-injection' ? 'negative-control.json' : 'run.json'];
+    await Promise.all(
+      names.map(async (name) => {
+        await writeFile(path.join(directory, name), '{}\n', { mode: 0o600 });
+      })
+    );
+    return stage === '--fault-injection' ? 2 : 0;
+  },
+});
+
 describe('live Phase 0 evidence reproducer', () => {
+  it('freshly reproduces all three stages for conformance without nonexistent differential URLs', async () => {
+    const root = await createRoot();
+    const calls: string[] = [];
+    const result = await reproducePhase0EvidenceForTesting(
+      request,
+      conformanceEnvironment(root),
+      conformanceCli(calls),
+      conformanceTarget
+    );
+    expect(calls).toEqual(['positive', '--fault-injection', '--finalize-run']);
+    expect(result.files.map(({ name }) => name)).toEqual(request.files);
+    expect(await readdir(root)).toEqual([]);
+    await expect(
+      reproducePhase0EvidenceForTesting(request, conformanceEnvironment(root), conformanceCli([]))
+    ).rejects.toThrow('Phase 0 reproduction failed.');
+  });
+
+  it.each(['positive', '--fault-injection', '--finalize-run'])(
+    'rejects a failed conformance reproduction stage %s',
+    async (stage) => {
+      const root = await createRoot();
+      await expect(
+        reproducePhase0EvidenceForTesting(
+          request,
+          conformanceEnvironment(root),
+          conformanceCli([], stage),
+          conformanceTarget
+        )
+      ).rejects.toThrow('Phase 0 reproduction failed.');
+      expect(await readdir(root)).toEqual([]);
+    }
+  );
+
+  it.each([
+    { ASTER_PHASE1_PHASE0_ORACLE_URL: 'http://localhost:3443' },
+    { ASTER_PHASE1_PHASE0_CANDIDATE_URL: 'http://localhost:3331' },
+    { ASTER_PHASE1_PHASE0_ORACLE_ADMIN_URL: '' },
+    { ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST: `sha256:${'3'.repeat(64)}` },
+  ])('rejects missing, aliased, or wrong-image conformance controls', async (override) => {
+    const root = await createRoot();
+    const calls: string[] = [];
+    await expect(
+      reproducePhase0EvidenceForTesting(
+        request,
+        { ...conformanceEnvironment(root), ...override },
+        conformanceCli(calls),
+        conformanceTarget
+      )
+    ).rejects.toThrow('Phase 0 reproduction failed.');
+    expect(calls).toEqual([]);
+  });
+
+  it('rejects a conformance context that is not bound to the actual issuer', async () => {
+    const root = await createRoot();
+    const calls: string[] = [];
+    await expect(
+      reproducePhase0EvidenceForTesting(
+        request,
+        conformanceEnvironment(root),
+        conformanceCli(calls),
+        { ...conformanceTarget, issuer: 'http://localhost:3331/oidc' }
+      )
+    ).rejects.toThrow('Phase 0 reproduction failed.');
+    expect(calls).toEqual([]);
+  });
+
   it('runs positive, negative, and finalize stages and returns exact private bytes', async () => {
     const root = await createRoot();
     const calls: string[] = [];
@@ -351,4 +454,4 @@ describe('live Phase 0 evidence reproducer', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

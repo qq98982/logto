@@ -37,6 +37,7 @@ const handoffSourcePath = path.join(
 );
 const candidateInput = `sha256:${'5'.repeat(64)}`;
 const candidateImageId = `sha256:${'c'.repeat(64)}`;
+const phase0ImageId = `sha256:${'b'.repeat(64)}`;
 const exportName = 'phase-1-conformance.json';
 const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 
@@ -71,7 +72,12 @@ type Behavior =
   | 'wrong-handoff-mount'
   | 'wrong-screenshot-mount'
   | 'wrong-screenshot-env'
-  | 'wrong-port';
+  | 'wrong-port'
+  | 'wrong-phase0-image'
+  | 'wrong-phase0-network'
+  | 'wrong-phase0-port'
+  | 'wrong-phase0-volume'
+  | 'wrong-phase0-endpoint';
 
 type Fixture = Readonly<{
   root: string;
@@ -136,6 +142,8 @@ const readState = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const writeState = (value) => fs.writeFileSync(statePath, JSON.stringify(value));
 const imageIds = {
   candidate: 'sha256:' + 'c'.repeat(64),
+  phase0: 'sha256:' + 'b'.repeat(64),
+  redis: 'sha256:' + '6'.repeat(64),
   postgres: 'sha256:' + '1'.repeat(64),
   mongo: 'sha256:' + '2'.repeat(64),
   nginx: 'sha256:' + '3'.repeat(64),
@@ -145,6 +153,8 @@ const imageIds = {
 const serviceNames = [
   'candidate-primary-postgres', 'candidate-primary-init', 'candidate-conformance-core',
   'candidate-fixture-coordinator', 'suite-mongo', 'suite-server', 'suite-nginx', 'oidf-runner',
+  'oracle-phase0-postgres', 'oracle-phase0-redis', 'oracle-phase0-core',
+  'candidate-phase0-postgres', 'candidate-phase0-redis', 'candidate-phase0-core',
 ];
 const projectOption = () => args[args.indexOf('--project-name') + 1];
 const filterProject = () => (args.find((value) => value.startsWith('label=com.docker.compose.project=')) ?? '').split('=').at(-1);
@@ -154,12 +164,34 @@ const parseEnv = (file) => Object.fromEntries(fs.readFileSync(file, 'utf8').trim
 }));
 const idFor = (project, service) => crypto.createHash('sha256').update(project + ':' + service).digest('hex');
 const imageFor = (service, environment) => {
+  if (service.endsWith('-phase0-postgres')) return imageIds.postgres;
+  if (service.endsWith('-phase0-redis')) return imageIds.redis;
+  if (service.endsWith('-phase0-core')) return readState().behavior === 'wrong-phase0-image'
+    ? imageIds.candidate : environment.ASTER_PHASE1_PHASE0_CONTROL_IMAGE;
   if (service === 'candidate-primary-postgres') return imageIds.postgres;
   if (service.startsWith('candidate-')) return environment.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST;
   if (service === 'suite-mongo') return imageIds.mongo;
   if (service === 'suite-server') return environment.ASTER_PHASE1_OIDF_SUITE_IMAGE_DIGEST;
   if (service === 'suite-nginx') return imageIds.nginx;
   return imageIds.runner;
+};
+const controlEnvironment = (service, environment) => {
+  if (!service.endsWith('-phase0-core')) return [];
+  const side = service.startsWith('oracle-') ? 'ORACLE' : 'CANDIDATE';
+  const dataPort = side === 'ORACLE' ? '3331' : '3341';
+  const adminPort = side === 'ORACLE' ? '3431' : '3441';
+  const env = parseEnv(environment['ASTER_PHASE1_' + side + '_PHASE0_CONFIG_FILE']);
+  return [...Object.entries(env).map(([key, value]) => key + '=' + value),
+    'ENDPOINT=http://localhost:' + (readState().behavior === 'wrong-phase0-endpoint' ? '3443' : dataPort),
+    'ADMIN_ENDPOINT=http://localhost:' + adminPort, 'ADMIN_PORT=' + adminPort];
+};
+const controlPorts = (service, behavior) => {
+  if (!service.endsWith('-phase0-core')) return {};
+  const oracle = service.startsWith('oracle-');
+  const dataPort = oracle ? '3331' : '3341';
+  const adminPort = oracle ? '3431' : '3441';
+  return { '3001/tcp': [{ HostIp: behavior === 'wrong-phase0-port' ? '0.0.0.0' : '127.0.0.1', HostPort: dataPort }],
+    [adminPort + '/tcp']: [{ HostIp: '127.0.0.1', HostPort: adminPort }] };
 };
 const containerDocument = (project, service, environment, behavior) => ({
   Id: idFor(project, service),
@@ -174,7 +206,7 @@ const containerDocument = (project, service, environment, behavior) => ({
       ? ['ASTER_PHASE1_SCREENSHOT_IPC_ROOT=' + (behavior === 'wrong-screenshot-env'
           ? environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT + '-changed'
           : environment.ASTER_PHASE1_SCREENSHOT_IPC_ROOT)]
-      : [],
+      : controlEnvironment(service, environment),
     Labels: {
       'com.docker.compose.project': project,
       'com.docker.compose.service': service,
@@ -182,9 +214,12 @@ const containerDocument = (project, service, environment, behavior) => ({
     },
   },
   NetworkSettings: {
+    Networks: service.includes('-phase0-') ? {
+      [project + '_' + (behavior === 'wrong-phase0-network' ? 'db' : service.split('-')[0] + '-phase0')]: {},
+    } : {},
     Ports: service === 'candidate-conformance-core'
       ? { '3443/tcp': [{ HostIp: behavior === 'wrong-port' ? '0.0.0.0' : '127.0.0.1', HostPort: '3443' }] }
-      : {},
+      : controlPorts(service, behavior),
   },
   Mounts: service === 'oidf-runner'
     ? [
@@ -215,7 +250,12 @@ const containerDocument = (project, service, environment, behavior) => ({
           RW: behavior !== 'wrong-screenshot-mount',
         },
       ]
-    : [],
+    : /-phase0-(postgres|redis)$/.test(service) ? [{
+        Type: 'volume',
+        Name: project + '_' + (behavior === 'wrong-phase0-volume' ? 'candidate-primary-postgres' : service),
+        Destination: service.endsWith('-postgres') ? '/var/lib/postgresql/data' : '/data',
+        RW: true,
+      }] : [],
 });
 if (args[0] === 'system' && args[1] === 'service') {
   if (readState().behavior === 'engine-lock-scope') {
@@ -241,7 +281,8 @@ if (args[0] === 'healthcheck' && args[1] === 'run') {
 if (args[0] === 'pull') process.exit(0);
 if (args[0] === 'load') {
   const state = readState();
-  state.privateCandidateImageId = state.archiveLoadedImageId;
+  if (args.at(-1).endsWith('/phase0-image.tar')) state.privatePhase0Loaded = true;
+  else state.privateCandidateImageId = state.archiveLoadedImageId;
   writeState(state);
   process.exit(0);
 }
@@ -257,10 +298,15 @@ if (args[0] === 'image' && args[1] === 'inspect') {
   const privateEngine = (process.env.DOCKER_HOST ?? '').startsWith('unix://');
   let id = imageIds.candidate;
   if (input.includes('postgres')) id = imageIds.postgres;
+  else if (input.includes('redis')) id = imageIds.redis;
   else if (input.includes('mongo')) id = imageIds.mongo;
   else if (input.includes('nginx')) id = imageIds.nginx;
   else if (input.includes('node')) id = imageIds.runner;
   else if (input === imageIds.suite) id = imageIds.suite;
+  else if (input === imageIds.phase0) {
+    if (privateEngine && !state.privatePhase0Loaded) process.exit(1);
+    id = imageIds.phase0;
+  }
   else if (privateEngine && /^sha256:[0-9a-f]{64}$/.test(input)) {
     if (state.privateCandidateImageId !== input) process.exit(1);
     id = input;
@@ -357,7 +403,7 @@ if (args[0] === 'inspect') {
     process.exit(1);
   });
   process.stdout.write(JSON.stringify(documents));
-  process.exit(0);
+  return;
 }
 if (args[0] === 'ps' && args[1] === '-aq') {
   if (readState().cleanupQueriesActive === true) process.exit(2);
@@ -495,6 +541,18 @@ writeFileSync(path.join(captureRoot, 'public-environment.txt'), [
   process.env.ASTER_PHASE1_CANDIDATE_IMAGE_ID ?? '',
 ].join('|'));
 const descriptor = JSON.parse(readFileSync(descriptorPath, 'utf8'));
+const phase0Environment = {
+  ASTER_PHASE1_ORACLE_IMAGE_DIGEST: 'sha256:' + 'b'.repeat(64),
+  ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST: 'sha256:' + 'b'.repeat(64),
+  ASTER_PHASE1_PHASE0_ORACLE_URL: 'http://localhost:3331',
+  ASTER_PHASE1_PHASE0_ORACLE_ADMIN_URL: 'http://localhost:3431',
+  ASTER_PHASE1_PHASE0_CANDIDATE_URL: 'http://localhost:3341',
+  ASTER_PHASE1_PHASE0_CANDIDATE_ADMIN_URL: 'http://localhost:3441',
+};
+if (Object.entries(phase0Environment).some(([name, value]) => process.env[name] !== value)) process.exit(94);
+if (['ORACLE', 'ORACLE_ADMIN', 'ORACLE_FOREIGN', 'ORACLE_FOREIGN_ADMIN',
+  'CANDIDATE', 'CANDIDATE_ADMIN', 'CANDIDATE_FOREIGN', 'CANDIDATE_FOREIGN_ADMIN']
+  .some((name) => process.env['ASTER_PHASE1_' + name + '_URL'] !== undefined)) process.exit(95);
 copyFileSync(descriptorPath, path.join(captureRoot, descriptor.projectName + '.json'));
 appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\n');
 appendFileSync(path.join(captureRoot, 'started.log'), descriptor.projectName + '\\n');
@@ -917,6 +975,7 @@ const lifecycleEnvironment = (
     PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
     ASTER_PHASE1_BUILD_ROOT: fixture.buildRoot,
     ASTER_PHASE1_ASTER_ROOT: fixture.aster,
+    ASTER_PHASE1_ORACLE_IMAGE: phase0ImageId,
   };
 
   if (candidate.image !== undefined) {
@@ -1518,6 +1577,9 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       'handoffBlob',
       'handoffSha256',
       'screenshotRoot',
+      'phase0ImageId',
+      'phase0PostgresImageId',
+      'phase0RedisImageId',
       'engineSocket',
       'topologyId',
     ]);
@@ -1583,7 +1645,9 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     const serializedDescriptor = JSON.stringify(descriptor);
 
     expect(log).toContain(`"load","--input","${fixture.candidateArchive}"`);
-    expect(log).not.toContain('"image","save"');
+    expect(log.split('\n').filter((line) => line.startsWith('["image","save",'))).toEqual([
+      expect.stringContaining(phase0ImageId),
+    ]);
     expect(log).toContain('"exec","--interactive"');
     expect(descriptor.candidateImageId).toBe(candidateImageId);
     expect(serializedDescriptor).not.toContain(fixture.candidateArchive);
@@ -1799,6 +1863,25 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
     expect(await activeResources(fixture)).toBe(false);
     expect(await readdir(fixture.runRoot)).toEqual([]);
   });
+
+  it.each([
+    'wrong-phase0-image',
+    'wrong-phase0-network',
+    'wrong-phase0-port',
+    'wrong-phase0-volume',
+    'wrong-phase0-endpoint',
+  ] as const)(
+    'rejects %s before provenance reproduction can contact a control',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      await runFailure(fixture);
+      await expect(stat(path.join(fixture.captureRoot, 'started.log'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      expect(await activeResources(fixture)).toBe(false);
+      expect(await readdir(fixture.runRoot)).toEqual([]);
+    }
+  );
 
   it('interrupts an owned setup process group and removes private engine state', async () => {
     const fixture = await createFixture('setup-signal');

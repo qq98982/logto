@@ -15,7 +15,10 @@ import { candidateInvariantRegistryIds } from './candidate-invariants/index.js';
 import { assertPhase1CapabilityDocument, parsePhase1CapabilityDocument } from './capabilities.js';
 import { createProductionPhase1GithubReader } from './github-reader.js';
 import { differentialScenarioIds, oracleCommit, snapshotClosedDataGraph } from './model.js';
-import { reproducePhase0Evidence } from './phase0-reproducer.js';
+import {
+  createConformancePhase0EvidenceReproducer,
+  reproducePhase0Evidence,
+} from './phase0-reproducer.js';
 import { phase1ProfileSchemaLock } from './profile-lock.js';
 import { createProductionPhase1GitReader } from './profile-semantics/provenance.js';
 import {
@@ -812,6 +815,14 @@ export const phase1RegistrySourceEvidence = Object.freeze([
   ).values(),
 ]);
 
+export const phase0ReproducerForRun = (command: Phase1RunCommand, profile: Phase1Profile) =>
+  command.command === 'run-conformance' && command.mode === 'runtime-candidate'
+    ? createConformancePhase0EvidenceReproducer({
+        issuer: profile.conformance.target.issuer,
+        suiteBaseUrl: profile.conformance.target.suiteBaseUrl,
+      })
+    : reproducePhase0Evidence;
+
 const verifyRunProvenance = async (
   command: Phase1RunCommand,
   bundle: Phase1ProfileBundle,
@@ -832,7 +843,7 @@ const verifyRunProvenance = async (
     baselineCapabilityIds,
     browserSourceEvidence: phase1BrowserSourceEvidence,
     registrySourceEvidence: phase1RegistrySourceEvidence,
-    phase0EvidenceReproducer: reproducePhase0Evidence,
+    phase0EvidenceReproducer: phase0ReproducerForRun(command, bundle.profile),
     gitReader,
     githubReader: createProductionPhase1GithubReader(),
   });
