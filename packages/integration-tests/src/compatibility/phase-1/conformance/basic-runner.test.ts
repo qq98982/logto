@@ -145,6 +145,101 @@ const readSecret = (secretPath: string): Uint8Array => {
   return new TextEncoder().encode(value);
 };
 
+const firstModuleEvidenceExchange = (
+  scenario: Readonly<{
+    uploadsRequired?: unknown;
+    secondDeclaration?: boolean;
+    finalResult?: string;
+    infoOverrides?: Readonly<Record<string, unknown>>;
+  }>
+) => {
+  const testId = 'E00000000000001';
+  const declaredUrl = 'https://suite.example/browser/second-authorization';
+  const requests: string[] = [];
+  let waits = 0;
+  let statusPolls = 0;
+  let visited = false;
+  const fetchImplementation: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? 'GET';
+    requests.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/api/plan' && method === 'POST') {
+      return jsonResponse(
+        {
+          name: planName,
+          id: planInstanceId,
+          modules: expectedManifest.map(({ testModule, variant }) => ({
+            testModule,
+            variant,
+            instances: [],
+          })),
+        },
+        201
+      );
+    }
+    if (url.pathname === '/api/runner' && method === 'POST') {
+      return jsonResponse({ name: 'oidcc-server', id: testId }, 201);
+    }
+    if (url.pathname === `/api/runner/${testId}/wait-state`) {
+      waits += 1;
+      return jsonResponse(
+        waits === 1
+          ? { state: 'WAITING' }
+          : scenario.finalResult
+            ? { state: 'FINISHED' }
+            : { timeout: true }
+      );
+    }
+    if (url.pathname === `/api/runner/${testId}` && method === 'GET') {
+      statusPolls += 1;
+      const declarations =
+        scenario.secondDeclaration && statusPolls > 1 && !visited
+          ? [{ url: declaredUrl, method: 'GET' }]
+          : [];
+      return jsonResponse({
+        name: 'oidcc-server',
+        id: testId,
+        browser: {
+          urls: declarations.map(({ url: value }) => value),
+          urlsWithMethod: declarations,
+          browserApiRequests: [],
+          uriInputRequests: [],
+          uploadsRequired: scenario.uploadsRequired,
+        },
+      });
+    }
+    if (url.pathname === `/api/runner/browser/${testId}/visit` && method === 'POST') {
+      visited = true;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/browser/second-authorization' && method === 'GET') {
+      return new Response('<html>Second authorization</html>', {
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    if (url.pathname === `/api/info/${testId}` && method === 'GET') {
+      return jsonResponse({
+        testId,
+        testName: 'oidcc-server',
+        variant: {
+          ...expectedManifest[0]!.variant,
+          server_metadata: 'discovery',
+          client_registration: 'static_client',
+        },
+        planId: planInstanceId,
+        status: 'FINISHED',
+        result: scenario.finalResult,
+        ...scenario.infoOverrides,
+      });
+    }
+    if (url.pathname === `/api/runner/${testId}` && method === 'DELETE') {
+      return jsonResponse({ name: 'oidcc-server', id: testId });
+    }
+    throw new Error('unexpected fake suite request');
+  };
+  return { fetchImplementation, requests };
+};
+
 describe('official OIDF Basic plan runner input and manifest', () => {
   it('accepts Basic through the shell driver plan allowlist', async () => {
     const root = await mkdtemp('/var/tmp/henry-build/oidf-basic-driver-');
@@ -182,6 +277,104 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       /oidcc-idtoken-signature|oidcc-idtoken-unsigned|oidcc-request-uri-unsigned/iu
     );
   });
+
+  it.each([false, true])(
+    'reports a required screenshot after browser declarations finish (second declaration: %s)',
+    async (secondDeclaration) => {
+      const runner = await loadRunner();
+      const { fetchImplementation, requests } = firstModuleEvidenceExchange({
+        uploadsRequired: 1,
+        secondDeclaration,
+      });
+      await expect(
+        runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+          readSecret,
+          fetch: fetchImplementation,
+        })
+      ).rejects.toMatchObject({
+        category: 'manual-review-required',
+        module: 'oidcc-server',
+        message: 'Invalid official OIDF Basic plan run',
+      });
+      expect(requests.filter((request) => request === 'POST /api/runner')).toHaveLength(1);
+      expect(requests).toContain('DELETE /api/runner/E00000000000001');
+      expect(
+        requests.filter((request) => request === 'GET /api/runner/E00000000000001')
+      ).toHaveLength(secondDeclaration ? 3 : 2);
+      expect(
+        requests.some((request) => request.includes('/api/log') || request.includes('/images'))
+      ).toBe(false);
+      if (secondDeclaration) {
+        expect(requests.indexOf('GET /api/runner/E00000000000001')).toBeLessThan(
+          requests.indexOf('POST /api/runner/browser/E00000000000001/visit')
+        );
+        expect(requests.indexOf('GET /browser/second-authorization')).toBeLessThan(
+          requests.lastIndexOf('GET /api/runner/E00000000000001')
+        );
+      }
+    }
+  );
+
+  it.each([undefined, null, -1, 0.5, '1', true, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects malformed suite uploadsRequired %s',
+    async (uploadsRequired) => {
+      const runner = await loadRunner();
+      const { fetchImplementation, requests } = firstModuleEvidenceExchange({ uploadsRequired });
+      await expect(
+        runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+          readSecret,
+          fetch: fetchImplementation,
+        })
+      ).rejects.toMatchObject({ category: 'suite-api', module: 'oidcc-server' });
+      expect(requests).toContain('DELETE /api/runner/E00000000000001');
+      expect(requests.some((request) => request.includes('/api/log'))).toBe(false);
+    }
+  );
+
+  it('classifies a matching FINISHED/REVIEW after a completed image upload without accepting it', async () => {
+    const runner = await loadRunner();
+    const { fetchImplementation, requests } = firstModuleEvidenceExchange({
+      uploadsRequired: 0,
+      finalResult: 'REVIEW',
+    });
+    await expect(
+      runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+        readSecret,
+        fetch: fetchImplementation,
+      })
+    ).rejects.toMatchObject({ category: 'manual-review-required', module: 'oidcc-server' });
+    expect(requests).toContain('GET /api/info/E00000000000001');
+    expect(requests.filter((request) => request === 'POST /api/runner')).toHaveLength(1);
+    expect(
+      requests.some((request) => request.includes('/api/log') || request.includes('/images'))
+    ).toBe(false);
+  });
+
+  it.each([
+    ['FAILED', {}],
+    ['WARNING', {}],
+    ['REVIEW', { testId: 'different' }],
+    ['REVIEW', { status: 'WAITING' }],
+    ['REVIEW', { planId: 'different' }],
+    ['REVIEW', { variant: {} }],
+    ['REVIEW', { testName: 'different' }],
+  ] as const)(
+    'keeps %s with mismatched or invalid info as module-result',
+    async (finalResult, infoOverrides) => {
+      const runner = await loadRunner();
+      const { fetchImplementation } = firstModuleEvidenceExchange({
+        uploadsRequired: 0,
+        finalResult,
+        infoOverrides,
+      });
+      await expect(
+        runner.runOidfBasicPlan(JSON.stringify(validInput()), {
+          readSecret,
+          fetch: fetchImplementation,
+        })
+      ).rejects.toMatchObject({ category: 'module-result', module: 'oidcc-server' });
+    }
+  );
 
   it.each([
     ['wrong alias', { ...validInput(), target: { ...validInput().target, alias: 'other' } }],
@@ -404,6 +597,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
             urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
             browserApiRequests: [],
             uriInputRequests: [],
+            uploadsRequired: 0,
           },
         });
       }
@@ -513,6 +707,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
             urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
             browserApiRequests: [],
             uriInputRequests: [],
+            uploadsRequired: 0,
           },
         });
       }
@@ -654,6 +849,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
               urlsWithMethod: [{ url: declaredUrl, method: 'GET' }],
               browserApiRequests: [],
               uriInputRequests: [],
+              uploadsRequired: 0,
             },
           });
         }
@@ -775,6 +971,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
             urlsWithMethod: declarations,
             browserApiRequests: [],
             uriInputRequests: [],
+            uploadsRequired: 0,
           },
         });
       }

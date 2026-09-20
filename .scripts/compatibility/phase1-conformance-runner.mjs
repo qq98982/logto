@@ -1040,6 +1040,12 @@ const requireBrowserDeclarations = (value, expectedTestId, module) => {
   ) {
     throw invalidBasic('browser-flow', module);
   }
+  if (
+    !Number.isSafeInteger(value.browser.uploadsRequired) ||
+    value.browser.uploadsRequired < 0
+  ) {
+    throw invalidBasic('suite-api', module);
+  }
   return Object.freeze(
     value.browser.urls.map((url, index) => {
       const withMethod = value.browser.urlsWithMethod[index];
@@ -1286,9 +1292,14 @@ const requireBasicInfoResponse = (value, expectedTestId, expectedPlanId, manifes
     value.testName !== manifestEntry.testModule ||
     !exactObject(value.variant, combinedBasicVariant(manifestEntry.variant)) ||
     value.planId !== expectedPlanId ||
-    value.status !== 'FINISHED' ||
-    value.result !== 'PASSED'
+    value.status !== 'FINISHED'
   ) {
+    throw invalidBasic('module-result', manifestEntry.testModule);
+  }
+  if (value.result === 'REVIEW') {
+    throw invalidBasic('manual-review-required', manifestEntry.testModule);
+  }
+  if (value.result !== 'PASSED') {
     throw invalidBasic('module-result', manifestEntry.testModule);
   }
 };
@@ -1396,6 +1407,9 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
         module,
       });
       const declarations = requireBrowserDeclarations(runnerStatus, testInstanceId, module);
+      if (waitTimedOut && declarations.length === 0 && runnerStatus.browser.uploadsRequired > 0) {
+        throw invalidBasic('manual-review-required', module);
+      }
       for (const declaration of declarations) {
         await markBrowserDeclarationVisited(declaration, testInstanceId, {
           ...dependencies,
