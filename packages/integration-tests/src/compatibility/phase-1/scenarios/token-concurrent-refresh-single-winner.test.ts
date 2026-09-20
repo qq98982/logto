@@ -1,5 +1,8 @@
+import { protocolHeaderPairs } from '../clients/oidc.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
 
+import { phase1DifferentialScenarios } from './index.js';
 import { revokePositiveTokenGrant, type PositiveOidcTokenGrant } from './positive-oidc-token.js';
 import {
   createTokenScenarioHarness,
@@ -7,6 +10,7 @@ import {
   requireConcurrentTokenTransport,
   tokenGrantBody,
   tokenTestCredentials,
+  tokenTestRuntimeValues,
   tokenTestTarget,
 } from './positive-oidc-token.test-helpers.js';
 import { runTokenConcurrentRefreshSingleWinner } from './token-concurrent-refresh-single-winner.js';
@@ -51,6 +55,12 @@ describe('token.concurrent-refresh-single-winner', () => {
     ]);
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        name: 'Observed User',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [
         tokenGrantBody({
           accessToken: 'opaque-private-initial-access-token',
@@ -74,17 +84,51 @@ describe('token.concurrent-refresh-single-winner', () => {
       'token-concurrent-refresh-attempt-a',
       'token-concurrent-refresh-attempt-b',
     ]);
+    const revoke = import.meta.jest.fn((grant: PositiveOidcTokenGrant) => {
+      const userInfoRequests = harness.requests.filter(
+        ({ operation }) => operation === 'userinfo-openid'
+      );
+      expect(userInfoRequests).toHaveLength(2);
+      revokePositiveTokenGrant(grant);
+    });
     const steps = await runTokenConcurrentRefreshSingleWinner(witness.context, {
       withPositiveOidcFlow: harness.flow,
+      revokePositiveTokenGrant: revoke,
     });
+    const scenario = phase1DifferentialScenarios.find(
+      ({ id }) => id === 'token.concurrent-refresh-single-winner'
+    );
+
+    if (!scenario) {
+      throw new Error('Phase 1 concurrent refresh scenario is unavailable');
+    }
+    expect(validateExactPhase1ScenarioSteps(scenario, steps)).toHaveLength(4);
 
     witness.assertWitness();
+    expect(revoke).toHaveBeenCalledTimes(3);
     expect(steps.map(({ stepId }) => stepId)).toEqual(['attempt-a', 'attempt-b', 'race', 'state']);
-    expect(harness.requests).toHaveLength(3);
+    expect(harness.requests).toHaveLength(5);
     expect(harness.requests.slice(1).map(({ operation }) => operation)).toEqual([
       'token-concurrent-refresh-attempt-a',
       'token-concurrent-refresh-attempt-b',
+      'userinfo-openid',
+      'userinfo-openid',
     ]);
+    expect(
+      harness.requests
+        .slice(3)
+        .map(
+          ({ options }) =>
+            protocolHeaderPairs(options?.headers).find(
+              ([name]) => name.toLowerCase() === 'authorization'
+            )?.[1]
+        )
+    ).toEqual(
+      expect.arrayContaining([
+        'Bearer opaque-private-first-access-token',
+        'Bearer opaque-private-second-access-token',
+      ])
+    );
     expect(harness.requests[1]?.path).toBe('oidc/token');
     expect(harness.requests[1]?.options).toEqual(harness.requests[2]?.options);
     expect(new URLSearchParams(harness.requests[1]?.options?.body).get('grant_type')).toBe(
@@ -92,6 +136,24 @@ describe('token.concurrent-refresh-single-winner', () => {
     );
     expect(steps[0]?.value.status).toBe(200);
     expect(steps[1]?.value.status).toBe(200);
+    for (const index of [0, 1]) {
+      expect(steps[index]?.value).toMatchObject({
+        outcomes: [
+          {
+            kind: 'userinfo-email',
+            response: {
+              status: 200,
+              body: {
+                sub: '<user.phase1-user>',
+                name: 'Observed User',
+                email: '<fixture.data.email>',
+                email_verified: true,
+              },
+            },
+          },
+        ],
+      });
+    }
     expect(steps[2]?.value.outcomes).toEqual([
       { kind: 'success', status: 200 },
       { kind: 'success', status: 200 },

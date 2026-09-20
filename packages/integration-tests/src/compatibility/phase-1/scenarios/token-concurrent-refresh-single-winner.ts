@@ -18,6 +18,7 @@ import {
   exchangePositiveRefreshToken,
   positiveOidcDataNormalizationContext,
   projectPositiveTokenGrant,
+  projectPositiveTokenUserInfoEmail,
   revokePositiveTokenGrant,
 } from './positive-oidc-token.js';
 
@@ -131,7 +132,7 @@ export const runTokenConcurrentRefreshSingleWinner = async (
                   if (outcome?.status !== 'fulfilled' || kind !== 'success') {
                     throw new Error('Phase 1 concurrent refresh outcomes are invalid');
                   }
-                  const projection = await projectPositiveTokenGrant(context, {
+                  const projectedGrant = await projectPositiveTokenGrant(context, {
                     scenarioId,
                     stepId,
                     grant: outcome.value,
@@ -139,6 +140,12 @@ export const runTokenConcurrentRefreshSingleWinner = async (
                     expectAccessJwt: false,
                     validate: assertAttemptState,
                   });
+                  const projection = await projectPositiveTokenUserInfoEmail(
+                    context,
+                    outcome.value,
+                    projectedGrant,
+                    normalizationContext
+                  );
 
                   return Object.freeze({
                     step: Object.freeze({ stepId, value: projection }),

@@ -1,11 +1,14 @@
 import type { JsonObject } from '../../normalize.js';
 import type { Phase1ScenarioStateProjectionInput } from '../scenario-runtime.js';
+import { validateExactPhase1ScenarioSteps } from '../scenario-runtime.js';
 
+import { phase1DifferentialScenarios } from './index.js';
 import {
   createTokenScenarioHarness,
   createTokenTestSigner,
   tokenGrantBody,
   tokenTestCredentials,
+  tokenTestRuntimeValues,
   tokenTestTarget,
 } from './positive-oidc-token.test-helpers.js';
 import { runTokenRefreshReuseRejected } from './token-refresh-reuse-rejected.js';
@@ -123,6 +126,12 @@ describe('token.refresh-reuse-rejected', () => {
     const rotatedRefreshToken = 'private-rotated-refresh-token';
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        name: 'Observed User',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [],
       tokenResponses: [
         rawResponse(
@@ -151,12 +160,21 @@ describe('token.refresh-reuse-rejected', () => {
       expect(harness.requests.map(({ operation }) => operation)).toEqual([
         'token-authorization-code',
         'token-refresh',
+        'userinfo-openid',
       ]);
     });
     const steps = await runTokenRefreshReuseRejected(harness.context, {
       withPositiveOidcFlow: harness.flow,
       wait,
     });
+    const scenario = phase1DifferentialScenarios.find(
+      ({ id }) => id === 'token.refresh-reuse-rejected'
+    );
+
+    if (!scenario) {
+      throw new Error('Phase 1 refresh reuse scenario is unavailable');
+    }
+    expect(validateExactPhase1ScenarioSteps(scenario, steps)).toHaveLength(5);
 
     expect(wait).toHaveBeenCalledTimes(1);
     expect(steps.map(({ stepId }) => stepId)).toEqual([
@@ -169,9 +187,13 @@ describe('token.refresh-reuse-rejected', () => {
     expect(harness.requests.map(({ operation }) => operation)).toEqual([
       'token-authorization-code',
       'token-refresh',
+      'userinfo-openid',
       'token-refresh-replay-old',
       'token-refresh-probe-descendant',
     ]);
+    expect(harness.requests[2]?.options?.headers).toMatchObject({
+      authorization: 'Bearer private-rotated-access-token',
+    });
     const forms = harness.requests.map(({ options }) =>
       Object.fromEntries(new URLSearchParams(options?.body))
     );
@@ -180,8 +202,8 @@ describe('token.refresh-reuse-rejected', () => {
       client_id: tokenTestCredentials.clientId,
       refresh_token: initialRefreshToken,
     });
-    expect(forms[2]).toEqual(forms[1]);
-    expect(forms[3]).toEqual({
+    expect(forms[3]).toEqual(forms[1]);
+    expect(forms[4]).toEqual({
       grant_type: 'refresh_token',
       client_id: tokenTestCredentials.clientId,
       refresh_token: rotatedRefreshToken,
@@ -197,6 +219,20 @@ describe('token.refresh-reuse-rejected', () => {
         { kind: 'access', format: 'opaque' },
         { kind: 'id', format: 'jwt', signatureVerified: true },
         { kind: 'refresh', format: 'opaque', present: true },
+      ],
+      outcomes: [
+        {
+          kind: 'userinfo-email',
+          response: {
+            status: 200,
+            body: {
+              sub: '<user.phase1-user>',
+              name: 'Observed User',
+              email: '<fixture.data.email>',
+              email_verified: true,
+            },
+          },
+        },
       ],
       persistedState: { rotationCount: 1, predecessorConsumed: true, familyRevoked: false },
     });
@@ -237,6 +273,11 @@ describe('token.refresh-reuse-rejected', () => {
     });
     const harness = createTokenScenarioHarness({
       jwk: signer.jwk,
+      userInfoBody: {
+        sub: 'runtime-subject',
+        email: tokenTestRuntimeValues.email,
+        email_verified: true,
+      },
       tokenBodies: [],
       tokenResponses: [
         rawResponse(
@@ -268,6 +309,6 @@ describe('token.refresh-reuse-rejected', () => {
         },
       })
     ).rejects.toThrow('Phase 1 refresh token reuse state is invalid');
-    expect(harness.requests).toHaveLength(3);
+    expect(harness.requests).toHaveLength(4);
   });
 });

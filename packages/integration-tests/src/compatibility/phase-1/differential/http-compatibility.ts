@@ -140,6 +140,16 @@ const omittedStrongEtagRules = Object.freeze([
     scenarioId: 'token.issuer-audience-scope-rejected' as const,
     pointer: nestedHeaderPointer(stepId, 'userinfo', 'etag'),
   })),
+  ...[
+    { scenarioId: 'token.code-reuse-rejected', stepId: 'first-exchange' },
+    { scenarioId: 'token.refresh-rotation', stepId: 'refresh-token' },
+    { scenarioId: 'token.refresh-reuse-rejected', stepId: 'rotate' },
+    { scenarioId: 'token.concurrent-refresh-single-winner', stepId: 'attempt-a' },
+    { scenarioId: 'token.concurrent-refresh-single-winner', stepId: 'attempt-b' },
+  ].map(({ scenarioId, stepId }) => ({
+    scenarioId: scenarioId as Phase1DifferentialScenarioId,
+    pointer: `/steps/${stepId}/value/outcomes/0/response/headers/etag`,
+  })),
   { scenarioId: 'userinfo.openid', pointer: headerPointer('userinfo', 'etag') },
 ] satisfies readonly HeaderRule[]);
 
@@ -379,6 +389,9 @@ const cacheClosed = (value: unknown): boolean =>
 const emailPairSteps = Object.freeze([
   { scenarioId: 'token.code-reuse-rejected', stepId: 'first-exchange' },
   { scenarioId: 'token.refresh-rotation', stepId: 'refresh-token' },
+  { scenarioId: 'token.refresh-reuse-rejected', stepId: 'rotate' },
+  { scenarioId: 'token.concurrent-refresh-single-winner', stepId: 'attempt-a' },
+  { scenarioId: 'token.concurrent-refresh-single-winner', stepId: 'attempt-b' },
 ] as const satisfies ReadonlyArray<
   Readonly<{
     scenarioId: Phase1DifferentialScenarioId;
@@ -462,7 +475,15 @@ const emailAuthority = (
     return undefined;
   }
 
-  return Object.freeze({ idClaims: id.claims, userinfo, scope });
+  return Object.freeze({
+    idClaims: id.claims,
+    userinfo: Object.freeze({
+      sub: userinfo.sub,
+      email: userinfo.email,
+      email_verified: userinfo.email_verified,
+    }),
+    scope,
+  });
 };
 
 const projectEmailPair = (
@@ -470,52 +491,56 @@ const projectEmailPair = (
   oracle: Readonly<JsonObject>,
   candidate: Readonly<JsonObject>
 ): Readonly<JsonObject> => {
-  const rule = emailPairSteps.find(({ scenarioId: registered }) => registered === scenarioId);
+  let projected = oracle;
 
-  if (!rule) {
-    return oracle;
+  for (const rule of emailPairSteps) {
+    if (rule.scenarioId !== scenarioId) {
+      continue;
+    }
+    const reference = emailAuthority(projected, rule.stepId);
+    const actual = emailAuthority(candidate, rule.stepId);
+
+    if (!reference || !actual || reference.scope !== actual.scope) {
+      continue;
+    }
+    const { idClaims: referenceClaims, userinfo: referenceUserinfo } = reference;
+    const { idClaims: actualClaims, userinfo: actualUserinfo } = actual;
+
+    if (
+      !Object.hasOwn(referenceClaims, 'email') ||
+      !Object.hasOwn(referenceClaims, 'email_verified') ||
+      !(
+        (typeof referenceClaims.email === 'string' && referenceClaims.email.length > 0) ||
+        referenceClaims.email === null
+      ) ||
+      typeof referenceClaims.email_verified !== 'boolean' ||
+      referenceClaims.email !== referenceUserinfo.email ||
+      referenceClaims.email_verified !== referenceUserinfo.email_verified ||
+      !isDeepStrictEqual(referenceUserinfo, actualUserinfo) ||
+      referenceClaims.sub !== actualClaims.sub ||
+      Object.hasOwn(actualClaims, 'email') ||
+      Object.hasOwn(actualClaims, 'email_verified')
+    ) {
+      continue;
+    }
+    const tokens = valueAt(projected, `/steps/${rule.stepId}/value/tokens`);
+    const idIndex = Array.isArray(tokens)
+      ? tokens.findIndex((token) => isRecord(token) && token.kind === 'id')
+      : -1;
+
+    if (idIndex < 0) {
+      continue;
+    }
+    const derivedTokens = omitVerifiedIdTokenEmailPair(tokens as readonly JsonValue[], idIndex);
+
+    projected = replaceAt(
+      projected,
+      pointerSegments(`/steps/${rule.stepId}/value/tokens`),
+      derivedTokens as JsonValue
+    ) as Readonly<JsonObject>;
   }
-  const reference = emailAuthority(oracle, rule.stepId);
-  const actual = emailAuthority(candidate, rule.stepId);
 
-  if (!reference || !actual || reference.scope !== actual.scope) {
-    return oracle;
-  }
-  const { idClaims: referenceClaims, userinfo: referenceUserinfo } = reference;
-  const { idClaims: actualClaims, userinfo: actualUserinfo } = actual;
-
-  if (
-    !Object.hasOwn(referenceClaims, 'email') ||
-    !Object.hasOwn(referenceClaims, 'email_verified') ||
-    !(
-      (typeof referenceClaims.email === 'string' && referenceClaims.email.length > 0) ||
-      referenceClaims.email === null
-    ) ||
-    typeof referenceClaims.email_verified !== 'boolean' ||
-    referenceClaims.email !== referenceUserinfo.email ||
-    referenceClaims.email_verified !== referenceUserinfo.email_verified ||
-    !isDeepStrictEqual(referenceUserinfo, actualUserinfo) ||
-    referenceClaims.sub !== actualClaims.sub ||
-    Object.hasOwn(actualClaims, 'email') ||
-    Object.hasOwn(actualClaims, 'email_verified')
-  ) {
-    return oracle;
-  }
-  const tokens = valueAt(oracle, `/steps/${rule.stepId}/value/tokens`);
-  const idIndex = Array.isArray(tokens)
-    ? tokens.findIndex((token) => isRecord(token) && token.kind === 'id')
-    : -1;
-
-  if (idIndex < 0) {
-    return oracle;
-  }
-  const derivedTokens = omitVerifiedIdTokenEmailPair(tokens as readonly JsonValue[], idIndex);
-
-  return replaceAt(
-    oracle,
-    pointerSegments(`/steps/${rule.stepId}/value/tokens`),
-    derivedTokens as JsonValue
-  ) as Readonly<JsonObject>;
+  return projected;
 };
 
 export const projectPhase1HttpCompatibility = (

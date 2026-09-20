@@ -10,6 +10,7 @@ import {
   snapshotPhase1EvidencePreservingVerifiedTokens,
   verifyObservedJwt,
 } from '../evidence.js';
+import { projectUserInfoObservation } from '../projections/userinfo.js';
 import {
   createTokenTestSigner,
   tokenTestTarget,
@@ -27,6 +28,65 @@ const keyed = (stepId: string, value: JsonValue): JsonObject => {
 
   return { steps };
 };
+
+const fullUserInfo = (
+  offsetSeconds: number,
+  implementation: 'oracle' | 'candidate' = 'oracle',
+  name = 'Same Name'
+) =>
+  projectUserInfoObservation(
+    {
+      status: 200,
+      headers: [
+        ['content-type', 'application/json'],
+        ['cache-control', 'no-store'],
+      ],
+      body: {
+        sub: 'subject',
+        email: 'person@example.test',
+        email_verified: true,
+        name,
+        created_at: (1_700_000_000 + offsetSeconds) * (implementation === 'oracle' ? 1000 : 1),
+      },
+      semanticState: null,
+      sideEffects: null,
+    },
+    {
+      target: tokenTestTarget,
+      symbols: new SymbolTable(),
+      nativeSurfaceImplementation: implementation,
+    },
+    { scenarioId: 'userinfo.openid', stepId: 'userinfo' }
+  );
+
+const userinfoResponse = (etag?: string, cacheControl = 'no-store') =>
+  projectUserInfoObservation(
+    {
+      status: 200,
+      headers: [
+        ['content-type', 'application/json'],
+        ['cache-control', cacheControl],
+        ...(etag ? [['etag', etag] as const] : []),
+      ],
+      body: {
+        sub: 'subject',
+        email: 'person@example.test',
+        email_verified: true,
+        name: 'Same Name',
+      },
+      semanticState: null,
+      sideEffects: null,
+    },
+    {
+      target: tokenTestTarget,
+      symbols: new SymbolTable(),
+      nativeSurfaceImplementation: 'oracle',
+    },
+    { scenarioId: 'userinfo.openid', stepId: 'userinfo' }
+  );
+
+const nested = (stepId: string, response: unknown) =>
+  keyed(stepId, { outcomes: [{ kind: 'userinfo-email', response }] } as JsonValue);
 
 describe('Phase 1 HTTP compatibility projection', () => {
   it('projects a verified refresh ID email pair only with same-grant opaque UserInfo evidence', async () => {
@@ -124,6 +184,174 @@ describe('Phase 1 HTTP compatibility projection', () => {
     );
     expect(compareJson(code.oracle, code.candidate)).toEqual([]);
     expect(() => createPhase1ProjectionEnvelope('oracle', code.oracle)).not.toThrow();
+
+    const fullReference = {
+      ...reference,
+      outcomes: [{ kind: 'userinfo-email', response: fullUserInfo(0) }],
+    };
+    const fullOmission = {
+      ...omitted,
+      outcomes: [{ kind: 'userinfo-email', response: fullUserInfo(10, 'candidate') }],
+    };
+
+    for (const [scenarioId, stepId] of [
+      ['token.refresh-rotation', 'refresh-token'],
+      ['token.code-reuse-rejected', 'first-exchange'],
+      ['token.refresh-reuse-rejected', 'rotate'],
+      ['token.concurrent-refresh-single-winner', 'attempt-a'],
+      ['token.concurrent-refresh-single-winner', 'attempt-b'],
+    ] as const) {
+      const pair = projectPhase1HttpCompatibility(
+        scenarioId,
+        keyed(stepId, fullReference as unknown as JsonValue),
+        keyed(stepId, fullOmission as unknown as JsonValue)
+      );
+      const responsePath = ['steps', stepId, 'value', 'outcomes', '0', 'response'];
+
+      expect(compareJson(pair.oracle, pair.candidate)).toEqual([]);
+      expect(pair.oracle).not.toHaveProperty([
+        'steps',
+        stepId,
+        'value',
+        'tokens',
+        '1',
+        'claims',
+        'email',
+      ]);
+      expect(pair.oracle).toHaveProperty([...responsePath, 'body', 'created_at'], {
+        $timestamp: 1_700_000_000,
+        $toleranceSeconds: 30,
+      });
+      expect(pair.candidate).toHaveProperty([...responsePath, 'body', 'created_at'], {
+        $timestamp: 1_700_000_010,
+        $toleranceSeconds: 30,
+      });
+
+      const drift = projectPhase1HttpCompatibility(
+        scenarioId,
+        keyed(stepId, fullReference as unknown as JsonValue),
+        keyed(stepId, {
+          ...fullOmission,
+          outcomes: [
+            { kind: 'userinfo-email', response: fullUserInfo(10, 'candidate', 'Different') },
+          ],
+        } as unknown as JsonValue)
+      );
+      expect(drift.oracle).not.toHaveProperty([
+        'steps',
+        stepId,
+        'value',
+        'tokens',
+        '1',
+        'claims',
+        'email',
+      ]);
+      expect(compareJson(drift.oracle, drift.candidate)).toContainEqual({
+        path: `/steps/${stepId}/value/outcomes/0/response/body/name`,
+        oracle: 'Same Name',
+        candidate: 'Different',
+      });
+
+      const headerDrift = projectPhase1HttpCompatibility(
+        scenarioId,
+        keyed(stepId, fullReference as unknown as JsonValue),
+        keyed(stepId, {
+          ...fullOmission,
+          outcomes: [
+            {
+              kind: 'userinfo-email',
+              response: {
+                ...fullUserInfo(10, 'candidate'),
+                headers: { 'content-type': ['text/plain'], 'cache-control': ['no-store'] },
+              },
+            },
+          ],
+        } as unknown as JsonValue)
+      );
+      expect(compareJson(headerDrift.oracle, headerDrift.candidate)).toContainEqual({
+        path: `/steps/${stepId}/value/outcomes/0/response/headers/content-type/0`,
+        oracle: 'application/json',
+        candidate: 'text/plain',
+      });
+    }
+
+    const both = projectPhase1HttpCompatibility(
+      'token.concurrent-refresh-single-winner',
+      {
+        steps: {
+          'attempt-a': { value: fullReference },
+          'attempt-b': {
+            value: {
+              ...(await makeStep({ email: 'person@example.test', email_verified: true })),
+              outcomes: fullReference.outcomes,
+            },
+          },
+        },
+      } as unknown as JsonObject,
+      {
+        steps: {
+          'attempt-a': { value: fullOmission },
+          'attempt-b': { value: { ...(await makeStep({})), outcomes: fullOmission.outcomes } },
+        },
+      } as unknown as JsonObject
+    );
+    expect(compareJson(both.oracle, both.candidate)).toEqual([]);
+    for (const stepId of ['attempt-a', 'attempt-b']) {
+      expect(both.oracle).not.toHaveProperty([
+        'steps',
+        stepId,
+        'value',
+        'tokens',
+        '1',
+        'claims',
+        'email',
+      ]);
+    }
+
+    const invalidAttempt = projectPhase1HttpCompatibility(
+      'token.concurrent-refresh-single-winner',
+      {
+        steps: { 'attempt-a': { value: fullReference }, 'attempt-b': { value: fullReference } },
+      } as unknown as JsonObject,
+      {
+        steps: {
+          'attempt-a': {
+            value: {
+              ...fullOmission,
+              outcomes: [
+                {
+                  kind: 'userinfo-email',
+                  response: { ...fullUserInfo(10, 'candidate'), status: 401 },
+                },
+              ],
+            },
+          },
+          'attempt-b': { value: fullOmission },
+        },
+      } as unknown as JsonObject
+    );
+    expect(invalidAttempt.oracle).toHaveProperty([
+      'steps',
+      'attempt-a',
+      'value',
+      'tokens',
+      '1',
+      'claims',
+      'email',
+    ]);
+    expect(invalidAttempt.oracle).not.toHaveProperty([
+      'steps',
+      'attempt-b',
+      'value',
+      'tokens',
+      '1',
+      'claims',
+      'email',
+    ]);
+    expect(compareJson(invalidAttempt.oracle, invalidAttempt.candidate)).toContainEqual({
+      path: '/steps/attempt-a/value/tokens/1/claims/email',
+      oracle: 'person@example.test',
+    });
 
     const nullableUserInfo = { sub: 'subject', email: null, email_verified: false };
     const nullableReference = await makeStep(
@@ -479,6 +707,73 @@ describe('Phase 1 HTTP compatibility projection', () => {
       'headers',
       'etag',
     ]);
+  });
+
+  it('omits only registered nested UserInfo strong ETags with candidate cache closure', () => {
+    const oracleResponse = userinfoResponse('"strong"');
+    const candidateResponse = userinfoResponse();
+
+    for (const [scenarioId, stepId] of [
+      ['token.refresh-rotation', 'refresh-token'],
+      ['token.code-reuse-rejected', 'first-exchange'],
+      ['token.refresh-reuse-rejected', 'rotate'],
+      ['token.concurrent-refresh-single-winner', 'attempt-a'],
+      ['token.concurrent-refresh-single-winner', 'attempt-b'],
+    ] as const) {
+      const oracle = nested(stepId, oracleResponse);
+      const candidate = nested(stepId, candidateResponse);
+      const pointer = `/steps/${stepId}/value/outcomes/0/response/headers/etag`;
+      const projected = projectPhase1HttpCompatibility(scenarioId, oracle, candidate);
+
+      expect(compareJson(projected.oracle, projected.candidate)).toEqual([]);
+      expect(oracle).toHaveProperty([
+        'steps',
+        stepId,
+        'value',
+        'outcomes',
+        '0',
+        'response',
+        'headers',
+        'etag',
+      ]);
+
+      const withoutCache = projectPhase1HttpCompatibility(
+        scenarioId,
+        oracle,
+        nested(stepId, userinfoResponse(undefined, 'private'))
+      );
+      expect(compareJson(withoutCache.oracle, withoutCache.candidate)).toContainEqual({
+        path: pointer,
+        oracle: oracleResponse.headers.etag,
+      });
+
+      const weakTag = projectPhase1HttpCompatibility(
+        scenarioId,
+        nested(stepId, userinfoResponse('W/"weak"')),
+        candidate
+      );
+      expect(compareJson(weakTag.oracle, weakTag.candidate)).toContainEqual({
+        path: pointer,
+        oracle: userinfoResponse('W/"weak"').headers.etag,
+      });
+
+      const reversed = projectPhase1HttpCompatibility(scenarioId, candidate, oracle);
+      expect(compareJson(reversed.oracle, reversed.candidate)).toContainEqual({
+        path: pointer,
+        candidate: oracleResponse.headers.etag,
+      });
+
+      const otherStep = stepId === 'refresh-token' ? 'first-exchange' : 'refresh-token';
+      const unlisted = projectPhase1HttpCompatibility(
+        scenarioId,
+        nested(otherStep, oracleResponse),
+        nested(otherStep, candidateResponse)
+      );
+      expect(compareJson(unlisted.oracle, unlisted.candidate)).toContainEqual({
+        path: `/steps/${otherStep}/value/outcomes/0/response/headers/etag`,
+        oracle: oracleResponse.headers.etag,
+      });
+    }
   });
 });
 /* eslint-enable max-lines */
