@@ -243,23 +243,39 @@ container_published_port candidate-primary-core 65536`,
   expect(runner).toContain('"TCP4:${target_ip}:${target_port}"');
 });
 
-it('serializes Podman service creation while retaining the stage readiness barrier', async () => {
+const firstReady = 'up:candidate-primary-core\nwait:candidate-primary-core\n';
+it.each([
+  [
+    'waits before the next service and retains the final barrier',
+    ':',
+    0,
+    `${firstReady}up:candidate-foreign-core\nwait:candidate-foreign-core\nwait:candidate-primary-core candidate-foreign-core\n`,
+  ],
+  ['halts creation after readiness fails', 'return 1', 1, firstReady],
+  [
+    'keeps the global deadline across waits',
+    'deadline=0',
+    1,
+    `${firstReady}failure:podman-start-deadline:candidate-core\n`,
+  ],
+])('%s', async (_contract, waitBehavior, code, stdout) => {
   const runner = await readFile(launcher, 'utf8');
   const start = runner.indexOf('start_podman_stage() {');
   const stageFunction = runner.slice(start, runner.indexOf('\n}\n', start) + 3);
-  const { stdout } = await executeFile('/usr/bin/bash', [
+  const execution = executeFile('/usr/bin/bash', [
     '-c',
     `set -euo pipefail
 deadline=$((SECONDS + 10))
 ${stageFunction}
-compose() { printf 'up:%s\n' "\${*: -1}" >&3; }
-wait_for_services() { printf 'wait:%s\n' "$*" >&3; }
-fail() { exit 1; }
+previous_ready=1
+compose() { [[ "$previous_ready" == 1 ]] || exit 71; previous_ready=0; printf 'up:%s\n' "\${*: -1}" >&3; }
+wait_for_services() { printf 'wait:%s\n' "$*" >&3; previous_ready=1; ${waitBehavior}; }
+fail() { printf 'failure:%s\n' "$failure_stage" >&3; exit 1; }
 start_podman_stage candidate-core candidate-primary-core candidate-foreign-core 3>&1`,
   ]);
-  expect(stdout).toBe(
-    'up:candidate-primary-core\nup:candidate-foreign-core\nwait:candidate-primary-core candidate-foreign-core\n'
-  );
+  await (code === 0
+    ? expect(execution).resolves.toMatchObject({ stdout })
+    : expect(execution).rejects.toMatchObject({ code, stdout }));
 });
 
 it('reports only fixed Podman failure stages, allowlisted services, and sanitized HTTP status', async () => {

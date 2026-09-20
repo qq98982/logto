@@ -431,6 +431,7 @@ start_podman_stage() {
     fi
     failure_stage="podman-start:${stage}"
     compose up --no-deps --detach "${service}" >/dev/null || fail
+    wait_for_services "${service}"
   done
   wait_for_services "$@"
 }
