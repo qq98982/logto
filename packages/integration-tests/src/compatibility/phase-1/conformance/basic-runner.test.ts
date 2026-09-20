@@ -233,12 +233,17 @@ const requiredScreenshotNames: readonly string[] = [
   'oidcc-max-age-1',
   'oidcc-ensure-registered-redirect-uri',
 ];
+const redirectErrorDeclaration = Object.freeze({
+  url: 'https://server.example/oidc/auth?client_id=oidf-basic-1&redirect_uri=https%3A%2F%2Fsuite.example%2Fcallback%2Funregistered&state=original%2Bstate',
+  method: 'GET',
+});
 
 // Supply the three mandatory suite/browser/IPC exchanges in otherwise focused plan fixtures.
 const runWithRequiredScreenshots = async (
   runner: RunnerModule,
   dependencies: BasicRunnerDependencies & { fetch: typeof fetch },
-  excludedModules: readonly string[] = []
+  excludedModules: readonly string[] = [],
+  errorDeclaration: Readonly<{ url: string; method: string }> = redirectErrorDeclaration
 ) => {
   await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
   const root =
@@ -299,13 +304,17 @@ const runWithRequiredScreenshots = async (
       );
     }
     if (url.pathname === `/api/runner/${state.id}` && method === 'GET') {
-      const declared = `https://server.example/oidc/auth/required-${state.logins}`;
+      const declared = state.errorPage
+        ? errorDeclaration.url
+        : `https://server.example/oidc/auth/required-${state.logins}`;
       return jsonResponse({
         id: state.id,
         name: state.name,
         browser: {
           urls: [declared],
-          urlsWithMethod: [{ url: declared, method: 'GET' }],
+          urlsWithMethod: [
+            { url: declared, method: state.errorPage ? errorDeclaration.method : 'GET' },
+          ],
           browserApiRequests: [],
           uriInputRequests: [],
           uploadsRequired: state.errorPage || state.logins === 1 ? 1 : 0,
@@ -314,6 +323,9 @@ const runWithRequiredScreenshots = async (
     }
     if (url.pathname === `/api/runner/browser/${state.id}/visit`) {
       return new Response(null, { status: 204 });
+    }
+    if (state.errorPage && url.origin === 'https://server.example') {
+      throw new Error('redirect-error navigation must belong exclusively to the capture worker');
     }
     if (url.pathname.startsWith('/oidc/auth/required-')) {
       return redirect(state.errorPage ? '/error/required' : '/sign-in?app_id=oidf-basic-1');
@@ -351,6 +363,9 @@ const runWithRequiredScreenshots = async (
             await readFile(path.join(directory, 'capture-request.json'), 'utf8')
           ) as Record<string, unknown>;
           const { url: renderedUrl, issuerOrigin: _origin, cookies, ...binding } = request;
+          if (state.errorPage) {
+            expect(renderedUrl).toBe(errorDeclaration.url);
+          }
           expect(binding).toMatchObject({
             testId: state.id,
             moduleName: state.name,
@@ -1011,8 +1026,51 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation }, [
         moduleName,
       ])
-    ).rejects.toMatchObject({ category: 'screenshot-condition', module: moduleName });
+    ).rejects.toMatchObject({ category: 'screenshot-handoff', module: moduleName });
+    expect(exchange.requests).not.toContain('GET /oidc/auth');
+    expect(exchange.requests).not.toContain('GET /test/a/aster-phase1/callback');
   });
+
+  it('hands the untouched registered-redirect GET to capture without a driver prefetch', async () => {
+    const runner = await loadRunner();
+    const exchange = callbackPlaceholderExchange();
+    const terminal = await runWithRequiredScreenshots(runner, {
+      readSecret,
+      fetch: exchange.fetchImplementation,
+    });
+    expect(terminal).toMatchObject({
+      acceptance: 'ACCEPTED',
+    });
+    const result = terminal.result as { modules: Array<Record<string, unknown>> };
+    expect(result.modules[27]).toMatchObject({
+      testName: 'oidcc-ensure-registered-redirect-uri',
+      result: 'REVIEW',
+      review: { conditionId: 'ExpectRedirectUriErrorPage' },
+    });
+  });
+
+  it.each([
+    { ...redirectErrorDeclaration, method: 'POST' },
+    { ...redirectErrorDeclaration, url: 'https://server.example/oidc/auth/previous' },
+    { ...redirectErrorDeclaration, url: `${suiteBaseUrl}/test/a/aster-phase1/callback` },
+  ])(
+    'rejects a non-first-GET registered-redirect declaration before handoff',
+    async (declaration) => {
+      const runner = await loadRunner();
+      const exchange = callbackPlaceholderExchange();
+      await expect(
+        runWithRequiredScreenshots(
+          runner,
+          { readSecret, fetch: exchange.fetchImplementation },
+          [],
+          declaration
+        )
+      ).rejects.toMatchObject({
+        category: 'screenshot-condition',
+        module: 'oidcc-ensure-registered-redirect-uri',
+      });
+    }
+  );
 
   it.each([false, true])(
     'accepts all 35 modules when the callback retires its optional placeholder (initial queue delay: %s)',

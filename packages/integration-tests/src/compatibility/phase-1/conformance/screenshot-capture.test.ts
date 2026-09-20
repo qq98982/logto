@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, max-params, no-await-in-loop, no-promise-executor-return -- This isolated process fixture creates private PKI and IPC trees, then records child-process output for the real browser contract. */
+/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, max-params, no-await-in-loop, no-promise-executor-return -- This isolated process fixture creates private PKI and IPC trees and exercises adversarial HTTPS responses before recording child-process output. */
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -418,7 +418,7 @@ describe('phase 1 screenshot capture helper', () => {
         );
         const secondDirectory = await writeRequest(
           ipcRoot,
-          second,
+          { ...second, moduleName: 'oidcc-ensure-request-object-with-redirect-uri' },
           issuerOrigin,
           '/authorization-error',
           cookies
@@ -433,6 +433,7 @@ describe('phase 1 screenshot capture helper', () => {
 
         expect(secondResponse).toMatchObject({
           ...second,
+          moduleName: 'oidcc-ensure-request-object-with-redirect-uri',
           result: 'CAPTURED',
           renderedUrl: `${issuerOrigin}/authorization-error`,
           imageFile: 'capture.png',
@@ -469,6 +470,265 @@ describe('phase 1 screenshot capture helper', () => {
     },
     120_000
   );
+
+  it.each([
+    'valid',
+    'same-origin-redirect',
+    'registered-callback',
+    'unregistered-callback',
+    'wrong-status',
+    'wrong-type',
+    'wrong-code',
+    'wrong-issuer',
+    'missing-field',
+    'extra-field',
+    'duplicate-field',
+    'location-header',
+    'refresh-header',
+    'set-cookie-header',
+    'wrong-module',
+    'wrong-condition',
+    'wrong-kind',
+    'resume-path',
+  ] as const)(
+    'allows only the first verified redirect-error document: %s',
+    async (scenario) => {
+      const root = await mkdtemp('/var/tmp/henry-build/aster-screenshot-capture-test.');
+      const ipcRoot = path.join(root, 'ipc');
+      await mkdir(ipcRoot, { mode: 0o700 });
+      const pki = await createPki(root);
+      const tlsOptions = { cert: await readFile(pki.cert), key: await readFile(pki.key) };
+      const callbacks: string[] = [];
+      const authorizations: Array<
+        Readonly<{
+          method: string | undefined;
+          url: string | undefined;
+          cookie: string | undefined;
+        }>
+      > = [];
+      const callbackServer = createServer(tlsOptions, (request, response) => {
+        callbacks.push(request.url ?? '');
+        response.end('unexpected callback');
+      });
+      await new Promise<void>((resolve) => callbackServer.listen(0, '127.0.0.1', resolve));
+      const callbackAddress = callbackServer.address();
+      if (!callbackAddress || typeof callbackAddress === 'string') {
+        throw new Error('fixture address');
+      }
+      const callbackOrigin = `https://${issuerHost}:${callbackAddress.port}`;
+      let issuerOrigin = '';
+      const server = createServer(tlsOptions, (request, response) => {
+        if (!request.url?.startsWith('/oidc/auth?')) {
+          callbacks.push(request.url ?? '');
+          response.end('unexpected navigation');
+          return;
+        }
+        authorizations.push({
+          method: request.method,
+          url: request.url,
+          cookie: request.headers.cookie,
+        });
+        const value: Record<string, string> = {
+          code: 'oidc.invalid_redirect_uri',
+          message: "`redirect_uri` did not match any of the client's registered `redirect_uris`.",
+          error: 'invalid_redirect_uri',
+          error_description:
+            "redirect_uri did not match any of the client's registered redirect_uris",
+          iss: `${issuerOrigin}/oidc`,
+        };
+        if (
+          scenario === 'same-origin-redirect' ||
+          scenario === 'registered-callback' ||
+          scenario === 'unregistered-callback'
+        ) {
+          const location =
+            scenario === 'same-origin-redirect'
+              ? `${issuerOrigin}/unexpected`
+              : `${callbackOrigin}/test/a/aster-phase1/callback${scenario === 'unregistered-callback' ? '/Unregistered' : ''}`;
+          response.writeHead(scenario === 'same-origin-redirect' ? 307 : 302, { location });
+          response.end();
+          return;
+        }
+        if (scenario === 'wrong-code') {
+          value.error = 'invalid_request';
+        }
+        if (scenario === 'wrong-issuer') {
+          value.iss = `${callbackOrigin}/oidc`;
+        }
+        if (scenario === 'missing-field') {
+          Reflect.deleteProperty(value, 'message');
+        }
+        if (scenario === 'extra-field') {
+          value.code_value = 'private-field-sentinel';
+        }
+        if (scenario === 'location-header') {
+          response.setHeader('location', `${callbackOrigin}/callback`);
+        }
+        if (scenario === 'refresh-header') {
+          response.setHeader('refresh', `0;url=${callbackOrigin}/callback`);
+        }
+        if (scenario === 'set-cookie-header') {
+          response.setHeader('set-cookie', 'unexpected=private-cookie-sentinel; Secure');
+        }
+        response.writeHead(scenario === 'wrong-status' ? 200 : 400, {
+          'content-type':
+            scenario === 'wrong-type'
+              ? 'text/html; charset=utf-8'
+              : 'application/json; charset=utf-8',
+        });
+        const body = JSON.stringify(value);
+        response.end(
+          scenario === 'duplicate-field'
+            ? body.replace('{', '{"code":"private-field-sentinel",')
+            : body
+        );
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('fixture address');
+      }
+      issuerOrigin = `https://${issuerHost}:${address.port}`;
+      const currentBinding = binding(
+        'ui-error',
+        'ExpectRedirectUriErrorPage',
+        'RedirectError01',
+        'Redirect01',
+        '3'.repeat(32),
+        Date.now() + 15_000
+      );
+      const requestBinding = {
+        ...currentBinding,
+        moduleName:
+          scenario === 'wrong-module' ? 'oidcc-response-type-missing' : currentBinding.moduleName,
+        conditionId:
+          scenario === 'wrong-condition'
+            ? 'ExpectResponseTypeMissingErrorPage'
+            : currentBinding.conditionId,
+        captureKind:
+          scenario === 'wrong-kind' ? ('second-sign-in' as const) : currentBinding.captureKind,
+      };
+      const pathname = `${scenario === 'resume-path' ? '/oidc/auth/syntheticUID' : '/oidc/auth'}?client_id=fixture&redirect_uri=${encodeURIComponent(`${callbackOrigin}/callback/Unregistered`)}&state=fixture%2Bstate`;
+      const cookie: Cookie = {
+        name: '_aster',
+        value: 'path-cookie-sentinel',
+        domain: issuerHost,
+        path: '/oidc',
+        expires: -1,
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      };
+      const directory = await writeRequest(ipcRoot, requestBinding, issuerOrigin, pathname, [
+        cookie,
+      ]);
+      const child = spawn(
+        process.execPath,
+        [
+          helperPath,
+          '--issuer-origin',
+          issuerOrigin,
+          '--root-ca-file',
+          pki.ca,
+          '--certificate-file',
+          pki.cert,
+          '--playwright-module',
+          playwrightModule,
+          '--deadline',
+          String(Date.now() + 30_000),
+        ],
+        {
+          cwd: repositoryRoot,
+          env: {
+            PATH: '/usr/bin:/bin',
+            HOME: root,
+            PLAYWRIGHT_BROWSERS_PATH: browserRoot,
+            ASTER_PHASE1_SCREENSHOT_IPC_ROOT: ipcRoot,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+      const exit = new Promise<number | undefined>((resolve) =>
+        child.once('exit', (code) => {
+          resolve(code ?? undefined);
+        })
+      );
+      const killTimer = setTimeout(() => child.kill('SIGKILL'), 25_000);
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (data: string) => {
+        stdout += data;
+      });
+      child.stderr.on('data', (data: string) => {
+        stderr += data;
+      });
+      try {
+        if (scenario === 'valid') {
+          await waitForFile(path.join(directory, 'capture-response.json'), currentBinding.deadline);
+          const result = JSON.parse(
+            await readFile(path.join(directory, 'capture-response.json'), 'utf8')
+          ) as Record<string, unknown>;
+          const png = await readFile(path.join(directory, 'capture.png'));
+          expect(result).toMatchObject({
+            ...currentBinding,
+            observedCondition: true,
+            renderedUrl: `${issuerOrigin}${pathname}`,
+            cookies: [cookie],
+            result: 'CAPTURED',
+          });
+          expect(png.subarray(0, 8)).toEqual(pngSignature);
+          expect(png.length).toBeLessThanOrEqual(512_000);
+          expect(result.imageSha256).toBe(createHash('sha256').update(png).digest('hex'));
+          child.kill('SIGTERM');
+          expect(await exit).toBe(0);
+        } else {
+          expect(await exit).toBe(1);
+          expect(await readdir(directory)).toEqual(['capture-request.json']);
+        }
+        expect(stderr).toContain(`phase 1 screenshot capture ready: ${ipcRoot}\n`);
+        const rejectedBeforeNavigation = [
+          'wrong-module',
+          'wrong-condition',
+          'wrong-kind',
+          'resume-path',
+        ].includes(scenario);
+        expect(authorizations).toEqual(
+          rejectedBeforeNavigation
+            ? []
+            : [{ method: 'GET', url: pathname, cookie: '_aster=path-cookie-sentinel' }]
+        );
+        expect(callbacks).toEqual([]);
+        expect(stdout).toBe('');
+        expect(stderr).not.toMatch(
+          /path-cookie-sentinel|private-field-sentinel|private-cookie-sentinel|fixture%2Bstate/u
+        );
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM');
+        }
+        await exit;
+        clearTimeout(killTimer);
+        server.closeAllConnections();
+        callbackServer.closeAllConnections();
+        await Promise.all([
+          new Promise<void>((resolve) =>
+            server.close(() => {
+              resolve();
+            })
+          ),
+          new Promise<void>((resolve) =>
+            callbackServer.close(() => {
+              resolve();
+            })
+          ),
+        ]);
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    40_000
+  );
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, max-params, no-await-in-loop, no-promise-executor-return */
+/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, max-lines, max-params, no-await-in-loop, no-promise-executor-return */

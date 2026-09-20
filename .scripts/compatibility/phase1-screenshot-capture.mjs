@@ -69,6 +69,11 @@ const errorConditions = Object.freeze({
     /(?:redirect[_ ]uri.{0,160}(?:did not match|invalid)|invalid.{0,80}redirect)/iu,
 });
 const requireFromHere = createRequire(import.meta.url);
+const redirectErrorModule = 'oidcc-ensure-registered-redirect-uri';
+const isFirstRedirectError = (binding, url) =>
+  binding.moduleName === redirectErrorModule &&
+  binding.conditionId === 'ExpectRedirectUriErrorPage' &&
+  binding.captureKind === 'ui-error' && url.pathname === '/oidc/auth';
 
 const fail = () => {
   throw new TypeError('Invalid phase 1 screenshot capture');
@@ -289,7 +294,10 @@ const requireRequest = (file, directory, issuer) => {
   }
   const url = requireCaptureUrl(request.url, issuer);
   if (binding.captureKind === 'second-sign-in' && url.pathname !== '/sign-in') fail();
-  if (binding.captureKind === 'ui-error' && url.pathname === '/oidc/auth') fail();
+  if (binding.captureKind === 'ui-error') {
+    const authorizationUrl = url.pathname === '/oidc/auth' || url.pathname.startsWith('/oidc/auth/');
+    if ((authorizationUrl || binding.moduleName === redirectErrorModule) && !isFirstRedirectError(binding, url)) fail();
+  }
   if (
     binding.captureKind === 'ui-error' &&
     !Object.hasOwn(errorConditions, binding.conditionId)
@@ -422,7 +430,32 @@ const requireBrowserCookies = (cookies, issuerHost) => {
   );
 };
 
-const observeCondition = async (page, request) => {
+const requireRedirectErrorHeaders = (status, headers) => {
+  const types = headers.filter(({ name }) => name.toLowerCase() === 'content-type');
+  if (status !== 400 || types.length !== 1 ||
+    types[0].value.toLowerCase() !== 'application/json; charset=utf-8' ||
+    headers.some(({ name }) => ['location', 'refresh', 'set-cookie'].includes(name.toLowerCase()))) fail();
+};
+
+const observeCondition = async (page, request, response) => {
+  if (isFirstRedirectError(request.binding, request.url)) {
+    if (!response || response.url() !== request.url.href || page.url() !== request.url.href ||
+      response.request().method() !== 'GET' || response.request().redirectedFrom() !== null) fail();
+    requireRedirectErrorHeaders(response.status(), await response.headersArray());
+    const expected = JSON.stringify({
+      code: 'oidc.invalid_redirect_uri',
+      message: "`redirect_uri` did not match any of the client's registered `redirect_uris`.",
+      error: 'invalid_redirect_uri',
+      error_description: "redirect_uri did not match any of the client's registered redirect_uris",
+      iss: `${request.url.origin}/oidc`,
+    });
+    const bytes = await response.body();
+    if (!bytes.equals(Buffer.from(expected))) fail();
+    const rendered = page.locator('body > pre');
+    if (await rendered.count() !== 1 || !(await rendered.isVisible()) ||
+      (await rendered.innerText()) !== expected) fail();
+    return;
+  }
   const hasAsterMarker = await page.evaluate(
     () => Object.hasOwn(globalThis, 'asterSsr') && !Object.hasOwn(globalThis, 'logtoSsr')
   );
@@ -470,7 +503,38 @@ const captureRequest = async ({ browser, directory, request, issuer }) => {
     context.setDefaultTimeout(remainingTimeout(request.binding.deadline));
     await context.addCookies(request.cookies);
     let networkViolation = false;
-    await context.route('**/*', async (route) => {
+    const page = await context.newPage();
+    if (isFirstRedirectError(request.binding, request.url)) {
+      // Pause document responses because request routes do not intercept every redirect hop.
+      const session = await context.newCDPSession(page);
+      const { frameTree } = await session.send('Page.getFrameTree');
+      let documentRequests = 0;
+      session.on('Fetch.requestPaused', async (event) => {
+        try {
+          if (event.responseStatusCode !== undefined || event.responseErrorReason !== undefined) {
+            requireRedirectErrorHeaders(event.responseStatusCode, event.responseHeaders ?? []);
+            await session.send('Fetch.continueResponse', { requestId: event.requestId });
+            return;
+          }
+          const target = requireCaptureUrl(event.request.url, issuer);
+          if (event.resourceType === 'Document') {
+            if (networkViolation || documentRequests !== 0 || event.frameId !== frameTree.frame.id ||
+              target.href !== request.url.href || event.request.method !== 'GET') fail();
+            documentRequests += 1;
+          }
+          await session.send('Fetch.continueRequest', { requestId: event.requestId });
+        } catch {
+          networkViolation = true;
+          await session.send('Fetch.failRequest', {
+            requestId: event.requestId, errorReason: 'BlockedByClient',
+          }).catch(() => page.close().catch(() => {}));
+        }
+      });
+      await session.send('Fetch.enable', { patterns: [
+        { urlPattern: '*', requestStage: 'Request' },
+        { urlPattern: '*', resourceType: 'Document', requestStage: 'Response' },
+      ] });
+    } else await context.route('**/*', async (route) => {
       try {
         const target = new URL(route.request().url());
         if (target.origin !== issuer.origin) {
@@ -484,13 +548,12 @@ const captureRequest = async ({ browser, directory, request, issuer }) => {
         await route.abort('blockedbyclient');
       }
     });
-    const page = await context.newPage();
-    await page.goto(request.url.href, {
+    const navigationResponse = await page.goto(request.url.href, {
       waitUntil: 'networkidle',
       timeout: remainingTimeout(request.binding.deadline),
     });
     if (networkViolation || new URL(page.url()).origin !== issuer.origin) fail();
-    await observeCondition(page, request);
+    await observeCondition(page, request, navigationResponse);
     const image = await page.screenshot({
       animations: 'disabled',
       caret: 'hide',
@@ -505,6 +568,7 @@ const captureRequest = async ({ browser, directory, request, issuer }) => {
       await context.cookies(),
       issuer.hostname
     );
+    if (networkViolation || new URL(page.url()).origin !== issuer.origin) fail();
     imageFile = writePrivateAtomic(directory, imageName, image);
     const response = Object.freeze({
       ...request.binding,

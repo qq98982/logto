@@ -1058,6 +1058,18 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     'browser-flow',
     context.module
   );
+  if (context.module === 'oidcc-ensure-registered-redirect-uri') {
+    if (declaration.method !== 'GET' || declaration.url !== currentUrl.href ||
+      currentUrl.origin !== context.config.issuerOrigin || currentUrl.pathname !== '/oidc/auth' ||
+      context.screenshot?.mapping.captureKind !== 'ui-error' ||
+      context.screenshot.mapping.conditionId !== 'ExpectRedirectUriErrorPage') {
+      throw invalidBasic('screenshot-condition', context.module);
+    }
+    return Object.freeze({
+      screenshotEvidence: await captureAndReviewScreenshot(currentUrl, context),
+      callbackPlaceholder: null,
+    });
+  }
   let method = declaration.method;
   let body;
   let callbackHash = '';
