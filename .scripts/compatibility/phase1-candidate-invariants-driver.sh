@@ -2932,6 +2932,7 @@ if [[ "$invariant_id" == 'hosts.unavailable-pkce-independent' ]]; then
       --label "com.docker.compose.project=$project_name" \
       --label 'com.docker.compose.service=candidate-host-probe' \
       --network "${project_name}_${boundary}" \
+      --pids-limit 64 \
       --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
       --user "$(id -u):$(id -g)" --security-opt no-new-privileges:true \
       --entrypoint /usr/bin/env "$probe_image" \

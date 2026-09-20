@@ -140,6 +140,7 @@ if [[ "$1" == stop ]]; then
   exit 0
 fi
 if [[ "$1" == run ]]; then
+  [[ "$*" == *'--pids-limit 64'* ]] || exit 1
   kind=''
   for candidate in connector saml script; do
     if [[ "$*" == *"--kind $candidate"* ]]; then kind=$candidate; fi
