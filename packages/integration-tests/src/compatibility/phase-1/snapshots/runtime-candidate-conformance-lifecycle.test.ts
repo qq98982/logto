@@ -56,6 +56,12 @@ type Behavior =
   | 'plan-failure'
   | 'signal'
   | 'setup-signal'
+  | 'engine-session-delay'
+  | 'engine-session-exit'
+  | 'engine-session-timeout'
+  | 'engine-lock-scope'
+  | 'engine-health-recovery'
+  | 'jwks-unavailable'
   | 'wrong-container'
   | 'wrong-project'
   | 'wrong-image'
@@ -114,7 +120,18 @@ const statePath = ${JSON.stringify(statePath)};
 const logPath = ${JSON.stringify(logPath)};
 let args = process.argv.slice(2);
 fs.appendFileSync(logPath, JSON.stringify(args) + '\\n');
-if (args[0] === '--root' && args[2] === '--runroot') args = args.slice(4);
+const lockPath = require('node:path').join(require('node:path').dirname(statePath), 'build/aster-phase1-conformance-podman.lock');
+for (const fd of fs.readdirSync('/proc/self/fd')) {
+  let target;
+  try { target = fs.readlinkSync('/proc/self/fd/' + fd); } catch { continue; }
+  if (target === lockPath) process.exit(90);
+}
+if (args[0] === '--root' && args[2] === '--runroot') {
+  if (args[4] !== '--events-backend=file' ||
+      process.env.DBUS_SESSION_BUS_ADDRESS !== 'unix:path=/run/user/' + process.getuid() + '/bus' ||
+      process.env.XDG_RUNTIME_DIR !== '/run/user/' + process.getuid()) process.exit(91);
+  args = args.slice(5);
+}
 const readState = () => JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const writeState = (value) => fs.writeFileSync(statePath, JSON.stringify(value));
 const imageIds = {
@@ -149,7 +166,9 @@ const containerDocument = (project, service, environment, behavior) => ({
   Image: imageFor(service, environment),
   State: service === 'candidate-primary-init'
     ? { Status: 'exited', ExitCode: 0 }
-    : { Status: 'running', ExitCode: 0, Health: { Status: 'healthy' } },
+    : { Status: 'running', ExitCode: 0, Health: { Status:
+        behavior === 'engine-health-recovery' && !(readState().healthyIds ?? []).includes(idFor(project, service))
+          ? 'starting' : 'healthy' } },
   Config: {
     Env: service === 'oidf-runner'
       ? ['ASTER_PHASE1_SCREENSHOT_IPC_ROOT=' + (behavior === 'wrong-screenshot-env'
@@ -199,12 +218,25 @@ const containerDocument = (project, service, environment, behavior) => ({
     : [],
 });
 if (args[0] === 'system' && args[1] === 'service') {
+  if (readState().behavior === 'engine-lock-scope') {
+    const descendant = cp.spawn('/usr/bin/sleep', ['60'], { detached: true, stdio: 'ignore' });
+    const state = readState();
+    state.engineDescendantPid = descendant.pid;
+    writeState(state);
+    descendant.unref();
+  }
   const socket = args.at(-1).replace(/^unix:\\/\\//, '');
   const server = net.createServer(() => {});
   server.listen(socket);
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   process.on('SIGINT', () => server.close(() => process.exit(0)));
   setInterval(() => {}, 2147483647);
+}
+if (args[0] === 'healthcheck' && args[1] === 'run') {
+  const state = readState();
+  state.healthyIds = [...(state.healthyIds ?? []), args[2]];
+  writeState(state);
+  process.exit(0);
 }
 if (args[0] === 'pull') process.exit(0);
 if (args[0] === 'load') {
@@ -274,6 +306,7 @@ if (args[0] === 'compose') {
   const project = projectOption();
   if (command === 'config') process.exit(args.includes('--quiet') ? 0 : 1);
   if (command === 'up') {
+    if (serviceNames.filter((candidate) => args.includes(candidate)).length !== 1) process.exit(92);
     const environment = parseEnv(args[args.indexOf('--env-file') + 1]);
     const state = readState();
     const topology = state.projects[project] ?? {
@@ -368,6 +401,24 @@ if (args[0] === 'exec' && args[1] === '--interactive') {
     }
   }
   if (!environment) process.exit(1);
+  if (service === 'oidf-runner' && args.includes('--input-type=module')) {
+    if (!args.includes('NODE_EXTRA_CA_CERTS=/etc/aster/pki/root-ca.crt')) process.exit(93);
+    const source = args[args.indexOf('-e') + 1];
+    const failReadiness = state.behavior === 'jwks-unavailable';
+    const bootstrap = [
+      'let calls = 0;',
+      'const now = Date.now();',
+      'Date.now = () => now + calls * 10000;',
+      'globalThis.fetch = async (url, options) => {',
+      'if (url !== "https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc/jwks" || options.redirect !== "error" || !options.signal) throw new Error("probe authority");',
+      'calls += 1;',
+      'return { status: calls === 1 ? 503 : 200, body: { cancel: async () => {} }, json: async () => ({keys: calls < 3 || ' + failReadiness + ' ? [] : [{kty:"RSA",kid:"fixture"}]}) };',
+      '};',
+    ].join('\\n');
+    const result = cp.spawnSync(process.execPath, ['--input-type=module', '-e', bootstrap + '\\n' + source], { encoding: 'utf8' });
+    fs.appendFileSync(logPath, JSON.stringify(['jwks-probe', result.status]) + '\\n');
+    process.exit(result.status ?? 1);
+  }
   const fixtureCommandIndex = args.indexOf('/usr/local/bin/aster-admin', containerIndex + 1);
   if (service === 'candidate-fixture-coordinator' && fixtureCommandIndex >= 0 &&
       args[fixtureCommandIndex + 1] === 'fixture' && args[fixtureCommandIndex + 2] === 'apply') {
@@ -538,6 +589,7 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
   const dockerLog = path.join(root, 'docker.log');
   const fakeDocker = path.join(root, 'fake-docker');
   const fakePnpm = path.join(root, 'fake-pnpm');
+  const fakeSetsid = path.join(root, 'fake-setsid');
 
   await Promise.all([
     mkdir(path.join(repository, '.scripts/compatibility'), { recursive: true, mode: 0o700 }),
@@ -591,6 +643,21 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     writeFile(dockerLog, ''),
     writeFile(candidateArchive, 'candidate-image-archive', { mode: 0o600 }),
     writeFile(fakeDocker, fakeDockerSource(dockerState, dockerLog, suiteCommit), { mode: 0o700 }),
+    writeFile(
+      fakeSetsid,
+      `#!/usr/bin/bash
+if [[ "$*" == *'system service'* ]]; then
+  printf '%s\\n' "$$" >'${captureRoot}/engine-launch.pid'
+  case '${behavior}' in
+    engine-session-delay) /usr/bin/sleep 0.3 ;;
+    engine-session-exit) exit 7 ;;
+    engine-session-timeout) exec /usr/bin/sleep 30 ;;
+  esac
+fi
+exec /usr/bin/setsid "$@"
+`,
+      { mode: 0o700 }
+    ),
     writeFile(fakePnpm, '#!/bin/sh\n[ "$1" = --version ] && printf "10.15.1\\n"\nexit 0\n', {
       mode: 0o700,
     }),
@@ -666,6 +733,10 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     .replace(
       'PNPM_BIN="$(trusted_binary pnpm)"',
       `PNPM_BIN="$(trusted_binary ${JSON.stringify(fakePnpm)})"`
+    )
+    .replace(
+      'SETSID_BIN="$(trusted_system_binary /usr/bin/setsid)"',
+      `SETSID_BIN="$(trusted_binary ${JSON.stringify(fakeSetsid)})"`
     )
     .replace(cleanupBoundary, mutation ? `${mutation}\n${cleanupBoundary}` : cleanupBoundary)
     .replace(
@@ -776,7 +847,18 @@ setInterval(() => {}, 2147483647);
       '#!/bin/sh\nset -eu\nroot=$1\nmkdir -m 700 "$root/pki" "$root/pki/host-only" "$root/pki/aster" "$root/pki/suite"\nprintf key >"$root/pki/host-only/root-ca.key"\nprintf key >"$root/pki/aster/tls.key"\nprintf key >"$root/pki/suite/tls.key"\nprintf cert >"$root/pki/root-ca.crt"\nprintf cert >"$root/pki/aster/tls.crt"\nprintf cert >"$root/pki/suite/tls.crt"\nchmod 400 "$root/pki/host-only/root-ca.key" "$root/pki/aster/tls.key" "$root/pki/suite/tls.key"\nchmod 444 "$root/pki/root-ca.crt" "$root/pki/aster/tls.crt" "$root/pki/suite/tls.crt"\n',
       { mode: 0o755 }
     ),
-    writeFile(cli, fakeCliSource(captureRoot, behavior, suiteCommit)),
+    writeFile(
+      cli,
+      fakeCliSource(
+        captureRoot,
+        behavior === 'engine-lock-scope'
+          ? 'signal'
+          : ['engine-session-delay', 'engine-health-recovery'].includes(behavior)
+            ? 'success'
+            : behavior,
+        suiteCommit
+      )
+    ),
     writeFile(
       artifactContract,
       `export const parseStrictPhase1ArtifactJson = (bytes) => {
@@ -952,8 +1034,13 @@ const interruptLifecycleAt = async (
         throw new Error('owned setup process was not alive before interruption');
       }
     }
+    const lock = path.join(fixture.buildRoot, 'aster-phase1-conformance-podman.lock');
+    await expect(
+      executeFile('/usr/bin/flock', ['-xn', lock, '/usr/bin/true'])
+    ).rejects.toMatchObject({ code: 1 });
     child.kill('SIGTERM');
     const exit = await waitForChildExit(child, 10_000);
+    await executeFile('/usr/bin/flock', ['-xn', lock, '/usr/bin/true']);
     if (ownedPid !== undefined) {
       for (let attempt = 0; attempt < 200 && processExists(ownedPid); attempt += 1) {
         await new Promise((resolve) => {
@@ -982,6 +1069,76 @@ afterEach(async () => {
 });
 
 describe('runtime-candidate conformance lifecycle and runner bridge', () => {
+  it.each(['engine-session-delay', 'engine-health-recovery'] as const)(
+    'reaches conformance after %s with the private engine context',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      const result = await executeFile(fixture.lifecycle, [], {
+        cwd: fixture.repository,
+        env: lifecycleEnvironment(fixture),
+        timeout: 30_000,
+      });
+      expect(result.stdout).toContain('Aster runtime candidate conformance gate passed');
+      const log = await readFile(fixture.dockerLog, 'utf8');
+      expect(log).toContain('"--events-backend=file"');
+      expect(log).toContain('["jwks-probe",0]');
+      if (behavior === 'engine-health-recovery') {
+        expect(log).toContain('"healthcheck","run"');
+      }
+      expect(await activeResources(fixture)).toBe(false);
+    }
+  );
+
+  it.each(['engine-session-exit', 'engine-session-timeout'] as const)(
+    'rejects %s and reaps the owned bootstrap process',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      await runFailure(fixture);
+      const pid = Number(
+        await readFile(path.join(fixture.captureRoot, 'engine-launch.pid'), 'utf8')
+      );
+      expect(pid).toBeGreaterThan(0);
+      expect(processExists(pid)).toBe(false);
+      expect(await activeResources(fixture)).toBe(false);
+      expect(await readdir(fixture.runRoot)).toEqual([]);
+    }
+  );
+
+  it('releases the parent lock after cleanup while an engine descendant survives', async () => {
+    const fixture = await createFixture('engine-lock-scope');
+    try {
+      const exit = await interruptLifecycleAt(fixture, 'started.log');
+      const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as {
+        engineDescendantPid: number;
+      };
+      expect(exit.code === 143 || exit.signal === 'SIGTERM').toBe(true);
+      expect(processExists(state.engineDescendantPid)).toBe(true);
+      await executeFile('/usr/bin/flock', [
+        '-xn',
+        path.join(fixture.buildRoot, 'aster-phase1-conformance-podman.lock'),
+        '/usr/bin/true',
+      ]);
+    } finally {
+      const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as {
+        engineDescendantPid?: number;
+      };
+      if (state.engineDescendantPid && processExists(state.engineDescendantPid)) {
+        process.kill(state.engineDescendantPid, 'SIGTERM');
+      }
+    }
+  });
+
+  it('does not create an official plan while signing keys remain unavailable', async () => {
+    const fixture = await createFixture('jwks-unavailable');
+    await runFailure(fixture);
+    const log = await readFile(fixture.dockerLog, 'utf8');
+    expect(log).toContain('["jwks-probe",1]');
+    await expect(stat(path.join(fixture.captureRoot, 'started.log'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    expect(await activeResources(fixture)).toBe(false);
+  });
+
   it.each([
     ['audit above 128 KiB', 'module-audit.json', 131_073, true],
     ['audit at 16 MiB', 'module-audit.json', 16_777_216, true],

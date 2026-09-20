@@ -241,6 +241,8 @@ PODMAN_LOCK_FILE="${BUILD_ROOT}/aster-phase1-conformance-podman.lock"
 exec {PODMAN_LOCK_FD}>>"${PODMAN_LOCK_FILE}"
 "${FLOCK_BIN}" -x "${PODMAN_LOCK_FD}" || fail
 readonly PODMAN_GRAPH_ROOT PODMAN_RUN_ROOT PODMAN_SOCKET PODMAN_LOG PODMAN_LOCK_FILE PODMAN_LOCK_FD
+PODMAN_BUS_ADDRESS="unix:path=/run/user/$(/usr/bin/id -u)/bus"
+readonly PODMAN_BUS_ADDRESS
 CONFORMANCE_ROOT="${RUN_DIR}/conformance"
 EVIDENCE_DIR="${RUN_DIR}/evidence"
 SECRET_DIR="${RUN_DIR}/secrets"
@@ -327,7 +329,7 @@ docker_cli() {
   "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 30s \
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
       DOCKER_HOST="unix://${PODMAN_SOCKET}" DOCKER_CLIENT_TIMEOUT=20 \
-      "${DOCKER_BIN}" "$@"
+      "${DOCKER_BIN}" "$@" {PODMAN_LOCK_FD}>&-
 }
 
 compose() {
@@ -335,20 +337,22 @@ compose() {
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" \
       DOCKER_HOST="unix://${PODMAN_SOCKET}" DOCKER_CLIENT_TIMEOUT=90 COMPOSE_HTTP_TIMEOUT=90 \
       "${DOCKER_BIN}" compose --env-file "${COMPOSE_ENV}" \
-        --project-name "${project_name}" --file "${COMPOSE_FILE}" "$@"
+        --project-name "${project_name}" --file "${COMPOSE_FILE}" "$@" {PODMAN_LOCK_FD}>&-
 }
 
 podman_cli() {
   "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 120s \
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
       XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
-      "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" "$@"
+      DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
+      "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
+        --events-backend=file "$@" {PODMAN_LOCK_FD}>&-
 }
 
 system_docker_cli() {
   "${TIMEOUT_BIN}" --signal=TERM --kill-after=5s 30s \
     "${ENV_BIN}" -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" DOCKER_CLIENT_TIMEOUT=20 \
-      "${DOCKER_BIN}" "$@"
+      "${DOCKER_BIN}" "$@" {PODMAN_LOCK_FD}>&-
 }
 
 process_has_ownership_token() {
@@ -408,7 +412,7 @@ run_owned_command() {
     "${SETSID_BIN}" "${TIMEOUT_BIN}" --signal=TERM --kill-after=10s \
       "${timeout_seconds}s" "${ENV_BIN}" -i \
       "ASTER_PHASE1_PROCESS_TOKEN=${SETUP_RUN_TOKEN}" "$@" \
-      >"${stdout_path}" 2>"${stderr_path}" &
+      {PODMAN_LOCK_FD}>&- >"${stdout_path}" 2>"${stderr_path}" &
   SETUP_RUN_PID=$!
   SETUP_RUN_PGID="${SETUP_RUN_PID}"
   wait "${SETUP_RUN_PID}" || status=$?
@@ -998,22 +1002,33 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 start_private_podman() {
-  local attempt observed_pgid
+  local attempt observed_pgid observed_sid observed_state
 
   PODMAN_SERVICE_TOKEN="$(random_hex 32)"
   ASTER_PHASE1_PROCESS_TOKEN="${PODMAN_SERVICE_TOKEN}" \
     env -i PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
       XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+      DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
       ASTER_PHASE1_PROCESS_TOKEN="${PODMAN_SERVICE_TOKEN}" \
       "${SETSID_BIN}" "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" \
-        --runroot "${PODMAN_RUN_ROOT}" system service --time=0 \
-        "unix://${PODMAN_SOCKET}" >"${PODMAN_LOG}" 2>&1 &
+        --runroot "${PODMAN_RUN_ROOT}" --events-backend=file system service --time=0 \
+        "unix://${PODMAN_SOCKET}" {PODMAN_LOCK_FD}>&- >"${PODMAN_LOG}" 2>&1 &
   PODMAN_SERVICE_PID=$!
-  # shellcheck disable=SC2016
-  observed_pgid="$("${PS_BIN}" -o pgid= -p "${PODMAN_SERVICE_PID}" 2>/dev/null | \
-    "${AWK_BIN}" '{gsub(/[[:space:]]/, "", $0); print}')"
-  [[ "${observed_pgid}" == "${PODMAN_SERVICE_PID}" ]] || fail
-  PODMAN_SERVICE_PGID="${observed_pgid}"
+  for ((attempt=0; attempt<100; attempt++)); do
+    kill -0 "${PODMAN_SERVICE_PID}" 2>/dev/null || fail
+    read -r observed_pgid observed_sid observed_state < <(
+      "${PS_BIN}" -o pgid=,sid=,stat= -p "${PODMAN_SERVICE_PID}" 2>/dev/null
+    ) || fail
+    [[ "${observed_state}" != Z* ]] || fail
+    if [[ "${observed_pgid}" == "${PODMAN_SERVICE_PID}" && \
+      "${observed_sid}" == "${PODMAN_SERVICE_PID}" ]]; then
+      process_has_ownership_token "${PODMAN_SERVICE_PID}" "${PODMAN_SERVICE_TOKEN}" || fail
+      PODMAN_SERVICE_PGID="${observed_pgid}"
+      break
+    fi
+    /usr/bin/sleep 0.05
+  done
+  [[ "${PODMAN_SERVICE_PGID}" == "${PODMAN_SERVICE_PID}" ]] || fail
   for ((attempt=0; attempt<100; attempt++)); do
     if docker_cli ps >/dev/null 2>&1; then
       [[ -S "${PODMAN_SOCKET}" && ! -L "${PODMAN_SOCKET}" ]] || fail
@@ -1055,8 +1070,9 @@ remove_private_image_if_present() {
       run_owned_command 300 /dev/null /dev/null \
         PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
         XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+        DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
         "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-          rmi "${image_id}" || return 1
+          --events-backend=file rmi "${image_id}" || return 1
       status=0
       podman_cli image exists "${image_id}" >/dev/null 2>&1 || status=$?
       [[ "${status}" == 1 ]] || return 1
@@ -1219,8 +1235,9 @@ if [[ "${CANDIDATE_INPUT_CHANNEL}" == 'system-image' ]]; then
   run_owned_command 600 /dev/null /dev/null \
     PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
     XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
     "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-      load --input "${CANDIDATE_ARCHIVE}" || fail
+      --events-backend=file load --input "${CANDIDATE_ARCHIVE}" || fail
   /usr/bin/rm -f -- "${CANDIDATE_ARCHIVE}" || fail
   EXPECTED_PRIVATE_CANDIDATE_IMAGE_ID="${SYSTEM_CANDIDATE_IMAGE_ID}"
 else
@@ -1231,8 +1248,9 @@ else
   run_owned_command 1800 /dev/null /dev/null \
     PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
     XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
     "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-      load --input "${CANDIDATE_ARCHIVE_INPUT}" || fail
+      --events-backend=file load --input "${CANDIDATE_ARCHIVE_INPUT}" || fail
   assert_build_root_identity
   [[ "$(candidate_archive_identity "${CANDIDATE_ARCHIVE_INPUT}" 2>/dev/null || true)" == \
     "${CANDIDATE_ARCHIVE_IDENTITY}" ]] || fail
@@ -1244,8 +1262,9 @@ for image in "${POSTGRES_IMAGE}" "${MONGO_IMAGE}" "${NGINX_IMAGE}" "${RUNNER_IMA
   run_owned_command 900 /dev/null /dev/null \
     PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
     XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+    DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
     "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-      pull "${image}" || fail
+      --events-backend=file pull "${image}" || fail
 done
 POSTGRES_IMAGE_ID="$(inspect_image_id "${POSTGRES_IMAGE}")"
 MONGO_IMAGE_ID="$(inspect_image_id "${MONGO_IMAGE}")"
@@ -1273,8 +1292,9 @@ SUITE_IID_FILE="${RUN_DIR}/suite-image-id"
 run_owned_command 1800 /dev/null /dev/null \
   PATH='/usr/bin:/bin' HOME="${PRIVATE_HOME}" TMPDIR="${PRIVATE_TMP}" \
   XDG_RUNTIME_DIR="/run/user/$(/usr/bin/id -u)" \
+  DBUS_SESSION_BUS_ADDRESS="${PODMAN_BUS_ADDRESS}" \
   "${PODMAN_BIN}" --root "${PODMAN_GRAPH_ROOT}" --runroot "${PODMAN_RUN_ROOT}" \
-    build --iidfile "${SUITE_IID_FILE}" --file "${SUITE_DOCKERFILE}" \
+    --events-backend=file build --iidfile "${SUITE_IID_FILE}" --file "${SUITE_DOCKERFILE}" \
     --build-arg "ASTER_PHASE1_OIDF_SUITE_COMMIT=${SUITE_COMMIT}" "${SUITE_CHECKOUT}" || fail
 SUITE_IMAGE_ID="$(/usr/bin/tr -d '[:space:]' <"${SUITE_IID_FILE}")"
 if [[ "${SUITE_IMAGE_ID}" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1346,14 +1366,20 @@ run_owned_command 60 /dev/null /dev/null \
 failure_stage=topology
 project_started=1
 compose config --quiet >/dev/null 2>&1 || fail
-compose_up_phase candidate-primary-postgres suite-mongo || fail
-wait_for_topology candidate-primary-postgres suite-mongo
-compose_up_phase candidate-primary-init suite-server || fail
-wait_for_topology candidate-primary-init suite-server
+compose_up_phase candidate-primary-postgres || fail
+wait_for_topology candidate-primary-postgres
+compose_up_phase suite-mongo || fail
+wait_for_topology suite-mongo
+compose_up_phase candidate-primary-init || fail
+wait_for_topology candidate-primary-init
+compose_up_phase suite-server || fail
+wait_for_topology suite-server
 compose_up_phase candidate-conformance-core || fail
 wait_for_topology candidate-conformance-core
-compose_up_phase candidate-fixture-coordinator suite-nginx || fail
-wait_for_topology candidate-fixture-coordinator suite-nginx
+compose_up_phase candidate-fixture-coordinator || fail
+wait_for_topology candidate-fixture-coordinator
+compose_up_phase suite-nginx || fail
+wait_for_topology suite-nginx
 COORDINATOR_CONTAINER_ID="$(compose ps --all -q candidate-fixture-coordinator 2>/dev/null || true)"
 [[ "${COORDINATOR_CONTAINER_ID}" =~ ^[0-9a-f]{64}$ ]] || fail
 readonly COORDINATOR_CONTAINER_ID
@@ -1376,7 +1402,7 @@ ASTER_PHASE1_PROCESS_TOKEN="${SCREENSHOT_HELPER_TOKEN}" "${SETSID_BIN}" \
       --root-ca-file "${RUN_DIR}/pki/root-ca.crt" \
       --certificate-file "${RUN_DIR}/pki/aster/tls.crt" \
       --playwright-module "${PLAYWRIGHT_MODULE}" \
-      --deadline "${SCREENSHOT_HELPER_DEADLINE}" >/dev/null &
+      --deadline "${SCREENSHOT_HELPER_DEADLINE}" {PODMAN_LOCK_FD}>&- >/dev/null &
 SCREENSHOT_HELPER_PID=$!
 SCREENSHOT_HELPER_PGID="${SCREENSHOT_HELPER_PID}"
 /usr/bin/sleep 1
@@ -1388,6 +1414,35 @@ wait_for_topology "${SERVICES[@]}"
 runner_index=$((${#SERVICES[@]} - 1))
 RUNNER_CONTAINER_ID="${container_ids[runner_index]}"
 readonly RUNNER_CONTAINER_ID
+
+failure_stage=signing-key-readiness
+docker_cli exec --interactive "${RUNNER_CONTAINER_ID}" \
+  /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin \
+  NODE_EXTRA_CA_CERTS=/etc/aster/pki/root-ca.crt \
+  node --input-type=module -e '
+const deadline = Date.now() + 25_000;
+let ready = false;
+while (Date.now() < deadline) {
+  try {
+    const response = await fetch("https://aster-server.aster-phase1-conformance.svc.cluster.local:3443/oidc/jwks", {
+      redirect: "error", signal: AbortSignal.timeout(Math.min(2000, deadline - Date.now())),
+    });
+    if (response.status === 200) {
+      const value = await response.json();
+      if (Array.isArray(value?.keys) && value.keys.length > 0) {
+        ready = true;
+        break;
+      }
+    } else {
+      await response.body?.cancel();
+    }
+  } catch {
+    // A fresh fixture may precede publication of its signing keys.
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+process.exitCode = ready ? 0 : 1;
+' >/dev/null 2>&1 || fail
 
 failure_stage=descriptor
 "${CLOSED_ENV[@]}" "${NODE_BIN}" --input-type=module - \
@@ -1443,7 +1498,8 @@ PUBLIC_ENV=(
 ASTER_PHASE1_PROCESS_TOKEN="${NODE_RUN_TOKEN}" "${SETSID_BIN}" "${PUBLIC_ENV[@]}" \
   "${NODE_BIN}" "${PHASE1_CLI}" run-conformance --mode runtime-candidate \
   --profile "${REVIEW_PROFILE}" --schema "${SCHEMA_SOURCE}" \
-  --observation-controls --discovery-extra-control --candidate-invariant-controls >/dev/null &
+  --observation-controls --discovery-extra-control --candidate-invariant-controls \
+  {PODMAN_LOCK_FD}>&- >/dev/null &
 NODE_RUN_PID=$!
 NODE_RUN_PGID="${NODE_RUN_PID}"
 node_run_status=0

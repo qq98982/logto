@@ -378,10 +378,13 @@ describe('runtime-candidate official OIDF conformance topology', () => {
     expect(lifecycle).toContain('SETUP_RUN_PGID');
     expect(lifecycle).toContain('compose config --quiet');
     expect(lifecycle).toContain('up --detach --no-build --no-deps');
-    expect(lifecycle).toContain('compose_up_phase candidate-primary-postgres suite-mongo');
-    expect(lifecycle).toContain('compose_up_phase candidate-primary-init suite-server');
+    expect(lifecycle).toContain('compose_up_phase candidate-primary-postgres');
+    expect(lifecycle).toContain('compose_up_phase suite-mongo');
+    expect(lifecycle).toContain('compose_up_phase candidate-primary-init');
+    expect(lifecycle).toContain('compose_up_phase suite-server');
     expect(lifecycle).toContain('compose_up_phase candidate-conformance-core');
-    expect(lifecycle).toContain('compose_up_phase candidate-fixture-coordinator suite-nginx');
+    expect(lifecycle).toContain('compose_up_phase candidate-fixture-coordinator');
+    expect(lifecycle).toContain('compose_up_phase suite-nginx');
     expect(lifecycle).toMatch(/\/usr\/local\/bin\/aster-admin\s+fixture apply/u);
     expect(lifecycle).toContain('exec --interactive --user');
     expect(lifecycle).toContain("operation: 'provision'");
