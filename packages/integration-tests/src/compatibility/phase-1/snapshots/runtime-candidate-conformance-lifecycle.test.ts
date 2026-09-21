@@ -574,7 +574,12 @@ const reachesPlan = behavior === 'success' || behavior === 'cleanup-run-removal-
   behavior === 'publish-mode-changed' ||
   behavior === 'plan-failure' ||
   behavior === 'cleanup-query-failure' || behavior === 'fixture-cleanup-failure';
-if (behavior === 'signal') setInterval(() => {}, 2147483647);
+if (behavior === 'signal') {
+  setInterval(() => {}, 2147483647);
+  await new Promise(() => {
+    setImmediate(() => writeFileSync(path.join(captureRoot, 'waiting-for-term.pid'), String(process.pid)));
+  });
+}
 if (behavior === 'wrong-container') descriptor.runnerContainerId = 'f'.repeat(64);
 if (behavior === 'wrong-project') descriptor.projectName = 'aster-phase1-conformance-' + 'd'.repeat(16);
 if (behavior === 'wrong-image') descriptor.runnerImageId = 'sha256:' + 'd'.repeat(64);
@@ -1251,12 +1256,15 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
   it('releases the parent lock after cleanup while an engine descendant survives', async () => {
     const fixture = await createFixture('engine-lock-scope');
     try {
-      const exit = await interruptLifecycleAt(fixture, 'started.log');
+      const exit = await interruptLifecycleAt(fixture, 'waiting-for-term.pid', true);
       const state = JSON.parse(await readFile(fixture.dockerState, 'utf8')) as {
         engineDescendantPid: number;
       };
       expect(exit.code === 143 || exit.signal === 'SIGTERM').toBe(true);
       expect(processExists(state.engineDescendantPid)).toBe(true);
+      await expect(
+        stat(path.join(fixture.captureRoot, 'bridge-diagnostic.json'))
+      ).rejects.toMatchObject({ code: 'ENOENT' });
       await executeFile('/usr/bin/flock', [
         '-xn',
         path.join(fixture.buildRoot, 'aster-phase1-conformance-podman.lock'),
@@ -1996,7 +2004,10 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
 
   it('cleans the owned project and run directory on TERM', async () => {
     const fixture = await createFixture('signal');
-    const exit = await interruptLifecycleAt(fixture, 'started.log');
+    const exit = await interruptLifecycleAt(fixture, 'waiting-for-term.pid', true);
+    await expect(
+      stat(path.join(fixture.captureRoot, 'bridge-diagnostic.json'))
+    ).rejects.toMatchObject({ code: 'ENOENT' });
     const screenshotBase = path.join(fixture.buildRoot, 'aster-phase1-screenshot-evidence');
     const screenshotRuns = await readdir(screenshotBase);
     expect(screenshotRuns).toHaveLength(1);
