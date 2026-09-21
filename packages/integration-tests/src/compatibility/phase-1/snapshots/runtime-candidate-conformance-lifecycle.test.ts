@@ -119,7 +119,7 @@ const fakeDockerSource = (
   statePath: string,
   logPath: string,
   suiteCommit: string
-): string => `#!/usr/bin/node
+): string => `#!${process.execPath} --
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
@@ -273,6 +273,7 @@ if (args[0] === 'system' && args[1] === 'service') {
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   process.on('SIGINT', () => server.close(() => process.exit(0)));
   setInterval(() => {}, 2147483647);
+  return;
 }
 if (args[0] === 'healthcheck' && args[1] === 'run') {
   const state = readState();
@@ -290,7 +291,11 @@ if (args[0] === 'load') {
 }
 if (args[0] === 'ps' && args.length === 1) {
   const socket = (process.env.DOCKER_HOST ?? '').replace(/^unix:\\/\\//, '');
-  process.exit(socket && fs.existsSync(socket) ? 0 : 1);
+  if (!socket) process.exit(1);
+  const client = net.createConnection(socket);
+  client.once('connect', () => process.exit(0));
+  client.once('error', () => process.exit(1));
+  return;
 }
 if (args[0] === 'compose' && args.includes('version')) process.exit(0);
 if (args[0] === 'image' && args[1] === 'inspect') {
@@ -1139,6 +1144,75 @@ afterEach(async () => {
 });
 
 describe('runtime-candidate conformance lifecycle and runner bridge', () => {
+  it('passes Compose env-file arguments to the fixture without Node interpreting them', async () => {
+    const fixture = await createFixture('success');
+    const environmentFile = path.join(fixture.root, 'not-created-compose.env');
+    const args = ['compose', '--env-file', environmentFile, '--project-name', 'fixture', 'version'];
+
+    await expect(stat(environmentFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    await executeFile(path.join(fixture.root, 'fake-docker'), args, { timeout: 2000 });
+    expect(await readFile(fixture.dockerLog, 'utf8')).toContain(JSON.stringify(args));
+  });
+
+  it('keeps the fixture engine alive and rejects readiness from a stale socket', async () => {
+    const fixture = await createFixture('success');
+    const fakeDocker = path.join(fixture.root, 'fake-docker');
+    const socket = path.join(fixture.root, 'engine.sock');
+    const environment = {
+      PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+      XDG_RUNTIME_DIR: `/run/user/${process.getuid?.()}`,
+      DBUS_SESSION_BUS_ADDRESS: `unix:path=/run/user/${process.getuid?.()}/bus`,
+      DOCKER_HOST: `unix://${socket}`,
+    };
+    const child = spawn(
+      fakeDocker,
+      [
+        '--root',
+        fixture.buildRoot,
+        '--runroot',
+        fixture.root,
+        '--events-backend=file',
+        'system',
+        'service',
+        '--time=0',
+        `unix://${socket}`,
+      ],
+      { env: environment, stdio: 'ignore' }
+    );
+
+    try {
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline && child.exitCode === null) {
+        try {
+          await executeFile(fakeDocker, ['ps'], { env: environment, timeout: 2000 });
+          break;
+        } catch {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 20);
+          });
+        }
+      }
+      await executeFile(fakeDocker, ['ps'], { env: environment, timeout: 2000 });
+      expect(child.exitCode).toBeNull();
+      expect(child.signalCode).toBeNull();
+      child.kill('SIGKILL');
+      expect(await waitForChildExit(child, 5000)).toEqual({
+        code: undefined,
+        signal: 'SIGKILL',
+      });
+      const socketMetadata = await stat(socket);
+      expect(socketMetadata.isSocket()).toBe(true);
+      await expect(
+        executeFile(fakeDocker, ['ps'], { env: environment, timeout: 2000 })
+      ).rejects.toMatchObject({ code: 1 });
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await waitForChildExit(child, 5000);
+      }
+    }
+  });
+
   it.each(['engine-session-delay', 'engine-health-recovery'] as const)(
     'reaches conformance after %s with the private engine context',
     async (behavior) => {
