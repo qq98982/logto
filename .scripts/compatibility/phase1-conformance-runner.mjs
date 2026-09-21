@@ -1504,7 +1504,8 @@ const proofRequestObjectSources = Object.freeze([
   'GetDynamicServerConfiguration', 'BuildRequestObjectByValueRedirectToAuthorizationEndpoint',
   'SerializeRequestObjectWithNullAlgorithm', 'ExtractImplicitHashToCallbackResponse',
 ]);
-const requestNotSupportedSkip = "The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.";
+// AbstractTestModule.handleException prefixes the response-driven skip before logging it.
+const requestNotSupportedSkip = "The test was skipped: The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.";
 const proofJson = (text, module) => {
   if (typeof text !== 'string' || text.length < 1 || text.length > maximumResponseBytes) throw invalidBasic('condition-log', module);
   return decodeBasicJson(Buffer.from(text), 'condition-log', module);

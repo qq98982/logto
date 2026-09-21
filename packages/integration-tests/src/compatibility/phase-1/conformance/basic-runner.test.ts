@@ -933,7 +933,7 @@ const optionalProofExchange = async (
       add(
         module,
         {
-          msg: "The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.",
+          msg: "The test was skipped: The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.",
         },
         'SKIPPED'
       );
@@ -1087,7 +1087,7 @@ const optionalProofExchange = async (
 };
 
 describe('official OIDF Basic plan runner input and manifest', () => {
-  it('derives the three optional proofs from one complete log read and retains private audit bindings', async () => {
+  it('derives the three optional proofs with the pinned suite skip-log prefix and retains private audit bindings', async () => {
     const runner = await loadRunner();
     const exchange = await optionalProofExchange();
     await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
@@ -1264,10 +1264,19 @@ describe('official OIDF Basic plan runner input and manifest', () => {
       },
     },
     {
+      name: 'unprefixed skip reason',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        const row = facts.entries.find((entry) => entry.result === 'SKIPPED')!;
+        row.msg = String(row.msg).replace(/^The test was skipped: /u, '');
+      },
+    },
+    {
       name: 'different skip branch',
       target: 30,
       mutate: (facts: OptionalProofFacts) => {
-        facts.entries.find((row) => row.result === 'SKIPPED')!.msg = 'alg none unsupported';
+        facts.entries.find((row) => row.result === 'SKIPPED')!.msg =
+          "The test was skipped: 'none' is not listed in request_object_signing_alg_values_supported - assuming it is not supported.";
       },
     },
     {
