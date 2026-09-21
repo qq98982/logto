@@ -673,7 +673,7 @@ const createFixture = async (behavior: Behavior): Promise<Fixture> => {
     }),
     mkdir(path.join(aster, 'compatibility'), { recursive: true, mode: 0o700 }),
     mkdir(suite, { recursive: true, mode: 0o700 }),
-    mkdir(buildRoot, { mode: 0o700 }),
+    mkdir(buildRoot, { recursive: true, mode: 0o700 }),
     mkdir(path.join(buildRoot, 'aster-playwright-browsers'), {
       recursive: true,
       mode: 0o700,

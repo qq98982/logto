@@ -443,6 +443,60 @@ describe('Phase 1 workflow policy', () => {
       },
     ],
     [
+      'Node symlink instead of an owned binary copy',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replace(
+          'sudo install -o root -g root -m 0755 -- "$node_source" /usr/bin/node',
+          'sudo ln -sf -- "$node_source" /usr/bin/node'
+        );
+      },
+    ],
+    [
+      'Node provenance check removed',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replace("== '0:0:755:regular file'", "!= ''");
+      },
+    ],
+    [
+      'Node version drift',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replaceAll("== 'v22.23.2'", "== 'v24.0.0'");
+      },
+    ],
+    [
+      'toolcache Node ahead of trusted system Node',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replace(
+          'closed_path="/usr/bin:',
+          'closed_path="$(dirname -- "$node_source"):/usr/bin:'
+        );
+      },
+    ],
+    [
+      'missing loopback forwarder installation',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replace(
+          'sudo apt-get install --yes --no-install-recommends socat\n',
+          ''
+        );
+      },
+    ],
+    [
+      'public user runtime directory',
+      (workflow: MutableWorkflow) => {
+        const step = workflow.jobs['phase1-pr']!.steps[3]!;
+        step.run = step.run!.replace(
+          '"$runtime_gid" -m 0700 -- "$runtime_root"',
+          '"$runtime_gid" -m 0777 -- "$runtime_root"'
+        );
+      },
+    ],
+    [
       'Playwright path drift',
       (workflow: MutableWorkflow) => {
         workflow.jobs['phase1-pr']!.steps[3]!.run = workflow.jobs[

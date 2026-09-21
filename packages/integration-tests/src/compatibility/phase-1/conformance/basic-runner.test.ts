@@ -1513,7 +1513,9 @@ describe('official OIDF Basic plan runner input and manifest', () => {
             env: {
               PATH: '/usr/bin:/bin',
               HOME: root,
-              PLAYWRIGHT_BROWSERS_PATH: '/var/tmp/henry-build/aster-playwright-browsers',
+              PLAYWRIGHT_BROWSERS_PATH:
+                process.env.PLAYWRIGHT_BROWSERS_PATH ??
+                '/var/tmp/henry-build/aster-playwright-browsers',
               ASTER_PHASE1_SCREENSHOT_IPC_ROOT: ipcRoot,
             },
             stdio: ['ignore', 'pipe', 'pipe'],

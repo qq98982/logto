@@ -14,7 +14,8 @@ const helperPath = path.join(
   '.scripts/compatibility/phase1-screenshot-capture.mjs'
 );
 const playwrightModule = createRequire(import.meta.url).resolve('@playwright/test');
-const browserRoot = '/var/tmp/henry-build/aster-playwright-browsers';
+const browserRoot =
+  process.env.PLAYWRIGHT_BROWSERS_PATH ?? '/var/tmp/henry-build/aster-playwright-browsers';
 const issuerHost = 'aster-server.aster-phase1-conformance.svc.cluster.local';
 const suiteCommit = '0dc0e3a21ec411e92c808e5b2e2258592c22b594';
 const planName = 'oidcc-basic-certification-test-plan';

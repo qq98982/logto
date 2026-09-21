@@ -32,6 +32,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node_source="$(realpath -e -- "$(command -v node)")"
+          [[ -f "$node_source" && ! -L "$node_source" && -x "$node_source" ]]
+          [[ "$("$node_source" --version)" == 'v22.23.2' ]]
+          stat -c 'Setup Node: %u:%g %a %F %n' -- "$node_source"
+          if [[ "$node_source" != /usr/bin/node ]]; then
+            sudo install -o root -g root -m 0755 -- "$node_source" /usr/bin/node
+          fi
+          [[ -f /usr/bin/node && ! -L /usr/bin/node ]]
+          [[ "$(realpath -e -- /usr/bin/node)" == /usr/bin/node ]]
+          [[ "$(stat -c '%u:%g:%a:%F' -- /usr/bin/node)" == '0:0:755:regular file' ]]
+          [[ "$(/usr/bin/node --version)" == 'v22.23.2' ]]
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends socat
+          [[ -x /usr/bin/socat ]]
+          runtime_uid="$(id -u)"
+          runtime_gid="$(id -g)"
+          runtime_root="/run/user/$runtime_uid"
+          [[ ! -L "$runtime_root" ]]
+          sudo install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 -- "$runtime_root"
+          [[ "$(realpath -e -- "$runtime_root")" == "$runtime_root" ]]
+          [[ "$(stat -c '%u:%g:%a:%F' -- "$runtime_root")" == "$runtime_uid:$runtime_gid:700:directory" ]]
+          stat -L -c 'Phase 1 prerequisite: %u:%g %a %F %n' -- \
+            /usr/bin/node /usr/bin/git /usr/bin/flock /usr/bin/setsid /usr/bin/timeout \
+            /usr/bin/env /usr/bin/ps /usr/bin/awk /usr/bin/sha256sum /usr/bin/ss \
+            /usr/bin/socat "$runtime_root"
           repository_root="$PWD"
           private_root="$RUNNER_TEMP/aster-phase1-pr"
           playwright_root="$RUNNER_TEMP/aster-playwright"
@@ -39,7 +64,7 @@ jobs:
           install -d -m 0700 \
             "$private_root" "$private_root/home" "$private_root/tmp" \
             "$private_root/xdg" "$playwright_root" "$pnpm_store"
-          closed_path="$(dirname -- "$(command -v node)"):$(dirname -- "$(command -v pnpm)"):/usr/bin:/bin"
+          closed_path="/usr/bin:$(dirname -- "$(command -v pnpm)"):/bin"
           closed_script="$private_root/run.sh"
           cat >"$closed_script" <<'ASTER_PHASE1_PR'
           set -euo pipefail
