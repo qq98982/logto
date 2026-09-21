@@ -641,6 +641,7 @@ try {
     assertPhase1PublicArtifactValue(value);
     if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
       value.sanitizerSuccess !== true || value.provenance?.imageDigest !== imageDigest ||
+      value.provenance?.candidateImageDigest !== imageDigest ||
       !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
       !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
       !Array.isArray(value.planResults) || value.planResults.length !== 2)
@@ -1599,6 +1600,7 @@ const value = parseStrictPhase1ArtifactJson(await readFile(process.argv[2]));
 assertPhase1PublicArtifactValue(value);
 if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' ||
   value.sanitizerSuccess !== true || value.provenance?.imageDigest !== process.argv[3] ||
+  value.provenance?.candidateImageDigest !== process.argv[3] ||
   !Array.isArray(value.adapterControls) || value.adapterControls.length !== 3 ||
   !Array.isArray(value.officialResultIds) || value.officialResultIds.length !== 2 ||
   !Array.isArray(value.planResults) || value.planResults.length !== 2) process.exit(1);

@@ -51,6 +51,7 @@ export type Phase1HarnessResult = Readonly<{
   profileSha256: string;
   schemaSha256: string;
   imageDigest: string;
+  candidateImageDigest: string;
   evidenceManifestSha256: string;
   differential: Readonly<{ scenarioCount: number; differenceCount: number }>;
   browser: Readonly<{ flowCount: number; differenceCount: number }>;
@@ -84,6 +85,7 @@ export type WritePhase1HarnessResultInput = Readonly<{
 
 type EvidenceSummary = Readonly<{
   imageDigest: string;
+  candidateImageDigest: string;
   differential: Phase1HarnessResult['differential'];
   browser: Phase1HarnessResult['browser'];
   controls: Phase1HarnessResult['controls'];
@@ -143,12 +145,15 @@ const requireCommonEvidence = (
       'profileSha256',
       'schemaSha256',
       'imageDigest',
+      'candidateImageDigest',
     ]) ||
     value.provenance.harnessCommit !== harnessCommit ||
     value.provenance.profileSha256 !== profileSha256 ||
     value.provenance.schemaSha256 !== schemaSha256 ||
     typeof value.provenance.imageDigest !== 'string' ||
-    !imageDigestPattern.test(value.provenance.imageDigest)
+    !imageDigestPattern.test(value.provenance.imageDigest) ||
+    typeof value.provenance.candidateImageDigest !== 'string' ||
+    !imageDigestPattern.test(value.provenance.candidateImageDigest)
   ) {
     return fail();
   }
@@ -226,11 +231,23 @@ const deriveEvidenceSummary = (
     schemaSha256,
     ['adapterControls', 'officialResultIds', 'planResults']
   );
-  const imageDigests = [differential, browser, controls, conformance].map(
-    (value) => (value.provenance as Readonly<Record<string, unknown>>).imageDigest
-  );
-
-  if (new Set(imageDigests).size !== 1 || typeof imageDigests[0] !== 'string') {
+  const differentialProvenance = differential.provenance as Readonly<Record<string, unknown>>;
+  const { imageDigest } = differentialProvenance;
+  const { candidateImageDigest } = differentialProvenance;
+  const browserProvenance = browser.provenance as Readonly<Record<string, unknown>>;
+  const controlsProvenance = controls.provenance as Readonly<Record<string, unknown>>;
+  const conformanceProvenance = conformance.provenance as Readonly<Record<string, unknown>>;
+  if (
+    typeof imageDigest !== 'string' ||
+    typeof candidateImageDigest !== 'string' ||
+    browserProvenance.imageDigest !== imageDigest ||
+    controlsProvenance.imageDigest !== candidateImageDigest ||
+    conformanceProvenance.imageDigest !== candidateImageDigest ||
+    [browserProvenance, controlsProvenance, conformanceProvenance].some(
+      (provenance) => provenance.candidateImageDigest !== candidateImageDigest
+    ) ||
+    (mode === 'mirror-control' && candidateImageDigest !== imageDigest)
+  ) {
     return fail();
   }
   if (!Array.isArray(differential.scenarios) || !Array.isArray(browser.flows)) {
@@ -371,7 +388,8 @@ const deriveEvidenceSummary = (
   }
 
   return cloneAndDeepFreeze({
-    imageDigest: imageDigests[0],
+    imageDigest,
+    candidateImageDigest,
     differential: {
       scenarioCount: differential.scenarios.length,
       differenceCount: differenceCount(differential.scenarios, [
@@ -409,6 +427,7 @@ export const parsePhase1HarnessResultBytes = (bytes: Uint8Array): Phase1HarnessR
         'profileSha256',
         'schemaSha256',
         'imageDigest',
+        'candidateImageDigest',
         'evidenceManifestSha256',
         'differential',
         'browser',
@@ -425,6 +444,9 @@ export const parsePhase1HarnessResultBytes = (bytes: Uint8Array): Phase1HarnessR
       !sha256Pattern.test(value.schemaSha256) ||
       typeof value.imageDigest !== 'string' ||
       !imageDigestPattern.test(value.imageDigest) ||
+      typeof value.candidateImageDigest !== 'string' ||
+      !imageDigestPattern.test(value.candidateImageDigest) ||
+      (value.mode === 'mirror-control' && value.candidateImageDigest !== value.imageDigest) ||
       typeof value.evidenceManifestSha256 !== 'string' ||
       !sha256Pattern.test(value.evidenceManifestSha256) ||
       !isArtifactRecord(value.differential) ||
@@ -521,6 +543,7 @@ const deriveResult = async (
     profileSha256,
     schemaSha256,
     imageDigest: summary.imageDigest,
+    candidateImageDigest: summary.candidateImageDigest,
     evidenceManifestSha256: hashPhase1ArtifactBytes(artifacts.manifestBytes),
     differential: summary.differential,
     browser: summary.browser,

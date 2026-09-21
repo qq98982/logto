@@ -1033,18 +1033,19 @@ import { readFile } from 'node:fs/promises';
 const value = JSON.parse(await readFile(process.argv[2], 'utf8'));
 if (value.schemaVersion !== 1 || value.mode !== 'runtime-candidate' || value.sanitizerSuccess !== true) process.exit(1);
 const gate = process.argv[3];
+const primaryImage = gate === 'differential' || gate === 'browser' ? process.argv[4] : process.argv[5];
+if (value.provenance?.imageDigest !== primaryImage ||
+  value.provenance?.candidateImageDigest !== process.argv[5]) process.exit(1);
 if (gate === 'differential') {
   if (!Array.isArray(value.scenarios) || value.scenarios.length !== 22) process.exit(1);
   if (value.scenarios.some((scenario) => !Array.isArray(scenario.differences) || scenario.differences.length !== 0)) process.exit(1);
 } else if (gate === 'candidate-invariants') {
-  if (value.provenance?.imageDigest !== process.argv[5]) process.exit(1);
   if (!Array.isArray(value.outcomes) || value.outcomes.length !== 18) process.exit(1);
   if (value.outcomes.some((outcome) => outcome.detected !== true || outcome.positiveControl?.detected !== true || outcome.negativeControl?.detected !== true)) process.exit(1);
   if (!Array.isArray(value.observationNegativeControls) || value.observationNegativeControls.length !== 6) process.exit(1);
   if (value.observationNegativeControls.some((control) => control.detected !== true)) process.exit(1);
   if (value.discoveryExtraControl?.detected !== true) process.exit(1);
 } else if (gate === 'browser') {
-  if (value.provenance?.imageDigest !== process.argv[4]) process.exit(1);
   if (!Array.isArray(value.flows) || value.flows.length !== 4) process.exit(1);
   if (value.flows.some((flow) => !Array.isArray(flow.differences) || flow.differences.length !== 0)) process.exit(1);
 } else process.exit(1);

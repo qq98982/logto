@@ -1,4 +1,4 @@
-/* eslint-disable no-use-extend-native/no-use-extend-native -- Exact service, network, and volume authority comparisons use ES2023 non-mutating sorting. */
+/* eslint-disable max-lines, no-await-in-loop, no-use-extend-native/no-use-extend-native -- Keep topology and actual export-guard contracts together; shared temporary artifacts require sequential checks and exact authority comparisons use non-mutating sorting. */
 import { execFile } from 'node:child_process';
 import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Socket } from 'node:net';
@@ -33,6 +33,15 @@ const differentialWrapperPath = path.join(
 const readCompose = async (filePath: string): Promise<ComposeDocument> =>
   JSON.parse(await readFile(filePath, 'utf8')) as ComposeDocument;
 
+const artifactEntries = (count: number) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: `case-${String(index).padStart(2, '0')}`,
+    differences: [],
+    detected: true,
+    positiveControl: { detected: true },
+    negativeControl: { detected: true },
+  }));
+
 const oracleServices = [
   'oracle-primary-postgres',
   'oracle-primary-redis',
@@ -63,6 +72,63 @@ const phase0CandidateServices = [
 ] as const;
 
 describe('runtime-candidate differential topology', () => {
+  it('exports only artifacts bound to both owned image roles', async () => {
+    const source = await readFile(runtimeRunnerPath, 'utf8');
+    const marker = source.indexOf('const gate = process.argv[3];');
+    const start = source.lastIndexOf("import { readFile } from 'node:fs/promises';", marker);
+    const end = source.indexOf('\nNODE', marker);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const guard = source.slice(start, end);
+    const root = await mkdtemp('/var/tmp/henry-build/phase1-artifact-image-');
+    const file = path.join(root, 'artifact.json');
+    const oracle = `sha256:${'a'.repeat(64)}`;
+    const candidate = `sha256:${'b'.repeat(64)}`;
+    try {
+      for (const gate of ['differential', 'browser', 'candidate-invariants']) {
+        const primary = gate === 'candidate-invariants' ? candidate : oracle;
+        const artifact = {
+          schemaVersion: 1,
+          mode: 'runtime-candidate',
+          sanitizerSuccess: true,
+          provenance: { imageDigest: primary, candidateImageDigest: candidate },
+          ...(gate === 'differential'
+            ? { scenarios: artifactEntries(22) }
+            : gate === 'browser'
+              ? { flows: artifactEntries(4) }
+              : {
+                  outcomes: artifactEntries(18),
+                  observationNegativeControls: artifactEntries(6),
+                  discoveryExtraControl: { detected: true },
+                }),
+        };
+        const run = async () =>
+          executeFile(process.execPath, [
+            '--input-type=module',
+            '--eval',
+            guard,
+            '-',
+            file,
+            gate,
+            oracle,
+            candidate,
+          ]);
+        await writeFile(file, JSON.stringify(artifact), { mode: 0o600 });
+        await expect(run()).resolves.toMatchObject({ stdout: '', stderr: '' });
+        for (const provenance of [
+          { imageDigest: primary },
+          { imageDigest: primary, candidateImageDigest: oracle },
+          { imageDigest: primary === oracle ? candidate : oracle, candidateImageDigest: candidate },
+        ]) {
+          await writeFile(file, JSON.stringify({ ...artifact, provenance }), { mode: 0o600 });
+          await expect(run()).rejects.toThrow();
+        }
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('accepts only an owned socket in a private canonical directory', async () => {
     const source = await readFile(runtimeRunnerPath, 'utf8');
     const functionStart = source.indexOf('validate_engine_socket() {');
@@ -417,4 +483,4 @@ describe('runtime-candidate differential topology', () => {
   });
 });
 
-/* eslint-enable no-use-extend-native/no-use-extend-native */
+/* eslint-enable max-lines, no-await-in-loop, no-use-extend-native/no-use-extend-native */

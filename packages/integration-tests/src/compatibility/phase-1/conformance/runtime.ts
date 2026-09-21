@@ -112,6 +112,7 @@ const executeRuntime = async (
         profileSha256: context.authorization.profileSha256,
         schemaSha256: context.authorization.schemaSha256,
         imageDigest,
+        candidateImageDigest: context.candidateImageDigest,
       })
     );
 

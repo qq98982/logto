@@ -141,6 +141,7 @@ const requireCommonArtifact = (
     'profileSha256',
     'schemaSha256',
     'imageDigest',
+    'candidateImageDigest',
   ]);
   const imageDigest = expectedImageDigest ?? context.oracleImageDigest ?? fail();
 
@@ -152,7 +153,10 @@ const requireCommonArtifact = (
     provenance.harnessCommit !== harnessCommit ||
     provenance.profileSha256 !== context.authorization.profileSha256 ||
     provenance.schemaSha256 !== context.authorization.schemaSha256 ||
-    provenance.imageDigest !== imageDigest
+    provenance.imageDigest !== imageDigest ||
+    provenance.candidateImageDigest !== context.candidateImageDigest ||
+    (context.authorization.mode === 'mirror-control' &&
+      provenance.candidateImageDigest !== imageDigest)
   ) {
     return fail();
   }

@@ -3,7 +3,11 @@ import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/pr
 import path from 'node:path';
 
 import type { JsonValue } from '../../normalize.js';
-import { canonicalPhase1ArtifactBytes } from '../artifact-contract.js';
+import {
+  canonicalPhase1ArtifactBytes,
+  isArtifactRecord,
+  phase1EvidenceFileNames,
+} from '../artifact-contract.js';
 import { phase1BrowserFlowIds } from '../browser/contracts.js';
 import { candidateInvariantContracts } from '../candidate-invariants/index.js';
 import { runPhase1CandidateControlRuntime } from '../candidate-invariants/runtime.js';
@@ -271,6 +275,7 @@ const provenance = (runtime: Phase1EvidenceRuntimeContext) => ({
   profileSha256: runtime.authorization.profileSha256,
   schemaSha256: runtime.authorization.schemaSha256,
   imageDigest: runtime.oracleImageDigest,
+  candidateImageDigest: runtime.candidateImageDigest,
 });
 
 const comparable = (id: string, oracleLabel: string, candidateLabel: string) => ({
@@ -413,6 +418,7 @@ const conformance = (
       profileSha256: runtime.authorization.profileSha256,
       schemaSha256: runtime.authorization.schemaSha256,
       imageDigest,
+      candidateImageDigest: runtime.candidateImageDigest,
     },
     sanitizerSuccess: true,
     adapterControls: ['oidf-basic-1', 'oidf-basic-2', 'oidf-post-1'].map((id) => ({
@@ -461,6 +467,40 @@ const executeForTesting = async (
   });
 
 describe('Phase 1 evidence execution coordinator', () => {
+  it('rejects missing or substituted candidate bindings for every artifact before publication', async () => {
+    const root = await createRoot();
+    const runtime = candidateGateContext(root);
+    const artifacts = {
+      'phase-1-differential.json': differential(runtime),
+      'phase-1-browser.json': browser(runtime),
+      'phase-1-candidate-invariants.json': await runtimeCandidateControls(runtime),
+      'phase-1-conformance.json': conformance(runtime),
+    };
+
+    for (const name of phase1EvidenceFileNames) {
+      const artifact = artifacts[name];
+      if (!isArtifactRecord(artifact) || !isArtifactRecord(artifact.provenance)) {
+        throw new TypeError('invalid image-binding test artifact');
+      }
+      expect(() => validatePhase1EvidenceArtifactForTesting(name, artifact, runtime)).not.toThrow();
+      for (const candidateImageDigest of [undefined, digest, `sha256:${'7'.repeat(64)}`]) {
+        const altered = {
+          ...artifact,
+          provenance: {
+            ...Object.fromEntries(
+              Object.entries(artifact.provenance).filter(([key]) => key !== 'candidateImageDigest')
+            ),
+            ...(candidateImageDigest === undefined ? {} : { candidateImageDigest }),
+          },
+        };
+        expect(() => validatePhase1EvidenceArtifactForTesting(name, altered, runtime)).toThrow(
+          /^Phase 1 evidence execution failed\.$/u
+        );
+      }
+    }
+    expect(await readdir(root)).toEqual([]);
+  });
+
   it('publishes only one validated differential gate artifact', async () => {
     const root = await createRoot();
     const runtime = context(root);

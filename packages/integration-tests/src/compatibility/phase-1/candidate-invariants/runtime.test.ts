@@ -129,6 +129,7 @@ describe('Phase 1 candidate control production runtime', () => {
           profileSha256: '3'.repeat(64),
           schemaSha256: '4'.repeat(64),
           imageDigest: oracleImageDigest,
+          candidateImageDigest: context(mode).candidateImageDigest,
         },
         sanitizerSuccess: true,
       });
@@ -221,6 +222,7 @@ describe('Phase 1 candidate control production runtime', () => {
     expect(runLiveInvariant.mock.calls.map(([id]) => id)).toEqual(candidateInvariantScenarioIds);
     expect(result.mode).toBe('runtime-candidate');
     expect(result.provenance.imageDigest).toBe(runtime.candidateImageDigest);
+    expect(result.provenance.candidateImageDigest).toBe(runtime.candidateImageDigest);
     expect(result.outcomes).toHaveLength(18);
     expect(result.outcomes.map(({ id }) => id)).toEqual(
       [...candidateInvariantScenarioIds].toSorted()

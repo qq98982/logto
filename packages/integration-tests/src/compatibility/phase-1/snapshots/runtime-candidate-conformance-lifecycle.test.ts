@@ -43,6 +43,8 @@ const maximumCandidateArchiveSize = 32 * 1024 * 1024 * 1024;
 
 type Behavior =
   | 'success'
+  | 'missing-candidate-binding'
+  | 'wrong-candidate-binding'
   | 'cleanup-run-removal-failure'
   | 'run-dir-disappears'
   | 'run-dir-becomes-file'
@@ -558,6 +560,7 @@ appendFileSync(path.join(captureRoot, 'run-roots.log'), path.dirname(root) + '\\
 appendFileSync(path.join(captureRoot, 'started.log'), descriptor.projectName + '\\n');
 const behavior = ${JSON.stringify(behavior)};
 const reachesPlan = behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
+  behavior === 'missing-candidate-binding' || behavior === 'wrong-candidate-binding' ||
   behavior === 'run-dir-disappears' || behavior === 'run-dir-becomes-file' ||
   behavior === 'run-dir-raced-replacement' ||
   behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
@@ -604,6 +607,7 @@ writeFileSync(path.join(captureRoot, 'bridge-diagnostic.json'), JSON.stringify({
 if (!reachesPlan) process.exit(adapter.status === 0 ? 2 : 1);
 if (adapter.status !== 0 || JSON.parse(adapter.stdout).status !== 'PASSED') process.exit(3);
 if (behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
+    behavior === 'missing-candidate-binding' || behavior === 'wrong-candidate-binding' ||
     behavior === 'run-dir-disappears' || behavior === 'run-dir-becomes-file' ||
     behavior === 'run-dir-raced-replacement' ||
     behavior === 'export-dir-replaced' || behavior === 'export-dir-becomes-link' ||
@@ -611,7 +615,12 @@ if (behavior === 'success' || behavior === 'cleanup-run-removal-failure' ||
     behavior === 'publish-mode-changed') {
   const artifact = JSON.stringify({
     schemaVersion: 1, mode: 'runtime-candidate', sanitizerSuccess: true,
-    provenance: { imageDigest: process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST },
+    provenance: {
+      imageDigest: process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST,
+      candidateImageDigest: behavior === 'missing-candidate-binding' ? undefined
+        : behavior === 'wrong-candidate-binding' ? 'sha256:' + 'f'.repeat(64)
+          : process.env.ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST,
+    },
     adapterControls: [{ id: 'oidf-basic-1' }, { id: 'oidf-basic-2' }, { id: 'oidf-post-1' }],
     officialResultIds: ['basic-result-1', 'config-result-1'],
     planResults: [
@@ -933,6 +942,8 @@ export const assertPhase1PublicArtifactValue = (value) => {
     ),
     writeFile(path.join(repository, 'Dockerfile.phase1-oidf-suite'), 'FROM scratch\n'),
   ]);
+  // Match the driver's exact source-mode contract independently of the caller's umask.
+  await chmod(runner, 0o644);
   await initializeRepository(repository, 'https://github.com/qq98982/logto.git', 'fixture');
 
   return {
@@ -1231,7 +1242,7 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
             process.execPath,
             root,
           ],
-          { timeout: 10_000 }
+          { timeout: 10_000, env: { PATH: '/usr/bin:/bin' } }
         );
         if (accepted) {
           expect(await cleanup).toMatchObject({ stdout: '', stderr: '' });
@@ -1295,6 +1306,22 @@ describe('runtime-candidate conformance lifecycle and runner bridge', () => {
       expect(await readdir(output)).toEqual([]);
     }
   });
+
+  it.each(['missing-candidate-binding', 'wrong-candidate-binding'] as const)(
+    'rejects %s without publishing and cleans owned fixture resources',
+    async (behavior) => {
+      const fixture = await createFixture(behavior);
+      const output = path.join(fixture.buildRoot, 'published');
+      await mkdir(output, { mode: 0o700 });
+      await runFailure(fixture, systemCandidateChannel, output);
+      await expect(
+        readFile(path.join(fixture.captureRoot, 'expected-artifact.json'))
+      ).resolves.toBeInstanceOf(Buffer);
+      expect(await readdir(output)).toEqual([]);
+      expect(await activeResources(fixture)).toBe(false);
+      expect(await readdir(fixture.runRoot)).toEqual([]);
+    }
+  );
 
   it('withdraws a published result if run directory cleanup fails', async () => {
     const fixture = await createFixture('cleanup-run-removal-failure');

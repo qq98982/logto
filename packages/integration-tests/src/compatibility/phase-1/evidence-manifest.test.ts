@@ -46,6 +46,7 @@ const evidenceValue = (mode: Phase1ArtifactMode, name: string) => ({
     profileSha256: 'b'.repeat(64),
     schemaSha256: 'c'.repeat(64),
     imageDigest: `sha256:${'d'.repeat(64)}`,
+    candidateImageDigest: `sha256:${'d'.repeat(64)}`,
   },
   sanitizerSuccess: true,
   value: { name, accepted: true },
@@ -62,6 +63,29 @@ const writeEvidenceTree = async (root: string, mode: Phase1ArtifactMode = 'mirro
 };
 
 describe('Phase 1 evidence manifest', () => {
+  it.each([undefined, 'candidate:latest', `sha256:${'A'.repeat(64)}`])(
+    'rejects evidence without an immutable candidate binding: %s',
+    async (candidateImageDigest) => {
+      const root = await createRoot();
+      await writeEvidenceTree(root);
+      const value = evidenceValue('mirror-control', 'candidate-binding');
+      await writeFile(
+        path.join(root, 'phase-1-browser.json'),
+        JSON.stringify({
+          ...value,
+          provenance: { ...value.provenance, candidateImageDigest },
+        }),
+        { mode: 0o600 }
+      );
+      await expect(writePhase1EvidenceManifest(root, 'mirror-control')).rejects.toThrow(
+        /^Invalid phase 1 evidence manifest$/u
+      );
+      await expect(readFile(path.join(root, 'evidence-manifest.json'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    }
+  );
+
   it('publishes the exact sorted four-file manifest from descriptor-pinned bytes', async () => {
     const root = await createRoot();
     await writeEvidenceTree(root);

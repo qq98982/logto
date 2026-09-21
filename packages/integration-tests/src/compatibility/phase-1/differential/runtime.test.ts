@@ -354,6 +354,10 @@ describe('Phase 1 differential runtime', () => {
     });
 
     expect(result.mode).toBe('runtime-candidate');
+    expect(result.provenance).toMatchObject({
+      imageDigest: runtimeContext.oracleImageDigest,
+      candidateImageDigest: runtimeContext.candidateImageDigest,
+    });
     expect(result.scenarios).toHaveLength(22);
     expect(result.scenarios.every(({ differences }) => differences.length === 0)).toBe(true);
     expect(projectProfile).toHaveBeenNthCalledWith(

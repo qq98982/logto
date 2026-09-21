@@ -19,6 +19,7 @@ const provenance = {
   profileSha256: '2'.repeat(64),
   schemaSha256: '3'.repeat(64),
   imageDigest: `sha256:${'4'.repeat(64)}`,
+  candidateImageDigest: `sha256:${'4'.repeat(64)}`,
 };
 
 const runResult = (): Phase1ConformanceRunResult => ({

@@ -38,6 +38,7 @@ const roots = new Set<string>();
 const executeFile = promisify(execFile);
 const harnessCommit = 'a'.repeat(40);
 const imageDigest = `sha256:${'b'.repeat(64)}`;
+const runtimeCandidateDigest = `sha256:${'c'.repeat(64)}`;
 const adapterIds = ['oidf-basic-1', 'oidf-basic-2', 'oidf-post-1'] as const;
 const planIds = [
   'oidcc-basic-certification-test-plan',
@@ -121,13 +122,19 @@ const writeHarnessEvidence = async (
     planNameResults?: boolean;
     forgedBasicResult?: boolean;
     basicResult?: unknown;
+    alterProvenance?: (
+      name: Phase1EvidenceFileName,
+      value: Record<string, unknown>
+    ) => Record<string, unknown>;
   }> = {}
 ) => {
+  const candidateImageDigest = mode === 'runtime-candidate' ? runtimeCandidateDigest : imageDigest;
   const provenance = {
     harnessCommit,
     profileSha256: bundle.profileSha256,
     schemaSha256: bundle.schemaSha256,
     imageDigest,
+    candidateImageDigest,
   };
   const officialResultIds =
     mode === 'runtime-candidate'
@@ -146,7 +153,10 @@ const writeHarnessEvidence = async (
   if (options.forgedBasicResult) {
     basicResult.modules[0]!.result = 'FAILED';
   }
-  const values: Record<Phase1EvidenceFileName, unknown> = {
+  const values: Record<
+    Phase1EvidenceFileName,
+    Record<string, unknown> & { provenance: Record<string, unknown> }
+  > = {
     'phase-1-browser.json': {
       schemaVersion: 1,
       mode,
@@ -162,7 +172,7 @@ const writeHarnessEvidence = async (
     'phase-1-candidate-invariants.json': {
       schemaVersion: 1,
       mode,
-      provenance,
+      provenance: { ...provenance, imageDigest: candidateImageDigest },
       sanitizerSuccess: true,
       outcomes: [...candidateInvariantScenarioIds].toSorted().map((id) => ({
         id,
@@ -190,7 +200,7 @@ const writeHarnessEvidence = async (
     'phase-1-conformance.json': {
       schemaVersion: 1,
       mode,
-      provenance,
+      provenance: { ...provenance, imageDigest: candidateImageDigest },
       sanitizerSuccess: true,
       adapterControls: adapterIds.map((id) => ({
         id,
@@ -231,7 +241,15 @@ const writeHarnessEvidence = async (
 
   await Promise.all(
     phase1EvidenceFileNames.map(async (name) =>
-      writeFile(path.join(root, name), `${JSON.stringify(values[name])}\n`, { mode: 0o600 })
+      writeFile(
+        path.join(root, name),
+        `${JSON.stringify({
+          ...values[name],
+          provenance:
+            options.alterProvenance?.(name, values[name].provenance) ?? values[name].provenance,
+        })}\n`,
+        { mode: 0o600 }
+      )
     )
   );
 };
@@ -242,6 +260,10 @@ const createFixture = async (
     planNameResults?: boolean;
     forgedBasicResult?: boolean;
     basicResult?: unknown;
+    alterProvenance?: (
+      name: Phase1EvidenceFileName,
+      value: Record<string, unknown>
+    ) => Record<string, unknown>;
   }> = {}
 ) => {
   const root = await createRoot();
@@ -287,6 +309,7 @@ describe('Phase 1 harness result', () => {
       'profileSha256',
       'schemaSha256',
       'imageDigest',
+      'candidateImageDigest',
       'evidenceManifestSha256',
       'differential',
       'browser',
@@ -294,6 +317,7 @@ describe('Phase 1 harness result', () => {
       'conformance',
     ]);
     expect(parsed.differential).toEqual({ scenarioCount: 22, differenceCount: 0 });
+    expect(parsed.candidateImageDigest).toBe(imageDigest);
     expect(parsed.browser).toEqual({ flowCount: 4, differenceCount: 0 });
     expect(parsed.controls).toEqual({
       observationKindCount: 6,
@@ -308,7 +332,7 @@ describe('Phase 1 harness result', () => {
     }).not.toThrow();
   });
 
-  it('keeps review-candidate result nonuploadable', async () => {
+  it('keeps review-candidate result nonuploadable with its matching-image binding', async () => {
     const fixture = await createFixture('review-candidate');
     const artifact = await writePhase1HarnessResult({
       profileBundle: fixture.bundle,
@@ -316,9 +340,86 @@ describe('Phase 1 harness result', () => {
     });
 
     expect(artifact.uploadable).toBe(false);
+    expect(artifact.result.imageDigest).toBe(imageDigest);
+    expect(artifact.result.candidateImageDigest).toBe(imageDigest);
     expect(() => {
       assertPhase1HarnessResultUploadable(artifact);
     }).toThrow(/^Invalid phase 1 harness result$/u);
+  });
+
+  it.each(phase1EvidenceFileNames)(
+    'rejects stale candidate bindings and swapped primary image roles in %s after manifest hashing',
+    async (changedName) => {
+      for (const mutation of ['candidate-is-oracle', 'stale-candidate', 'swapped-primary']) {
+        const fixture = await createFixture('runtime-candidate', {
+          alterProvenance: (name, value) => {
+            if (name !== changedName) {
+              return value;
+            }
+            if (mutation === 'candidate-is-oracle') {
+              return { ...value, candidateImageDigest: imageDigest };
+            }
+            if (mutation === 'stale-candidate') {
+              return { ...value, candidateImageDigest: `sha256:${'f'.repeat(64)}` };
+            }
+            return {
+              ...value,
+              imageDigest: value.imageDigest === imageDigest ? runtimeCandidateDigest : imageDigest,
+            };
+          },
+        });
+        await expect(
+          writePhase1HarnessResult({
+            profileBundle: fixture.bundle,
+            evidenceManifest: fixture.manifest,
+          })
+        ).rejects.toThrow(/^Invalid phase 1 harness result$/u);
+        await expect(
+          readFile(path.join(fixture.evidenceDirectory, 'harness-result.json'))
+        ).rejects.toMatchObject({ code: 'ENOENT' });
+      }
+    }
+  );
+
+  it('rejects a coherent two-image bundle in mirror mode', async () => {
+    const fixture = await createFixture('mirror-control', {
+      alterProvenance: (name, value) => ({
+        ...value,
+        candidateImageDigest: runtimeCandidateDigest,
+        imageDigest:
+          name === 'phase-1-differential.json' || name === 'phase-1-browser.json'
+            ? imageDigest
+            : runtimeCandidateDigest,
+      }),
+    });
+    await expect(
+      writePhase1HarnessResult({
+        profileBundle: fixture.bundle,
+        evidenceManifest: fixture.manifest,
+      })
+    ).rejects.toThrow(/^Invalid phase 1 harness result$/u);
+  });
+
+  it('requires an immutable result candidate binding and rederives it from evidence', async () => {
+    const fixture = await createFixture('runtime-candidate');
+    const input = { profileBundle: fixture.bundle, evidenceManifest: fixture.manifest };
+    const artifact = await writePhase1HarnessResult(input);
+    for (const candidateImageDigest of [
+      undefined,
+      'candidate:latest',
+      `sha256:${'A'.repeat(64)}`,
+    ]) {
+      const bytes = Buffer.from(JSON.stringify({ ...artifact.result, candidateImageDigest }));
+      expect(() => parsePhase1HarnessResultBytes(bytes)).toThrow(
+        /^Invalid phase 1 harness result$/u
+      );
+    }
+    const forged = Buffer.from(
+      JSON.stringify({ ...artifact.result, candidateImageDigest: imageDigest })
+    );
+    await expect(verifyPhase1HarnessResultBytes(forged, input, true)).rejects.toThrow(
+      /^Invalid phase 1 harness result$/u
+    );
   });
 
   it('removes the exact result publication when post-publication work fails', async () => {
@@ -406,6 +507,8 @@ describe('Phase 1 harness result', () => {
       profileBundle: valid.bundle,
       evidenceManifest: valid.manifest,
     });
+    expect(artifact.result.imageDigest).toBe(imageDigest);
+    expect(artifact.result.candidateImageDigest).toBe(runtimeCandidateDigest);
     expect(artifact.result.conformance.officialResultIds).toEqual([
       'official-result-alpha',
       'official-result-beta',

@@ -9,6 +9,7 @@ const provenance = {
   profileSha256: '2'.repeat(64),
   schemaSha256: '3'.repeat(64),
   imageDigest: `sha256:${'4'.repeat(64)}`,
+  candidateImageDigest: `sha256:${'5'.repeat(64)}`,
 };
 
 describe('Phase 1 evidence envelopes', () => {
@@ -36,6 +37,7 @@ describe('Phase 1 evidence envelopes', () => {
       'profileSha256',
       'schemaSha256',
       'imageDigest',
+      'candidateImageDigest',
     ]);
     expect(Object.isFrozen(closedProvenance)).toBe(true);
     expect(envelope).toEqual({
@@ -51,6 +53,12 @@ describe('Phase 1 evidence envelopes', () => {
     for (const invalid of [
       { ...provenance, harnessCommit: 'not-a-commit' },
       { ...provenance, profileSha256: 'A'.repeat(64) },
+      { ...provenance, candidateImageDigest: undefined },
+      { ...provenance, candidateImageDigest: 'candidate:latest' },
+      { ...provenance, candidateImageDigest: `sha256:${'A'.repeat(64)}` },
+      Object.fromEntries(
+        Object.entries(provenance).filter(([key]) => key !== 'candidateImageDigest')
+      ),
       { ...provenance, extra: true },
     ]) {
       expect(() => createPhase1EvidenceProvenance(invalid as never)).toThrow(

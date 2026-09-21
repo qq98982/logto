@@ -26,6 +26,31 @@ The four artifact records are required in this exact order:
 3. `phase-1-conformance.json`
 4. `phase-1-differential.json`
 
+Every evidence provenance object contains exactly `harnessCommit`, `profileSha256`,
+`schemaSha256`, `imageDigest`, and `candidateImageDigest`. Both image fields are required lowercase
+immutable SHA-256 digests. Producers obtain the candidate binding from the checked runtime context
+that drives their requests; adding metadata to an old artifact does not establish that binding.
+
+For runtime-candidate and mirror-control evidence:
+
+| Evidence | `imageDigest` | `candidateImageDigest` |
+| --- | --- | --- |
+| Differential and browser | Oracle image | Candidate image |
+| Candidate invariants and conformance | Candidate image | Candidate image |
+
+Bundle assembly requires the same candidate, harness, profile, schema, and mode across all four
+artifacts and applies these fixed primary-image roles. Mirror control additionally requires the
+candidate and oracle images to be identical. Missing bindings, substituted candidates, swapped
+roles, and malformed digests fail closed; no old missing-field form is accepted.
+Review-candidate remains nonuploadable. Its complete differential runtime already requires
+matching images before invoking adapters; it cannot produce a distinct-image acceptance bundle.
+
+The closed `harness-result.json` includes required `candidateImageDigest` alongside `imageDigest`.
+The latter remains the oracle image and remains the meaning of the harness-result CLI's
+`--image-digest` argument. The candidate field is derived from all four verified artifacts.
+Aster separately checks it against its own immutable candidate argument before record assembly.
+The evidence-manifest format and final acceptance-record schemas are unchanged.
+
 The three conformance adapter IDs are exactly `oidf-basic-1`, `oidf-basic-2`, and `oidf-post-1` in
 that order. Mirror control requires 22 differential scenarios and four browser flows with zero
 differences, all 18 candidate-invariant controls detected, identical oracle/candidate image digests,

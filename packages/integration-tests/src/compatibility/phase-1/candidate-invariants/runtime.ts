@@ -399,6 +399,7 @@ const executeCandidateControlRuntime = async (
         schemaSha256: context.authorization.schemaSha256,
         imageDigest:
           mode === 'runtime-candidate' ? context.candidateImageDigest : context.oracleImageDigest,
+        candidateImageDigest: context.candidateImageDigest,
       }),
       sanitizerSuccess: true as const,
       outcomes,

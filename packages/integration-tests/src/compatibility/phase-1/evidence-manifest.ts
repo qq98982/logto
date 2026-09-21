@@ -31,6 +31,7 @@ import {
   type Phase1ArtifactMode,
   type Phase1EvidenceFileName,
 } from './artifact-contract.js';
+import { createPhase1EvidenceProvenance } from './evidence-envelope.js';
 import { cloneAndDeepFreeze } from './model.js';
 
 export type Phase1EvidenceManifestEntry = Readonly<{
@@ -230,6 +231,7 @@ const readEvidenceFile = async (
     ) {
       return fail();
     }
+    createPhase1EvidenceProvenance(value.provenance);
     const after = await file.stat({ bigint: true });
     const pathState = await lstat(filePath, { bigint: true });
 

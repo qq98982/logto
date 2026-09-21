@@ -314,6 +314,10 @@ describe('Phase 1 browser production runtime', () => {
     const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
 
     expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(result.provenance).toMatchObject({
+      imageDigest: runtimeContext.oracleImageDigest,
+      candidateImageDigest: runtimeContext.candidateImageDigest,
+    });
     expect(harness.profileImplementations).toEqual(['oracle', 'oracle']);
     expect(harness.artifactImplementations).toEqual(Array.from({ length: 8 }, () => 'oracle'));
     expect(harness.provisionerInputs).toHaveLength(2);
@@ -347,6 +351,7 @@ describe('Phase 1 browser production runtime', () => {
         profileSha256: '3'.repeat(64),
         schemaSha256: '4'.repeat(64),
         imageDigest: digest,
+        candidateImageDigest: digest,
       },
       sanitizerSuccess: true,
     });
@@ -376,6 +381,10 @@ describe('Phase 1 browser production runtime', () => {
     const harness = dependencies(false, true);
     const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
 
+    expect(result.provenance).toMatchObject({
+      imageDigest: runtimeContext.oracleImageDigest,
+      candidateImageDigest: runtimeContext.candidateImageDigest,
+    });
     expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
     expect(harness.profileImplementations).toEqual(['oracle', 'candidate']);
     expect(harness.artifactImplementations).toEqual(

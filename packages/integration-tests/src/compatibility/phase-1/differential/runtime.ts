@@ -277,6 +277,7 @@ const provenanceFor = (context: Phase1EvidenceRuntimeContext): Phase1EvidencePro
     profileSha256: context.authorization.profileSha256,
     schemaSha256: context.authorization.schemaSha256,
     imageDigest: context.oracleImageDigest,
+    candidateImageDigest: context.candidateImageDigest,
   });
 };
 

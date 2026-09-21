@@ -15,6 +15,7 @@ export type Phase1EvidenceProvenance = Readonly<{
   profileSha256: string;
   schemaSha256: string;
   imageDigest: string;
+  candidateImageDigest: string;
 }>;
 
 export type Phase1ProjectionEnvelope<Label extends string = string> = Readonly<{
@@ -88,7 +89,13 @@ export const createPhase1EvidenceProvenance = (value: unknown): Phase1EvidencePr
     if (
       !snapshot ||
       Array.isArray(snapshot) ||
-      !exactKeys(snapshot, ['harnessCommit', 'profileSha256', 'schemaSha256', 'imageDigest']) ||
+      !exactKeys(snapshot, [
+        'harnessCommit',
+        'profileSha256',
+        'schemaSha256',
+        'imageDigest',
+        'candidateImageDigest',
+      ]) ||
       typeof snapshot.harnessCommit !== 'string' ||
       !commitPattern.test(snapshot.harnessCommit) ||
       typeof snapshot.profileSha256 !== 'string' ||
@@ -96,7 +103,9 @@ export const createPhase1EvidenceProvenance = (value: unknown): Phase1EvidencePr
       typeof snapshot.schemaSha256 !== 'string' ||
       !sha256Pattern.test(snapshot.schemaSha256) ||
       typeof snapshot.imageDigest !== 'string' ||
-      !imageDigestPattern.test(snapshot.imageDigest)
+      !imageDigestPattern.test(snapshot.imageDigest) ||
+      typeof snapshot.candidateImageDigest !== 'string' ||
+      !imageDigestPattern.test(snapshot.candidateImageDigest)
     ) {
       throw new TypeError(diagnostic);
     }
@@ -105,6 +114,7 @@ export const createPhase1EvidenceProvenance = (value: unknown): Phase1EvidencePr
       profileSha256: snapshot.profileSha256,
       schemaSha256: snapshot.schemaSha256,
       imageDigest: snapshot.imageDigest,
+      candidateImageDigest: snapshot.candidateImageDigest,
     });
 
     assertPhase1EvidenceIsSanitized(provenance);
