@@ -1,4 +1,4 @@
-/* eslint-disable no-template-curly-in-string, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-delete, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Each hostile fixture mutates one isolated workflow copy and records literal GitHub expressions. */
+/* eslint-disable max-lines, no-template-curly-in-string, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-delete, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Closed workflow authority cases stay together; each hostile fixture mutates one isolated workflow copy and records literal GitHub expressions. */
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -151,6 +151,14 @@ const hardenCompatibilityWorkflow = (yaml: string): string => {
       if (step.uses?.startsWith('pnpm/action-setup@')) {
         step.with = { version: '10.15.1' };
       }
+      if (step.uses?.startsWith('actions/checkout@')) {
+        step.with = {
+          repository: 'qq98982/logto',
+          ref: '40135e37201f36ac05ece1eff82e37bb6d9649f1',
+          'fetch-depth': 0,
+          'persist-credentials': false,
+        };
+      }
       if (step.uses?.startsWith('actions/setup-node@')) {
         step.with = { 'node-version': '22.23.2' };
       }
@@ -255,7 +263,7 @@ describe('Phase 1 workflow policy', () => {
     ).toThrow(/^Invalid Phase 1 workflow policy$/u);
   });
 
-  it('accepts only the normalized seven-change Phase 0 workflow when locked', async () => {
+  it('accepts only the pinned Phase 0 checkout and hardened workflow when locked', async () => {
     const workflows = await readWorkflowSources();
     const phase0 = await readPhase0CompatibilityWorkflow();
     const phase1 = workflows.find(({ path: workflowPath }) => workflowPath === phase1WorkflowPath);
@@ -307,6 +315,38 @@ describe('Phase 1 workflow policy', () => {
           ...phase0,
           bytes: encoder.encode('name: forged\n'),
         }),
+      })
+    ).toThrow(/^Invalid Phase 1 workflow policy$/u);
+  });
+
+  it.each([
+    ['pull-request head', { ref: '${{ github.event.pull_request.head.sha }}' }],
+    ['event merge revision', { ref: '${{ github.sha }}' }],
+    ['mutable branch', { ref: 'aster-phase1-harness' }],
+    ['different immutable revision', { ref: '6852a7b8c8984c5c12b2061e8c51faa310a36412' }],
+    ['different repository', { repository: 'another-owner/logto' }],
+    [
+      'pull-request repository',
+      { repository: '${{ github.event.pull_request.head.repo.full_name }}' },
+    ],
+    ['persisted checkout credentials', { 'persist-credentials': true }],
+    ['implicit revision', { ref: undefined }],
+    ['implicit repository', { repository: undefined }],
+    ['implicit credential persistence', { 'persist-credentials': undefined }],
+  ])('rejects Phase 0 checkout with %s', async (_name, changes) => {
+    const phase0 = await readPhase0CompatibilityWorkflow();
+    const phase1 = source(await readFile(path.join(repositoryRoot, phase1WorkflowPath), 'utf8'));
+    const workflow = parseYaml(
+      hardenCompatibilityWorkflow(new TextDecoder().decode(phase0.bytes))
+    ) as MutableWorkflow;
+    const checkout = workflow.jobs.compatibility!.steps[0]!;
+    checkout.with = { ...checkout.with, ...changes };
+
+    expect(() =>
+      evaluatePhase1WorkflowPolicy({
+        governanceMode: 'locked',
+        workflows: [source(stringifyYaml(workflow), compatibilityWorkflowPath), phase1],
+        phase0CompatibilityWorkflow: phase0,
       })
     ).toThrow(/^Invalid Phase 1 workflow policy$/u);
   });
@@ -418,4 +458,4 @@ describe('Phase 1 workflow policy', () => {
   });
 });
 
-/* eslint-enable no-template-curly-in-string, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-delete, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, no-template-curly-in-string, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-delete, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

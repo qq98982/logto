@@ -383,6 +383,14 @@ const expectedLockedCompatibilityWorkflow = (
       }
       const mutable = record as Record<string, unknown>;
       mutable.uses = `${action}@${pin}`;
+      if (action === 'actions/checkout') {
+        mutable.with = {
+          repository: 'qq98982/logto',
+          ref: '40135e37201f36ac05ece1eff82e37bb6d9649f1',
+          'fetch-depth': 0,
+          'persist-credentials': false,
+        };
+      }
       if (action === 'pnpm/action-setup') {
         mutable.with = { version: '10.15.1' };
       }

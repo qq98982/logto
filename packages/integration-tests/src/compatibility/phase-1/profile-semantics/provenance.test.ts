@@ -235,6 +235,14 @@ const hardenedCompatibilityWorkflowBytes = (() => {
       const pin = phase1WorkflowActionPins[action as keyof typeof phase1WorkflowActionPins];
 
       step.uses = `${action}@${pin}`;
+      if (action === 'actions/checkout') {
+        step.with = {
+          repository: 'qq98982/logto',
+          ref: '40135e37201f36ac05ece1eff82e37bb6d9649f1',
+          'fetch-depth': 0,
+          'persist-credentials': false,
+        };
+      }
       if (action === 'pnpm/action-setup') {
         step.with = { version: '10.15.1' };
       } else if (action === 'actions/setup-node') {
@@ -906,6 +914,32 @@ describe('Phase 1 source and acceptance provenance', () => {
       );
     }
   );
+
+  it.each([
+    // eslint-disable-next-line no-template-curly-in-string -- This literal GitHub expression is rejected checkout input.
+    ['pull-request head', { ref: '${{ github.event.pull_request.head.sha }}' }],
+    ['mutable revision', { ref: 'aster-phase1-harness' }],
+    ['foreign repository', { repository: 'another-owner/logto' }],
+    ['persisted credentials', { 'persist-credentials': true }],
+  ])('accepted harness rejects Phase 0 checkout with %s', async (_name, changes) => {
+    const context = provenanceContext('accepted-harness');
+    const originalReadBlob = context.gitReader.readBlob;
+    const workflow = parseYaml(hardenedCompatibilityWorkflowBytes.toString('utf8')) as {
+      jobs: { compatibility: { steps: Array<{ with: Record<string, unknown> }> } };
+    };
+    const checkout = required(workflow.jobs.compatibility.steps[0]);
+    checkout.with = { ...checkout.with, ...changes };
+    context.gitReader.readBlob = async (repository, commit, sourcePath) =>
+      commit === harnessCommit && sourcePath === '.github/workflows/compatibility-test.yml'
+        ? Buffer.from(stringifyYaml(workflow))
+        : originalReadBlob(repository, commit, sourcePath);
+
+    await expectProvenanceFailure(
+      verifyPhase1ProfileProvenance(provenanceProfile(), context),
+      '/phase1Harness/commit',
+      'harness-workflow-authority'
+    );
+  });
 
   it('accepted harness does not read CODEOWNERS or couple its reviewer to a bootstrap', async () => {
     const context = provenanceContext('accepted-harness');
