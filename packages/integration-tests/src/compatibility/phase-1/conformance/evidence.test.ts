@@ -1,6 +1,9 @@
 import type { Phase1Profile } from '../profile-types.js';
 
-import { createPhase1BasicAcceptedResultFixture } from './basic-result.test-fixture.js';
+import {
+  createPhase1BasicAcceptedResultFixture,
+  createPhase1BasicOptionalAcceptedResultFixture,
+} from './basic-result.test-fixture.js';
 import { phase1ConformanceSuiteCommit, phase1ConformanceSuiteRepository } from './config.js';
 import { createPhase1ConformanceEvidence, hashCanonicalConformanceJson } from './evidence.js';
 import {
@@ -118,7 +121,9 @@ const conformanceProfile = () =>
   }) as unknown as Phase1Profile;
 
 const brandedRunResult = async (
-  mode: 'review-candidate' | 'mirror-control' | 'runtime-candidate'
+  mode: 'review-candidate' | 'mirror-control' | 'runtime-candidate',
+  basicResult: unknown = createPhase1BasicAcceptedResultFixture(),
+  basicResultId = 'oidf-result-opaque-001'
 ) =>
   runPhase1Conformance(conformanceProfile(), mode, {
     checkedOutSuiteCommit: phase1ConformanceSuiteCommit,
@@ -142,7 +147,7 @@ const brandedRunResult = async (
       const resultId =
         input.planId === 'oidcc-config-certification-test-plan'
           ? 'oidf-result-opaque-002'
-          : 'oidf-result-opaque-001';
+          : basicResultId;
       const terminal = control
         ? {
             schemaVersion: 1,
@@ -162,7 +167,7 @@ const brandedRunResult = async (
               status: 'FINISHED',
               acceptance: 'ACCEPTED',
               resultId,
-              result: createPhase1BasicAcceptedResultFixture(),
+              result: basicResult,
             }
           : {
               schemaVersion: 1,
@@ -189,6 +194,45 @@ const brandedRunResult = async (
   });
 
 describe('Phase 1 conformance evidence', () => {
+  it('preserves approved optional grades and their proofs through the terminal and evidence boundary', async () => {
+    const basicResult = createPhase1BasicOptionalAcceptedResultFixture('A'.repeat(13));
+    const evidence = createPhase1ConformanceEvidence(
+      await brandedRunResult('runtime-candidate', basicResult, 'A'.repeat(13)),
+      provenance
+    );
+    const basic = evidence.planResults.find(
+      ({ planId }) => planId === 'oidcc-basic-certification-test-plan'
+    )!;
+
+    expect(basic.result.value).toEqual(basicResult);
+    expect(basicResult.modules.filter(({ result }) => result === 'WARNING')).toHaveLength(2);
+    expect(basicResult.modules.filter(({ result }) => result === 'SKIPPED')).toHaveLength(1);
+    expect(basic.resultSha256).toBe(hashCanonicalConformanceJson(basicResult));
+    expect(evidence.sanitizerSuccess).toBe(true);
+  });
+
+  it('rejects an optional proof detached from its module log before creating evidence', async () => {
+    const basicResult = createPhase1BasicOptionalAcceptedResultFixture('A'.repeat(13));
+    const detached = {
+      ...basicResult,
+      modules: basicResult.modules.map((module) =>
+        module.result === 'WARNING' ? { ...module, conditionLogSha256: 'f'.repeat(64) } : module
+      ),
+    };
+
+    await expect(brandedRunResult('runtime-candidate', detached, 'A'.repeat(13))).rejects.toThrow();
+  });
+
+  it('rejects optional proofs from another official plan at the terminal boundary', async () => {
+    await expect(
+      brandedRunResult(
+        'runtime-candidate',
+        createPhase1BasicOptionalAcceptedResultFixture('A'.repeat(13)),
+        'B'.repeat(13)
+      )
+    ).rejects.toThrow();
+  });
+
   it('emits the exact assembler root with sorted adapter and plan projections', async () => {
     const evidence = createPhase1ConformanceEvidence(
       await brandedRunResult('runtime-candidate'),

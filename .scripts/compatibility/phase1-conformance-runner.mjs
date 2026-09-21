@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   awaitScreenshotReview,
@@ -21,6 +22,11 @@ const basicPlanName = 'oidcc-basic-certification-test-plan';
 const alias = 'aster-phase1';
 const configDescription = 'Aster phase 1 Config certification';
 const basicDescription = 'Aster phase 1 Basic certification';
+const optionalModules = Object.freeze({
+  'oidcc-ensure-request-with-acr-values-succeeds': 'acr-values-unsupported',
+  'oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported': 'request-object-unsupported',
+  'oidcc-claims-essential': 'claims-parameter-unsupported',
+});
 const mandatoryScreenshotModules = Object.freeze([
   'oidcc-prompt-login',
   'oidcc-max-age-1',
@@ -1081,6 +1087,10 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     'browser-flow',
     context.module
   );
+  if (context.optionalObservations) {
+    if (context.optionalObservations.declarations.length >= 2) throw invalidBasic('condition-log', context.module);
+    context.optionalObservations.declarations.push({ method: declaration.method, url: declaration.url });
+  }
   const unsupportedRequestObject = context.module === 'oidcc-ensure-request-object-with-redirect-uri' &&
     !(await supportsRequestParameter(context));
   if (context.module === 'oidcc-ensure-registered-redirect-uri' || unsupportedRequestObject) {
@@ -1132,6 +1142,17 @@ const driveDeclaredBrowserUrl = async (declaration, context) => {
     pending = undefined;
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const nextUrl = redirectTarget(response, currentUrl, context.config, context.module);
+      if (context.optionalObservations && nextUrl.origin === context.config.suiteBaseUrl &&
+        nextUrl.pathname === new URL(context.config.callbackUri).pathname) {
+        if (context.optionalObservations.callbacks.length >= 2) throw invalidBasic('condition-log', context.module);
+        context.optionalObservations.callbacks.push({
+          url: nextUrl.href, sourceUrl: currentUrl.href, firstResponse: step === 0,
+          status: response.status,
+          responseSha256: crypto.createHash('sha256').update(JSON.stringify({
+            status: response.status, location: response.headers.get('location'),
+          })).update(response.bytes).digest('hex'),
+        });
+      }
       if (nextUrl.origin === context.config.issuerOrigin && nextUrl.pathname === '/sign-in') {
         if (context.screenshot?.mapping.captureKind === 'second-sign-in') {
           if (screenshotEvidence !== null) {
@@ -1463,6 +1484,197 @@ export const runOidfConfigPlan = async (input, dependencies = {}) => {
   }
 };
 
+const proofHash = (value) => crypto.createHash('sha256').update(value).digest('hex');
+const absence = (object, key, module) => {
+  if (!isRecord(object) || Object.hasOwn(object, key)) throw invalidBasic('condition-log', module);
+  return Object.freeze({ present: false, type: 'missing' });
+};
+const proofSuccessSources = Object.freeze([
+  'GetDynamicServerConfiguration', 'BuildPlainRedirectToAuthorizationEndpoint',
+  'CallTokenEndpointAndReturnFullResponse', 'ExtractIdTokenFromTokenResponse',
+  'ValidateIdToken', 'ValidateIdTokenStandardClaims', 'ValidateIdTokenNonce', 'ValidateIdTokenSignature',
+  'CheckForSubjectInIdToken', 'CheckStateInAuthorizationResponse',
+]);
+const proofUserInfoSources = Object.freeze([
+  'CallUserInfoEndpoint', 'ExtractUserInfoFromUserInfoEndpointResponse',
+  'EnsureIdTokenDoesNotContainName', 'VerifyUserInfoAndIdTokenInTokenEndpointSameSub',
+  'ValidateUserInfoStandardClaims', 'EnsureUserInfoContainsSub',
+]);
+const proofRequestObjectSources = Object.freeze([
+  'GetDynamicServerConfiguration', 'BuildRequestObjectByValueRedirectToAuthorizationEndpoint',
+  'SerializeRequestObjectWithNullAlgorithm', 'ExtractImplicitHashToCallbackResponse',
+]);
+const requestNotSupportedSkip = "The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.";
+const proofJson = (text, module) => {
+  if (typeof text !== 'string' || text.length < 1 || text.length > maximumResponseBytes) throw invalidBasic('condition-log', module);
+  return decodeBasicJson(Buffer.from(text), 'condition-log', module);
+};
+const compactParts = (compact, module) => {
+  if (typeof compact !== 'string' || compact.length > maximumResponseBytes) throw invalidBasic('condition-log', module);
+  const parts = compact.split('.');
+  if (parts.length !== 3) throw invalidBasic('condition-log', module);
+  const decoded = parts.slice(0, 2).map((part) => {
+    if (!/^[A-Za-z0-9_-]+$/u.test(part)) throw invalidBasic('condition-log', module);
+    const bytes = Buffer.from(part, 'base64url');
+    if (bytes.toString('base64url') !== part) throw invalidBasic('condition-log', module);
+    const value = decodeBasicJson(bytes, 'condition-log', module);
+    if (!isRecord(value)) throw invalidBasic('condition-log', module);
+    return value;
+  });
+  return { header: decoded[0], claims: decoded[1], signature: parts[2] };
+};
+
+const deriveOptionalProof = async ({ conditionLog, officialResult, infoSha256, planInstanceId, testId, module, observations, context }) => {
+  const kind = optionalModules[module];
+  const requestObject = kind === 'request-object-unsupported';
+  const claimsCase = kind === 'claims-parameter-unsupported';
+  const finding = requestObject ? module : claimsCase ? 'EnsureUserInfoContainsName' : 'ValidateIdTokenACRClaimAgainstAcrValuesRequest';
+  const one = (source, result = 'SUCCESS') => {
+    const rows = conditionLog.entries.filter((row) => row.src === source && row.result === result);
+    if (rows.length !== 1) throw invalidBasic('condition-log', module);
+    return rows[0];
+  };
+  if (!kind || officialResult !== (requestObject ? 'SKIPPED' : 'WARNING') ||
+    observations?.declarations.length !== 1 || observations.callbacks.length !== 1 ||
+    conditionLog.entries.length > 10000) throw invalidBasic('condition-log', module);
+  for (const row of conditionLog.entries) {
+    if (Object.hasOwn(row, 'result') && !['SUCCESS', 'INFO', 'FINISHED', requestObject ? 'SKIPPED' : 'WARNING'].includes(row.result)) {
+      throw invalidBasic('condition-log', module);
+    }
+    if ((row.result === 'WARNING' || row.result === 'SKIPPED') && row.src !== finding) throw invalidBasic('condition-log', module);
+    if (row.result === 'FINISHED' && row.src !== module) throw invalidBasic('condition-log', module);
+    if (Object.hasOwn(row, 'upload') || Object.hasOwn(row, 'img')) throw invalidBasic('condition-log', module);
+  }
+  const findingRow = one(finding, requestObject ? 'SKIPPED' : 'WARNING');
+  if (requestObject && findingRow.msg !== requestNotSupportedSkip) throw invalidBasic('condition-log', module);
+  if (!requestObject && !isDeepStrictEqual(findingRow.requirements,
+    claimsCase ? ['OIDCC-5.5', 'OIDCC-5.5.1'] : ['OIDCC-3.1.2.1', 'OIDCC-15.1'])) throw invalidBasic('condition-log', module);
+  const sources = requestObject ? proofRequestObjectSources : [...proofSuccessSources, ...(claimsCase ? proofUserInfoSources : [])];
+  const selected = [...sources.map((source) => one(source)), findingRow, one(module, 'FINISHED')];
+  const ids = new Set();
+  const conditionEvidence = selected.map((row) => {
+    if (typeof row._id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(row._id) || ids.has(row._id)) throw invalidBasic('condition-log', module);
+    ids.add(row._id);
+    return Object.freeze({ id: row._id, source: row.src, result: row.result });
+  });
+
+  const discoveryResponse = await basicRequestBytes({
+    ...context, url: context.config.discoveryUrl,
+    init: { method: 'GET', redirect: 'error', credentials: 'omit', headers: { accept: 'application/json' } },
+    expectedStatuses: [200], category: 'condition-log', module,
+  });
+  if (discoveryResponse.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') throw invalidBasic('condition-log', module);
+  const discovery = decodeBasicJson(discoveryResponse.bytes, 'condition-log', module);
+  const observedDiscovery = one('GetDynamicServerConfiguration');
+  if (!isRecord(discovery) || discovery.issuer !== context.config.issuer ||
+    discovery.authorization_endpoint !== `${context.config.issuer}/auth` ||
+    discovery.token_endpoint !== `${context.config.issuer}/token` ||
+    discovery.jwks_uri !== `${context.config.issuer}/jwks` ||
+    discovery.userinfo_endpoint !== `${context.config.issuer}/me` ||
+    !Object.entries(discovery).every(([key, value]) => Object.hasOwn(observedDiscovery, key) && isDeepStrictEqual(observedDiscovery[key], value))) throw invalidBasic('condition-log', module);
+  for (const key of ['acr_values_supported', 'claims_parameter_supported', 'request_parameter_supported']) {
+    if (Object.hasOwn(discovery, key) !== Object.hasOwn(observedDiscovery, key)) throw invalidBasic('condition-log', module);
+  }
+  const declaration = observations.declarations[0];
+  const authUrl = new URL(declaration.url);
+  const callback = observations.callbacks[0];
+  const callbackUrl = new URL(callback.url);
+  const params = authUrl.searchParams;
+  if (declaration.method !== 'GET' || authUrl.origin !== context.config.issuerOrigin || authUrl.pathname !== '/oidc/auth' ||
+    authUrl.hash !== '' || params.size !== new Set(params.keys()).size ||
+    params.get('client_id') !== 'oidf-basic-1' || params.get('scope') !== 'openid' || params.get('response_type') !== 'code' ||
+    params.get('redirect_uri') !== context.config.callbackUri ||
+    `${callbackUrl.origin}${callbackUrl.pathname}` !== context.config.callbackUri ||
+    callbackUrl.hash !== '' || callbackUrl.searchParams.size !== new Set(callbackUrl.searchParams.keys()).size ||
+    callbackUrl.searchParams.get('iss') !== context.config.issuer) throw invalidBasic('condition-log', module);
+  const common = {
+    schemaVersion: 1, kind, planInstanceId, testId, infoSha256,
+    conditionLogSha256: conditionLog.sha256, conditionCount: conditionLog.entries.length, conditionEvidence,
+    discoveryResponseSha256: proofHash(discoveryResponse.bytes),
+    requestSha256: proofHash(JSON.stringify(declaration)), responseSha256: callback.responseSha256,
+  };
+  if (requestObject) {
+    const supported = Object.hasOwn(discovery, 'request_parameter_supported')
+      ? (discovery.request_parameter_supported === false ? { present: true, type: 'boolean', value: false } : null)
+      : absence(discovery, 'request_parameter_supported', module);
+    if (supported === null || !callback.firstResponse || callback.sourceUrl !== declaration.url || callback.status !== 303 ||
+      !isDeepStrictEqual([...params.keys()].sort(), ['client_id', 'redirect_uri', 'request', 'response_type', 'scope']) ||
+      !isDeepStrictEqual([...callbackUrl.searchParams.keys()].sort(), ['error', 'iss']) ||
+      callbackUrl.searchParams.get('error') !== 'request_not_supported' ||
+      one('BuildRequestObjectByValueRedirectToAuthorizationEndpoint').redirect_to_authorization_endpoint !== declaration.url ||
+      conditionLog.entries.some((row) => ['CallTokenEndpointAndReturnFullResponse', 'ExtractIdTokenFromTokenResponse', 'ExtractAuthorizationCodeFromAuthorizationResponse'].includes(row.src))) throw invalidBasic('condition-log', module);
+    const compact = params.get('request');
+    const parsed = compactParts(compact, module);
+    if (parsed.header.alg !== 'none' || parsed.signature !== '' || parsed.claims.client_id !== 'oidf-basic-1' ||
+      parsed.claims.response_type !== 'code' || parsed.claims.scope !== 'openid' || parsed.claims.redirect_uri !== context.config.callbackUri) throw invalidBasic('condition-log', module);
+    return Object.freeze({
+      ...common, discovery: { requestParameterSupported: supported },
+      request: { method: 'GET', scope: 'openid', requestObjectSha256: proofHash(compact),
+        outerRedirectSha256: proofHash(context.config.callbackUri), outerCorrelation: absence(Object.fromEntries(params), 'state', module) },
+      rejection: { httpStatus: 303, responseMode: 'query', error: 'request_not_supported',
+        returnedFields: ['error', 'iss'], callbackSha256: proofHash(context.config.callbackUri),
+        issuerSha256: proofHash(context.config.issuer), returnedCorrelation: absence(Object.fromEntries(callbackUrl.searchParams), 'state', module) },
+      issued: null,
+    });
+  }
+  const auth = one('BuildPlainRedirectToAuthorizationEndpoint');
+  const authRequest = auth.auth_request;
+  const allowedFields = ['client_id', 'redirect_uri', 'response_type', 'scope', 'state', 'nonce', claimsCase ? 'claims' : 'acr_values'];
+  if (auth.redirect_to_authorization_endpoint !== declaration.url || !isRecord(authRequest) ||
+    !hasExactKeys(authRequest, allowedFields) || params.size !== allowedFields.length ||
+    !Object.entries(authRequest).every(([key, value]) => params.get(key) === (typeof value === 'string' ? value : JSON.stringify(value))) ||
+    typeof authRequest.nonce !== 'string' || !authRequest.nonce || typeof authRequest.state !== 'string' || !authRequest.state ||
+    !isDeepStrictEqual([...callbackUrl.searchParams.keys()].sort(), ['code', 'iss', 'state']) ||
+    !callbackUrl.searchParams.get('code') || callbackUrl.searchParams.get('state') !== authRequest.state ||
+    one('CheckStateInAuthorizationResponse').state !== authRequest.state) throw invalidBasic('condition-log', module);
+  const tokenRow = one('CallTokenEndpointAndReturnFullResponse');
+  const token = tokenRow.body_json;
+  const extracted = one('ExtractIdTokenFromTokenResponse');
+  const signature = one('ValidateIdTokenSignature').id_token;
+  if (tokenRow.status !== 200 || !isRecord(token) || Object.hasOwn(token, 'error') || token.scope !== 'openid' ||
+    !isDeepStrictEqual(proofJson(tokenRow.body, module), token) ||
+    !isRecord(signature) || token.id_token !== extracted.value || token.id_token !== signature.verifiable_jws) throw invalidBasic('condition-log', module);
+  const parsed = compactParts(token.id_token, module);
+  const payload = parsed.claims;
+  const key = proofJson(signature.public_jwk, module);
+  const observedKeys = one('FetchServerKeys').server_jwks;
+  if (parsed.header.alg !== 'RS256' || !/^[A-Za-z0-9_-]+$/u.test(parsed.signature) ||
+    !isDeepStrictEqual(parsed.header, extracted.header) || !isDeepStrictEqual(payload, extracted.claims) ||
+    !isRecord(key) || key.kty !== 'RSA' || typeof key.n !== 'string' || typeof key.e !== 'string' ||
+    key.kid !== parsed.header.kid || (key.alg !== undefined && key.alg !== 'RS256') ||
+    ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'].some((field) => Object.hasOwn(key, field)) ||
+    !isRecord(observedKeys) || !Array.isArray(observedKeys.keys) ||
+    observedKeys.keys.filter((candidate) => isDeepStrictEqual(candidate, key)).length !== 1 ||
+    payload.iss !== context.config.issuer || payload.aud !== 'oidf-basic-1' ||
+    payload.nonce !== authRequest.nonce || one('ValidateIdTokenNonce').nonce !== payload.nonce ||
+    typeof payload.sub !== 'string' || !payload.sub || one('CheckForSubjectInIdToken').sub !== payload.sub ||
+    !Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp) ||
+    payload.iat > Math.floor(context.wallClock() / 1000) + 5 ||
+    Math.floor(context.wallClock() / 1000) - payload.iat > 300 || payload.exp <= Math.floor(context.wallClock() / 1000)) throw invalidBasic('condition-log', module);
+  const issued = {
+    responseSha256: proofHash(tokenRow.body), compactSha256: proofHash(token.id_token),
+    verificationKeySha256: proofHash(signature.public_jwk), algorithm: 'RS256', responseScope: 'openid',
+    acr: absence(payload, 'acr', module), amr: absence(payload, 'amr', module),
+  };
+  if (!claimsCase) {
+    if (authRequest.acr_values !== '1 2') throw invalidBasic('condition-log', module);
+    return Object.freeze({ ...common, discovery: { acrValuesSupported: absence(discovery, 'acr_values_supported', module) },
+      request: { scope: 'openid', acrValues: '1 2' }, issued });
+  }
+  const claims = typeof authRequest.claims === 'string' ? proofJson(authRequest.claims, module) : authRequest.claims;
+  if (discovery.claims_parameter_supported !== false ||
+    !isDeepStrictEqual(claims, { userinfo: { name: { essential: true } } })) throw invalidBasic('condition-log', module);
+  const userInfoRow = one('CallUserInfoEndpoint');
+  const userInfo = proofJson(userInfoRow.body, module);
+  if (userInfoRow.status_code?.code !== 200 || !isRecord(userInfo) || userInfo.sub !== payload.sub ||
+    !isDeepStrictEqual(userInfo, one('ExtractUserInfoFromUserInfoEndpointResponse').userinfo)) throw invalidBasic('condition-log', module);
+  return Object.freeze({ ...common,
+    discovery: { claimsParameterSupported: { present: true, type: 'boolean', value: false } },
+    request: { scope: 'openid', claims }, issued: { ...issued, name: absence(payload, 'name', module) },
+    userInfo: { responseSha256: proofHash(userInfoRow.body), source: 'CallUserInfoEndpoint', name: absence(userInfo, 'name', module) },
+  });
+};
+
 const requireBasicRunnerResponse = (value, module) => {
   if (
     !isRecord(value) ||
@@ -1490,7 +1702,9 @@ const requireBasicInfoResponse = (value, expectedTestId, expectedPlanId, manifes
     throw invalidBasic('module-result', manifestEntry.testModule);
   }
   if (
-    !['PASSED', 'REVIEW'].includes(value.result) ||
+    !(['PASSED', 'REVIEW'].includes(value.result) ||
+      (optionalModules[manifestEntry.testModule] && value.result ===
+        (optionalModules[manifestEntry.testModule] === 'request-object-unsupported' ? 'SKIPPED' : 'WARNING'))) ||
     (mandatoryScreenshotModules.includes(manifestEntry.testModule) && value.result !== 'REVIEW')
   ) {
     throw invalidBasic('module-result', manifestEntry.testModule);
@@ -1588,7 +1802,7 @@ const conditionLedger = (conditionLog, module) => conditionLog.entries.map((entr
 
 const persistBasicModuleAudit = ({
   root, planInstanceId, testId, manifestEntry, info, infoSha256, conditionLog, screenshotEvidence,
-  failureCategory = null,
+  failureCategory = null, exception = null,
 }) => {
   const module = manifestEntry.testModule;
   if (
@@ -1625,6 +1839,7 @@ const persistBasicModuleAudit = ({
       },
       accepted: failureCategory === null,
       failureCategory,
+      exception,
     });
   } catch {
     throw invalidBasic('module-audit', module);
@@ -1841,6 +2056,7 @@ const cancelBasicModule = async (testId, dependencies) => {
 
 const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
   const module = manifestEntry.testModule;
+  const optionalObservations = optionalModules[module] ? { declarations: [], callbacks: [] } : undefined;
   const moduleStarted = dependencies.now();
   const moduleDeadline = Math.min(
     dependencies.totalDeadline,
@@ -1971,6 +2187,7 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
           planInstanceId,
           testInstanceId,
           screenshot: pendingScreenshot,
+          optionalObservations,
         });
         if (browserResult.screenshotEvidence !== null) {
           if (screenshotEvidence !== null) throw invalidBasic('screenshot-condition', module);
@@ -2033,11 +2250,20 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
       conditionLog,
       screenshotEvidence,
     };
+    let exception = null;
     try {
       if (infoError) throw infoError;
-      validateFinalConditionLog(
-        conditionLog, officialResult, screenshotEvidence, callbackPlaceholder, testInstanceId, module
-      );
+      if (officialResult === 'WARNING' || officialResult === 'SKIPPED') {
+        if (screenshotEvidence !== null || callbackPlaceholder !== null) throw invalidBasic('condition-log', module);
+        exception = await deriveOptionalProof({
+          conditionLog, officialResult, infoSha256, planInstanceId, testId: testInstanceId, module,
+          observations: optionalObservations, context: { ...dependencies, deadline: moduleDeadline, module },
+        });
+      } else {
+        validateFinalConditionLog(
+          conditionLog, officialResult, screenshotEvidence, callbackPlaceholder, testInstanceId, module
+        );
+      }
     } catch (error) {
       try {
         persistBasicModuleAudit({
@@ -2049,7 +2275,7 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
       }
       throw error;
     }
-    const audit = persistBasicModuleAudit(auditInput);
+    const audit = persistBasicModuleAudit({ ...auditInput, exception });
     return Object.freeze({
       summary: Object.freeze({
         testId: testInstanceId,
@@ -2057,6 +2283,7 @@ const runBasicModule = async (manifestEntry, planInstanceId, dependencies) => {
         status: 'FINISHED',
         result: officialResult,
         conditionLogSha256: conditionLog.sha256,
+        exception,
         review:
           screenshotEvidence === null
             ? null
@@ -2208,7 +2435,8 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
     }
     const passedModuleCount = modules.filter(({ result }) => result === 'PASSED').length;
     const reviewedModuleCount = modules.filter(({ result }) => result === 'REVIEW').length;
-    if (passedModuleCount + reviewedModuleCount !== oidfBasicPlanManifest.length) {
+    const exceptionModuleCount = modules.filter(({ exception }) => exception !== null).length;
+    if (passedModuleCount + reviewedModuleCount + exceptionModuleCount !== oidfBasicPlanManifest.length) {
       throw invalidBasic('module-result');
     }
     try {
@@ -2230,6 +2458,7 @@ export const runOidfBasicPlan = async (input, dependencies = {}) => {
         moduleCount: oidfBasicPlanManifest.length,
         passedModuleCount,
         reviewedModuleCount,
+        exceptionModuleCount,
         modules: Object.freeze(modules),
       }),
     });

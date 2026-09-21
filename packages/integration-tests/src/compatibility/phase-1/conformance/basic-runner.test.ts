@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the exact Basic plan manifest, serial suite exchange, and one cohesive fake HTTP state machine. */
+/* eslint-disable max-lines, complexity, no-await-in-loop, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary test records the exact Basic plan manifest, serial suite exchange, and one cohesive fake HTTP state machine. */
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -18,6 +18,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+
+import { requirePhase1BasicAcceptedResult } from './basic-result.js';
 import { phase1ConformanceSuiteCommit } from './config.js';
 
 const planName = 'oidcc-basic-certification-test-plan';
@@ -820,7 +823,492 @@ const callbackPlaceholderExchange = (
   return { fetchImplementation, requests, startedModules, finalLog, testId };
 };
 
+type OptionalProofFacts = {
+  entries: Array<Record<string, unknown>>;
+  discovery: Record<string, unknown>;
+  declaredUrl: string;
+  callbackUrl: string;
+  responseStatus: number;
+  finishWithoutBrowser: boolean;
+};
+const optionalProofKeys = generateKeyPair('RS256');
+const optionalProofExchange = async (
+  options: {
+    target?: number;
+    payload?: Record<string, unknown>;
+    requestSupportAbsent?: boolean;
+    mutate?: (facts: OptionalProofFacts) => void;
+  } = {}
+) => {
+  const input = validInput();
+  const { publicKey, privateKey } = await optionalProofKeys;
+  const jwk = {
+    ...(await exportJWK(publicKey)),
+    kid: 'optional-fixture',
+    alg: 'RS256',
+    use: 'sig',
+  };
+  const header = { alg: 'RS256', kid: jwk.kid };
+  const cases = new Map<number, OptionalProofFacts>();
+  const logReads = new Map<number, number>();
+  for (const index of [24, 30, 31]) {
+    const module = basicModuleNames[index]!;
+    const testId = `O${String(index).padStart(14, '0')}`;
+    const skip = index === 30;
+    const claimsCase = index === 31;
+    const discovery = {
+      issuer: input.target.issuer,
+      authorization_endpoint: `${input.target.issuer}/auth`,
+      token_endpoint: `${input.target.issuer}/token`,
+      userinfo_endpoint: `${input.target.issuer}/me`,
+      jwks_uri: `${input.target.issuer}/jwks`,
+      claims_parameter_supported: false,
+      ...(!options.requestSupportAbsent && { request_parameter_supported: false }),
+    };
+    const authRequest = {
+      client_id: 'oidf-basic-1',
+      redirect_uri: input.target.callbackUri,
+      response_type: 'code',
+      scope: 'openid',
+      state: `synthetic-state-${index}`,
+      nonce: `synthetic-nonce-${index}`,
+      ...(!skip &&
+        (claimsCase
+          ? { claims: { userinfo: { name: { essential: true } } } }
+          : { acr_values: '1 2' })),
+    };
+    const url = new URL(`${input.target.issuer}/auth`);
+    if (skip) {
+      const compact = `${Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url')}.${Buffer.from(JSON.stringify(authRequest)).toString('base64url')}.`;
+      for (const [key, value] of Object.entries(authRequest)) {
+        if (['client_id', 'redirect_uri', 'response_type', 'scope'].includes(key)) {
+          url.searchParams.set(key, String(value));
+        }
+      }
+      url.searchParams.set('request', compact);
+    } else {
+      for (const [key, value] of Object.entries(authRequest)) {
+        url.searchParams.set(key, typeof value === 'string' ? value : JSON.stringify(value));
+      }
+    }
+    const callback = new URL(input.target.callbackUri);
+    callback.searchParams.set(
+      skip ? 'error' : 'code',
+      skip ? 'request_not_supported' : 'synthetic-code'
+    );
+    callback.searchParams.set('iss', input.target.issuer);
+    if (!skip) {
+      callback.searchParams.set('state', authRequest.state);
+    }
+    const payload = {
+      iss: input.target.issuer,
+      aud: 'oidf-basic-1',
+      sub: 'synthetic-subject',
+      nonce: authRequest.nonce,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 300,
+      ...(index === (options.target ?? 24) ? options.payload : {}),
+    };
+    const compact = await new SignJWT(payload).setProtectedHeader(header).sign(privateKey);
+    const token = {
+      access_token: 'synthetic-access',
+      id_token: compact,
+      token_type: 'Bearer',
+      expires_in: 300,
+      scope: 'openid',
+    };
+    const userInfo = { sub: payload.sub };
+    const entries: Array<Record<string, unknown>> = [];
+    const add = (source: string, data: Record<string, unknown> = {}, result = 'SUCCESS') => {
+      entries.push({ _id: `${testId}-${entries.length}`, testId, src: source, result, ...data });
+    };
+    add('GetDynamicServerConfiguration', discovery);
+    add('FetchServerKeys', { server_jwks: { keys: [jwk] } });
+    if (skip) {
+      add('BuildRequestObjectByValueRedirectToAuthorizationEndpoint', {
+        redirect_to_authorization_endpoint: url.href,
+      });
+      add('SerializeRequestObjectWithNullAlgorithm');
+      add('ExtractImplicitHashToCallbackResponse', { implicit_hash: '' });
+      add(
+        module,
+        {
+          msg: "The 'request_not_supported' error from the authorization endpoint indicates that it does not support request objects (which is permitted behaviour), so request objects cannot be tested.",
+        },
+        'SKIPPED'
+      );
+    } else {
+      add('BuildPlainRedirectToAuthorizationEndpoint', {
+        auth_request: authRequest,
+        redirect_to_authorization_endpoint: url.href,
+      });
+      add('CallTokenEndpointAndReturnFullResponse', {
+        status: 200,
+        body: JSON.stringify(token),
+        body_json: token,
+      });
+      add('ExtractIdTokenFromTokenResponse', { value: compact, header, claims: payload });
+      add('ValidateIdToken');
+      add('ValidateIdTokenStandardClaims');
+      add('ValidateIdTokenNonce', { nonce: payload.nonce });
+      add('ValidateIdTokenSignature', {
+        id_token: { verifiable_jws: compact, public_jwk: JSON.stringify(jwk) },
+      });
+      add('CheckForSubjectInIdToken', { sub: payload.sub });
+      add('CheckStateInAuthorizationResponse', { state: authRequest.state });
+      if (claimsCase) {
+        // The earlier resource response deliberately differs from the dedicated UserInfo body.
+        add('CallProtectedResource', {
+          status: 200,
+          body_json: { ...userInfo, name: 'earlier response' },
+        });
+        add('CallUserInfoEndpoint', { body: JSON.stringify(userInfo), status_code: { code: 200 } });
+        add('ExtractUserInfoFromUserInfoEndpointResponse', { userinfo: userInfo });
+        add('ValidateUserInfoStandardClaims');
+        add('EnsureUserInfoContainsSub');
+        add('VerifyUserInfoAndIdTokenInTokenEndpointSameSub');
+        add('EnsureIdTokenDoesNotContainName');
+      }
+      add(
+        claimsCase
+          ? 'EnsureUserInfoContainsName'
+          : 'ValidateIdTokenACRClaimAgainstAcrValuesRequest',
+        {
+          requirements: claimsCase ? ['OIDCC-5.5', 'OIDCC-5.5.1'] : ['OIDCC-3.1.2.1', 'OIDCC-15.1'],
+        },
+        'WARNING'
+      );
+    }
+    add(module, {}, 'FINISHED');
+    const facts = {
+      entries,
+      discovery,
+      declaredUrl: url.href,
+      callbackUrl: callback.href,
+      responseStatus: 303,
+      finishWithoutBrowser: false,
+    };
+    if (index === (options.target ?? 24)) {
+      options.mutate?.(facts);
+    }
+    cases.set(index, facts);
+  }
+  let next = 0;
+  let active = -1;
+  let completed = false;
+  const fetchImplementation: typeof fetch = async (inputUrl, init) => {
+    const url = new URL(String(inputUrl));
+    const method = init?.method ?? 'GET';
+    const facts = cases.get(active);
+    const id = `O${String(active).padStart(14, '0')}`;
+    if (url.pathname === '/api/plan') {
+      return jsonResponse(
+        {
+          name: planName,
+          id: planInstanceId,
+          modules: expectedManifest.map((entry) => ({ ...entry, instances: [] })),
+        },
+        201
+      );
+    }
+    if (url.pathname === '/api/runner' && method === 'POST') {
+      active = next++;
+      completed = false;
+      return jsonResponse(
+        { id: `O${String(active).padStart(14, '0')}`, name: basicModuleNames[active] },
+        201
+      );
+    }
+    if (url.pathname.endsWith('/wait-state')) {
+      return jsonResponse({
+        state: facts && !completed && !facts.finishWithoutBrowser ? 'WAITING' : 'FINISHED',
+      });
+    }
+    if (url.pathname === `/api/runner/${id}` && method === 'DELETE') {
+      return jsonResponse({ id, name: basicModuleNames[active] });
+    }
+    if (url.pathname === `/api/runner/${id}`) {
+      return jsonResponse({
+        id,
+        name: basicModuleNames[active],
+        browser: {
+          urls: [facts!.declaredUrl],
+          urlsWithMethod: [{ url: facts!.declaredUrl, method: 'GET' }],
+          browserApiRequests: [],
+          uriInputRequests: [],
+          uploadsRequired: 0,
+        },
+      });
+    }
+    if (url.pathname.endsWith('/visit')) {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/oidc/auth') {
+      return new Response('', {
+        status: facts!.responseStatus,
+        headers: { location: facts!.callbackUrl },
+      });
+    }
+    if (url.pathname === '/test/a/aster-phase1/callback') {
+      return renderedImplicitCallback(
+        `${suiteBaseUrl}/test/a/aster-phase1/implicit/Proof123456789012345`
+      );
+    }
+    if (url.pathname === '/test/a/aster-phase1/implicit/Proof123456789012345') {
+      completed = true;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/oidc/.well-known/openid-configuration') {
+      expect(init?.redirect).toBe('error');
+      expect(new Headers(init?.headers).has('cookie')).toBe(false);
+      return jsonResponse(facts!.discovery);
+    }
+    if (url.pathname === `/api/info/${id}`) {
+      return jsonResponse({
+        testId: id,
+        testName: basicModuleNames[active],
+        planId: planInstanceId,
+        status: 'FINISHED',
+        result: facts ? (active === 30 ? 'SKIPPED' : 'WARNING') : 'PASSED',
+        variant: {
+          ...moduleVariant(basicModuleNames[active]!),
+          server_metadata: 'discovery',
+          client_registration: 'static_client',
+        },
+      });
+    }
+    if (url.pathname === `/api/log/${id}`) {
+      logReads.set(active, (logReads.get(active) ?? 0) + 1);
+      return jsonResponse(facts?.entries ?? []);
+    }
+    throw new Error('unexpected optional proof fixture request');
+  };
+  return { fetchImplementation, cases, logReads };
+};
+
 describe('official OIDF Basic plan runner input and manifest', () => {
+  it('derives the three optional proofs from one complete log read and retains private audit bindings', async () => {
+    const runner = await loadRunner();
+    const exchange = await optionalProofExchange();
+    await mkdir(screenshotEvidenceParent, { recursive: true, mode: 0o700 });
+    const root = await mkdtemp(`${screenshotEvidenceParent}/run.`);
+    try {
+      const terminal = await runWithRequiredScreenshots(runner, {
+        readSecret,
+        fetch: exchange.fetchImplementation,
+        screenshotIpcRoot: root,
+      });
+      const result = requirePhase1BasicAcceptedResult(terminal.result, planInstanceId);
+      expect(result.exceptionModuleCount).toBe(3);
+      expect(
+        result.modules
+          .filter(({ exception }) => exception !== null)
+          .map(({ result: grade }) => grade)
+      ).toEqual(['WARNING', 'SKIPPED', 'WARNING']);
+      expect(Buffer.byteLength(JSON.stringify(terminal))).toBeLessThan(65_536);
+      expect(JSON.stringify(terminal)).not.toMatch(
+        /synthetic-|eyJ|https?:|public_jwk|verifiable_jws/u
+      );
+      for (const index of [24, 30, 31]) {
+        expect(exchange.logReads.get(index)).toBe(1);
+        const module = result.modules[index]!;
+        const audit = JSON.parse(
+          await readFile(
+            path.join(root, planInstanceId, module.testId, 'module-audit.json'),
+            'utf8'
+          )
+        ) as Record<string, unknown>;
+        expect(audit.exception).toEqual(module.exception);
+        expect(audit.conditionLogSha256).toBe(module.conditionLogSha256);
+        expect(module.exception?.conditionCount).toBe(exchange.cases.get(index)!.entries.length);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows absent request support and imposes no name-absence rule on the ACR exception', async () => {
+    const runner = await loadRunner();
+    const exchange = await optionalProofExchange({
+      requestSupportAbsent: true,
+      payload: { name: 'allowed in module 25' },
+    });
+    const terminal = await runWithRequiredScreenshots(runner, {
+      readSecret,
+      fetch: exchange.fetchImplementation,
+    });
+    expect(
+      requirePhase1BasicAcceptedResult(terminal.result, planInstanceId).exceptionModuleCount
+    ).toBe(3);
+  });
+
+  it.each([
+    { target: 24, payload: { acr: null } },
+    { target: 24, payload: { amr: [] } },
+    { target: 24, payload: { amr: ['pwd'] } },
+    { target: 31, payload: { amr: null } },
+    { target: 31, payload: { name: null } },
+    { target: 31, payload: { name: 42 } },
+    { target: 24, payload: { aud: 'other-client' } },
+    { target: 24, payload: { nonce: 'wrong' } },
+    { target: 24, payload: { exp: 1 } },
+    { target: 24, payload: { iat: 1 } },
+  ])('rejects signed invalid claims or present optional claims %j', async (options) => {
+    const runner = await loadRunner();
+    const exchange = await optionalProofExchange(options);
+    await expect(
+      runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation })
+    ).rejects.toMatchObject({
+      category: 'condition-log',
+      module: basicModuleNames[options.target],
+    });
+  });
+
+  it.each([
+    {
+      name: 'additional warning',
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries.push({
+          _id: 'extra',
+          testId: facts.entries[0]!.testId,
+          src: 'Other',
+          result: 'WARNING',
+        });
+      },
+    },
+    {
+      name: 'hidden failure',
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries.push({
+          _id: 'extra',
+          testId: facts.entries[0]!.testId,
+          src: 'Other',
+          result: 'FAILURE',
+        });
+      },
+    },
+    {
+      name: 'signature token mismatch',
+      mutate: (facts: OptionalProofFacts) => {
+        (
+          facts.entries.find((row) => row.src === 'ValidateIdTokenSignature')!.id_token as Record<
+            string,
+            unknown
+          >
+        ).verifiable_jws = 'different';
+      },
+    },
+    {
+      name: 'extracted token mismatch',
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries.find((row) => row.src === 'ExtractIdTokenFromTokenResponse')!.value =
+          'different';
+      },
+    },
+    {
+      name: 'decoded claims mismatch',
+      mutate: (facts: OptionalProofFacts) => {
+        (
+          facts.entries.find((row) => row.src === 'ExtractIdTokenFromTokenResponse')!
+            .claims as Record<string, unknown>
+        ).sub = 'different';
+      },
+    },
+    {
+      name: 'missing standard validation',
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries = facts.entries.filter((row) => row.src !== 'ValidateIdTokenStandardClaims');
+      },
+    },
+    {
+      name: 'advertised ACR values',
+      mutate: (facts: OptionalProofFacts) => {
+        facts.discovery.acr_values_supported = [];
+        facts.entries[0]!.acr_values_supported = [];
+      },
+    },
+    {
+      name: 'null dedicated name',
+      target: 31,
+      mutate: (facts: OptionalProofFacts) => {
+        const body = { sub: 'synthetic-subject', name: null };
+        facts.entries.find((row) => row.src === 'CallUserInfoEndpoint')!.body =
+          JSON.stringify(body);
+        facts.entries.find(
+          (row) => row.src === 'ExtractUserInfoFromUserInfoEndpointResponse'
+        )!.userinfo = body;
+      },
+    },
+    {
+      name: 'claims enabled',
+      target: 31,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.discovery.claims_parameter_supported = true;
+        facts.entries[0]!.claims_parameter_supported = true;
+      },
+    },
+    {
+      name: 'other UserInfo extraction',
+      target: 31,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries.find(
+          (row) => row.src === 'ExtractUserInfoFromUserInfoEndpointResponse'
+        )!.userinfo = { sub: 'other' };
+      },
+    },
+    {
+      name: 'metadata-only skip',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.finishWithoutBrowser = true;
+      },
+    },
+    {
+      name: 'different skip branch',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.entries.find((row) => row.result === 'SKIPPED')!.msg = 'alg none unsupported';
+      },
+    },
+    {
+      name: 'supported request objects',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.discovery.request_parameter_supported = true;
+        facts.entries[0]!.request_parameter_supported = true;
+      },
+    },
+    {
+      name: 'code alongside error',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.callbackUrl += '&code=unacceptable';
+      },
+    },
+    {
+      name: 'unsolicited outer correlation',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.callbackUrl += '&state=unacceptable';
+      },
+    },
+    {
+      name: 'mixed fragment',
+      target: 30,
+      mutate: (facts: OptionalProofFacts) => {
+        facts.callbackUrl += '#error=request_not_supported';
+      },
+    },
+  ])('rejects inconsistent optional evidence: $name', async (options) => {
+    const runner = await loadRunner();
+    const exchange = await optionalProofExchange(options);
+    await expect(
+      runWithRequiredScreenshots(runner, { readSecret, fetch: exchange.fetchImplementation })
+    ).rejects.toMatchObject({
+      category: 'condition-log',
+      module: basicModuleNames[options.target ?? 24],
+    });
+  });
   const unsupportedRequestDiscovery = {
     issuer: validInput().target.issuer,
     authorization_endpoint: `${validInput().target.issuer}/auth`,
@@ -1469,6 +1957,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         testName: 'oidcc-response-type-missing',
         status: 'FINISHED',
         result: 'PASSED',
+        exception: null,
         conditionLogSha256: createHash('sha256')
           .update(JSON.stringify(exchange.finalLog))
           .digest('hex'),
@@ -2097,6 +2586,7 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         testName: 'oidcc-prompt-login',
         status: 'FINISHED',
         result: 'REVIEW',
+        exception: null,
         conditionLogSha256: createHash('sha256')
           .update(JSON.stringify([uploadedEntry]))
           .digest('hex'),
@@ -2474,11 +2964,13 @@ describe('official OIDF Basic plan runner input and manifest', () => {
         moduleCount: 35,
         passedModuleCount: 32,
         reviewedModuleCount: 3,
+        exceptionModuleCount: 0,
         modules: expectedManifest.map(({ testModule }, index) => ({
           testId: `T${String(index).padStart(14, '0')}`,
           testName: testModule,
           status: 'FINISHED',
           result: requiredScreenshotNames.includes(testModule) ? 'REVIEW' : 'PASSED',
+          exception: null,
           conditionLogSha256: requiredScreenshotNames.includes(testModule)
             ? (expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown)
             : createHash('sha256').update('[]').digest('hex'),
@@ -3233,4 +3725,4 @@ describe('official OIDF Basic plan runner input and manifest', () => {
   });
 });
 
-/* eslint-enable max-lines, complexity, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, complexity, no-await-in-loop, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

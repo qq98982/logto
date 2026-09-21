@@ -478,7 +478,7 @@ const parseOfficialTerminal = (
     ) {
       throw new TypeError(diagnostic);
     }
-    const accepted = requirePhase1BasicAcceptedResult(result);
+    const accepted = requirePhase1BasicAcceptedResult(result, resultId);
 
     return cloneAndDeepFreeze({
       planId: plan.id,

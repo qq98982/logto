@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-restricted-syntax, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The fixed Basic plan result must preserve the terminal's explicit null review branch while deriving counts through one stateful validation pass. */
+/* eslint-disable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The fixed Basic plan result keeps its registry, closed proof schemas and counts in one validation boundary. */
 import { exactArtifactKeys, isArtifactRecord } from '../artifact-contract.js';
 
 export const phase1BasicModuleNames = Object.freeze([
@@ -65,13 +65,97 @@ export type Phase1BasicScreenshotReview = Readonly<{
   decision: 'APPROVE';
 }>;
 
+export type Phase1BasicAbsentField = Readonly<{ present: false; type: 'missing' }>;
+type UnsupportedField =
+  | Phase1BasicAbsentField
+  | Readonly<{
+      present: true;
+      type: 'boolean';
+      value: false;
+    }>;
+type OptionalProofCommon = Readonly<{
+  schemaVersion: 1;
+  planInstanceId: string;
+  testId: string;
+  conditionLogSha256: string;
+  infoSha256: string;
+  discoveryResponseSha256: string;
+  requestSha256: string;
+  responseSha256: string;
+  conditionCount: number;
+  conditionEvidence: ReadonlyArray<
+    Readonly<{
+      id: string | null;
+      source: string;
+      result: 'SUCCESS' | 'INFO' | 'WARNING' | 'SKIPPED' | 'FINISHED' | null;
+    }>
+  >;
+}>;
+type VerifiedIssuance = Readonly<{
+  responseSha256: string;
+  compactSha256: string;
+  verificationKeySha256: string;
+  algorithm: 'RS256';
+  responseScope: 'openid';
+  acr: Phase1BasicAbsentField;
+  amr: Phase1BasicAbsentField;
+}>;
+
+export type Phase1BasicOptionalResultProof = OptionalProofCommon &
+  (
+    | Readonly<{
+        kind: 'acr-values-unsupported';
+        discovery: Readonly<{ acrValuesSupported: Phase1BasicAbsentField }>;
+        request: Readonly<{ scope: 'openid'; acrValues: '1 2' }>;
+        issued: VerifiedIssuance;
+      }>
+    | Readonly<{
+        kind: 'request-object-unsupported';
+        discovery: Readonly<{ requestParameterSupported: UnsupportedField }>;
+        request: Readonly<{
+          method: 'GET';
+          scope: 'openid';
+          requestObjectSha256: string;
+          outerRedirectSha256: string;
+          outerCorrelation: Phase1BasicAbsentField;
+        }>;
+        rejection: Readonly<{
+          httpStatus: 303;
+          responseMode: 'query';
+          error: 'request_not_supported';
+          returnedFields: readonly ['error', 'iss'];
+          callbackSha256: string;
+          issuerSha256: string;
+          returnedCorrelation: Phase1BasicAbsentField;
+        }>;
+        issued: null;
+      }>
+    | Readonly<{
+        kind: 'claims-parameter-unsupported';
+        discovery: Readonly<{
+          claimsParameterSupported: Readonly<{ present: true; type: 'boolean'; value: false }>;
+        }>;
+        request: Readonly<{
+          scope: 'openid';
+          claims: Readonly<{ userinfo: Readonly<{ name: Readonly<{ essential: true }> }> }>;
+        }>;
+        issued: VerifiedIssuance & Readonly<{ name: Phase1BasicAbsentField }>;
+        userInfo: Readonly<{
+          responseSha256: string;
+          source: 'CallUserInfoEndpoint';
+          name: Phase1BasicAbsentField;
+        }>;
+      }>
+  );
+
 export type Phase1BasicModuleResult = Readonly<{
   testId: string;
   testName: Phase1BasicModuleName;
   status: 'FINISHED';
-  result: 'PASSED' | 'REVIEW';
+  result: 'PASSED' | 'REVIEW' | 'WARNING' | 'SKIPPED';
   conditionLogSha256: string;
   review: Phase1BasicScreenshotReview | null;
+  exception: Phase1BasicOptionalResultProof | null;
 }>;
 
 export type Phase1BasicAcceptedResult = Readonly<{
@@ -79,6 +163,7 @@ export type Phase1BasicAcceptedResult = Readonly<{
   moduleCount: 35;
   passedModuleCount: number;
   reviewedModuleCount: number;
+  exceptionModuleCount: number;
   modules: readonly Phase1BasicModuleResult[];
 }>;
 
@@ -92,7 +177,254 @@ const fail = (): never => {
   throw new TypeError(diagnostic);
 };
 
-export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcceptedResult => {
+const missingField = (value: unknown): boolean =>
+  isArtifactRecord(value) &&
+  exactArtifactKeys(value, ['present', 'type']) &&
+  value.present === false &&
+  value.type === 'missing';
+const falseField = (value: unknown): boolean =>
+  isArtifactRecord(value) &&
+  exactArtifactKeys(value, ['present', 'type', 'value']) &&
+  value.present === true &&
+  value.type === 'boolean' &&
+  value.value === false;
+const digest = (value: unknown): boolean => typeof value === 'string' && sha256Pattern.test(value);
+const warningSuccessSources = [
+  'GetDynamicServerConfiguration',
+  'BuildPlainRedirectToAuthorizationEndpoint',
+  'CallTokenEndpointAndReturnFullResponse',
+  'ExtractIdTokenFromTokenResponse',
+  'ValidateIdToken',
+  'ValidateIdTokenStandardClaims',
+  'ValidateIdTokenNonce',
+  'ValidateIdTokenSignature',
+  'CheckForSubjectInIdToken',
+  'CheckStateInAuthorizationResponse',
+] as const;
+const requestObjectSuccessSources = [
+  'GetDynamicServerConfiguration',
+  'BuildRequestObjectByValueRedirectToAuthorizationEndpoint',
+  'SerializeRequestObjectWithNullAlgorithm',
+  'ExtractImplicitHashToCallbackResponse',
+] as const;
+const userInfoSuccessSources = [
+  'CallUserInfoEndpoint',
+  'ExtractUserInfoFromUserInfoEndpointResponse',
+  'EnsureIdTokenDoesNotContainName',
+  'VerifyUserInfoAndIdTokenInTokenEndpointSameSub',
+  'ValidateUserInfoStandardClaims',
+  'EnsureUserInfoContainsSub',
+] as const;
+
+const requireOptionalProof = (
+  module: Readonly<Record<string, unknown>>,
+  expectedPlanInstanceId?: string
+): string => {
+  const proof = module.exception;
+  const acr = module.testName === phase1BasicModuleNames[24];
+  const requestObject = module.testName === phase1BasicModuleNames[30];
+  const claims = module.testName === phase1BasicModuleNames[31];
+  const expectedKind = acr
+    ? 'acr-values-unsupported'
+    : requestObject
+      ? 'request-object-unsupported'
+      : 'claims-parameter-unsupported';
+  if (
+    (!acr && !requestObject && !claims) ||
+    module.review !== null ||
+    module.result !== (requestObject ? 'SKIPPED' : 'WARNING') ||
+    !isArtifactRecord(proof) ||
+    !exactArtifactKeys(proof, [
+      'schemaVersion',
+      'kind',
+      'planInstanceId',
+      'testId',
+      'conditionLogSha256',
+      'infoSha256',
+      'discoveryResponseSha256',
+      'requestSha256',
+      'responseSha256',
+      'conditionCount',
+      'conditionEvidence',
+      'discovery',
+      'request',
+      'issued',
+      ...(requestObject ? ['rejection'] : []),
+      ...(claims ? ['userInfo'] : []),
+    ]) ||
+    proof.schemaVersion !== 1 ||
+    proof.kind !== expectedKind ||
+    proof.testId !== module.testId ||
+    proof.conditionLogSha256 !== module.conditionLogSha256 ||
+    typeof proof.planInstanceId !== 'string' ||
+    !/^[A-Za-z0-9]{13}$/u.test(proof.planInstanceId) ||
+    (expectedPlanInstanceId !== undefined && proof.planInstanceId !== expectedPlanInstanceId) ||
+    !['infoSha256', 'discoveryResponseSha256', 'requestSha256', 'responseSha256'].every((key) =>
+      digest(proof[key])
+    ) ||
+    typeof proof.conditionCount !== 'number' ||
+    !Number.isSafeInteger(proof.conditionCount) ||
+    proof.conditionCount < 1 ||
+    proof.conditionCount > 10_000 ||
+    !Array.isArray(proof.conditionEvidence) ||
+    proof.conditionEvidence.length > 32 ||
+    proof.conditionEvidence.length > proof.conditionCount ||
+    !isArtifactRecord(proof.discovery) ||
+    !isArtifactRecord(proof.request)
+  ) {
+    return fail();
+  }
+
+  const successSources = requestObject
+    ? [...requestObjectSuccessSources]
+    : [...warningSuccessSources, ...(claims ? userInfoSuccessSources : [])];
+  const finding = acr
+    ? 'ValidateIdTokenACRClaimAgainstAcrValuesRequest'
+    : claims
+      ? 'EnsureUserInfoContainsName'
+      : module.testName;
+  const expectedRows = [
+    ...successSources.map((source) => [source, 'SUCCESS']),
+    [finding, requestObject ? 'SKIPPED' : 'WARNING'],
+    [module.testName, 'FINISHED'],
+  ];
+  if (proof.conditionEvidence.length !== expectedRows.length) {
+    return fail();
+  }
+  const rowIds = new Set<string>();
+  for (const entry of proof.conditionEvidence) {
+    if (
+      !isArtifactRecord(entry) ||
+      !exactArtifactKeys(entry, ['id', 'source', 'result']) ||
+      typeof entry.id !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,128}$/u.test(entry.id) ||
+      rowIds.has(entry.id) ||
+      !expectedRows.some(([source, result]) => entry.source === source && entry.result === result)
+    ) {
+      return fail();
+    }
+    rowIds.add(entry.id);
+  }
+  for (const [source, result] of expectedRows) {
+    if (
+      proof.conditionEvidence.filter(
+        (entry: unknown) =>
+          isArtifactRecord(entry) && entry.source === source && entry.result === result
+      ).length !== 1
+    ) {
+      return fail();
+    }
+  }
+  const { request } = proof;
+  const { discovery } = proof;
+  if (requestObject) {
+    const { rejection } = proof;
+    if (
+      !exactArtifactKeys(discovery, ['requestParameterSupported']) ||
+      (!missingField(discovery.requestParameterSupported) &&
+        !falseField(discovery.requestParameterSupported)) ||
+      !exactArtifactKeys(request, [
+        'method',
+        'scope',
+        'requestObjectSha256',
+        'outerRedirectSha256',
+        'outerCorrelation',
+      ]) ||
+      request.method !== 'GET' ||
+      request.scope !== 'openid' ||
+      !digest(request.requestObjectSha256) ||
+      !digest(request.outerRedirectSha256) ||
+      !missingField(request.outerCorrelation) ||
+      proof.issued !== null ||
+      !isArtifactRecord(rejection) ||
+      !exactArtifactKeys(rejection, [
+        'httpStatus',
+        'responseMode',
+        'error',
+        'returnedFields',
+        'callbackSha256',
+        'issuerSha256',
+        'returnedCorrelation',
+      ]) ||
+      rejection.httpStatus !== 303 ||
+      rejection.responseMode !== 'query' ||
+      rejection.error !== 'request_not_supported' ||
+      !Array.isArray(rejection.returnedFields) ||
+      rejection.returnedFields.length !== 2 ||
+      rejection.returnedFields[0] !== 'error' ||
+      rejection.returnedFields[1] !== 'iss' ||
+      !digest(rejection.callbackSha256) ||
+      rejection.callbackSha256 !== request.outerRedirectSha256 ||
+      !digest(rejection.issuerSha256) ||
+      !missingField(rejection.returnedCorrelation)
+    ) {
+      return fail();
+    }
+    return proof.planInstanceId;
+  }
+  const { issued } = proof;
+  if (
+    !isArtifactRecord(issued) ||
+    !exactArtifactKeys(issued, [
+      'responseSha256',
+      'compactSha256',
+      'verificationKeySha256',
+      'algorithm',
+      'responseScope',
+      'acr',
+      'amr',
+      ...(claims ? ['name'] : []),
+    ]) ||
+    !['responseSha256', 'compactSha256', 'verificationKeySha256'].every((key) =>
+      digest(issued[key])
+    ) ||
+    issued.algorithm !== 'RS256' ||
+    issued.responseScope !== 'openid' ||
+    !missingField(issued.acr) ||
+    !missingField(issued.amr) ||
+    request.scope !== 'openid'
+  ) {
+    return fail();
+  }
+  if (acr) {
+    if (
+      !exactArtifactKeys(discovery, ['acrValuesSupported']) ||
+      !missingField(discovery.acrValuesSupported) ||
+      !exactArtifactKeys(request, ['scope', 'acrValues']) ||
+      request.acrValues !== '1 2'
+    ) {
+      return fail();
+    }
+  } else {
+    const { userInfo } = proof;
+    if (
+      !exactArtifactKeys(discovery, ['claimsParameterSupported']) ||
+      !falseField(discovery.claimsParameterSupported) ||
+      !exactArtifactKeys(request, ['scope', 'claims']) ||
+      !isArtifactRecord(request.claims) ||
+      !exactArtifactKeys(request.claims, ['userinfo']) ||
+      !isArtifactRecord(request.claims.userinfo) ||
+      !exactArtifactKeys(request.claims.userinfo, ['name']) ||
+      !isArtifactRecord(request.claims.userinfo.name) ||
+      !exactArtifactKeys(request.claims.userinfo.name, ['essential']) ||
+      request.claims.userinfo.name.essential !== true ||
+      !missingField(issued.name) ||
+      !isArtifactRecord(userInfo) ||
+      !exactArtifactKeys(userInfo, ['responseSha256', 'source', 'name']) ||
+      !digest(userInfo.responseSha256) ||
+      userInfo.source !== 'CallUserInfoEndpoint' ||
+      !missingField(userInfo.name)
+    ) {
+      return fail();
+    }
+  }
+  return proof.planInstanceId;
+};
+
+export const requirePhase1BasicAcceptedResult = (
+  value: unknown,
+  expectedPlanInstanceId?: string
+): Phase1BasicAcceptedResult => {
   if (
     !isArtifactRecord(value) ||
     !exactArtifactKeys(value, [
@@ -100,12 +432,14 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
       'moduleCount',
       'passedModuleCount',
       'reviewedModuleCount',
+      'exceptionModuleCount',
       'modules',
     ]) ||
     value.outcome !== 'accepted' ||
     value.moduleCount !== phase1BasicModuleNames.length ||
     !Number.isSafeInteger(value.passedModuleCount) ||
     !Number.isSafeInteger(value.reviewedModuleCount) ||
+    !Number.isSafeInteger(value.exceptionModuleCount) ||
     !Array.isArray(value.modules) ||
     value.modules.length !== phase1BasicModuleNames.length
   ) {
@@ -117,6 +451,8 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
   const reviewRecordHashes = new Set<string>();
   let passedModuleCount = 0;
   let reviewedModuleCount = 0;
+  let exceptionModuleCount = 0;
+  let proofPlanInstanceId = expectedPlanInstanceId;
 
   for (const [index, candidate] of value.modules.entries()) {
     if (
@@ -128,6 +464,7 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
         'result',
         'conditionLogSha256',
         'review',
+        'exception',
       ]) ||
       typeof candidate.testId !== 'string' ||
       !testIdPattern.test(candidate.testId) ||
@@ -141,6 +478,15 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
       return fail();
     }
     testIds.add(candidate.testId);
+
+    if (candidate.result === 'WARNING' || candidate.result === 'SKIPPED') {
+      proofPlanInstanceId = requireOptionalProof(candidate, proofPlanInstanceId);
+      exceptionModuleCount += 1;
+      continue;
+    }
+    if (candidate.exception !== null) {
+      return fail();
+    }
 
     if (candidate.result === 'PASSED') {
       if (candidate.review !== null || mandatoryScreenshotModules.has(candidate.testName)) {
@@ -189,7 +535,8 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
   if (
     value.passedModuleCount !== passedModuleCount ||
     value.reviewedModuleCount !== reviewedModuleCount ||
-    passedModuleCount + reviewedModuleCount !== phase1BasicModuleNames.length
+    value.exceptionModuleCount !== exceptionModuleCount ||
+    passedModuleCount + reviewedModuleCount + exceptionModuleCount !== phase1BasicModuleNames.length
   ) {
     return fail();
   }
@@ -197,4 +544,4 @@ export const requirePhase1BasicAcceptedResult = (value: unknown): Phase1BasicAcc
   return value as Phase1BasicAcceptedResult;
 };
 
-/* eslint-enable complexity, no-restricted-syntax, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

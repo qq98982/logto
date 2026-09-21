@@ -349,7 +349,7 @@ const deriveEvidenceSummary = (
       return fail();
     }
     if (result.planId === 'oidcc-basic-certification-test-plan') {
-      requirePhase1BasicAcceptedResult(result.result.value);
+      requirePhase1BasicAcceptedResult(result.result.value, result.resultId);
     }
     return Object.freeze({ planId: result.planId, resultId: result.resultId });
   });

@@ -252,7 +252,7 @@ export const writeModuleAudit = (root, audit) => {
     !hasExactKeys(audit, [
       'schemaVersion', 'kind', 'suiteCommit', 'planName', 'planInstanceId', 'moduleName',
       'testId', 'info', 'infoSha256', 'conditionLogSha256', 'conditionCount', 'conditions',
-      'captureId', 'review', 'accepted', 'failureCategory',
+      'captureId', 'review', 'accepted', 'failureCategory', 'exception',
     ]) ||
     audit.schemaVersion !== 1 || audit.kind !== 'phase1-conformance-module-audit' ||
     audit.suiteCommit !== suiteCommit || audit.planName !== planName

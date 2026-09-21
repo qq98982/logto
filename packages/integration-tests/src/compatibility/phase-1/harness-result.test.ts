@@ -12,7 +12,10 @@ import {
   type Phase1EvidenceFileName,
 } from './artifact-contract.js';
 import { phase1BrowserFlowIds } from './browser/contracts.js';
-import { createPhase1BasicAcceptedResultFixture } from './conformance/basic-result.test-fixture.js';
+import {
+  createPhase1BasicAcceptedResultFixture,
+  createPhase1BasicOptionalAcceptedResultFixture,
+} from './conformance/basic-result.test-fixture.js';
 import { writePhase1EvidenceManifest } from './evidence-manifest.js';
 import {
   assertPhase1HarnessResultUploadable,
@@ -114,7 +117,11 @@ const writeHarnessEvidence = async (
   root: string,
   bundle: Phase1ProfileBundle,
   mode: Phase1ArtifactMode,
-  options: Readonly<{ planNameResults?: boolean; forgedBasicResult?: boolean }> = {}
+  options: Readonly<{
+    planNameResults?: boolean;
+    forgedBasicResult?: boolean;
+    basicResult?: unknown;
+  }> = {}
 ) => {
   const provenance = {
     harnessCommit,
@@ -126,9 +133,14 @@ const writeHarnessEvidence = async (
     mode === 'runtime-candidate'
       ? options.planNameResults
         ? [...planIds]
-        : ['official-result-alpha', 'official-result-beta']
+        : [
+            options.basicResult === undefined ? 'official-result-alpha' : 'A'.repeat(13),
+            'official-result-beta',
+          ]
       : [];
-  const basicResult = JSON.parse(JSON.stringify(createPhase1BasicAcceptedResultFixture())) as {
+  const basicResult = JSON.parse(
+    JSON.stringify(options.basicResult ?? createPhase1BasicAcceptedResultFixture())
+  ) as {
     modules: Array<{ result: string }>;
   };
   if (options.forgedBasicResult) {
@@ -226,7 +238,11 @@ const writeHarnessEvidence = async (
 
 const createFixture = async (
   mode: Phase1ArtifactMode,
-  options: Readonly<{ planNameResults?: boolean; forgedBasicResult?: boolean }> = {}
+  options: Readonly<{
+    planNameResults?: boolean;
+    forgedBasicResult?: boolean;
+    basicResult?: unknown;
+  }> = {}
 ) => {
   const root = await createRoot();
   const evidenceDirectory = path.join(root, 'evidence');
@@ -411,6 +427,40 @@ describe('Phase 1 harness result', () => {
       writePhase1HarnessResult({
         profileBundle: invalid.bundle,
         evidenceManifest: invalid.manifest,
+      })
+    ).rejects.toThrow(/^Invalid phase 1 harness result$/u);
+  });
+
+  it('accepts proof-bearing optional grades from the bound conformance evidence', async () => {
+    const fixture = await createFixture('runtime-candidate', {
+      basicResult: createPhase1BasicOptionalAcceptedResultFixture('A'.repeat(13)),
+    });
+    const artifact = await writePhase1HarnessResult({
+      profileBundle: fixture.bundle,
+      evidenceManifest: fixture.manifest,
+    });
+
+    expect(artifact.result.conformance.officialResultIds).toEqual([
+      'A'.repeat(13),
+      'official-result-beta',
+    ]);
+  });
+
+  it('rejects a valid optional proof transplanted to another module instance', async () => {
+    const basicResult = createPhase1BasicOptionalAcceptedResultFixture('A'.repeat(13));
+    const fixture = await createFixture('runtime-candidate', {
+      basicResult: {
+        ...basicResult,
+        modules: basicResult.modules.map((module) =>
+          module.result === 'SKIPPED' ? { ...module, testId: 'Z'.repeat(15) } : module
+        ),
+      },
+    });
+
+    await expect(
+      writePhase1HarnessResult({
+        profileBundle: fixture.bundle,
+        evidenceManifest: fixture.manifest,
       })
     ).rejects.toThrow(/^Invalid phase 1 harness result$/u);
   });

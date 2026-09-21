@@ -166,7 +166,7 @@ export const createPhase1ConformanceEvidence = (
         throw new TypeError(diagnostic);
       }
       if (basicPlan) {
-        requirePhase1BasicAcceptedResult(value.result);
+        requirePhase1BasicAcceptedResult(value.result, value.resultId);
       }
       const result = projectionEnvelope('official-plan-result', value.result);
 

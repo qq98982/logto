@@ -498,7 +498,7 @@ const validateConformance = (
       fail();
     }
     if (result.planId === 'oidcc-basic-certification-test-plan') {
-      requirePhase1BasicAcceptedResult(envelope.value);
+      requirePhase1BasicAcceptedResult(envelope.value, resultId);
     }
     observedResultIds.push(resultId);
   }
