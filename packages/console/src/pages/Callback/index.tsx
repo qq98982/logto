@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import AppLoading from '@/components/AppLoading';
 import { consumeSavedRedirect } from '@/utils/storage';
 
-/** The global callback page for all sign-in redirects from Logto main flow. */
+/** The global callback page for Aster sign-in redirects. */
 function Callback() {
   const navigate = useNavigate();
   const { clearAllTokens } = useLogto();

@@ -1,6 +1,6 @@
 const system_limit = {
   limit_exceeded:
-    'این مستأجر <planName/> به محدودیت {{entity}} خود طبق <a>سیاست موجودیت Logto</a> رسیده است.',
+    'این مستأجر <planName/> به محدودیت {{entity}} خود طبق <a>سیاست موجودیت Aster</a> رسیده است.',
   entities: {
     application: 'برنامه',
     third_party_application: 'برنامه شخص ثالث',

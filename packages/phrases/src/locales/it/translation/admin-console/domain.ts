@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Connessione fallita',
   },
   update_endpoint_notice:
-    "Non dimenticare di aggiornare il dominio per l'URI di callback del connettore social e l'endpoint Logto nella tua applicazione se vuoi utilizzare un dominio personalizzato per le funzionalità.",
+    "Non dimenticare di aggiornare il dominio per l'URI di callback del connettore social e l'endpoint Aster nella tua applicazione se vuoi utilizzare un dominio personalizzato per le funzionalità.",
   error_hint:
     'Assicurati di aggiornare i tuoi record DNS. Continueremo a controllarli ogni {{value}} secondi.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Sei sicuro di voler eliminare questo dominio personalizzato "<span>{{domain}}</span>"?',
       in_used_tip:
-        'Se hai configurato in precedenza questo dominio personalizzato nel tuo provider di connettore social o endpoint dell\'applicazione, dovrai modificare l\'URI nel dominio Logto predefinito "<span>{{domain}}</span>". È necessario per il corretto funzionamento del pulsante di accesso social.',
+        'Se hai configurato in precedenza questo dominio personalizzato nel tuo provider di connettore social o endpoint dell\'applicazione, dovrai modificare l\'URI nel dominio Aster predefinito "<span>{{domain}}</span>". È necessario per il corretto funzionamento del pulsante di accesso social.',
       deleted: 'Dominio personalizzato eliminato con successo!',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Dominio predefinito',
     default_domain_description:
-      "Logto offre un dominio preconfigurato predefinito, pronto all'uso senza alcuna configurazione aggiuntiva. Questo dominio predefinito serve come opzione di backup anche se hai abilitato un dominio personalizzato.",
-    default_domain_field: 'Dominio predefinito Logto',
+      "Aster offre un dominio preconfigurato predefinito, pronto all'uso senza alcuna configurazione aggiuntiva. Questo dominio predefinito serve come opzione di backup anche se hai abilitato un dominio personalizzato.",
+    default_domain_field: 'Dominio predefinito Aster',
   },
   custom_endpoint_note:
     'Puoi personalizzare il nome di dominio di questi endpoint come richiesto. Scegli "{{custom}}" o "{{default}}".',

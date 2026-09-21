@@ -9,15 +9,13 @@ import { Trans, useTranslation } from 'react-i18next';
 import Modal from 'react-modal';
 import useSWR, { useSWRConfig } from 'swr';
 
-import { GtagConversionId, reportToGoogle } from '@/components/Conversion/utils';
 import LearnMore from '@/components/LearnMore';
 import SamlAppLimitBanner from '@/components/SamlAppLimitBanner';
-import { defaultPageSize, integrateLogto, thirdPartyApp } from '@/consts';
+import { defaultPageSize, integrationGuide, thirdPartyApp } from '@/consts';
 import { ossSamlApplicationsLimit } from '@/consts/application-limits';
 import { isCloud } from '@/consts/env';
 import { latestProPlanId } from '@/consts/subscriptions';
 import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
-import { TenantsContext } from '@/contexts/TenantsProvider';
 import DynamicT from '@/ds-components/DynamicT';
 import FormField from '@/ds-components/FormField';
 import ModalLayout from '@/ds-components/ModalLayout';
@@ -96,7 +94,6 @@ function CreateForm({
   const {
     currentSubscription: { planId, isEnterprisePlan },
   } = useContext(SubscriptionDataContext);
-  const { currentTenant } = useContext(TenantsContext);
   const { mutate: mutateGlobal } = useSWRConfig();
   const isPaidTenant = isPaidPlan(planId, isEnterprisePlan);
   const {
@@ -176,10 +173,6 @@ function CreateForm({
         })
         .json<Application>();
 
-      // Report the conversion event after the application is created. Note that the conversion
-      // should be set as count once since this will be reported multiple times.
-      reportToGoogle(GtagConversionId.CreateFirstApp, { transactionId: currentTenant?.id });
-
       toast.success(t('applications.application_created'));
       // Trigger a refetch of the applications list
       void mutateGlobal((key) => typeof key === 'string' && key.startsWith('api/applications'));
@@ -192,7 +185,7 @@ function CreateForm({
       return (
         <>
           <DynamicT forKey="applications.subtitle" />
-          <LearnMore isRelativeDocUrl href={integrateLogto} />
+          <LearnMore isRelativeDocUrl href={integrationGuide} />
         </>
       );
     }

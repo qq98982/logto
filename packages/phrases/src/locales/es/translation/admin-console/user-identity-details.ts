@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       'Eliminar los tokens almacenados. Los usuarios deben reautorizar el acceso para restaurar la funcionalidad.',
     confirmation_message:
-      '¿Estás seguro de que deseas eliminar los tokens? Logto Secret Vault eliminará los tokens de acceso y actualización de {{connectorName}} almacenados. Este usuario debe reautorizar para restaurar el acceso a la API de {{connectorName}}.',
+      '¿Estás seguro de que deseas eliminar los tokens? Aster Secret Vault eliminará los tokens de acceso y actualización de {{connectorName}} almacenados. Este usuario debe reautorizar para restaurar el acceso a la API de {{connectorName}}.',
   },
   token_storage_disabled: {
     title: 'El almacenamiento de tokens está desactivado para este conector',

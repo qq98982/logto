@@ -13,7 +13,7 @@ const profile = {
       after_resolved: '解决问题后，你可以删除账户。如需任何帮助，请随时联系我们。',
       check_information: '很遗憾听到你想要删除账户。请在继续操作前仔细检查以下信息。',
       remove_all_data:
-        '删除账户将永久删除在 Logto Cloud 中的所有个人数据。因此，请确保在操作前备份任何重要数据。',
+        '删除账户将永久删除在 Cloud 中的所有个人数据。因此，请确保在操作前备份任何重要数据。',
       confirm_information: '请确认以上信息符合你的预期。删除账户后，我们将无法恢复它。',
       has_admin_role: '由于你在以下租户中拥有管理员角色，该租户将与你的账户一起被删除：',
       has_admin_role_other: '由于你在以下租户中拥有管理员角色，它们将与你的账户一起被删除：',
@@ -31,7 +31,7 @@ const profile = {
     error_occurred: '发生错误',
     error_occurred_description: '抱歉，在删除账户时发生了问题：',
     request_id: '请求 ID：{{requestId}}',
-    try_again_later: '请稍后再试。如果问题仍然存在，请联系 Logto 团队并提供请求 ID。',
+    try_again_later: '请稍后再试。如果问题仍然存在，请联系 Aster 团队并提供请求 ID。',
     final_confirmation: '最终确认',
     about_to_start_deletion: '你即将开始删除流程，此操作不能撤销。',
     permanently_delete: '永久删除',

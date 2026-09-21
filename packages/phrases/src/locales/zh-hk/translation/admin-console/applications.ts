@@ -1,8 +1,8 @@
 const applications = {
   page_title: '全部應用',
   title: '全部應用',
-  subtitle: '創建一個移動、單頁、machine-to-machine 或傳統 web 應用程序，並通過 Logto 進行身份驗證',
-  subtitle_with_app_type: '為你的 {{name}} 應用程序設置 Logto 身份驗證',
+  subtitle: '創建一個移動、單頁、machine-to-machine 或傳統 web 應用程序，並通過 Aster 進行身份驗證',
+  subtitle_with_app_type: '為你的 {{name}} 應用程序設置 Aster 身份驗證',
   create_device_flow_description:
     '建立一個使用 OAuth 2.0 裝置授權許可的原生應用程式，適用於輸入受限裝置或無頭應用程式。',
   create: '創建應用',
@@ -43,7 +43,7 @@ const applications = {
     },
     protected: {
       title: '受保護應用程序',
-      subtitle: '透過 Logto 保護的應用程序',
+      subtitle: '透過 Aster 保護的應用程序',
       description: 'N/A',
     },
     saml: {
@@ -72,14 +72,14 @@ const applications = {
   },
   placeholder_title: '選擇應用程式類型以繼續',
   placeholder_description:
-    'Logto 使用 OIDC 的應用程式實體來幫助識別您的應用程式、管理登錄和創建審核日誌等任務。',
+    'Aster 使用 OIDC 的應用程式實體來幫助識別您的應用程式、管理登錄和創建審核日誌等任務。',
   third_party_application_placeholder_description:
-    '使用 Logto 作為身份提供者為第三方服務提供 OAuth 授權。 \n 包括一個內建的用戶同意螢幕以訪問資源。<a>了解更多</a>',
+    '使用 Aster 作為身份提供者為第三方服務提供 OAuth 授權。 \n 包括一個內建的用戶同意螢幕以訪問資源。<a>了解更多</a>',
   guide: {
     third_party: {
       title: '整合第三方應用程式',
       description:
-        '使用 Logto 作為身份提供者為第三方服務提供 OAuth 授權。包含用於安全資源訪問的預建用戶同意螢幕。<a>了解更多</a>',
+        '使用 Aster 作為身份提供者為第三方服務提供 OAuth 授權。包含用於安全資源訪問的預建用戶同意螢幕。<a>了解更多</a>',
     },
   },
 };

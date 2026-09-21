@@ -7,47 +7,47 @@
  */
 export const layoutClassNames = Object.freeze({
   /** Root `<div>` wrapping the entire account center app. */
-  app: 'logto_ac-app',
+  app: 'aster_ac-app',
   /** Full-page layout wrapper used across account center routes. */
-  pageContainer: 'logto_ac-page-container',
+  pageContainer: 'aster_ac-page-container',
   /** `<main>` that holds the primary content area. */
-  mainContent: 'logto_ac-main-content',
+  mainContent: 'aster_ac-main-content',
   /** Card-style container used on sub-pages (email, phone, password…). */
-  cardContainer: 'logto_ac-card-container',
+  cardContainer: 'aster_ac-card-container',
   /** Card-style `<main>` inside the card container. */
-  cardMain: 'logto_ac-card-main',
-  /** Logto signature / branding footer. */
-  signature: 'logto_ac-signature',
+  cardMain: 'aster_ac-card-main',
+  /** Aster signature / branding footer. */
+  signature: 'aster_ac-signature',
   /** Top-level page header (logo + app name bar). */
-  pageHeader: 'logto_ac-page-header',
+  pageHeader: 'aster_ac-page-header',
   /** Page title text (on Security / Home page). */
-  pageTitle: 'logto_ac-page-title',
+  pageTitle: 'aster_ac-page-title',
   /** Page description text (on Security / Home page). */
-  pageDescription: 'logto_ac-page-description',
+  pageDescription: 'aster_ac-page-description',
   /** Scrollable content area on the Security / Home page. */
-  pageContent: 'logto_ac-page-content',
+  pageContent: 'aster_ac-page-content',
   /** Each logical section (username, email/phone, password, MFA, social, delete). */
-  section: 'logto_ac-section',
+  section: 'aster_ac-section',
   /** Section heading text. */
-  sectionTitle: 'logto_ac-section-title',
+  sectionTitle: 'aster_ac-section-title',
   /** Card that groups rows inside a section. */
-  card: 'logto_ac-card',
+  card: 'aster_ac-card',
   /** A single row inside a card. */
-  row: 'logto_ac-row',
+  row: 'aster_ac-row',
   /** Wrapper for the secondary (sub-page) layout. */
-  secondaryPageWrapper: 'logto_ac-secondary-page-wrapper',
+  secondaryPageWrapper: 'aster_ac-secondary-page-wrapper',
   /** Secondary page title. */
-  secondaryPageTitle: 'logto_ac-secondary-page-title',
+  secondaryPageTitle: 'aster_ac-secondary-page-title',
   /** Secondary page description. */
-  secondaryPageDescription: 'logto_ac-secondary-page-description',
+  secondaryPageDescription: 'aster_ac-secondary-page-description',
   /** Sidebar navigation on the Security / Profile page. */
-  sidebar: 'logto_ac-sidebar',
+  sidebar: 'aster_ac-sidebar',
   /** A navigation item inside the sidebar. */
-  sidebarItem: 'logto_ac-sidebar-item',
+  sidebarItem: 'aster_ac-sidebar-item',
   /** Full-page layout with multiple account nav destinations (sidebar or mobile tabs). */
-  withTabNav: 'logto_ac-with-tab-nav',
+  withTabNav: 'aster_ac-with-tab-nav',
   /** Mobile top tab navigation on the Security / Profile page. */
-  mobileTabNav: 'logto_ac-mobile-tab-nav',
+  mobileTabNav: 'aster_ac-mobile-tab-nav',
   /** A tab item inside the mobile tab navigation. */
-  mobileTabNavItem: 'logto_ac-mobile-tab-nav-item',
+  mobileTabNavItem: 'aster_ac-mobile-tab-nav-item',
 });

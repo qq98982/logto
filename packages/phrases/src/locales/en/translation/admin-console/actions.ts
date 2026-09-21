@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Run custom code at specific points in the authentication flow to extend Logto behavior.',
+    'Run custom code at specific points in the authentication flow to extend Aster behavior.',
   status: {
     not_configured: 'Not configured',
     configured: 'Configured',
@@ -28,7 +28,7 @@ const actions = {
   },
   result_data: {
     title: 'Action result',
-    subtitle: 'Return a result object that Logto understands for this action type.',
+    subtitle: 'Return a result object that Aster understands for this action type.',
   },
   environment_variables: {
     title: 'Set environment variables',
@@ -51,11 +51,11 @@ const actions = {
     },
     on_execution_error: {
       title: 'On script error',
-      description: 'Choose how Logto should behave when the script fails at runtime.',
+      description: 'Choose how Aster should behave when the script fails at runtime.',
       block: 'Block the authentication flow',
       allow: 'Allow the authentication flow to continue',
       post_first_factor_description:
-        'When this script fails, Logto always rejects invalid credentials so password verification cannot be bypassed.',
+        'When this script fails, Aster always rejects invalid credentials so password verification cannot be bypassed.',
     },
   },
   test_context: {

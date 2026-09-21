@@ -45,6 +45,17 @@ describe('App Init', () => {
     expect(listenMock).toBeCalled();
   });
 
+  it('emits only the Aster request ID header', async () => {
+    getTenantId.mockResolvedValueOnce([undefined, false]);
+    const app = new Koa();
+    await initApp(app);
+
+    const response = await request(app.callback()).get('/');
+
+    expect(response.headers['aster-core-request-id']).toMatch(/^[\w-]{16}$/u);
+    expect(response.headers['logto-core-request-id']).toBeUndefined();
+  });
+
   it('logs tenant initialization errors to the request console', async () => {
     const tenantError = new Error('tenant init failed');
     const consoleError = jest.spyOn(console, 'error').mockImplementation();

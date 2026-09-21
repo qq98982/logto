@@ -27,7 +27,7 @@ const guide = {
     modal_subtitle: 'เริ่มต้นพัฒนาแอปของคุณได้อย่างรวดเร็วด้วย SDK และบทแนะนำที่เราสร้างไว้ให้',
     select_a_framework: 'เลือกเฟรมเวิร์ก',
     continue_without_framework: 'สร้างแอปโดยไม่ใช้เฟรมเวิร์ก',
-    describe_guide_looking_for_placeholder: 'เช่น ต้องการผสาน Logto เข้ากับแอป Angular',
+    describe_guide_looking_for_placeholder: 'เช่น ต้องการผสาน Aster เข้ากับแอป Angular',
   },
   api: {
     modal_title: 'เริ่มด้วยบทแนะนำ',

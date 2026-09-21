@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'API 資源，又稱資源指示器，表示要請求的目標服務或資源，通常是表示資源身份的 URI 格式變數。',
   management_api_settings_description:
-    'Logto 管理 API 是一個全面的 API 集合，使管理員能夠管理各種與身份有關的任務，執行安全策略，並遵守法規和標準。',
+    'Aster 管理 API 是一個全面的 API 集合，使管理員能夠管理各種與身份有關的任務，執行安全策略，並遵守法規和標準。',
   management_api_notice:
-    '此 API 代表 Logto 實體，不能修改或刪除。創建機器對機器應用程式以調用 Logto 管理 API。<a>了解更多</a>',
+    '此 API 代表 Aster 實體，不能修改或刪除。創建機器對機器應用程式以調用 Aster 管理 API。<a>了解更多</a>',
   token_expiration_time_in_seconds: 'Token 過期時間（秒）',
   token_expiration_time_in_seconds_placeholder: '請輸入你的 token 過期時間',
   delete_description:

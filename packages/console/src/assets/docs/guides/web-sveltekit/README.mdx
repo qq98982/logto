@@ -13,10 +13,10 @@ export const cookieEncryptionKey = generateStandardSecret();
 <Steps>
 
 <Step
-  title="Install Logto SDK"
+  title="Install the upstream SDK"
 >
 
-Use your favorite package manager to install the Logto SDK:
+Use your favorite package manager to install the upstream SDK:
 
 <NpmLikeInstallation packageName="@logto/sveltekit" />
 
@@ -28,11 +28,11 @@ Use your favorite package manager to install the Logto SDK:
 
 </Step>
 
-<Step title="Add Logto hook">
+<Step title="Add Aster hook">
 
 Create a `hooks.server.ts` file in your project `src` root if you don't have one. This file is used to define server hooks for your SvelteKit app.
 
-In your `hooks.server.ts` file, add the following code to inject the Logto hook into your server:
+In your `hooks.server.ts` file, add the following code to inject the Aster hook into your server:
 
 <Code className="language-tsx" title="src/hooks.server.ts">
     {`import { handleLogto } from '@logto/sveltekit';
@@ -75,7 +75,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 export const handle = sequence(handleLogto, handleOtherHook);
 ```
 
-Now you can access the Logto client in the `locals` object. For TypeScript, you can add the type to `app.d.ts`:
+Now you can access the Aster client in the `locals` object. For TypeScript, you can add the type to `app.d.ts`:
 
 ```ts title="src/app.d.ts"
 import type { LogtoClient, UserInfoResponse } from '@logto/sveltekit';

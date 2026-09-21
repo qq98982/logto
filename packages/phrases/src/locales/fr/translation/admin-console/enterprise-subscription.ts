@@ -16,7 +16,7 @@ const enterprise_subscription = {
       "Ceci est votre abonnement au forfait Entreprise et ce quota est partagé entre les locataires. L' utilisation peut être soumise à un léger retard de mise à jour.",
     add_on_title: 'Modules complémentaires à la carte',
     add_on_description:
-      'Ce sont des modules complémentaires à la carte basés sur votre contrat ou sur les tarifs standards à la carte de Logto. Vous serez facturé en fonction de votre utilisation réelle.',
+      "Ce sont des modules complémentaires à la carte basés sur votre contrat ou sur les tarifs standards à la carte d'Aster. Vous serez facturé en fonction de votre utilisation réelle.",
     included: 'Inclus',
     over_quota: 'Dépassement de quota',
     basic_plan_column_title: {

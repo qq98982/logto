@@ -1,0 +1,113 @@
+import { defineCandidateInvariant, type CandidateInvariantContract } from '../model.js';
+
+const positiveProjection = {
+  liveLedger: {
+    alertAt: 28,
+    liveCount: 32,
+    liveIds: [
+      '<wrapping-key.01>',
+      '<wrapping-key.02>',
+      '<wrapping-key.03>',
+      '<wrapping-key.04>',
+      '<wrapping-key.05>',
+      '<wrapping-key.06>',
+      '<wrapping-key.07>',
+      '<wrapping-key.08>',
+      '<wrapping-key.09>',
+      '<wrapping-key.10>',
+      '<wrapping-key.11>',
+      '<wrapping-key.12>',
+      '<wrapping-key.13>',
+      '<wrapping-key.14>',
+      '<wrapping-key.15>',
+      '<wrapping-key.16>',
+      '<wrapping-key.17>',
+      '<wrapping-key.18>',
+      '<wrapping-key.19>',
+      '<wrapping-key.20>',
+      '<wrapping-key.21>',
+      '<wrapping-key.22>',
+      '<wrapping-key.23>',
+      '<wrapping-key.24>',
+      '<wrapping-key.25>',
+      '<wrapping-key.26>',
+      '<wrapping-key.27>',
+      '<wrapping-key.28>',
+      '<wrapping-key.29>',
+      '<wrapping-key.30>',
+      '<wrapping-key.31>',
+      '<wrapping-key.32>',
+    ],
+    limit: 32,
+    row33Denied: true,
+    referencedRemovalDenied: true,
+    removableZeroCountTombstoned: true,
+    tombstoneCount: 1,
+    tombstoneIds: ['<wrapping-key.old>'],
+    tombstonesConsumeLiveCapacity: false,
+    reusedTombstoneId: null,
+  },
+};
+const negativeProjection = {
+  liveLedger: { ...positiveProjection.liveLedger, reusedTombstoneId: '<wrapping-key.old>' },
+};
+
+export const keystoreLiveLedgerLimitAndTombstone = defineCandidateInvariant({
+  id: 'keystore.live-ledger-limit-and-tombstone',
+  evidenceKind: 'candidate-invariant',
+  executor: 'aster',
+  livePrecondition: {
+    kind: 'live-ledger-boundary-and-immutable-tombstone-fixtures',
+    exercisedCounts: [28, 29, 30, 31, 32],
+  },
+  perturbation: { kind: 'attempt-row-33-referenced-removal-and-tombstoned-id-reuse' },
+  expectedPublicOutcome: { liveCount: 32, row33Denied: true, reusedTombstoneId: null },
+  expectedPersistedOutcome: positiveProjection.liveLedger,
+  forbiddenOutcome: {
+    liveCountAbove32: true,
+    referencedRemoval: true,
+    idReuse: true,
+    tombstoneUsesLiveCapacity: true,
+  },
+  cleanup: { kind: 'remove-optional-live-fixtures-preserve-tombstones' },
+  sanitizedProjection: {
+    fields: [
+      'liveLedger.alertAt',
+      'liveLedger.liveCount',
+      'liveLedger.liveIds',
+      'liveLedger.limit',
+      'liveLedger.row33Denied',
+      'liveLedger.referencedRemovalDenied',
+      'liveLedger.removableZeroCountTombstoned',
+      'liveLedger.tombstoneCount',
+      'liveLedger.tombstoneIds',
+      'liveLedger.tombstonesConsumeLiveCapacity',
+      'liveLedger.reusedTombstoneId',
+    ],
+    logicalKeyIdsOnly: true,
+  },
+  projectionVersion: 1,
+  positiveControl: {
+    kind: 'positive',
+    name: 'live ledger stays bounded and tombstoned IDs are not reused',
+    input: { variant: 'positive' },
+    expectedProjection: positiveProjection,
+    expectedDifferencePointer: null,
+  },
+  negativeControl: {
+    kind: 'negative',
+    name: 'a tombstoned wrapping-key identifier is reused',
+    input: {
+      variant: 'negative',
+      fault: {
+        operation: 'replace',
+        path: '/liveLedger/reusedTombstoneId',
+        value: '<wrapping-key.old>',
+      },
+    },
+    expectedProjection: negativeProjection,
+    expectedDifferencePointer: '/liveLedger/reusedTombstoneId',
+  },
+} satisfies CandidateInvariantContract);
+
+export default keystoreLiveLedgerLimitAndTombstone;

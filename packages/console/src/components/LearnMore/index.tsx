@@ -5,7 +5,7 @@ import TextLink, { type Props as TextLinkProps } from '@/ds-components/TextLink'
 import useDocumentationUrl from '@/hooks/use-documentation-url';
 
 export type Props = {
-  readonly href: string;
+  readonly href?: string;
   readonly customI18nKey?: AdminConsoleKey;
   readonly hasLeadingSpace?: boolean;
   readonly isRelativeDocUrl?: boolean;
@@ -21,14 +21,17 @@ function LearnMore({
   targetBlank = 'noopener',
 }: Props) {
   const { getDocumentationUrl } = useDocumentationUrl();
+  const link =
+    href && isRelativeDocUrl && !href.startsWith('https://') ? getDocumentationUrl(href) : href;
+
+  if (!link) {
+    return null;
+  }
 
   return (
     <>
       {hasLeadingSpace && ' '}
-      <TextLink
-        href={isRelativeDocUrl && !href.startsWith('https://') ? getDocumentationUrl(href) : href}
-        targetBlank={targetBlank}
-      >
+      <TextLink href={link} targetBlank={targetBlank}>
         <DynamicT forKey={customI18nKey} />
       </TextLink>
     </>

@@ -22,7 +22,7 @@ const pageSize = defaultPageSize;
 function ApiResourcePermissions() {
   const {
     resource: { id: resourceId },
-    isLogtoManagementApiResource,
+    isManagementApiResource,
   } = useOutletContext<ApiResourceDetailsOutletContext>();
 
   const { t } = useTranslation(undefined, { keyPrefix: 'admin_console' });
@@ -60,7 +60,7 @@ function ApiResourcePermissions() {
         isCreateGuideVisible
         scopes={scopes}
         isLoading={isLoading}
-        isReadOnly={isLogtoManagementApiResource}
+        isReadOnly={isManagementApiResource}
         createButtonTitle="api_resource_details.permission.create_button"
         createHandler={() => {
           setIsCreateFormOpen(true);

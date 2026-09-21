@@ -17,7 +17,7 @@ const profile = {
       check_information:
         'Lamentamos saber que você deseja excluir sua conta. Por favor, verifique as seguintes informações com cuidado antes de prosseguir.',
       remove_all_data:
-        'Excluir sua conta removerá permanentemente todos os dados sobre você na Logto Cloud. Portanto, certifique-se de fazer backup de quaisquer dados importantes antes de prosseguir.',
+        'Excluir sua conta removerá permanentemente todos os dados sobre você na Cloud. Portanto, certifique-se de fazer backup de quaisquer dados importantes antes de prosseguir.',
       confirm_information:
         'Por favor, confirme que as informações acima são o que você esperava. Depois de excluir sua conta, não poderemos recuperá-la.',
       has_admin_role:
@@ -40,7 +40,7 @@ const profile = {
     error_occurred_description: 'Desculpe, algo deu errado ao excluir sua conta:',
     request_id: 'ID da solicitação: {{requestId}}',
     try_again_later:
-      'Por favor, tente novamente mais tarde. Se o problema persistir, entre em contato com a equipe Logto com o ID da solicitação.',
+      'Por favor, tente novamente mais tarde. Se o problema persistir, entre em contato com a equipe Aster com o ID da solicitação.',
     final_confirmation: 'Confirmação final',
     about_to_start_deletion:
       'Você está prestes a iniciar o processo de exclusão e essa ação não pode ser desfeita.',

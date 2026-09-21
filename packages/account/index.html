@@ -7,7 +7,7 @@
   <title>Account Center</title>
   <script>
     /* See {@link packages/schemas/src/types/ssr.ts} */
-    window.logtoSsr = "__LOGTO_ACCOUNT_CENTER_SSR__";
+    window.asterSsr = "__ASTER_ACCOUNT_CENTER_SSR__";
   </script>
 </head>
 
@@ -25,7 +25,7 @@
       document.body.classList.add(isMobile ? 'mobile' : 'desktop');
 
       try {
-        var ssr = window.logtoSsr;
+        var ssr = window.asterSsr;
         var darkOk = typeof ssr === 'object' && ssr !== null
           && ssr.signInExperience && ssr.signInExperience.data
           && ssr.signInExperience.data.color.isDarkModeEnabled;

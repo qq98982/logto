@@ -8,7 +8,7 @@ const role = {
   default_role_missing:
     'Varsayılan rol adlarından bazıları veritabanında mevcut değil, lütfen önce rolleri oluşturduğunuzdan emin olun',
   internal_role_violation:
-    'Logto tarafından yasaklanan dahili bir rolü güncelleme veya silmeye çalışıyor olabilirsiniz. Yeni bir rol oluşturuyorsanız, "#internal:" ile başlamayan başka bir isim deneyin.',
+    'Aster tarafından yasaklanan dahili bir rolü güncelleme veya silmeye çalışıyor olabilirsiniz. Yeni bir rol oluşturuyorsanız, "#internal:" ile başlamayan başka bir isim deneyin.',
 };
 
 export default Object.freeze(role);

@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Colore del marchio (scuro)',
     dark_mode: 'Abilita modalità scura',
     dark_mode_description:
-      "La tua app avrà un tema modalità scura generato automaticamente in base al tuo colore del marchio e all'algoritmo Logto. Sei libero di personalizzare.",
+      "La tua app avrà un tema modalità scura generato automaticamente in base al tuo colore del marchio e all'algoritmo Aster. Sei libero di personalizzare.",
     dark_mode_reset_tip: 'Ricalcola il colore della modalità scura in base al colore del marchio.',
     reset: 'Ricalcola',
   },
@@ -42,11 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: "Logo dell'app e favicon",
     company_logo_and_favicon: 'Logo aziendale e favicon',
     organization_logo_and_favicon: "Logo dell'organizzazione e favicon",
-    hide_logto_branding: 'Nascondi il branding Logto',
-    hide_logto_branding_description:
-      'Rimuovi "Powered by Logto". Metti in risalto solo il tuo brand con un\'esperienza di accesso pulita e professionale.',
-    hide_logto_branding_oss_note:
-      'Questa funzione è disponibile in modo nativo su <a>Logto Cloud</a>.',
   },
   branding_uploads: {
     app_logo: {
@@ -82,7 +77,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'UI personalizzata',
-    cloud_tag: 'Cloud',
     css_code_editor_title: 'CSS personalizzato',
     css_code_editor_field_title: 'Override CSS',
     css_code_editor_description1: "Vedi l'esempio di CSS personalizzato.",
@@ -93,11 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Porta la tua UI',
     bring_your_ui_upload_title: 'Carica asset UI personalizzati',
     bring_your_ui_description:
-      'Carica un pacchetto compresso (.zip) per sostituire la UI precaricata di Logto con il tuo codice. <a>Scopri di più</a>',
-    bring_your_ui_oss_description: "Personalizza l'interfaccia di accesso con il tuo codice.",
-    bring_your_ui_oss_card_description:
-      'Carica direttamente la tua interfaccia di accesso personalizzata su <a>Logto Cloud</a>. Non serve fare un fork o ridistribuire.',
-    bring_your_ui_oss_try_cloud: 'Prova Cloud',
+      'Carica un pacchetto compresso (.zip) per sostituire la UI precaricata di Aster con il tuo codice. <a>Scopri di più</a>',
     preview_with_bring_your_ui_description:
       'I tuoi asset della UI personalizzata sono stati caricati con successo e ora vengono serviti. Di conseguenza, la finestra di anteprima integrata è stata disabilitata.\nPer testare la tua UI di accesso personalizzata, fai clic sul pulsante "Live Preview" per aprirla in una nuova scheda del browser.',
     csp_description:
@@ -114,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'CENTRO ACCOUNT',
-    description: 'Personalizza i flussi del centro account con le API Logto.',
+    description: 'Personalizza i flussi del centro account con le API Aster.',
     enable_account_api: 'Abilita il centro account e l’Account API',
     enable_account_api_description:
-      'Abilita insieme l’Account API per gli utenti finali e il centro account predefinito di Logto. Se disattivato, entrambe le funzionalità non sono disponibili.',
+      'Abilita insieme l’Account API per gli utenti finali e il centro account predefinito di Aster. Se disattivato, entrambe le funzionalità non sono disponibili.',
     field_options: {
       off: 'Disattivato',
       edit: 'Modifica',

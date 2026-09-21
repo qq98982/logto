@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'MAU to unikalny użytkownik, który wymienił co najmniej jeden token z Logto w ciągu cyklu rozliczeniowego. Nielimitowany w planie Pro. <a>Dowiedz się więcej</a>',
+      'MAU to unikalny użytkownik, który wymienił co najmniej jeden token z Aster w ciągu cyklu rozliczeniowego. Nielimitowany w planie Pro. <a>Dowiedz się więcej</a>',
     tooltip_for_enterprise:
-      'MAU to unikalny użytkownik, który wymienił co najmniej jeden token z Logto w ciągu cyklu rozliczeniowego. Nielimitowany w planie Enterprise.',
+      'MAU to unikalny użytkownik, który wymienił co najmniej jeden token z Aster w ciągu cyklu rozliczeniowego. Nielimitowany w planie Enterprise.',
   },
   organizations: {
     title: 'Organizacje',

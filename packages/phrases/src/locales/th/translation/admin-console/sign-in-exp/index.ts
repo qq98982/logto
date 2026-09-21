@@ -29,7 +29,7 @@ const sign_in_exp = {
     dark_primary_color: 'สีแบรนด์ (โหมดมืด)',
     dark_mode: 'เปิดใช้งานโหมดมืด',
     dark_mode_description:
-      'แอปของคุณจะมีธีมโหมดมืดที่สร้างอัตโนมัติตามสีแบรนด์ของคุณและอัลกอริทึม Logto คุณสามารถปรับแต่งได้ตามต้องการ',
+      'แอปของคุณจะมีธีมโหมดมืดที่สร้างอัตโนมัติตามสีแบรนด์ของคุณและอัลกอริทึม Aster คุณสามารถปรับแต่งได้ตามต้องการ',
     dark_mode_reset_tip: 'คำนวณสีโหมดมืดใหม่ตามสีแบรนด์',
     reset: 'คำนวณใหม่',
   },
@@ -41,10 +41,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'โลโก้แอปและ Favicon',
     company_logo_and_favicon: 'โลโก้บริษัทและ Favicon',
     organization_logo_and_favicon: 'โลโก้องค์กรและ Favicon',
-    hide_logto_branding: 'ซ่อนแบรนด์ Logto',
-    hide_logto_branding_description:
-      'ลบ "Powered by Logto" เพื่อให้แบรนด์ของคุณโดดเด่นด้วยประสบการณ์ลงชื่อเข้าใช้ที่สะอาดและเป็นมืออาชีพ',
-    hide_logto_branding_oss_note: 'ฟีเจอร์นี้พร้อมใช้งานแบบเนทีฟใน <a>Logto Cloud</a>',
   },
   branding_uploads: {
     app_logo: {
@@ -80,7 +76,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'ปรับแต่ง UI',
-    cloud_tag: 'Cloud',
     css_code_editor_title: 'CSS ที่กำหนดเอง',
     css_code_editor_field_title: 'การเขียนทับ CSS',
     css_code_editor_description1: 'ดูตัวอย่าง CSS ที่กำหนดเอง',
@@ -91,11 +86,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'นำ UI ของคุณมาเอง',
     bring_your_ui_upload_title: 'อัปโหลดไฟล์ UI แบบกำหนดเอง',
     bring_your_ui_description:
-      'อัปโหลดไฟล์บีบอัด (.zip) เพื่อแทนที่ UI สำเร็จรูปของ Logto ด้วยโค้ดของคุณเอง <a>เรียนรู้เพิ่มเติม</a>',
-    bring_your_ui_oss_description: 'ปรับแต่ง UI สำหรับการลงชื่อเข้าใช้ด้วยโค้ดของคุณเอง',
-    bring_your_ui_oss_card_description:
-      'อัปโหลด UI สำหรับการลงชื่อเข้าใช้แบบกำหนดเองของคุณไปยัง <a>Logto Cloud</a> ได้โดยตรง โดยไม่ต้อง fork หรือปรับใช้ใหม่',
-    bring_your_ui_oss_try_cloud: 'ลองใช้ Cloud',
+      'อัปโหลดไฟล์บีบอัด (.zip) เพื่อแทนที่ UI สำเร็จรูปของ Aster ด้วยโค้ดของคุณเอง <a>เรียนรู้เพิ่มเติม</a>',
     preview_with_bring_your_ui_description:
       'ไฟล์ UI ที่คุณกำหนดเองถูกอัปโหลดเรียบร้อยแล้วและกำลังใช้งานอยู่ ดังนั้นหน้าต่างตัวอย่างแบบฝังจึงถูกปิดใช้งาน\nหากต้องการทดสอบหน้าเข้าสู่ระบบแบบกำหนดเอง ให้คลิกปุ่ม "แสดงตัวอย่างสด" เพื่อเปิดในแท็บใหม่',
     csp_description:
@@ -112,10 +103,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'ศูนย์บัญชี',
-    description: 'ปรับแต่งขั้นตอนศูนย์บัญชีของคุณด้วย Logto API.',
+    description: 'ปรับแต่งขั้นตอนศูนย์บัญชีของคุณด้วย Aster API.',
     enable_account_api: 'เปิดใช้งานศูนย์บัญชีและ Account API',
     enable_account_api_description:
-      'เปิดใช้ทั้ง Account API สำหรับผู้ใช้ปลายทางและศูนย์บัญชีสำเร็จรูปของ Logto พร้อมกัน เมื่อปิดใช้งาน ฟีเจอร์ทั้งสองจะไม่พร้อมใช้งาน',
+      'เปิดใช้ทั้ง Account API สำหรับผู้ใช้ปลายทางและศูนย์บัญชีสำเร็จรูปของ Aster พร้อมกัน เมื่อปิดใช้งาน ฟีเจอร์ทั้งสองจะไม่พร้อมใช้งาน',
     field_options: {
       off: 'ปิด',
       edit: 'แก้ไข',

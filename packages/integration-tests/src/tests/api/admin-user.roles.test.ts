@@ -102,7 +102,7 @@ describe('admin console user management (roles)', () => {
     );
     const [managementApiRole] = await getRoles({
       type: RoleType.MachineToMachine,
-      search: '%Logto Management API access%',
+      search: '%Aster Management API access%',
     });
 
     if (!managementApiRole) {

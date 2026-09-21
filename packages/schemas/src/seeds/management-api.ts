@@ -1,3 +1,7 @@
+import {
+  buildManagementApiResourceIndicator,
+  type ManagementApiResourceIndicator,
+} from '@logto/core-kit';
 import { generateStandardId } from '@logto/shared/universal';
 
 import {
@@ -46,8 +50,8 @@ export const defaultManagementApi = Object.freeze({
      *
      * Admin Console requires the access token of this resource to be functional.
      */
-    indicator: `https://${defaultTenantId}.logto.app/api`,
-    name: 'Logto Management API',
+    indicator: buildManagementApiResourceIndicator(defaultTenantId),
+    name: 'Aster Management API',
   },
   scopes: [
     {
@@ -69,21 +73,21 @@ export const defaultManagementApi = Object.freeze({
     /** @deprecated You should not rely on this constant. Change to something else. */
     id: 'admin-role',
     name: InternalRole.Admin,
-    description: `Internal admin role for Logto tenant ${defaultTenantId}.`,
+    description: `Internal admin role for Aster tenant ${defaultTenantId}.`,
     type: RoleType.MachineToMachine,
   },
 }) satisfies AdminData;
 
 export function getManagementApiResourceIndicator<TenantId extends string>(
   tenantId: TenantId
-): `https://${TenantId}.logto.app/api`;
+): ManagementApiResourceIndicator<TenantId>;
 export function getManagementApiResourceIndicator<TenantId extends string, Path extends string>(
   tenantId: TenantId,
   path: Path
-): `https://${TenantId}.logto.app/${Path}`;
+): ManagementApiResourceIndicator<TenantId, Path>;
 
 export function getManagementApiResourceIndicator(tenantId: string, path = 'api') {
-  return `https://${tenantId}.logto.app/${path}`;
+  return buildManagementApiResourceIndicator(tenantId, path);
 }
 
 /**
@@ -101,7 +105,7 @@ export const createAdminData = (tenantId: string) => {
       tenantId,
       id: resourceId,
       indicator: getManagementApiResourceIndicator(tenantId),
-      name: `Logto Management API`,
+      name: `Aster Management API`,
     },
     scopes: [
       {
@@ -117,7 +121,7 @@ export const createAdminData = (tenantId: string) => {
       tenantId,
       id: generateStandardId(),
       name: InternalRole.Admin,
-      description: `Internal admin role for Logto tenant ${defaultTenantId}.`,
+      description: `Internal admin role for Aster tenant ${defaultTenantId}.`,
       type: RoleType.MachineToMachine,
     },
   } satisfies AdminData);
@@ -132,7 +136,7 @@ export const createAdminDataInAdminTenant = (tenantId: string) => {
       tenantId: adminTenantId,
       id: resourceId,
       indicator: getManagementApiResourceIndicator(tenantId),
-      name: `Logto Management API for tenant ${tenantId}`,
+      name: `Aster Management API for tenant ${tenantId}`,
     },
     scopes: [
       {
@@ -156,14 +160,14 @@ export const createMeApiInAdminTenant = () => {
       tenantId: adminTenantId,
       id: resourceId,
       indicator: getManagementApiResourceIndicator(adminTenantId, 'me'),
-      name: `Logto Me API`,
+      name: `Aster Account API`,
     },
     scopes: [
       {
         tenantId: adminTenantId,
         id: generateStandardId(),
         name: PredefinedScope.All,
-        description: 'Default scope for Me API, allows all permissions.',
+        description: 'Default scope for Account API, allows all permissions.',
         resourceId,
       },
     ],
@@ -183,7 +187,7 @@ export const createMeApiInAdminTenant = () => {
 export const createPreConfiguredManagementApiAccessRole = (tenantId: string): CreateRole => ({
   tenantId,
   id: generateStandardId(),
-  description: 'This default role grants access to the Logto management API.',
-  name: 'Logto Management API access',
+  description: 'This default role grants access to the Aster Management API.',
+  name: 'Aster Management API access',
   type: RoleType.MachineToMachine,
 });

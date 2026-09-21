@@ -1,3 +1,4 @@
+import { buildManagementApiResourceIndicator } from '@logto/core-kit';
 import Tabs from '@/mdx-components/Tabs';
 import TabItem from '@/mdx-components/TabItem';
 import InlineNotification from '@/ds-components/InlineNotification';
@@ -5,29 +6,22 @@ import Steps from '@/mdx-components/Steps';
 import Step from '@/mdx-components/Step';
 import ApplicationCredentials from '@/mdx-components/ApplicationCredentials';
 import AppIdentifierSrc from './assets/api-identifier.png';
-import AssignM2mRolesModalSrc from './assets/assign-m2m-roles-modal.png';
-import AssignM2mRolesPageSrc from './assets/assign-m2m-roles-page.png';
-import LogtoManagementApiSrc from './assets/logto-management-api.png';
 
 <Steps>
 <Step title="Intro">
 
-Machine-to-machine (M2M) is a common practice to authenticate if you have an app (not user) that needs to directly talk to resources (usually, using M2M app doesn't need user interactions, so it has no UI). E.g., an API service that updates users' custom data in Logto, a statistic service that pulls daily orders, etc.
+Machine-to-machine (M2M) is a common practice to authenticate if you have an app (not user) that needs to directly talk to resources (usually, using M2M app doesn't need user interactions, so it has no UI). E.g., an API service that updates users' custom data in Aster, a statistic service that pulls daily orders, etc.
 
-Since Logto uses RBAC as its access control policy, assigning M2M roles to M2M apps is necessary for protecting your API which needs direct service talk.
+Since Aster uses RBAC as its access control policy, assigning M2M roles to M2M apps is necessary for protecting your API which needs direct service talk.
 
-There are two common use cases of using machine-to-machine apps in Logto:
+There are two common use cases of using machine-to-machine apps in Aster:
 
-1. **Accessing Logto Management API**: In this case, you need to assign a M2M role that include the `all` permission from the built-in Logto Management API to your M2M app.
+1. **Accessing Aster Management API**: In this case, you need to assign a M2M role that includes the `all` permission from the built-in Aster Management API to your M2M app.
 2. **Accessing your API resource**: In this case, you need to assign M2M roles that include permissions from your API resources to your M2M app.
 
 During the M2M app creation process, you'll be directed to a page where you can assign machine-to-machine (M2M) roles to your applications:
 
-<img alt="Assign M2M roles modal" src={AssignM2mRolesModalSrc} width="600px" style={{ borderRadius: '6px' }} />
-
 Or you can also assign these roles on the M2M app detail page.
-
-<img alt="M2M app details page" src={AssignM2mRolesPageSrc} width="600px" style={{ borderRadius: '6px' }} />
 
 </Step>
 <Step title="Basics about access token request">
@@ -62,7 +56,7 @@ Authorization: Basic ${props.showAppSecret ? btoa(`${props.app.id}:${props.secre
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=client_credentials
-resource=https://${props.app.tenantId}.logto.app/api
+resource=${buildManagementApiResourceIndicator(props.app.tenantId)}
 scope=all`}
 </Code>
 
@@ -71,17 +65,15 @@ scope=all`}
 
 <Tabs groupId="m2m-api-target">
 
-<TabItem value="Logto Management API" label="For Logto Management API">
+<TabItem value="Aster Management API" label="For Aster Management API">
 
-Logto provides a built-in "Logto Management API" resource, it's a readonly resource with the `all` permission to access Logto Management API, you can see it from your API resource list.
-The resource API indicator is in the pattern of `https://[your-tenant-id].logto.app/api`, and this will be your resource value used in the access token request body.
+Aster provides a built-in "Aster Management API" resource. It is a read-only resource with the `all` permission for accessing Aster Management API, and you can see it in your API resource list.
+The resource API indicator is <code>{buildManagementApiResourceIndicator(props.app.tenantId)}</code>, and this is the resource value used in the access token request body.
 
-<img alt="Logto Management API details" src={LogtoManagementApiSrc} width="600px" style={{ borderRadius: '6px' }}/>
-
-Before accessing Logto Management API, make sure your M2M app has been assigned with M2M roles that include the `all` permission from this built-in "Logto Management API" resource.
+Before accessing Aster Management API, make sure your M2M app has been assigned M2M roles that include the `all` permission from this built-in "Aster Management API" resource.
 
 <InlineNotification>
-Logto also provides a pre-configured "Logto Management API access" M2M role for new created tenants, which the Logto Management API resource's all permission has already assigned to. You can use it directly without manually setting permissions. This pre-configured role can also be edited and deleted as needed.
+Aster also provides a preconfigured "Aster Management API access" M2M role for newly created tenants. The Aster Management API resource's `all` permission is already assigned to it. You can use it directly without manually setting permissions. This preconfigured role can also be edited and deleted as needed.
 </InlineNotification>
 
 Now, compose all we have and send the request:
@@ -90,8 +82,7 @@ Now, compose all we have and send the request:
 <TabItem value="Node.js" label="Node.js">
 
 <Code className="language-js">
-    {`const logtoEndpoint = '${props.endpoint}';
-const tokenEndpoint = '${new URL('/oidc/token', props.endpoint).href}';
+    {`const tokenEndpoint = '${new URL('/oidc/token', props.endpoint).href}';
 const appId = '${props.app.id}';
 const appSecret = '${props.showAppSecret ? props.secrets[0].value : '*'.repeat(props.secrets[0].value.length)}';
 
@@ -101,11 +92,10 @@ const fetchAccessToken = async () => {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Authorization: \`Basic \${Buffer.from(\`\${appId}:\${appSecret}\`).toString('base64')}\`,
-      )}\`,
     },
     body: new URLSearchParams({
       grant_type: 'client_credentials',
-      resource: 'https://${props.app.tenantId}.logto.app/api',
+      resource: '${buildManagementApiResourceIndicator(props.app.tenantId)}',
       scope: 'all',
     }).toString(),
   });
@@ -122,7 +112,7 @@ const fetchAccessToken = async () => {
   --header 'Authorization: Basic ${props.showAppSecret ? btoa(`${props.app.id}:${props.secrets[0].value}`) : '*'.repeat(btoa(`${props.app.id}:${props.secrets[0].value}`).length)}' \\
   --header 'Content-Type: application/x-www-form-urlencoded' \\
   --data-urlencode 'grant_type=client_credentials' \\
-  --data-urlencode 'resource=https://${props.app.tenantId}.logto.app/api' \\
+  --data-urlencode 'resource=${buildManagementApiResourceIndicator(props.app.tenantId)}' \\
   --data-urlencode 'scope=all'`}
 </Code>
 
@@ -139,19 +129,19 @@ A successful access token response body would be like:
   "access_token": "<granted-access-token>", // E.g. eyJhb...2g
   "expires_in": 3600, // Token expiration in seconds
   "token_type": "Bearer", // Auth type for your request when using the access token
-  "scope": "all" // scope `all` for Logto Management API
+  "scope": "all" // scope `all` for Aster Management API
 }
 ```
 
 <InlineNotification>
-Logto does not currently support the M2M app to represent a user. The `sub` in the access token payload will be the App ID.
+Aster does not currently support the M2M app to represent a user. The `sub` in the access token payload will be the App ID.
 </InlineNotification>
 
 </TabItem>
 
 <TabItem value="Your API resource" label="For your API resource">
 
-In your API Resource list, find the API identifier that the app needs to access. If you haven't added the API Resource in Logto or don't know what API Resource is, see [API Resource](/docs/references/resources).
+In your API Resource list, find the API identifier that the app needs to access. If you haven't added the API Resource in Aster or don't know what API Resource is, see [API Resource](/docs/references/resources).
 
 <img alt="API identifier" src={AppIdentifierSrc} width="600px" style={{ borderRadius: '6px' }} />
 
@@ -166,8 +156,7 @@ Now, compose all we have and send the request:
 <TabItem value="Node.js" label="Node.js">
 
 <Code className="language-js">
-{`const logtoEndpoint = '${props.endpoint}';
-const tokenEndpoint = '${new URL('/oidc/token', props.endpoint).href}';
+{`const tokenEndpoint = '${new URL('/oidc/token', props.endpoint).href}';
 const appId = '${props.app.id}';
 const appSecret = '${props.showAppSecret ? props.secrets[0].value : '*'.repeat(props.secrets[0].value.length)}';
 
@@ -228,18 +217,17 @@ A successful access token response body would be like:
 You may notice the token response has a `token_type` field, which it's fixed to `Bearer`. Thus you should put the access token in the `Authorization` field of HTTP headers with the Bearer format (`Bearer <your-access-token>`).
 
 <Tabs groupId="m2m-api-target">
-<TabItem value="Logto Management API" label="Interact with Logto Management API">
+<TabItem value="Aster Management API" label="Interact with Aster Management API">
 
-Using the requested access token with the built-in Logto Management API resource `https://[your-tenant-id].logto.app/api` to get all applications in your Logto tenant:
+Use the requested access token with the built-in Aster Management API resource <code>{buildManagementApiResourceIndicator(props.app.tenantId)}</code> to get all applications in your Aster tenant:
 
 <Tabs groupId="m2m-client">
 <TabItem value="Node.js" label="Node.js">
 
 <Code className="language-js">
-{`const logtoEndpoint = '${props.endpoint}';
-const accessToken = 'eyJhb...2g'; // Your JWT access token
+{`const accessToken = 'eyJhb...2g'; // Your JWT access token
 
-const fetchLogtoApplications = async () => {
+const fetchAsterApplications = async () => {
   return await fetch('${new URL('/api/applications', props.endpoint).href}', {
     method: 'GET',
     headers: {
@@ -293,7 +281,7 @@ const fetchProducts = async () => {
 ```bash
 curl --location \
   --request GET 'https://your.api.endpoint/products' \
-  --header 'Authorization: Bearer eyJhbG...2 # Access token
+  --header 'Authorization: Bearer eyJhbG...2g' # Access token
 ```
 
 </TabItem>

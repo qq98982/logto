@@ -43,7 +43,7 @@ const user_identity_details = {
     title: '删除令牌',
     description: '删除存储的令牌。用户必须重新授权访问以恢复功能。',
     confirmation_message:
-      '你确定要删除令牌吗？Logto 机密保险库将删除存储的 {{connectorName}} 访问和刷新令牌。此用户必须重新授权以恢复 {{connectorName}} API 访问。',
+      '你确定要删除令牌吗？Aster 机密保险库将删除存储的 {{connectorName}} 访问和刷新令牌。此用户必须重新授权以恢复 {{connectorName}} API 访问。',
   },
   token_storage_disabled: {
     title: '此连接器的令牌存储已禁用',

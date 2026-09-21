@@ -6,10 +6,10 @@ const user_scopes = {
     profile: 'Tvé jméno, uživatelské jméno, profilový obrázek a další údaje o profilu',
     roles: 'Tvé role',
     identities: 'Tvé propojené sociální účty',
-    'urn:logto:scope:organizations': 'Informace o tvé organizaci',
-    'urn:logto:scope:organization_roles': 'Role v tvé organizaci',
+    'urn:aster:scope:organizations': 'Informace o tvé organizaci',
+    'urn:aster:scope:organization_roles': 'Role v tvé organizaci',
     address: 'Tvá adresa',
-    'urn:logto:scope:sessions': 'Tvé aktivní relace',
+    'urn:aster:scope:sessions': 'Tvé aktivní relace',
   },
 };
 

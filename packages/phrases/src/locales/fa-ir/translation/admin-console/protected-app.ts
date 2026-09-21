@@ -20,7 +20,7 @@ const protected_app = {
     domain_field_description_short:
       'این URL به‌عنوان پروکسی محافظت احراز هویت برای URL اصلی عمل می‌کند.',
     domain_field_tooltip:
-      "برنامه‌های محافظت‌شده توسط Logto به‌صورت پیش‌فرض در 'your-domain.{{domain}}' میزبانی می‌شوند. دامنه سفارشی پس از ایجاد قابل اعمال است.",
+      "برنامه‌های محافظت‌شده توسط Aster به‌صورت پیش‌فرض در 'your-domain.{{domain}}' میزبانی می‌شوند. دامنه سفارشی پس از ایجاد قابل اعمال است.",
     create_application: 'ایجاد برنامه',
     create_protected_app: 'ایجاد سریع',
     errors: {

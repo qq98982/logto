@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'ทรัพยากร API หรือ Resource Indicators เป็นตัวบ่งชี้บริการหรือทรัพยากรที่ต้องการร้องขอ โดยปกติจะเป็นตัวแปรในรูปแบบ URI ที่แสดงถึงตัวตนของทรัพยากรนั้น',
   management_api_settings_description:
-    'Logto Management API คือชุด API ที่ครอบคลุม ช่วยให้งานบริหารจัดการตัวตน การบังคับใช้นโยบายความปลอดภัย และการปฏิบัติตามกฎระเบียบต่าง ๆ สำหรับผู้ดูแลระบบเป็นไปได้อย่างครบถ้วน',
+    'Aster Management API คือชุด API ที่ครอบคลุม ช่วยให้งานบริหารจัดการตัวตน การบังคับใช้นโยบายความปลอดภัย และการปฏิบัติตามกฎระเบียบต่าง ๆ สำหรับผู้ดูแลระบบเป็นไปได้อย่างครบถ้วน',
   management_api_notice:
-    'API นี้แทน Logto entity และไม่สามารถแก้ไขหรือถูกลบได้ สร้างแอป machine-to-machine เพื่อเรียกใช้ Logto Management API <a>เรียนรู้เพิ่มเติม</a>',
+    'API นี้แทน Aster entity และไม่สามารถแก้ไขหรือถูกลบได้ สร้างแอป machine-to-machine เพื่อเรียกใช้ Aster Management API <a>เรียนรู้เพิ่มเติม</a>',
   token_expiration_time_in_seconds: 'เวลาหมดอายุของโทเคน (เป็นวินาที)',
   token_expiration_time_in_seconds_placeholder: 'ป้อนเวลาหมดอายุของโทเคน',
   delete_description:

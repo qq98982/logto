@@ -19,12 +19,12 @@ const webhook_details = {
     settings_description:
       'Webhooks 允許您即時接收特定事件的更新，通過向您的端點 URL 發送 POST 請求。這使您能夠根據接收到的新信息立即採取行動。',
     events: '事件',
-    events_description: '選擇觸發 Logto 發送 POST 請求的觸發器事件。',
+    events_description: '選擇觸發 Aster 發送 POST 請求的觸發器事件。',
     name: '名稱',
     endpoint_url: '端點 URL',
     signing_key: '簽名密鑰',
     signing_key_tip:
-      '將 Logto 提供的密鑰添加到您的端點作為請求標頭，以確保 Webhook 的有效載荷的真實性。',
+      '將 Aster 提供的密鑰添加到您的端點作為請求標頭，以確保 Webhook 的有效載荷的真實性。',
     regenerate: '重新生成',
     regenerate_key_title: '重新生成簽名密鑰',
     regenerate_key_reminder:

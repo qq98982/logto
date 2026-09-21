@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Nieudane połączenie',
   },
   update_endpoint_notice:
-    'Nie zapomnij zaktualizować domeny dla URI wywołania łącznika społecznego i punktu końcowego Logto w swojej aplikacji, jeśli chcesz używać niestandardowej domeny dla funkcji.',
+    'Nie zapomnij zaktualizować domeny dla URI wywołania łącznika społecznego i punktu końcowego Aster w swojej aplikacji, jeśli chcesz używać niestandardowej domeny dla funkcji.',
   error_hint:
     'Upewnij się, że zaktualizowałeś swoje rekordy DNS. Będziemy nadal sprawdzać co {{value}} sekund.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Czy na pewno chcesz usunąć tę niestandardową domenę "<span>{{domain}}</span>"?',
       in_used_tip:
-        'Jeśli wcześniej skonfigurowałeś tę niestandardową domenę w dostawcy łączników społecznościowych lub zakończeniu aplikacji, musisz najpierw zmodyfikować adres URI na domyślną domenę Logto "<span>{{domain}}</span>". Jest to niezbędne do poprawnego działania przycisku logowania społecznego.',
+        'Jeśli wcześniej skonfigurowałeś tę niestandardową domenę w dostawcy łączników społecznościowych lub zakończeniu aplikacji, musisz najpierw zmodyfikować adres URI na domyślną domenę Aster "<span>{{domain}}</span>". Jest to niezbędne do poprawnego działania przycisku logowania społecznego.',
       deleted: 'Niestandardowa domena została pomyślnie usunięta!',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Domyślna domena',
     default_domain_description:
-      'Logto oferuje prekonfigurowaną domenę domyślną, gotową do użycia bez dodatkowej konfiguracji. Ta domyślna domena służy jako opcja zapasowa, nawet jeśli włączyłeś niestandardową domenę.',
-    default_domain_field: 'Domyślna domena Logto',
+      'Aster oferuje prekonfigurowaną domenę domyślną, gotową do użycia bez dodatkowej konfiguracji. Ta domyślna domena służy jako opcja zapasowa, nawet jeśli włączyłeś niestandardową domenę.',
+    default_domain_field: 'Domyślna domena Aster',
   },
   custom_endpoint_note:
     'Możesz dostosować nazwę domeny tych punktów końcowych według swoich wymagań. Wybierz "{{custom}}" lub "{{default}}".',

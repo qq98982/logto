@@ -42,7 +42,7 @@ const user_identity_details = {
     title: '刪除令牌',
     description: '刪除已存儲的令牌。用戶必須重新授權以恢復功能。',
     confirmation_message:
-      '你確定要刪除令牌嗎？Logto Secret Vault 將刪除存儲的 {{connectorName}} 訪問和刷新令牌。此用戶必須重新授權以恢復 {{connectorName}} API 訪問。',
+      '你確定要刪除令牌嗎？Aster Secret Vault 將刪除存儲的 {{connectorName}} 訪問和刷新令牌。此用戶必須重新授權以恢復 {{connectorName}} API 訪問。',
   },
   token_storage_disabled: {
     title: '此連接器的令牌存儲已禁用',

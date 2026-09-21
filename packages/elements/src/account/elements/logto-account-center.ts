@@ -7,7 +7,7 @@ import {
   type LogtoAccountContextType,
 } from '../providers/logto-account-provider.js';
 
-const tagName = 'logto-account-center';
+const tagName = 'aster-account-center';
 
 @customElement(tagName)
 export class LogtoAccountCenter extends LitElement {
@@ -17,7 +17,7 @@ export class LogtoAccountCenter extends LitElement {
     :host {
       display: flex;
       flex-direction: column;
-      gap: var(--logto-account-center-item-spacing, var(--logto-spacing-md));
+      gap: var(--aster-account-center-item-spacing, var(--aster-spacing-md));
     }
   `;
 
@@ -34,13 +34,13 @@ export class LogtoAccountCenter extends LitElement {
     } = this.accountContext;
 
     return html`
-      ${username !== undefined && html`<logto-username></logto-username>`}
-      ${primaryEmail !== undefined && html`<logto-user-email></logto-user-email>`}
-      ${primaryPhone !== undefined && html`<logto-user-phone></logto-user-phone>`}
-      ${hasPassword !== undefined && html`<logto-user-password></logto-user-password>`}
+      ${username !== undefined && html`<aster-username></aster-username>`}
+      ${primaryEmail !== undefined && html`<aster-user-email></aster-user-email>`}
+      ${primaryPhone !== undefined && html`<aster-user-phone></aster-user-phone>`}
+      ${hasPassword !== undefined && html`<aster-user-password></aster-user-password>`}
       ${identities !== undefined &&
       Object.entries(identities).map(
-        ([target]) => html`<logto-social-identity target=${target}></logto-social-identity>`
+        ([target]) => html`<aster-social-identity target=${target}></aster-social-identity>`
       )}
     `;
   }

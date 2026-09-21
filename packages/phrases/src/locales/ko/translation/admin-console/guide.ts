@@ -27,7 +27,7 @@ const guide = {
     modal_subtitle: '사전 빌드된 SDK와 튜토리얼로 앱 개발 프로세스를 바로 시작하세요.',
     select_a_framework: '프레임워크 선택하기',
     continue_without_framework: '프레임워크 없이 앱 만들기',
-    describe_guide_looking_for_placeholder: '예시: Angular 앱에 Logto 통합하고 싶습니다.',
+    describe_guide_looking_for_placeholder: '예시: Angular 앱에 Aster 통합하고 싶습니다.',
   },
   api: {
     modal_title: '튜토리얼로 시작하기',

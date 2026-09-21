@@ -12,13 +12,13 @@ import DisplayUserInformation from './fragments/_display-user-information.md';
 
 <Steps>
 
-<Step title="Add Logto SDK as a dependency">
+<Step title="Add the upstream SDK as a dependency">
 
 <Installation />
 
 </Step>
 
-<Step title="Add Logto authentication">
+<Step title="Add Aster authentication">
 
 <AddAuthentication {...props} />
 
@@ -45,15 +45,15 @@ public class HomeController : Controller
 {
   public IActionResult SignIn()
   {
-    // This will redirect the user to the Logto sign-in page.
+    // This will redirect the user to the Aster sign-in page.
     return Challenge(new AuthenticationProperties { RedirectUri = "/" });
   }
 
   // Use the `new` keyword to avoid conflict with the `ControllerBase.SignOut` method
   new public IActionResult SignOut()
   {
-    // This will clear the authentication cookie and redirect the user to the Logto sign-out page
-    // to clear the Logto session as well.
+    // This will clear the authentication cookie and redirect the user to the Aster sign-out page
+    // to clear the Aster session as well.
     return SignOut(new AuthenticationProperties { RedirectUri = "/" });
   }
 }

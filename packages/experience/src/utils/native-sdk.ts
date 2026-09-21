@@ -1,14 +1,14 @@
 /**
  * Native SDK Utility Methods
  */
-export const getLogtoNativeSdk = () => {
-  if (typeof logtoNativeSdk !== 'undefined') {
-    return logtoNativeSdk;
+export const getAsterNativeSdk = () => {
+  if (typeof asterNativeSdk !== 'undefined') {
+    return asterNativeSdk;
   }
 };
 
 export const isNativeWebview = () => {
-  const platform = getLogtoNativeSdk()?.platform ?? '';
+  const platform = getAsterNativeSdk()?.platform ?? '';
 
   return ['ios', 'android'].includes(platform);
 };

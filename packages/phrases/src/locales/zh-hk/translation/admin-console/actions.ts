@@ -1,7 +1,7 @@
 const actions = {
   page_title: 'Actions',
   title: 'Actions',
-  subtitle: '在身份驗證流程的特定節點運行自定義代碼，以擴展 Logto 的行為。',
+  subtitle: '在身份驗證流程的特定節點運行自定義代碼，以擴展 Aster 的行為。',
   status: {
     not_configured: '未配置',
     configured: '已配置',
@@ -27,7 +27,7 @@ const actions = {
   },
   result_data: {
     title: '操作結果',
-    subtitle: '返回 Logto 可理解的結果物件，以適配此操作類型。',
+    subtitle: '返回 Aster 可理解的結果物件，以適配此操作類型。',
   },
   environment_variables: {
     title: '設定環境變數',
@@ -49,11 +49,11 @@ const actions = {
     },
     on_execution_error: {
       title: '腳本出錯時',
-      description: '選擇腳本運行失敗時 Logto 的行為。',
+      description: '選擇腳本運行失敗時 Aster 的行為。',
       block: '阻止身份驗證流程',
       allow: '允許身份驗證流程繼續',
       post_first_factor_description:
-        '當此腳本失敗時，Logto 一律拒絕無效憑證，以確保無法繞過密碼驗證。',
+        '當此腳本失敗時，Aster 一律拒絕無效憑證，以確保無法繞過密碼驗證。',
     },
   },
   test_context: {

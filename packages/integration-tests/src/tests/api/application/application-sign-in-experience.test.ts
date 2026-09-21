@@ -23,7 +23,7 @@ describe('application sign in experience', () => {
       primaryColor: '#f00',
       darkPrimaryColor: '#0f0',
     },
-    customCss: '.logto_main-content { background-color: #f00 !important; }',
+    customCss: '.aster_main-content { background-color: #f00 !important; }',
     termsOfUseUrl: 'https://logto.dev/terms-of-use',
     privacyPolicyUrl: 'https://logto.dev/privacy-policy',
     displayName: 'Logto Demo',

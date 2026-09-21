@@ -6,7 +6,7 @@ import { getSsoAuthorizationUrl } from '@/apis/experience';
 import useApi from '@/hooks/use-api';
 import useErrorHandler from '@/hooks/use-error-handler';
 import { searchKeys } from '@/shared/utils/search-parameters';
-import { getLogtoNativeSdk, isNativeWebview } from '@/utils/native-sdk';
+import { getAsterNativeSdk, isNativeWebview } from '@/utils/native-sdk';
 import { buildSocialLandingUri, generateState, storeState } from '@/utils/social-connectors';
 import { storeRedirectContext } from '@/utils/social-redirect-fallback-context';
 
@@ -35,7 +35,7 @@ const useSingleSignOn = () => {
       redirectTo
     ).toString();
 
-    getLogtoNativeSdk()?.getPostMessage()({
+    getAsterNativeSdk()?.getPostMessage()({
       callbackUri: `${window.location.origin}/callback/social/${connectorId}`,
       redirectTo: redirectUri,
     });

@@ -83,7 +83,7 @@ class ErrorBoundary extends Component<Props, State> {
       return <AppError errorMessage={t('errors.insecure_contexts')} callStack={error.stack} />;
     }
 
-    // Treat other Logto errors and 401 responses as session expired
+    // Treat other upstream SDK errors and 401 responses as session expired.
     if (
       error instanceof LogtoError ||
       error instanceof LogtoClientError ||

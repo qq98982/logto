@@ -93,13 +93,13 @@ const quota_table = {
   tier: 'Nivel{{value, number}}: ',
   million: '{{value, number}} millones',
   mau_tip:
-    'MAU (usuarios activos mensuales) significa el número de usuarios únicos que han intercambiado al menos un token con Logto en un ciclo de facturación.',
+    'MAU (usuarios activos mensuales) significa el número de usuarios únicos que han intercambiado al menos un token con Aster en un ciclo de facturación.',
   tokens_tip:
-    'Todo tipo de tokens emitidos por Logto, incluyendo tokens de acceso, tokens de actualización, etc.',
+    'Todo tipo de tokens emitidos por Aster, incluyendo tokens de acceso, tokens de actualización, etc.',
   mao_tip:
     'MAO (Organización activa mensual) significa la cantidad de organizaciones únicas que tienen al menos un MAU (usuario activo mensual) en un ciclo de facturación.',
   third_party_tip:
-    'Utilice Logto como su proveedor de identidades OIDC para iniciar sesión en aplicaciones de terceros y otorgar permisos.',
+    'Utilice Aster como su proveedor de identidades OIDC para iniciar sesión en aplicaciones de terceros y otorgar permisos.',
   included: 'incluido{{value, number}}',
   included_mao: '{{value, number}} MAO incluido',
   extra_quota_price: 'Luego ${{value, number}} por mes / cada uno después',

@@ -10,7 +10,6 @@ import { isProPlan } from '@/utils/subscription';
 import styles from './index.module.scss';
 
 export { default as BetaTag } from './BetaTag';
-export { default as CloudTag } from './CloudTag';
 
 /**
  * The display tag mapping for each plan type.

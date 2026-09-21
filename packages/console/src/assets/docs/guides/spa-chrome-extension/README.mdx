@@ -6,13 +6,11 @@ import NpmLikeInstallation from '@/mdx-components/NpmLikeInstallation';
 
 import RegardingRedirectBasedSignIn from '../../fragments/_regarding-redirect-based-sign-in.md';
 
-import extensionPopup from './extension-popup.webp';
-
 <Steps>
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK for your project"
+  subtitle="Install the upstream SDK for your project"
 >
 
 <NpmLikeInstallation packageName="@logto/chrome-extension" />
@@ -27,10 +25,10 @@ Assuming you put a "Sign in" button in your Chrome extension's popup, the authen
 sequenceDiagram
   participant A as Extension popup
   participant B as Extension service worker
-  participant C as Logto sign-in experience
+  participant C as Aster sign-in experience
 
   A->>B: Invokes sign-in
-  B->>C: Redirects to Logto
+  B->>C: Redirects to Aster
   C->>C: User signs in
   C->>B: Redirects back to extension
   B->>A: Notifies the popup
@@ -46,37 +44,39 @@ For other interactive pages in your extension, you just need to replace the `Ext
 
 ### Update the `manifest.json`
 
-Logto SDK requires the following permissions in the `manifest.json`:
+The upstream SDK requires the following permissions in the `manifest.json`:
 
 ```json title="manifest.json"
 {
   "permissions": ["identity", "storage"],
-  "host_permissions": ["https://*.logto.app/*"]
+  "host_permissions": ["https://auth.example.com/*"]
 }
 ```
 
+Replace `https://auth.example.com` with your Aster endpoint.
+
 - `permissions.identity`: Required for the Chrome Identity API, which is used to sign in and sign out.
 - `permissions.storage`: Required for storing the user's session.
-- `host_permissions`: Required for the Logto SDK to communicate with the Logto APIs.
+- `host_permissions`: Required for the upstream SDK to communicate with the Aster APIs.
 
 <InlineNotification>
-If you are using a custom domain on Logto Cloud, you need to update the `host_permissions` to match your domain.
+If your Aster endpoint uses a custom domain, update the `host_permissions` to match that domain.
 </InlineNotification>
 
 ### Set up a background script (service worker)
 
-In your Chrome extension's background script, initialize the Logto SDK:
+In your Chrome extension's background script, initialize the upstream SDK:
 
 ```js title="service-worker.js"
 import LogtoClient from '@logto/chrome-extension';
 
 export const logtoClient = new LogtoClient({
-  endpoint: '<your-logto-endpoint>'
-  appId: '<your-logto-app-id>',
+  endpoint: '<your-aster-endpoint>',
+  appId: '<your-aster-app-id>',
 });
 ```
 
-Replace `<your-logto-endpoint>` and `<your-logto-app-id>` with the actual values. You can find these values in the application page you just created in the Logto Console.
+Replace `<your-aster-endpoint>` and `<your-aster-app-id>` with the actual values. You can find these values in the application page you just created in the Aster Console.
 
 If you don't have a background script, you can follow the [official guide](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/basics) to create one.
 
@@ -118,9 +118,9 @@ Note that these URIs are not accessible, and they are only used for Chrome to tr
 
 </Step>
 
-<Step title="Update Logto application settings">
+<Step title="Update Aster application settings">
 
-As we mentioned in the previous step, we need to update the Logto application settings to allow the redirect URIs we just created (`https://<extension-id>.chromiumapp.org/callback`):
+As we mentioned in the previous step, we need to update the Aster application settings to allow the redirect URIs we just created (`https://<extension-id>.chromiumapp.org/callback`):
 
 <UriInputField name="redirectUris" />
 
@@ -128,7 +128,7 @@ And the post sign-out redirect URI (`https://<extension-id>.chromiumapp.org/`):
 
 <UriInputField name="postLogoutRedirectUris" />
 
-Finally, the CORS allowed origins should include the extension's origin (`chrome-extension://<extension-id>`). The SDK in Chrome extension will use this origin to communicate with the Logto APIs.
+Finally, the CORS allowed origins should include the extension's origin (`chrome-extension://<extension-id>`). The SDK in Chrome extension will use this origin to communicate with the Aster APIs.
 
 <UriInputField type="customClientMetadata" name="corsAllowedOrigins" />
 
@@ -168,15 +168,15 @@ Now you can test the authentication flow in your Chrome extension:
 
 1. Open the extension popup.
 2. Click on the "Sign in" button.
-3. You will be redirected to the Logto sign-in page.
-4. Sign in with your Logto account.
+3. You will be redirected to the Aster sign-in page.
+4. Sign in with your Aster account.
 5. You will be redirected back to the Chrome.
 
 </Step>
 
 <Step title="Check authentication state">
 
-Since Chrome provide unified storage APIs, rather than the sign-in and sign-out flow, all other Logto SDK methods can be used in the popup page directly.
+Since Chrome provides unified storage APIs, all upstream SDK methods other than the sign-in and sign-out flows can be used directly in the popup page.
 
 In your `popup.js`, you can reuse the `LogtoClient` instance created in the background script, or create a new one with the same configuration:
 
@@ -184,8 +184,8 @@ In your `popup.js`, you can reuse the `LogtoClient` instance created in the back
 import LogtoClient from '@logto/chrome-extension';
 
 const logtoClient = new LogtoClient({
-  endpoint: '<your-logto-endpoint>'
-  appId: '<your-logto-app-id>',
+  endpoint: '<your-aster-endpoint>',
+  appId: '<your-aster-app-id>',
 });
 
 // Or reuse the logtoClient instance created in the background script
@@ -222,14 +222,12 @@ document.getElementById('sign-out').addEventListener('click', async () => {
 
 Here's an example of the popup page with the authentication state:
 
-<img src={extensionPopup} alt="Popup page" width="100%" />
-
 </Step>
 
 <Step title="Other considerations">
 
 - **Service worker bundling**: If you use a bundler like Webpack or Rollup, you need to explicitly set the target to `browser` or similar to avoid unnecessary bundling of Node.js modules.
-- **Module resolution**: Logto Chrome extension SDK is an ESM-only module.
+- **Module resolution**: Aster Chrome extension SDK is an ESM-only module.
 
 See our [sample project](https://github.com/logto-io/js/tree/HEAD/packages/chrome-extension-sample) for a complete example with TypeScript, Rollup, and other configurations.
 

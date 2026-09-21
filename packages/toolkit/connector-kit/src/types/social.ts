@@ -235,7 +235,7 @@ export const isGoogleOneTap = (data: Record<string, unknown>) => {
 
 /**
  * Checks if the given social provider data is from an external Google One Tap button
- * (not Logto's sign-in experience).
+ * (not Aster's sign-in experience).
  *
  * External Google One Tap data does not include a CSRF token, so different handling
  * and security measures are required.
@@ -247,4 +247,4 @@ export const isExternalGoogleOneTap = (data: Record<string, unknown>) => {
   return isGoogleOneTap(data) && !data[GoogleConnector.oneTapParams.csrfToken];
 };
 
-export const logtoGoogleOneTapCookieKey = '_logto_google_one_tap_credential';
+export const logtoGoogleOneTapCookieKey = '_aster_google_one_tap_credential';

@@ -1,7 +1,7 @@
 const get_started = {
   page_title: '開始上手',
   title: '成功開發身份方案，我們先來探索一番',
-  subtitle: '一些你可以做的事情，以快速獲取 Logto 的價值',
+  subtitle: '一些你可以做的事情，以快速獲取 Aster 的價值',
   develop: {
     title: '開發：花 5 分鐘將你的應用集成進來',
     title_cloud: '開發：花 5 分鐘將你的應用安全集成進來',
@@ -12,7 +12,7 @@ const get_started = {
     title: '定制：提供出色的登錄體驗',
     preview: {
       title: '查看剛剛定制的登錄體驗的實時預覽',
-      subtitle: '現在嘗試 Logto 登錄體驗，看看它如何運作',
+      subtitle: '現在嘗試 Aster 登錄體驗，看看它如何運作',
     },
     connector: {
       title: '添加更多連接器以支持更多社交登錄方式',
@@ -39,26 +39,6 @@ const get_started = {
     subtitle:
       '你正在使用開發租戶進行免費測試。要上線，需創建或轉換為生產租戶。需要自定義解決方案？<a>聯繫我們</a>',
     convert_button: '轉換為生產租戶',
-  },
-  oss_cloud: {
-    try: {
-      title: '跳過維運工作，免費試用 Logto Cloud',
-      badge: '推薦',
-      description:
-        '取得一個無需維護的全託管 Logto，同時享有 MCP 驅動的快速整合、多租戶支援、團隊協作，以及所有進階功能。可免費開始，無需信用卡。',
-      action: '探索 Logto Cloud',
-    },
-    private_cloud: {
-      title: '需要合規支援或自訂部署？',
-      card_title: '私有雲',
-      description:
-        '取得一個專屬的 Logto 實例，具備完整的資料隔離、自訂網域與 SLA 保證。非常適合對資料駐留或合規有嚴格要求的企業。基礎設施由我們負責，你可以專注於產品本身。',
-    },
-    sidebar: {
-      title: '專注於構建，而不是託管。',
-      description: '讓 Logto Cloud 為你處理身份驗證基礎設施。',
-      action: '試用 Logto Cloud',
-    },
   },
   view_all: '查看全部 →',
 };

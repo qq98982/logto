@@ -56,7 +56,7 @@ export const setupI18nForTesting = async (
 void setupI18nForTesting();
 
 // eslint-disable-next-line @silverhand/fp/no-mutating-methods
-Object.defineProperty(global, 'logtoSsr', { value: ssrPlaceholder });
+Object.defineProperty(global, 'asterSsr', { value: ssrPlaceholder });
 
 if (typeof globalThis.structuredClone !== 'function') {
   // The jsdom test environment (jest-environment-jsdom@29) does not expose

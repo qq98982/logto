@@ -5,9 +5,9 @@ import usage from './usage.js';
 const subscription = {
   free_plan: 'Plano Gratuito',
   free_plan_description:
-    'Para projetos pessoais e avaliações iniciais do Logto. Sem cartão de crédito.',
+    'Para projetos pessoais e avaliações iniciais do Aster. Sem cartão de crédito.',
   pro_plan: 'Plano Pro',
-  pro_plan_description: 'Para empresas se beneficiarem tranquilo com o Logto.',
+  pro_plan_description: 'Para empresas se beneficiarem tranquilo com o Aster.',
   enterprise: 'Plano Empresa',
   enterprise_description: 'Para grandes equipes e empresas com requisitos de nível empresarial.',
   admin_plan: 'Plano de administrador',
@@ -27,7 +27,7 @@ const subscription = {
   upgrade_pro: 'Upgrade Pro',
   update_payment: 'Atualizar pagamento',
   payment_error:
-    'Detectado um problema de pagamento. Não é possível processar $ {{price, number}} para o ciclo anterior. Atualize o pagamento para evitar a suspensão do serviço Logto.',
+    'Detectado um problema de pagamento. Não é possível processar $ {{price, number}} para o ciclo anterior. Atualize o pagamento para evitar a suspensão do serviço Aster.',
   downgrade: 'Downgrade',
   current: 'Atual',
   upgrade: 'Atualizar',
@@ -60,7 +60,7 @@ const subscription = {
     downgrade_help_tip: 'Precisa de ajuda com o downgrade? <a>Contate-nos</a>.',
     upgrade_title: 'Lembrete amigável para nossos honrados early adopters',
     upgrade_description:
-      'Você está usando atualmente mais do que o permitido pelo <name />. O Logto agora é oficial, incluindo recursos adaptados a cada plano. Antes de considerar a atualização para o <name />, verifique se você atende aos seguintes critérios antes de fazer o upgrade.',
+      'Você está usando atualmente mais do que o permitido pelo <name />. O Aster agora é oficial, incluindo recursos adaptados a cada plano. Antes de considerar a atualização para o <name />, verifique se você atende aos seguintes critérios antes de fazer o upgrade.',
     upgrade_pro_tip: ' Ou considere fazer o upgrade para o Plano Pro.',
     upgrade_help_tip: 'Precisa de ajuda com o upgrade? <a>Contate-nos</a>.',
     a_maximum_of: 'Um máximo de <item/>',
@@ -75,9 +75,9 @@ const subscription = {
     exceeded:
       'Você excedeu 100% do seu limite de cota. Os usuários não poderão mais fazer login corretamente. Por favor, faça o upgrade imediatamente para evitar qualquer inconveniente.',
     close_to_limit:
-      'Você quase atingiu o limite de uso de tokens. O Logto parará de conceder tokens se seu uso ultrapassar 100%. Por favor, faça o upgrade do plano Gratuito para evitar qualquer inconveniente.',
+      'Você quase atingiu o limite de uso de tokens. O Aster parará de conceder tokens se seu uso ultrapassar 100%. Por favor, faça o upgrade do plano Gratuito para evitar qualquer inconveniente.',
     dev_plan_exceeded:
-      'Este tenant atingiu o limite de tokens de acordo com a política de limite de entidade do Logto.',
+      'Este tenant atingiu o limite de tokens de acordo com a política de limite de entidade do Aster.',
   },
 };
 

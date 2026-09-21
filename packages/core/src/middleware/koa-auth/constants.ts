@@ -1,1 +1,1 @@
-export const verificationRecordIdHeader = 'logto-verification-id';
+export const verificationRecordIdHeader = 'aster-verification-id';

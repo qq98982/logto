@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'API kaynakları, Resource göstergeleri olarak da bilinir. Genellikle, kaynağın kimliğini temsil eden bir URI formatındaki değişkeni içerir.',
   management_api_settings_description:
-    "Logto Yönetim API'si, yöneticilerin kimlikle ilgili birçok görevi yönetmelerine, güvenlik politikalarını uygulamalarına ve yönetmeliklere ve standartlara uyum sağlamalarına olanak tanıyan kapsamlı bir API koleksiyonudur.",
+    "Aster Yönetim API'si, yöneticilerin kimlikle ilgili birçok görevi yönetmelerine, güvenlik politikalarını uygulamalarına ve yönetmeliklere ve standartlara uyum sağlamalarına olanak tanıyan kapsamlı bir API koleksiyonudur.",
   management_api_notice:
-    "Bu API, Logto varlığını temsil eder ve değiştirilemez veya silinemez. Logto yönetim API'sini çağırmak için makineden makineye bir uygulama oluşturun. <a>Daha fazla bilgi edinin</a>",
+    "Bu API, Aster varlığını temsil eder ve değiştirilemez veya silinemez. Aster yönetim API'sini çağırmak için makineden makineye bir uygulama oluşturun. <a>Daha fazla bilgi edinin</a>",
   token_expiration_time_in_seconds: 'Token sona erme süresi (saniye)',
   token_expiration_time_in_seconds_placeholder: 'Token zaman aşım süresini giriniz',
   delete_description:

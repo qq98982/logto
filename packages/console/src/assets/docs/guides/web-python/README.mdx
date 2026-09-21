@@ -9,11 +9,11 @@ import Checkpoint from '../../fragments/_checkpoint.md';
 
 <Step title="Get started">
 
-This tutorial will show you how to integrate Logto into your Python web application.
+This tutorial will show you how to integrate Aster into your Python web application.
 
 <ul>
   <li>The example uses Flask, but the concepts are the same for other frameworks.</li>
-  <li>Logto SDK leverages coroutines, remember to use <code>await</code> when calling async functions.</li>
+  <li>the upstream SDK leverages coroutines, remember to use <code>await</code> when calling async functions.</li>
 </ul>
 
 ```bash
@@ -78,7 +78,7 @@ client = LogtoClient(
 
 <Step title="Handle the callback">
 
-After the user signs in, Logto will redirect the user to the callback URL you set in the Logto Console. In this example, we use `/callback` as the callback URL:
+After the user signs in, Aster will redirect the user to the callback URL you set in the Aster Console. In this example, we use `/callback` as the callback URL:
 
 ```python title="main.py"
 @app.route("/callback")
@@ -118,9 +118,9 @@ async def sign_in():
     ))`}
 </Code>
 
-Now, whenever your users visit `/sign-in`, it will start a new sign-in attempt and redirect the user to the Logto sign-in page.
+Now, whenever your users visit `/sign-in`, it will start a new sign-in attempt and redirect the user to the Aster sign-in page.
 
-To clean up the Python session and Logto session, we can designate a post sign-out redierct URI. This is where Logto will redirect users after they sign out.
+To clean up the Python session and Aster session, we can designate a post sign-out redierct URI. This is where Aster will redirect users after they sign out.
 
 And a sign-out route can be implemented as follows:
 
@@ -138,7 +138,7 @@ async def sign_out():
 
 <Step title="Handle authentication status">
 
-In Logto SDK, we can use `client.isAuthenticated()` to check the authentication status, if the user is signed in, the value will be true, otherwise, the value will be false.
+In the upstream SDK, we can use `client.isAuthenticated()` to check the authentication status, if the user is signed in, the value will be true, otherwise, the value will be false.
 
 Here we also implement a simple home page for demonstration:
 

@@ -29,7 +29,7 @@ const webhooks = {
     title: '創建 Webhook',
     subtitle: '添加 Webhook 以向 endpoint URL 發送 POST 請求，將詳細信息推送到任何用戶事件。',
     events: '事件',
-    events_description: '選擇需要 Logto 發送 POST 請求的觸發事件。',
+    events_description: '選擇需要 Aster 發送 POST 請求的觸發事件。',
     name: '名稱',
     name_placeholder: '輸入 webhook 名稱',
     endpoint_url: 'Endpoint URL',

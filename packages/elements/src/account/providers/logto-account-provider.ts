@@ -9,9 +9,9 @@ export type LogtoAccountContextType = {
   userProfile: UserProfile;
 };
 
-export const logtoAccountContext = createContext<LogtoAccountContextType>('logto-account-context');
+export const logtoAccountContext = createContext<LogtoAccountContextType>('aster-account-context');
 
-const tagName = 'logto-account-provider';
+const tagName = 'aster-account-provider';
 
 /**
  * LogtoAccountProvider

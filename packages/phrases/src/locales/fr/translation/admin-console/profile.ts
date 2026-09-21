@@ -17,7 +17,7 @@ const profile = {
       check_information:
         "Nous sommes désolés d'apprendre que vous souhaitez supprimer votre compte. Veuillez vérifier les informations ci-dessous avant de continuer.",
       remove_all_data:
-        'La suppression de votre compte supprimera définitivement toutes les données vous concernant dans Logto Cloud. Assurez-vous donc de sauvegarder toutes les données importantes avant de continuer.',
+        'La suppression de votre compte supprimera définitivement toutes les données vous concernant dans Cloud. Assurez-vous donc de sauvegarder toutes les données importantes avant de continuer.',
       confirm_information:
         'Veuillez confirmer que les informations ci-dessus correspondent à vos attentes. Une fois que vous aurez supprimé votre compte, nous ne pourrons pas le récupérer.',
       has_admin_role:
@@ -42,7 +42,7 @@ const profile = {
       "Désolé, quelque chose s'est mal passé lors de la suppression de votre compte :",
     request_id: 'ID de la demande : {{requestId}}',
     try_again_later:
-      "Veuillez réessayer plus tard. Si le problème persiste, veuillez contacter l'équipe Logto avec l'ID de la demande.",
+      "Veuillez réessayer plus tard. Si le problème persiste, veuillez contacter l'équipe Aster avec l'ID de la demande.",
     final_confirmation: 'Confirmation finale',
     about_to_start_deletion:
       'Vous êtes sur le point de commencer le processus de suppression et cette action ne peut pas être annulée.',

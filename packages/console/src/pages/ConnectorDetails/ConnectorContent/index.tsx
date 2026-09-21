@@ -1,12 +1,11 @@
-import { ServiceConnector, GoogleConnector } from '@logto/connector-kit';
+import { GoogleConnector } from '@logto/connector-kit';
 import { ConnectorType } from '@logto/schemas';
 import type { ConnectorResponse } from '@logto/schemas';
 import { conditional } from '@silverhand/essentials';
-import { useCallback, useContext, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 import { toast } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
-import { useSWRConfig } from 'swr';
 
 import BasicForm from '@/components/ConnectorForm/BasicForm';
 import ConfigForm from '@/components/ConnectorForm/ConfigForm';
@@ -16,8 +15,6 @@ import DetailsForm from '@/components/DetailsForm';
 import FormCard from '@/components/FormCard';
 import UnsavedChangesAlertModal from '@/components/UnsavedChangesAlertModal';
 import { connectors, emailConnectors } from '@/consts';
-import { isCloud } from '@/consts/env';
-import { TenantsContext } from '@/contexts/TenantsProvider';
 import useApi from '@/hooks/use-api';
 import { useConnectorFormConfigParser } from '@/hooks/use-connector-form-config-parser';
 import { SyncProfileMode } from '@/types/connector';
@@ -25,10 +22,6 @@ import type { ConnectorFormType } from '@/types/connector';
 import { convertResponseToForm } from '@/utils/connector-form';
 import { trySubmitSafe } from '@/utils/form';
 import { removeFalsyValues } from '@/utils/object';
-
-import { getHostedEmailUsageKey } from '../EmailUsage/use-hosted-email-usage';
-
-import EmailServiceConnectorForm from './EmailServiceConnectorForm';
 
 type Props = {
   readonly isDeleted: boolean;
@@ -39,8 +32,6 @@ type Props = {
 function ConnectorContent({ isDeleted, connectorData, onConnectorUpdated }: Props) {
   const { t } = useTranslation(undefined, { keyPrefix: 'admin_console' });
   const api = useApi();
-  const { mutate } = useSWRConfig();
-  const { currentTenantId } = useContext(TenantsContext);
   const formData = useMemo(() => convertResponseToForm(connectorData), [connectorData]);
 
   const methods = useForm<ConnectorFormType>({
@@ -66,8 +57,6 @@ function ConnectorContent({ isDeleted, connectorData, onConnectorUpdated }: Prop
   } = connectorData;
 
   const isSocialConnector = connectorType === ConnectorType.Social;
-  const isEmailServiceConnector = connectorId === ServiceConnector.Email;
-
   const configParser = useConnectorFormConfigParser();
 
   const onSubmit = handleSubmit(
@@ -111,15 +100,10 @@ function ConnectorContent({ isDeleted, connectorData, onConnectorUpdated }: Prop
   );
 
   const updateUsage = useCallback(() => {
-    // A hosted-email test send consumes the daily/monthly quota; refresh that display even when the
-    // lifetime count is unavailable (core wraps `getUsage` in `trySafe`, so `usage` may be undefined).
-    if (isCloud && isEmailServiceConnector && currentTenantId) {
-      void mutate(getHostedEmailUsageKey(currentTenantId));
-    }
     if (connectorData.usage !== undefined) {
       onConnectorUpdated();
     }
-  }, [connectorData, onConnectorUpdated, isEmailServiceConnector, currentTenantId, mutate]);
+  }, [connectorData.usage, onConnectorUpdated]);
 
   return (
     <FormProvider {...methods}>
@@ -148,24 +132,20 @@ function ConnectorContent({ isDeleted, connectorData, onConnectorUpdated }: Prop
             />
           </FormCard>
         )}
-        {isEmailServiceConnector ? (
-          <EmailServiceConnectorForm extraInfo={connectorData.extraInfo} />
-        ) : (
-          <FormCard
-            title="connector_details.parameter_configuration"
-            description={conditional(
-              !isSocialConnector && 'connector_details.email_connector_settings_description'
-            )}
-            learnMoreLink={conditional(!isSocialConnector && { href: emailConnectors })}
-          >
-            <ConfigForm
-              formItems={formItems}
-              connectorFactoryId={connectorId}
-              connectorId={id}
-              connectorType={connectorType}
-            />
-          </FormCard>
-        )}
+        <FormCard
+          title="connector_details.parameter_configuration"
+          description={conditional(
+            !isSocialConnector && 'connector_details.email_connector_settings_description'
+          )}
+          learnMoreLink={conditional(!isSocialConnector && { href: emailConnectors })}
+        >
+          <ConfigForm
+            formItems={formItems}
+            connectorFactoryId={connectorId}
+            connectorId={id}
+            connectorType={connectorType}
+          />
+        </FormCard>
         {connectorId === GoogleConnector.factoryId && <GoogleOneTapCard />}
         {!isSocialConnector && (
           <FormCard title="connector_details.test_connection">

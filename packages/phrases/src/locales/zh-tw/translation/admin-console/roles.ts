@@ -29,8 +29,8 @@ const roles = {
   placeholder_description: '角色是可以分配給使用者的權限分組。在建立角色之前，請確保先新增權限。',
   assign_roles: '分配角色',
   management_api_access_notification:
-    '要訪問 Logto 管理 API，請選擇具有管理 API 權限的角色 <flag/>。',
-  with_management_api_access_tip: '此機器對機器角色包含 Logto 管理 API 權限',
+    '要訪問 Aster 管理 API，請選擇具有管理 API 權限的角色 <flag/>。',
+  with_management_api_access_tip: '此機器對機器角色包含 Aster 管理 API 權限',
   role_creation_hint: '找不到合適的角色？<a>建立角色</a>',
 };
 

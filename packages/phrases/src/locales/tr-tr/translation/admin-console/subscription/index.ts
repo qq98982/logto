@@ -5,9 +5,9 @@ import usage from './usage.js';
 const subscription = {
   free_plan: 'Ücretsiz plan',
   free_plan_description:
-    'Yan projeler ve başlangıç Logto denemeleri için. Kredi kartı gerektirmez.',
+    'Yan projeler ve başlangıç Aster denemeleri için. Kredi kartı gerektirmez.',
   pro_plan: 'Pro plan',
-  pro_plan_description: "Endişesiz bir şekilde Logto'dan faydalanan işletmeler için.",
+  pro_plan_description: "Endişesiz bir şekilde Aster'den faydalanan işletmeler için.",
   enterprise: 'Kurumsal plan',
   enterprise_description: 'Büyük ekipler ve kurumsal gereksinimleri olan işletmeler için.',
   admin_plan: 'Yönetici planı',
@@ -27,7 +27,7 @@ const subscription = {
   upgrade_pro: "Pro'ya yükselt",
   update_payment: 'Ödemeyi Güncelle',
   payment_error:
-    'Ödeme hatası tespit edildi. Önceki döngü için ${{price, number}} işlenemedi. Logto hizmeti askıya alınmasını önlemek için ödemeleri güncelleyin.',
+    'Ödeme hatası tespit edildi. Önceki döngü için ${{price, number}} işlenemedi. Aster hizmeti askıya alınmasını önlemek için ödemeleri güncelleyin.',
   downgrade: 'Düşür',
   current: 'Mevcut',
   upgrade: 'Yükselt',
@@ -61,7 +61,7 @@ const subscription = {
       'Düşürme konusunda yardıma mı ihtiyacınız var? <a>Bizimle iletişime geçin</a>.',
     upgrade_title: 'Saygıdeğer erken benimseyenlerimiz için dostane hatırlatma',
     upgrade_description:
-      "Şu anda <name /> tarafından izin verilenden daha fazlasını kullanıyorsunuz. Logto artık resmi olarak kullanılabilir durumda ve her plana özel özellikler sunuyor. <name />'e yükseltmeyi düşünmeden önce, yükseltme öncesinde aşağıdaki kriterleri karşıladığınızdan emin olun.",
+      "Şu anda <name /> tarafından izin verilenden daha fazlasını kullanıyorsunuz. Aster artık resmi olarak kullanılabilir durumda ve her plana özel özellikler sunuyor. <name />'e yükseltmeyi düşünmeden önce, yükseltme öncesinde aşağıdaki kriterleri karşıladığınızdan emin olun.",
     upgrade_pro_tip: " Ya da Pro plan'a geçmeyi düşünün.",
     upgrade_help_tip:
       'Yükseltme konusunda yardıma mı ihtiyacınız var? <a>Bizimle iletişime geçin</a>.',
@@ -77,8 +77,8 @@ const subscription = {
     exceeded:
       "Kota sınırınızın %100'ünü aştınız. Kullanıcılar artık düzgün bir şekilde giriş yapamayacak. Herhangi bir sorunu önlemek için lütfen hemen yükseltin.",
     close_to_limit:
-      "Token kullanım sınırınıza yaklaştınız. Kullanımınız %100'ü aşarsa Logto token vermeyi durduracak. Herhangi bir sorun yaşamamak için Ücretsiz planı yükseltin.",
-    dev_plan_exceeded: "Bu tenant, Logto'nun varlık limit politikası gereği token limitine ulaştı.",
+      "Token kullanım sınırınıza yaklaştınız. Kullanımınız %100'ü aşarsa Aster token vermeyi durduracak. Herhangi bir sorun yaşamamak için Ücretsiz planı yükseltin.",
+    dev_plan_exceeded: "Bu tenant, Aster'in varlık limit politikası gereği token limitine ulaştı.",
   },
 };
 

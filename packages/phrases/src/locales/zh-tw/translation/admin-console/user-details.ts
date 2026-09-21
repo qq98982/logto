@@ -138,10 +138,10 @@ const user_details = {
   },
   sessions: {
     title: '會話',
-    description: '管理由 Logto 授權服務器維護的會話。撤銷 Logto 會話將阻止未來授權請求的自動同意。',
+    description: '管理由 Aster 授權服務器維護的會話。撤銷 Aster 會話將阻止未來授權請求的自動同意。',
     field_name: '會話',
     multiple_signed_in: '該用戶已在多個設備或瀏覽器上登入。',
-    not_found: '未找到活動的 Logto 會話。用戶當前未在任何設備上登入。',
+    not_found: '未找到活動的 Aster 會話。用戶當前未在任何設備上登入。',
     name_column: '名稱',
     session_id_column: '會話 ID',
     location_column: '位置',
@@ -159,7 +159,7 @@ const user_details = {
   third_party_apps: {
     title: '第三方應用程式',
     description:
-      '使用 Logto 作為身分提供者來授權第三方應用程式。檢視並管理此使用者已授權存取的應用程式。',
+      '使用 Aster 作為身分提供者來授權第三方應用程式。檢視並管理此使用者已授權存取的應用程式。',
     field_name: '已授權第三方應用程式',
     multiple_authorized: '此使用者已授權多個第三方應用程式與服務。',
     not_authorized: '此使用者尚未授權任何第三方應用程式或服務。',

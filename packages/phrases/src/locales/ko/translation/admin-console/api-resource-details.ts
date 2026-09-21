@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'API 리소스(리소스 표시기) - 요청할 대상 서비스 또는 리소스(일반적으로 리소스의 ID를 나타내는 URI 형식 변수)를 나타냅니다.',
   management_api_settings_description:
-    'Logto 관리 API는 관리자가 다양한 ID 관련 작업을 관리하고 보안 정책을 시행하며 규정 및 표준을 준수할 수 있도록 하는 포괄적인 API 컬렉션입니다.',
+    'Aster 관리 API는 관리자가 다양한 ID 관련 작업을 관리하고 보안 정책을 시행하며 규정 및 표준을 준수할 수 있도록 하는 포괄적인 API 컬렉션입니다.',
   management_api_notice:
-    '이 API는 Logto 엔터티를 나타내며 수정 또는 삭제할 수 없습니다. Logto 관리 API를 호출하려면 머신 투 머신 앱을 만드십시오. <a>자세히 알아보기</a>',
+    '이 API는 Aster 엔터티를 나타내며 수정 또는 삭제할 수 없습니다. Aster 관리 API를 호출하려면 머신 투 머신 앱을 만드십시오. <a>자세히 알아보기</a>',
   token_expiration_time_in_seconds: '토큰 만료 시간 (초)',
   token_expiration_time_in_seconds_placeholder: '토큰 만료 시간을 입력해주세요',
   delete_description:

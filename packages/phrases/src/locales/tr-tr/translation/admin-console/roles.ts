@@ -30,8 +30,8 @@ const roles = {
     'Roller, kullanıcılara atanabilecek izinlerin gruplandırmasıdır. Rolleri oluşturmadan önce izin eklediğinizden emin olun.',
   assign_roles: 'Rolleri ata',
   management_api_access_notification:
-    'Logto Yönetim API erişimi için yönetim API izinleri olan rolleri seçin <flag/>.',
-  with_management_api_access_tip: 'Bu makine ile makine rolü, Logto yönetim API izinlerini içerir',
+    'Aster Yönetim API erişimi için yönetim API izinleri olan rolleri seçin <flag/>.',
+  with_management_api_access_tip: 'Bu makine ile makine rolü, Aster yönetim API izinlerini içerir',
   role_creation_hint: 'Doğru rolü bulamıyor musunuz? <a>Rol oluşturun</a>',
 };
 

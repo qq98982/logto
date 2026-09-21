@@ -1,4 +1,4 @@
-import { getPreferredLanguage } from './utils';
+import { detectLanguage, getPreferredLanguage } from './utils';
 
 describe('i18n utils', () => {
   afterEach(() => {
@@ -56,5 +56,12 @@ describe('i18n utils', () => {
         },
       })
     ).toBeUndefined();
+  });
+
+  it('detectLanguage reads the Aster UI locale key and ignores the former key', () => {
+    localStorage.setItem('i18nextLogtoUiLng', 'en-US');
+    localStorage.setItem('i18nextAsterUiLng', 'zh-CN');
+
+    expect(detectLanguage()).toBe('zh-CN');
   });
 });

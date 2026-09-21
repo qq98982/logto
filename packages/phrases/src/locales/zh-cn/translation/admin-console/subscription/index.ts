@@ -4,7 +4,7 @@ import usage from './usage.js';
 
 const subscription = {
   free_plan: '免费计划',
-  free_plan_description: '适用于边项目和初始 Logto 试用，无需信用卡。',
+  free_plan_description: '适用于边项目和初始 Aster 试用，无需信用卡。',
   pro_plan: '专业计划',
   pro_plan_description: '适用于企业付费无忧。',
   enterprise: '企业计划',
@@ -25,7 +25,7 @@ const subscription = {
   upgrade_pro: '升级专业计划',
   update_payment: '更新付款信息',
   payment_error:
-    '检测到付款问题。无法处理前一周期的{{price, number}}美元。更新付款以避免 Logto 服务中断。',
+    '检测到付款问题。无法处理前一周期的{{price, number}}美元。更新付款以避免 Aster 服务中断。',
   downgrade: '降级',
   current: '当前',
   upgrade: '升级',
@@ -57,7 +57,7 @@ const subscription = {
     downgrade_help_tip: '需要降级帮助？<a>联系我们</a>。',
     upgrade_title: '致尊敬的早期采用者的友善提醒',
     upgrade_description:
-      '您当前的使用量超过了 <name /> 允许的范围。Logto 现已正式发布，包括针对每个计划量身定制的功能。在考虑升级到 <name /> 之前，请确保您满足以下升级条件。',
+      '您当前的使用量超过了 <name /> 允许的范围。Aster 现已正式发布，包括针对每个计划量身定制的功能。在考虑升级到 <name /> 之前，请确保您满足以下升级条件。',
     upgrade_pro_tip: ' 或者考虑升级到专业版计划。',
     upgrade_help_tip: '需要升级帮助？<a>联系我们</a>。',
     a_maximum_of: '最多<item/>',
@@ -70,8 +70,8 @@ const subscription = {
   token_usage_notification: {
     exceeded: '你已超过 100% 的配额限制。用户将无法正常登录。请立即升级以避免任何不便。',
     close_to_limit:
-      '你几乎达到了令牌使用限制。如果使用量超过 100%，Logto 将停止颁发令牌。请升级免费计划以避免任何不便。',
-    dev_plan_exceeded: '此租户已达到 Logto 实体限制政策规定的令牌限制。',
+      '你几乎达到了令牌使用限制。如果使用量超过 100%，Aster 将停止颁发令牌。请升级免费计划以避免任何不便。',
+    dev_plan_exceeded: '此租户已达到 Aster 实体限制政策规定的令牌限制。',
   },
 };
 

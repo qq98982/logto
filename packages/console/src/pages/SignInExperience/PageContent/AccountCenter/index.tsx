@@ -5,6 +5,7 @@ import { Trans, useTranslation } from 'react-i18next';
 
 import FormCard from '@/components/FormCard';
 import PageMeta from '@/components/PageMeta';
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import CodeEditor from '@/ds-components/CodeEditor';
 import FormField from '@/ds-components/FormField';
 import InlineNotification from '@/ds-components/InlineNotification';
@@ -167,7 +168,9 @@ function AccountCenter({ isActive, data }: Props) {
                       a: (
                         <TextLink
                           targetBlank="noopener"
-                          href="https://docs.logto.io/end-user-flows/account-settings/by-account-api#get-a-verification-record-id"
+                          href={resolveAsterDocumentationLink(
+                            'account-settings/by-account-api#get-a-verification-record-id'
+                          )}
                         />
                       ),
                     }}

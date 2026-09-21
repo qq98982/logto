@@ -17,7 +17,7 @@ const CustomContent = ({ className }: Props) => {
   }
 
   try {
-    // Expected error; CustomContent content is load from Logto remote server
+    // Expected error; custom content is loaded from the Aster server.
     // eslint-disable-next-line react/no-danger
     return <div dangerouslySetInnerHTML={{ __html: customHtml }} className={className} />;
   } catch {

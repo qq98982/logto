@@ -38,9 +38,9 @@ const content = {
     subtitle:
       '言語と翻訳を追加して製品体験をローカライズします。あなたが提供した言語は既定の言語として設定できます。',
     add_language: '言語を追加',
-    logto_provided: 'Logto 提供',
+    aster_provided: 'Aster 提供',
     key: 'キー',
-    logto_source_values: 'Logto ソース値',
+    aster_source_values: 'Aster ソース値',
     custom_values: 'カスタム値',
     clear_all_tip: 'すべての値をクリア',
     unsaved_description: '保存せずにこのページを離れると、変更は保存されません。',

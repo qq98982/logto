@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: '連接失敗',
   },
   update_endpoint_notice:
-    '不要忘記在應用程序中更新社交連接器回調URI和Logto端點的域名，如果你想使用自定義域名進行功能。',
+    '不要忘記在應用程序中更新社交連接器回調URI和Aster端點的域名，如果你想使用自定義域名進行功能。',
   error_hint: '確保更新您的 DNS 記錄。我們將繼續每 {{value}} 秒檢查。',
   custom: {
     custom_domain: '自定義域名',
@@ -34,7 +34,7 @@ const domain = {
       description: '確定刪除此自定義域名嗎？',
       in_used_description: '確定刪除此自定義域名"<span>{{domain}}</span>"嗎？',
       in_used_tip:
-        '如果在之前的社交記錄或應用程式終端點中配置了此自定義域名，您需要先使用 Logto 默認域名"<span>{{domain}}</span>" 修改 URI，使社交組件可以正常使用。',
+        '如果在之前的社交記錄或應用程式終端點中配置了此自定義域名，您需要先使用 Aster 默認域名"<span>{{domain}}</span>" 修改 URI，使社交組件可以正常使用。',
       deleted: '成功刪除自定義域名！',
     },
     config_custom_domain_description:
@@ -61,8 +61,8 @@ const domain = {
   default: {
     default_domain: '默認域名',
     default_domain_description:
-      'Logto 提供預配置的默認域名，無需進行任何其他設置即可使用。即使啟用了自定義域名，此默認域名也可作為備用選項。',
-    default_domain_field: 'Logto 默認域名',
+      'Aster 提供預配置的默認域名，無需進行任何其他設置即可使用。即使啟用了自定義域名，此默認域名也可作為備用選項。',
+    default_domain_field: 'Aster 默認域名',
   },
   custom_endpoint_note: '您可以根據需要自定義這些端點的域名。選擇“{{custom}}”或“{{default}}”。',
   custom_social_callback_url_note:

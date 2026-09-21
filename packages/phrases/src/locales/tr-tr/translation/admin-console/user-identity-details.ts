@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       'Saklanan belirteçleri silin. Kullanıcılar işlevselliği geri yüklemek için erişimi yeniden yetkilendirmelidir.',
     confirmation_message:
-      'Belirteçleri silmek istediğinizden emin misiniz? Logto Gizli Kasa saklanan {{connectorName}} erişim ve yenileme belirteçlerini kaldıracaktır. Bu kullanıcı, {{connectorName}} API erişimini geri yüklemek için yeniden yetkilendirmelidir.',
+      'Belirteçleri silmek istediğinizden emin misiniz? Aster Gizli Kasa saklanan {{connectorName}} erişim ve yenileme belirteçlerini kaldıracaktır. Bu kullanıcı, {{connectorName}} API erişimini geri yüklemek için yeniden yetkilendirmelidir.',
   },
   token_storage_disabled: {
     title: 'Bu bağlayıcı için belirteç saklama devre dışı bırakıldı',

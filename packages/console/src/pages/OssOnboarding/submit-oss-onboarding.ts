@@ -2,7 +2,7 @@ import type { OssSurveyReportPayload, OssUserOnboardingData } from '@logto/schem
 import { type Optional, trySafe } from '@silverhand/essentials';
 import ky from 'ky';
 
-import { isDevFeaturesEnabled, ossSurveyEndpoint } from '@/consts/env';
+import { asterSurveyEndpoint, isDevFeaturesEnabled } from '@/consts/env';
 
 import {
   getBaseOssOnboardingPayload,
@@ -36,7 +36,9 @@ const getOssSurveyUrl = (): Optional<URL> => {
     return;
   }
 
-  const endpointUrl = trySafe(() => (ossSurveyEndpoint ? new URL(ossSurveyEndpoint) : undefined));
+  const endpointUrl = trySafe(() =>
+    asterSurveyEndpoint ? new URL(asterSurveyEndpoint) : undefined
+  );
 
   if (!endpointUrl) {
     return;

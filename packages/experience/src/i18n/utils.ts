@@ -15,10 +15,10 @@ const getPhrases = async (language?: string) => {
   const preferredLanguage = language ?? uiLocales;
 
   if (
-    isObject(logtoSsr) &&
-    (!preferredLanguage || logtoSsr.phrases.lng === (language ?? uiLocalesFirst))
+    isObject(asterSsr) &&
+    (!preferredLanguage || asterSsr.phrases.lng === (language ?? uiLocalesFirst))
   ) {
-    return { phrases: logtoSsr.phrases.data, lng: logtoSsr.phrases.lng };
+    return { phrases: asterSsr.phrases.data, lng: asterSsr.phrases.lng };
   }
 
   const detectedLanguage = detectLanguage();
@@ -56,7 +56,7 @@ export const getI18nResource = async (
   }
 };
 
-const storageKey = 'i18nextLogtoUiLng';
+const storageKey = 'i18nextAsterUiLng';
 
 export const detectLanguage = (languageSettings?: LanguageInfo) => {
   if (languageSettings?.autoDetect === false) {

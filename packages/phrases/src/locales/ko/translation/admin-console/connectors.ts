@@ -16,7 +16,7 @@ const connectors = {
   connector_type: '종류',
   placeholder_title: '소셜 연동',
   placeholder_description:
-    'Logto는 널리 사용되는 다양한 소셜 로그인 커넥터를 제공하고 있으며, 표준 프로토콜을 사용하여 자신만의 커넥터를 만들 수도 있어요.',
+    'Aster는 널리 사용되는 다양한 소셜 로그인 커넥터를 제공하고 있으며, 표준 프로토콜을 사용하여 자신만의 커넥터를 만들 수도 있어요.',
   save_and_done: '저장 및 완료',
   type: {
     email: '이메일 연동',
@@ -44,7 +44,7 @@ const connectors = {
     target_tip_standard:
       '"IdP 이름"의 값은 소셜 식별자를 구분하기 위한 고유 식별자 문자열이 될 수 있어요. 이 설정은 연동이 만들어진 후에는 변경할 수 없어요.',
     target_tooltip:
-      'Logto의 소셜 연동에서의 "공급자"는 소셜 정보의 원천을 뜻해요. Logto의 디자인은 충돌을 피하기 위해서 같은 "공급자"를 허용하지 않아요. 연동을 추가한 후에는 값을 변경할 수 없으므로 주의해주세요. <a>자세히 알아보기</a>',
+      'Aster의 소셜 연동에서의 "공급자"는 소셜 정보의 원천을 뜻해요. Aster의 디자인은 충돌을 피하기 위해서 같은 "공급자"를 허용하지 않아요. 연동을 추가한 후에는 값을 변경할 수 없으므로 주의해주세요. <a>자세히 알아보기</a>',
     target_conflict:
       '입력한 IdP 이름이 기존 <span>name</span>과 일치해요. 동일한 IdP 이름을 사용하면 사용자가 두 개의 다른 커넥터를 통해 동일한 계정에 액세스할 수 있는 예기치 않은 로그인 동작이 발생할 수 있어요.',
     target_conflict_line2:
@@ -64,7 +64,7 @@ const connectors = {
     callback_uri_description:
       '리디렉션 URI는 소셜 인증 이후 사용자가 다시 이동하는 위치입니다. 표시된 모든 URI를 IdP 구성에 추가하세요.',
     callback_uri_custom_domain_description:
-      'Logto에서 여러 <a>사용자 지정 도메인</a>을 사용하는 경우 각 도메인에서 소셜 로그인이 동작하도록 모든 해당 콜백 URI를 IdP에 반드시 추가하세요.\n\n기본 Logto 도메인 (*.logto.app)은 항상 유효하므로 해당 도메인에서의 로그인을 지원하려는 경우에만 포함하세요.',
+      'Aster에서 여러 <a>사용자 지정 도메인</a>을 사용하는 경우 각 도메인에서 소셜 로그인이 동작하도록 모든 해당 콜백 URI를 IdP에 반드시 추가하세요.\n\n기본 Aster 도메인은 항상 유효하므로 해당 도메인에서의 로그인을 지원하려는 경우에만 포함하세요.',
     acs_url: '단언 소비 서비스 URL',
   },
   platform: {
@@ -80,11 +80,6 @@ const connectors = {
   create_form: {
     third_party_connectors:
       '타사 공급자를 통합하여 빠른 소셜 로그인, 소셜 계정 연결, API 액세스를 제공합니다. <a>자세히 알아보기</a>',
-    email_connector_upsell: {
-      title: 'Logto 기본 이메일 서비스',
-      description:
-        '설정 없이 바로 이메일을 보낼 수 있습니다. 인증 코드와 매직 링크를 즉시 전송하세요.',
-    },
     standard_connectors: '또는 표준 프로토콜로 사용자의 소셜 커넥터를 맞춤화할 수 있습니다.',
   },
 };

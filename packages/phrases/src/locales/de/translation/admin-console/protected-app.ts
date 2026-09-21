@@ -22,7 +22,7 @@ const protected_app = {
     domain_field_description_short:
       'Diese URL dient als ein Authentifizierungsschutzproxy für die originale URL.',
     domain_field_tooltip:
-      "Apps, die von Logto geschützt sind, werden standardmäßig unter 'ihre-domain.{{domain}}' gehostet. Eine benutzerdefinierte Domain kann nach der Erstellung angewendet werden.",
+      "Apps, die von Aster geschützt sind, werden standardmäßig unter 'ihre-domain.{{domain}}' gehostet. Eine benutzerdefinierte Domain kann nach der Erstellung angewendet werden.",
     create_application: 'Anwendung erstellen',
     create_protected_app: 'Schnell erstellen',
     errors: {

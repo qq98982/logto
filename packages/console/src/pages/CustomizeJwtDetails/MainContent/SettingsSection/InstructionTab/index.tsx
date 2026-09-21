@@ -80,7 +80,7 @@ function InstructionTab({ isActive, section, action }: Props) {
               }
               // ClientCredentials token payload has only a few fields, so it doesn't need to be as tall as the AccessToken payload.
               height={tokenType === LogtoJwtTokenKeyType.AccessToken ? '320px' : '200px'}
-              theme="logto-dark"
+              theme="aster-dark"
               options={typeDefinitionCodeEditorOptions}
             />
           </GuideCard>
@@ -97,7 +97,7 @@ function InstructionTab({ isActive, section, action }: Props) {
                 className={styles.sampleCode}
                 value={jwtCustomizerUserContextTypeDefinition}
                 height="400px"
-                theme="logto-dark"
+                theme="aster-dark"
                 options={typeDefinitionCodeEditorOptions}
               />
             </GuideCard>
@@ -115,7 +115,7 @@ function InstructionTab({ isActive, section, action }: Props) {
                 className={styles.sampleCode}
                 value={jwtCustomizerGrantContextTypeDefinition}
                 height="180px"
-                theme="logto-dark"
+                theme="aster-dark"
                 options={typeDefinitionCodeEditorOptions}
               />
             </GuideCard>
@@ -133,7 +133,7 @@ function InstructionTab({ isActive, section, action }: Props) {
                 className={styles.sampleCode}
                 value={`declare ${jwtCustomizerUserInteractionContextTypeDefinition}`}
                 height="400px"
-                theme="logto-dark"
+                theme="aster-dark"
                 options={typeDefinitionCodeEditorOptions}
               />
             </GuideCard>
@@ -150,7 +150,7 @@ function InstructionTab({ isActive, section, action }: Props) {
               className={styles.sampleCode}
               value={`declare ${jwtCustomizerApplicationContextTypeDefinition}`}
               height="400px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={typeDefinitionCodeEditorOptions}
             />
           </GuideCard>
@@ -167,7 +167,7 @@ function InstructionTab({ isActive, section, action }: Props) {
                 className={styles.sampleCode}
                 value={`declare ${jwtCustomizerOrganizationContextTypeDefinition}`}
                 height="200px"
-                theme="logto-dark"
+                theme="aster-dark"
                 options={typeDefinitionCodeEditorOptions}
               />
             </GuideCard>
@@ -187,7 +187,7 @@ function InstructionTab({ isActive, section, action }: Props) {
               className={styles.sampleCode}
               value={fetchExternalDataCodeExample}
               height="300px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={sampleCodeEditorOptions}
             />
           </GuideCard>
@@ -208,7 +208,7 @@ function InstructionTab({ isActive, section, action }: Props) {
               value={environmentVariablesCodeExample}
               path="file:///env-variables-sample.js"
               height="400px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={sampleCodeEditorOptions}
             />
           </GuideCard>
@@ -224,7 +224,7 @@ function InstructionTab({ isActive, section, action }: Props) {
               className={styles.sampleCode}
               value={denyAccessCodeExample}
               height="240px"
-              theme="logto-dark"
+              theme="aster-dark"
               options={sampleCodeEditorOptions}
             />
           </GuideCard>

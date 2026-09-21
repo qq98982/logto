@@ -6,7 +6,7 @@ import koaAccountCenterSsr from './koa-account-center-ssr.js';
 
 const { jest } = import.meta;
 
-const accountCenterSsrPlaceholder = '"__LOGTO_ACCOUNT_CENTER_SSR__"';
+const accountCenterSsrPlaceholder = '"__ASTER_ACCOUNT_CENTER_SSR__"';
 const mockAccountCenterSsrSignInExperience = { color: mockSignInExperience.color };
 
 describe('koaAccountCenterSsr()', () => {
@@ -49,7 +49,7 @@ describe('koaAccountCenterSsr()', () => {
       ...baseCtx,
       path: '/',
       body: `<script>
-        const logtoSsr=${accountCenterSsrPlaceholder};
+        const asterSsr=${accountCenterSsrPlaceholder};
       </script>`,
     };
     await koaAccountCenterSsr(tenant.libraries)(ctx, next);
@@ -60,7 +60,7 @@ describe('koaAccountCenterSsr()', () => {
     expect(tenant.libraries.signInExperiences.getFullSignInExperience).not.toHaveBeenCalled();
     expect(ctx.body).not.toContain(accountCenterSsrPlaceholder);
     expect(ctx.body).toContain(
-      `const logtoSsr=Object.freeze(${JSON.stringify({
+      `const asterSsr=Object.freeze(${JSON.stringify({
         signInExperience: { data: mockAccountCenterSsrSignInExperience },
       })});`
     );
@@ -71,14 +71,14 @@ describe('koaAccountCenterSsr()', () => {
       ...baseCtx,
       path: '/profile',
       body: `<script>
-        const logtoSsr=${accountCenterSsrPlaceholder};
+        const asterSsr=${accountCenterSsrPlaceholder};
       </script>`,
     };
     await koaAccountCenterSsr(tenant.libraries)(ctx, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(ctx.body).not.toContain(accountCenterSsrPlaceholder);
     expect(ctx.body).toContain(
-      `const logtoSsr=Object.freeze(${JSON.stringify({
+      `const asterSsr=Object.freeze(${JSON.stringify({
         signInExperience: { data: mockAccountCenterSsrSignInExperience },
       })});`
     );

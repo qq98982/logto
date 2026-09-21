@@ -6,7 +6,7 @@ import passwordIcon from '../icons/password.svg';
 
 import { LogtoProfileItemElement } from './LogtoProfileItemElement.js';
 
-const tagName = 'logto-user-password';
+const tagName = 'aster-user-password';
 
 @customElement(tagName)
 export class LogtoUserPassword extends LogtoProfileItemElement {
@@ -16,14 +16,14 @@ export class LogtoUserPassword extends LogtoProfileItemElement {
     .status {
       display: flex;
       align-items: center;
-      gap: var(--logto-spacing-sm);
+      gap: var(--aster-spacing-sm);
     }
 
     .status-dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background-color: var(--logto-color-container-on-success);
+      background-color: var(--aster-color-container-on-success);
     }
   `;
 

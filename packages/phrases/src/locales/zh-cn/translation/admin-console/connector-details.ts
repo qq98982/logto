@@ -20,7 +20,7 @@ const connector_details = {
   test_sms_placeholder: '+86 131 1234 5678',
   test_message_sent: '测试信息已发送',
   test_sender_description:
-    'Logto 使用 "Generic" 模板进行测试。如果你的连接器正确配置，你将收到一条消息。',
+    'Aster 使用 "Generic" 模板进行测试。如果你的连接器正确配置，你将收到一条消息。',
   options_change_email: '更换邮件连接器',
   options_change_sms: '更换短信连接器',
   connector_deleted: '成功删除连接器',
@@ -32,40 +32,6 @@ const connector_details = {
   in_used_passwordless_deletion_description:
     '你的登录体验正在使用 {{name}} 连接器。删除后，你的登录体验将无法正常工作，直到你解决冲突，再次添加需重新配置。',
   deletion_description: '你将删除此连接器。此操作不可撤销，再次添加需重新配置。',
-  logto_email: {
-    total_email_sent: '已发送邮件总数: {{value, number}}',
-    total_email_sent_tip:
-      'Logto 使用 SendGrid 进行安全稳定的内置电子邮件功能。此功能完全免费使用。<a>了解更多</a>',
-    hosted_email_usage: {
-      daily: '每日 <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: '每日 <value>{{usage, number}}</value>',
-      monthly: '每月 <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: '每月 <value>{{usage, number}}</value>',
-      tip: 'Free 和 Development 方案包含每日和每月的内置邮件服务限额。',
-      banner: {
-        approaching:
-          '您即将达到 Logto 内置邮件服务的发送上限。<provider>连接您自己的电子邮件服务商</provider>，或<upgrade>升级您的方案</upgrade>以继续使用 Logto 内置邮件服务。',
-        reached:
-          '您已达到 Logto 内置邮件服务的发送上限，这可能会中断登录邮件。<provider>连接您自己的电子邮件服务商</provider>，或<upgrade>升级您的方案</upgrade>以继续使用 Logto 内置邮件服务。',
-      },
-    },
-    email_template_title: '电子邮件模板',
-    template_description:
-      '内置电子邮件使用默认模板，无需配置即可无缝发送验证电子邮件。您可以自定义基本品牌信息。',
-    template_description_link_text: '查看模板',
-    description_action_text: '查看模板',
-    from_email_field: '发件人电子邮件',
-    sender_name_field: '发件人姓名',
-    sender_name_tip: '自定义电子邮件的发件人姓名。如果留空，则默认使用「Verification」作为名称。',
-    sender_name_placeholder: '发件人姓名',
-    company_information_field: '公司信息',
-    company_information_description: '在电子邮件底部显示您公司的名称、地址或邮编，以增强真实性。',
-    company_information_placeholder: '你公司的基本信息',
-    email_logo_field: '电子邮件标志',
-    email_logo_tip: '在电子邮件顶部显示你的品牌标志。对浅色模式和深色模式使用相同的图像。',
-    urls_not_allowed: '不允许使用 URL',
-    test_notes: 'Logto 使用 "通用" 模板进行测试。',
-  },
   google_one_tap: {
     title: 'Google 一键登录',
     description: 'Google 一键登录是一种安全且方便的方式，用户可以用它登录你的网站。',

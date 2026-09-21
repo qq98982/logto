@@ -13,7 +13,7 @@ import { type SelectedGuide } from '@/components/Guide/GuideCard';
 import ApplicationPreview from '@/components/ItemPreview/ApplicationPreview';
 import LearnMore from '@/components/LearnMore';
 import PageMeta from '@/components/PageMeta';
-import { integrateLogto } from '@/consts';
+import { integrationGuide } from '@/consts';
 import { isCloud } from '@/consts/env';
 import Button from '@/ds-components/Button';
 import CardTitle from '@/ds-components/CardTitle';
@@ -148,7 +148,7 @@ function Applications({ tab }: Props) {
           subtitle={
             <>
               <DynamicT forKey="applications.subtitle" />
-              <LearnMore isRelativeDocUrl href={integrateLogto} />
+              <LearnMore isRelativeDocUrl href={integrationGuide} />
             </>
           }
         />

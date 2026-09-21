@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Verbindung fehlgeschlagen',
   },
   update_endpoint_notice:
-    'Vergessen Sie nicht, die Domain für die Social-Connector-Callback-URI und den Logto-Endpunkt in Ihrer Anwendung zu aktualisieren, wenn Sie eine benutzerdefinierte Domain für die Funktionen verwenden möchten.',
+    'Vergessen Sie nicht, die Domain für die Social-Connector-Callback-URI und den Aster-Endpunkt in Ihrer Anwendung zu aktualisieren, wenn Sie eine benutzerdefinierte Domain für die Funktionen verwenden möchten.',
   error_hint:
     'Stellen Sie sicher, dass Sie Ihre DNS-Einträge aktualisiert haben. Wir werden alle {{value}} Sekunden weiter überprüfen.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Sind Sie sicher, dass Sie diese benutzerdefinierte Domain "<span>{{domain}}</span>" löschen möchten?',
       in_used_tip:
-        'Wenn Sie diese benutzerdefinierte Domain bereits in Ihrem Social-Connector-Provider oder Anwendungs-Endpunkt eingerichtet haben, müssen Sie die URI zur Logto-Standarddomain "<span>{{domain}}</span>" ändern. Dies ist notwendig, damit die Social-Sign-In-Schaltfläche ordnungsgemäß funktioniert.',
+        'Wenn Sie diese benutzerdefinierte Domain bereits in Ihrem Social-Connector-Provider oder Anwendungs-Endpunkt eingerichtet haben, müssen Sie die URI zur Aster-Standarddomain "<span>{{domain}}</span>" ändern. Dies ist notwendig, damit die Social-Sign-In-Schaltfläche ordnungsgemäß funktioniert.',
       deleted: 'Benutzerdefinierte Domain wurde erfolgreich gelöscht!',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Standarddomain',
     default_domain_description:
-      'Logto bietet eine vorkonfigurierte Standarddomain, die ohne zusätzliche Einrichtung verwendet werden kann. Diese Standarddomain dient als Backup-Option, auch wenn Sie eine benutzerdefinierte Domain aktiviert haben.',
-    default_domain_field: 'Logto Standard-Domain',
+      'Aster bietet eine vorkonfigurierte Standarddomain, die ohne zusätzliche Einrichtung verwendet werden kann. Diese Standarddomain dient als Backup-Option, auch wenn Sie eine benutzerdefinierte Domain aktiviert haben.',
+    default_domain_field: 'Aster Standard-Domain',
   },
   custom_endpoint_note:
     'Sie können den Domainnamen dieser Endpunkte anpassen, wie Sie möchten. Wählen Sie entweder "{{custom}}" oder "{{default}}".',

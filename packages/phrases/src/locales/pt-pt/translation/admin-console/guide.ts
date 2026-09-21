@@ -30,7 +30,7 @@ const guide = {
     select_a_framework: 'Seleciona um framework',
     continue_without_framework: 'Criar aplicação sem framework',
     describe_guide_looking_for_placeholder:
-      'Por exemplo, quero integrar o Logto na minha aplicação Angular.',
+      'Por exemplo, quero integrar o Aster na minha aplicação Angular.',
   },
   api: {
     modal_title: 'Começar com tutoriais',

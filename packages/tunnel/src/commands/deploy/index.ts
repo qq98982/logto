@@ -31,7 +31,7 @@ const tunnel: CommandModule<unknown, DeployCommandArgs> = {
         },
         resource: {
           alias: ['management-api-resource'],
-          describe: 'Logto Management API resource indicator. Required if using custom domain.',
+          describe: 'Aster Management API resource indicator. Required if using custom domain.',
           type: 'string',
         },
         verbose: {

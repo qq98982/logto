@@ -20,7 +20,7 @@ const createTestInput = (
   ...overrides,
 });
 
-const fallbackKeyPrefix = 'logto:redirect-context:fallback:';
+const fallbackKeyPrefix = 'aster:redirect-context:fallback:';
 
 beforeEach(() => {
   localStorage.clear();

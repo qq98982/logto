@@ -6,7 +6,7 @@ import { type LogtoAccountProvider } from '../providers/logto-account-provider.j
 
 import { LogtoSocialIdentity } from './logto-social-identity.js';
 
-suite('logto-social-identity', () => {
+suite('aster-social-identity', () => {
   test('is defined', () => {
     const element = document.createElement(LogtoSocialIdentity.tagName);
     assert.instanceOf(element, LogtoSocialIdentity);
@@ -14,7 +14,7 @@ suite('logto-social-identity', () => {
 
   test('should render error message when account context is not available', async () => {
     const element = await fixture<LogtoSocialIdentity>(
-      html`<logto-social-identity></logto-social-identity>`
+      html`<aster-social-identity></aster-social-identity>`
     );
     await element.updateComplete;
 
@@ -37,9 +37,9 @@ suite('logto-social-identity', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-social-identity target="github"></logto-social-identity>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-social-identity target="github"></aster-social-identity>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -69,9 +69,9 @@ suite('logto-social-identity', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-social-identity target="github" labelText="GitHub"></logto-social-identity>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-social-identity target="github" labelText="GitHub"></aster-social-identity>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;

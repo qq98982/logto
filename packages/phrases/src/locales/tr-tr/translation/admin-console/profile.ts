@@ -17,7 +17,7 @@ const profile = {
       check_information:
         'Hesabını silmek istediğini duyduğumuza üzüldük. Devam etmeden önce lütfen aşağıdaki bilgileri dikkatlice kontrol et.',
       remove_all_data:
-        "Hesabını silmek, Logto Cloud'daki tüm verilerini kalıcı olarak silecektir. Bu yüzden devam etmeden önce önemli verilerini yedeklediğinden emin ol.",
+        "Hesabını silmek, Cloud'daki tüm verilerini kalıcı olarak silecektir. Bu yüzden devam etmeden önce önemli verilerini yedeklediğinden emin ol.",
       confirm_information:
         'Yukarıdaki bilgilerin beklediğin gibi olduğunu onayla. Hesabını sildiğinde, onu geri getiremeyeceğiz.',
       has_admin_role:
@@ -40,7 +40,7 @@ const profile = {
     error_occurred_description: 'Üzgünüz, hesabınızı silerken bir şeyler ters gitti:',
     request_id: 'İstek Kimliği: {{requestId}}',
     try_again_later:
-      'Lütfen daha sonra tekrar deneyin. Sorun devam ederse, lütfen istek kimliğiyle Logto ekibiyle iletişime geçin.',
+      'Lütfen daha sonra tekrar deneyin. Sorun devam ederse, lütfen istek kimliğiyle Aster ekibiyle iletişime geçin.',
     final_confirmation: 'Nihai onay',
     about_to_start_deletion: 'Silme işlemine başlamak üzeresiniz ve bu işlem geri alınamaz.',
     permanently_delete: 'Kalıcı olarak sil',

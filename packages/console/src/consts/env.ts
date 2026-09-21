@@ -6,10 +6,12 @@ const normalizeEnv = (value: unknown) =>
   value === null || value === undefined ? undefined : String(value);
 
 export const isProduction = import.meta.env.PROD;
-export const isCloud = yes(normalizeEnv(import.meta.env.IS_CLOUD));
+const isHostedDeployment = (): boolean => false;
+
+export const isCloud = isHostedDeployment();
 export const isProtectedAppLocalDevEnabled =
   !isProduction && yes(normalizeEnv(import.meta.env.PROTECTED_APP_LOCAL_DEV));
-export const isProtectedAppEnabled = isCloud || isProtectedAppLocalDevEnabled;
+export const isProtectedAppEnabled = isProtectedAppLocalDevEnabled;
 export const adminEndpoint = normalizeEnv(import.meta.env.ADMIN_ENDPOINT);
 
 export const isDevFeaturesEnabled =
@@ -17,11 +19,6 @@ export const isDevFeaturesEnabled =
   yes(normalizeEnv(import.meta.env.DEV_FEATURES_ENABLED)) ||
   yes(localStorage.getItem(storageKeys.isDevFeaturesEnabled));
 
-export const consoleEmbeddedPricingUrl =
-  normalizeEnv(import.meta.env.CONSOLE_EMBEDDED_PRICING_URL) ??
-  'https://logto.io/console-embedded-pricing';
-
-export const inkeepApiKey = normalizeEnv(import.meta.env.INKEEP_API_KEY);
 export const postHogKey = normalizeEnv(import.meta.env.POSTHOG_PUBLIC_KEY);
 /**
  * The PostHog API host URL. When using a self-hosted PostHog instance or a custom domain,
@@ -36,4 +33,7 @@ export const postHogHost = normalizeEnv(import.meta.env.POSTHOG_PUBLIC_HOST);
  * @see https://posthog.com/docs/libraries/js/config for more details.
  */
 export const postHogUiHost = normalizeEnv(import.meta.env.POSTHOG_PUBLIC_UI_HOST);
-export const ossSurveyEndpoint = normalizeEnv(import.meta.env.LOGTO_OSS_SURVEY_ENDPOINT);
+export const asterDocumentationUrl = normalizeEnv(import.meta.env.ASTER_DOCUMENTATION_URL);
+export const asterWebsiteUrl = normalizeEnv(import.meta.env.ASTER_WEBSITE_URL);
+export const asterSupportEmail = normalizeEnv(import.meta.env.ASTER_SUPPORT_EMAIL);
+export const asterSurveyEndpoint = normalizeEnv(import.meta.env.ASTER_OSS_SURVEY_ENDPOINT);

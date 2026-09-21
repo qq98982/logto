@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Rozpocznij',
   title: 'Coś do odkrycia, aby pomóc ci odnieść sukces',
-  subtitle: 'Kilka rzeczy, które możesz zrobić, aby szybko uzyskać wartość Logto',
+  subtitle: 'Kilka rzeczy, które możesz zrobić, aby szybko uzyskać wartość Aster',
   develop: {
     title: 'Develop: Zajmie to 5 minut, aby zintegrować swoją aplikację',
     title_cloud: 'Develop: Bezpiecznie zintegruj swoją aplikację w kilka minut',
@@ -13,7 +13,7 @@ const get_started = {
     title: 'Customize: Dostarcz świetne doświadczenie logowania',
     preview: {
       title: 'Sprawdź podgląd na żywo doświadczenia logowania, które właśnie spersonalizowałeś',
-      subtitle: 'Wypróbuj teraz Logto, aby zobaczyć, jak działa',
+      subtitle: 'Wypróbuj teraz Aster, aby zobaczyć, jak działa',
     },
     connector: {
       title: 'Dodaj więcej konektorów, aby obsługiwać różne metody logowania społecznego',
@@ -42,26 +42,6 @@ const get_started = {
     subtitle:
       'Używasz dzierżawy deweloperskiej do darmowych testów. Aby uruchomić produkcję, utwórz nową lub przekształć aktualną w dzierżawę produkcyjną. Potrzebujesz czegoś niestandardowego? <a>Skontaktuj się z nami</a>',
     convert_button: 'Przekształć w dzierżawę produkcyjną',
-  },
-  oss_cloud: {
-    try: {
-      title: 'Pomiń pracę operacyjną i wypróbuj Logto Cloud za darmo',
-      badge: 'Polecane',
-      description:
-        'Otrzymaj w pełni zarządzane Logto bez konieczności utrzymania, a także szybkie wdrożenie z MCP, obsługę wielu tenantów, współpracę zespołową i wszystkie funkcje premium w pakiecie. Zacznij za darmo, bez karty kredytowej.',
-      action: 'Poznaj Logto Cloud',
-    },
-    private_cloud: {
-      title: 'Potrzebujesz zgodności lub niestandardowego wdrożenia?',
-      card_title: 'Chmura prywatna',
-      description:
-        'Uzyskaj dedykowaną instancję Logto z pełną izolacją danych, własną domeną i gwarancjami SLA. To idealne rozwiązanie dla firm z rygorystycznymi wymaganiami dotyczącymi rezydencji danych lub zgodności. My zajmiemy się infrastrukturą, abyś mógł skupić się na swoim produkcie.',
-    },
-    sidebar: {
-      title: 'Skup się na budowaniu, nie na hostowaniu.',
-      description: 'Pozwól, aby Logto Cloud zajęło się za Ciebie infrastrukturą uwierzytelniania.',
-      action: 'Wypróbuj Logto Cloud',
-    },
   },
   view_all: 'Zobacz wszystkie →',
 };

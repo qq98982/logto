@@ -139,7 +139,7 @@ function EndpointsAndCredentials({
       )}
       {/* Hide logto endpoint field in third-party application's form. */}
       {tenantEndpoint && !isThirdParty && (
-        <FormField title="application_details.logto_endpoint">
+        <FormField title="application_details.aster_endpoint">
           <CopyToClipboard
             displayType="block"
             value={applyDomain(tenantEndpoint.href, selectedDomain)}

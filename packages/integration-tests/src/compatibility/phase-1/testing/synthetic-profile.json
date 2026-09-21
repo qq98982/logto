@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "profileSchema": {
+    "sourceCommit": "1111111111111111111111111111111111111111",
+    "sha256": "c8abf06e10801edad7ccbef2a4d70b544b20eab86945f27692c1d6a8ed61720f"
+  },
+  "phase1Harness": {
+    "commit": "2222222222222222222222222222222222222222"
+  },
+  "metadata": {
+    "label": "synthetic loader contract",
+    "nested": {
+      "enabled": true
+    }
+  },
+  "items": [
+    {
+      "id": "one",
+      "name": "First item"
+    }
+  ],
+  "transport": {
+    "kind": "http",
+    "url": "https://example.invalid/callback"
+  }
+}

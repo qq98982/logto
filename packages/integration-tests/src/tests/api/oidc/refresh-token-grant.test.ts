@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 
+import { ReservedResource, UserScope, buildOrganizationUrn } from '@logto/core-kit';
 import { decodeAccessToken, decodeIdToken } from '@logto/js';
 import { type LogtoConfig, Prompt, PersistKey } from '@logto/node';
 import { GrantType, InteractionEvent, demoAppApplicationId } from '@logto/schemas';
@@ -97,8 +98,8 @@ describe('`refresh_token` grant (for organization tokens)', () => {
     const client = new MockOrganizationClient({
       appId: demoAppApplicationId,
       prompt: Prompt.Consent,
-      scopes: ['urn:logto:scope:organizations'],
-      resources: ['urn:logto:resource:organizations'],
+      scopes: [UserScope.Organizations],
+      resources: [ReservedResource.Organization],
       ...configOverrides,
     });
     await client.initSession(demoAppRedirectUri);
@@ -151,7 +152,7 @@ describe('`refresh_token` grant (for organization tokens)', () => {
     const accessToken = decodeAccessToken(String(response.access_token));
 
     expect(accessToken.jti).toEqual(expect.any(String));
-    expect(accessToken.aud).toBe(`urn:logto:organization:${organizationId}`);
+    expect(accessToken.aud).toBe(buildOrganizationUrn(organizationId));
     expect(accessToken.sub).toBe(userId);
     expect(accessToken.client_id).toBe(demoAppApplicationId);
     expect(accessToken.iss).toBe(issuer);
@@ -281,7 +282,7 @@ describe('`refresh_token` grant (for organization tokens)', () => {
       const { orgs } = await initOrganizations();
 
       const client = await initClient({
-        scopes: ['urn:logto:scope:organizations', 'scope1', 'scope2'],
+        scopes: [UserScope.Organizations, 'scope1', 'scope2'],
         resources: [],
       });
       expectGrantResponse(await client.fetchOrganizationToken(orgs[0].id), {
@@ -337,7 +338,7 @@ describe('`refresh_token` grant (for organization tokens)', () => {
     it("should issue organization token according to user's role in the organization", async () => {
       const { orgs } = context;
       const client = await initClient({
-        scopes: ['urn:logto:scope:organizations', 'scope1', 'scope2', 'scope3'],
+        scopes: [UserScope.Organizations, 'scope1', 'scope2', 'scope3'],
       });
       expectGrantResponse(await client.fetchOrganizationToken(orgs[0].id), {
         organizationId: orgs[0].id,
@@ -356,7 +357,7 @@ describe('`refresh_token` grant (for organization tokens)', () => {
     it('should down-scope according to the refresh token and token request', async () => {
       const { orgs } = context;
       const client = await initClient({
-        scopes: ['urn:logto:scope:organizations', 'scope1', 'scope2'],
+        scopes: [UserScope.Organizations, 'scope1', 'scope2'],
       });
       expectGrantResponse(await client.fetchOrganizationToken(orgs[0].id), {
         organizationId: orgs[0].id,
@@ -380,7 +381,7 @@ describe('`refresh_token` grant (for organization tokens)', () => {
     it('should be able to dynamically update scopes', async () => {
       const { orgs, roles } = context;
       const client = await initClient({
-        scopes: ['urn:logto:scope:organizations', 'scope1', 'scope2', 'scope3'],
+        scopes: [UserScope.Organizations, 'scope1', 'scope2', 'scope3'],
       });
 
       expectGrantResponse(await client.fetchOrganizationToken(orgs[0].id), {

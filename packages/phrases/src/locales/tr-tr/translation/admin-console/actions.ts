@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Logto davranışını genişletmek için kimlik doğrulama akışının belirli noktalarında özel kod çalıştırın.',
+    'Aster davranışını genişletmek için kimlik doğrulama akışının belirli noktalarında özel kod çalıştırın.',
   status: {
     not_configured: 'Yapılandırılmadı',
     configured: 'Yapılandırıldı',
@@ -29,7 +29,7 @@ const actions = {
   },
   result_data: {
     title: 'Eylem sonucu',
-    subtitle: 'Bu eylem türü için Logto’nun anlayacağı bir sonuç nesnesi döndürün.',
+    subtitle: "Bu eylem türü için Aster'in anlayacağı bir sonuç nesnesi döndürün.",
   },
   environment_variables: {
     title: 'Ortam değişkenlerini ayarla',
@@ -54,11 +54,11 @@ const actions = {
     on_execution_error: {
       title: 'Betik hatasında',
       description:
-        'Betik çalışma zamanında başarısız olduğunda Logto’nun nasıl davranacağını seçin.',
+        "Betik çalışma zamanında başarısız olduğunda Aster'in nasıl davranacağını seçin.",
       block: 'Kimlik doğrulama akışını engelle',
       allow: 'Kimlik doğrulama akışının devam etmesine izin ver',
       post_first_factor_description:
-        'Bu betik başarısız olduğunda Logto her zaman geçersiz kimlik bilgilerini reddeder; böylece parola doğrulaması atlanamaz.',
+        'Bu betik başarısız olduğunda Aster her zaman geçersiz kimlik bilgilerini reddeder; böylece parola doğrulaması atlanamaz.',
     },
   },
   test_context: {

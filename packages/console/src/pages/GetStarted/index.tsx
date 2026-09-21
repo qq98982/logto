@@ -1,6 +1,5 @@
 import { ApplicationType, Theme, type Application, type Resource } from '@logto/schemas';
 import classNames from 'classnames';
-import dayjs from 'dayjs';
 import { useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -8,7 +7,6 @@ import CheckPreviewDark from '@/assets/icons/check-demo-dark.svg?react';
 import CheckPreview from '@/assets/icons/check-demo.svg?react';
 import CreateRoleDark from '@/assets/icons/create-role-dark.svg?react';
 import CreateRole from '@/assets/icons/create-role.svg?react';
-import ExternalLinkIcon from '@/assets/icons/external-link.svg?react';
 import SocialDark from '@/assets/icons/social-dark.svg?react';
 import Social from '@/assets/icons/social.svg?react';
 import ApplicationCreation from '@/components/ApplicationCreation';
@@ -16,27 +14,19 @@ import { type SelectedGuide } from '@/components/Guide/GuideCard';
 import GuideCardGroup from '@/components/Guide/GuideCardGroup';
 import { useApiGuideMetadata, useAppGuideMetadata } from '@/components/Guide/hooks';
 import PageMeta from '@/components/PageMeta';
-import { ConnectorsTabs, convertToProductionThresholdDays } from '@/consts';
-import { isCloud } from '@/consts/env';
+import { ConnectorsTabs } from '@/consts';
 import { AppDataContext } from '@/contexts/AppDataProvider';
-import { TenantsContext } from '@/contexts/TenantsProvider';
 import { LinkButton } from '@/ds-components/Button';
 import Card from '@/ds-components/Card';
 import Spacer from '@/ds-components/Spacer';
-import Tag from '@/ds-components/Tag';
 import TextLink from '@/ds-components/TextLink';
-import { isDevOnlyRegion } from '@/hooks/use-available-regions';
-import useDocumentationUrl from '@/hooks/use-documentation-url';
 import useTenantPathname from '@/hooks/use-tenant-pathname';
 import useTheme from '@/hooks/use-theme';
-import useUserPreferences from '@/hooks/use-user-preferences';
 import useWindowResize from '@/hooks/use-window-resize';
 
 import CreateApiForm from '../ApiResources/components/CreateForm';
 import ProtectedAppModal from '../Applications/components/ProtectedAppModal';
 
-import ConvertToProductionCard from './ConvertToProductionCard';
-import OssCloudUpsell from './OssCloudUpsell';
 import styles from './index.module.scss';
 
 const icons = {
@@ -47,9 +37,7 @@ const icons = {
 function GetStarted() {
   const { t } = useTranslation(undefined, { keyPrefix: 'admin_console' });
   const { navigate } = useTenantPathname();
-  const { getDocumentationUrl } = useDocumentationUrl();
   const { tenantEndpoint } = useContext(AppDataContext);
-  const { currentTenant, isDevTenant } = useContext(TenantsContext);
   const [selectedGuide, setSelectedGuide] = useState<SelectedGuide>();
   const { getStructuredAppGuideMetadata } = useAppGuideMetadata();
   const apiGuideMetadata = useApiGuideMetadata();
@@ -60,12 +48,6 @@ function GetStarted() {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useTheme();
   const { PreviewIcon, SocialIcon, RbacIcon } = icons[theme];
-  const {
-    data: userPreferences,
-    isLoaded: isUserPreferencesLoaded,
-    update: updateUserPreferences,
-  } = useUserPreferences();
-
   useWindowResize(() => {
     const containerWidth = containerRef.current?.clientWidth ?? 0;
 
@@ -116,34 +98,6 @@ function GetStarted() {
     [navigate, selectedGuide]
   );
 
-  const shouldShowConvertToProductionCard = useMemo(() => {
-    if (!isCloud || !isDevTenant || !currentTenant || isDevOnlyRegion(currentTenant.regionName)) {
-      return false;
-    }
-
-    const daysSinceCreation = dayjs().diff(dayjs(currentTenant.createdAt), 'day');
-
-    return daysSinceCreation >= convertToProductionThresholdDays;
-  }, [isDevTenant, currentTenant]);
-
-  const shouldShowOssCloudUpsell = !isCloud;
-  const shouldShowOssCloudBanner =
-    shouldShowOssCloudUpsell &&
-    isUserPreferencesLoaded &&
-    !userPreferences.ossGetStartedCloudUpsellDismissed;
-
-  const persistOssCloudBannerDismissal = useCallback(async () => {
-    try {
-      await updateUserPreferences({ ossGetStartedCloudUpsellDismissed: true });
-    } catch (error: unknown) {
-      void error;
-    }
-  }, [updateUserPreferences]);
-
-  const onDismissOssCloudBanner = useCallback(() => {
-    void persistOssCloudBannerDismissal();
-  }, [persistOssCloudBannerDismissal]);
-
   return (
     <div className={styles.container}>
       <PageMeta titleKey="get_started.page_title" />
@@ -151,17 +105,8 @@ function GetStarted() {
         <div className={styles.title}>{t('get_started.title')}</div>
         <div className={styles.subtitle}>{t('get_started.subtitle')}</div>
       </div>
-      {shouldShowConvertToProductionCard && <ConvertToProductionCard />}
-      {shouldShowOssCloudUpsell && (
-        <OssCloudUpsell
-          isBannerVisible={shouldShowOssCloudBanner}
-          onDismissBanner={onDismissOssCloudBanner}
-        />
-      )}
       <Card className={styles.card}>
-        <div className={styles.title}>
-          {t(`get_started.develop.title${isCloud ? '_cloud' : ''}`)}
-        </div>
+        <div className={styles.title}>{t('get_started.develop.title')}</div>
         <GuideCardGroup
           ref={containerRef}
           hasCardBorder
@@ -188,19 +133,6 @@ function GetStarted() {
         )}
         <div className={styles.developActions}>
           <TextLink to="/applications/create">{t('get_started.view_all')}</TextLink>
-          {isCloud && (
-            <Tag variant="plain" className={styles.mcpTag}>
-              <TextLink
-                isTrailingIcon
-                className={styles.mcpLink}
-                href={getDocumentationUrl('/logto-cloud/logto-mcp-server')}
-                icon={<ExternalLinkIcon className={styles.mcpLinkIcon} />}
-                targetBlank="noopener"
-              >
-                {t('get_started.develop.try_mcp')}
-              </TextLink>
-            </Tag>
-          )}
         </div>
       </Card>
       <Card className={styles.card}>

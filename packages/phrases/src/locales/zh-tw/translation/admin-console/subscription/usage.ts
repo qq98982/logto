@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'MAU 是指在計費週期內至少與 Logto 交換過一次令牌的獨立用戶。專業版計劃不受限制。<a>了解更多</a>',
+      'MAU 是指在計費週期內至少與 Aster 交換過一次令牌的獨立用戶。專業版計劃不受限制。<a>了解更多</a>',
     tooltip_for_enterprise:
-      'MAU 是在計費週期內至少與 Logto 交換過一次令牌的唯一用戶。企業計劃無限制。',
+      'MAU 是在計費週期內至少與 Aster 交換過一次令牌的唯一用戶。企業計劃無限制。',
   },
   organizations: {
     title: '組織',

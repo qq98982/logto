@@ -1,0 +1,484 @@
+/* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function, max-lines -- Narrow inert adapters and local event arrays isolate browser evidence composition from live infrastructure. */
+import type { TargetConfig } from '../../model.js';
+import type { JsonObject } from '../../normalize.js';
+import {
+  authorizePhase1RunForTesting,
+  type Phase1RunAuthorization,
+  type Phase1RunMode,
+} from '../cli.js';
+import { createProvisionedPhase1Fixture } from '../fixtures.js';
+import { projectNativeSurfaceArtifact } from '../native-surface-artifact.js';
+import type { Phase1Profile } from '../profile-types.js';
+import {
+  createPhase1EvidenceRuntimeContext,
+  createPhase1EvidenceRuntimeContextForTesting,
+  type Phase1EvidenceRuntimeContext,
+  type Phase1RuntimeIsolationAttestations,
+} from '../snapshots/runtime-context.js';
+
+import type { Phase1BrowserFixtureProvisioner } from './activity-reader.js';
+import type {
+  phase1BrowserFlowIds,
+  Phase1BrowserGroupObserver,
+  Phase1BrowserRunEvidence,
+} from './contracts.js';
+import {
+  runPhase1BrowserRuntimeForTesting,
+  type Phase1BrowserRuntimeDependencies,
+} from './runtime.js';
+
+const harnessCommit = '1'.repeat(40);
+const digest = `sha256:${'2'.repeat(64)}`;
+const environment = Object.freeze({
+  ASTER_PHASE1_ORACLE_URL: 'http://localhost:3311',
+  ASTER_PHASE1_ORACLE_ADMIN_URL: 'http://localhost:3411',
+  ASTER_PHASE1_ORACLE_FOREIGN_URL: 'http://localhost:3312',
+  ASTER_PHASE1_ORACLE_FOREIGN_ADMIN_URL: 'http://localhost:3412',
+  ASTER_PHASE1_CANDIDATE_URL: 'http://localhost:3321',
+  ASTER_PHASE1_CANDIDATE_ADMIN_URL: 'http://localhost:3421',
+  ASTER_PHASE1_CANDIDATE_FOREIGN_URL: 'http://localhost:3322',
+  ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL: 'http://localhost:3422',
+});
+const commandEnvironment = Object.freeze({
+  PATH: '/approved/bin',
+  ASTER_FIXTURE_SOCKET: '/private/fixture.sock',
+  ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL: 'must-not-pass',
+});
+
+const attestation = (prefix: string, primaryDatabase: string) => ({
+  data: {
+    persistenceId: primaryDatabase,
+    cookieKeyId: `${prefix}-data-cookie`,
+    signingKeyId: `${prefix}-data-signing`,
+  },
+  admin: {
+    persistenceId: primaryDatabase,
+    cookieKeyId: `${prefix}-admin-cookie`,
+    signingKeyId: `${prefix}-admin-signing`,
+  },
+  foreign: {
+    persistenceId: `${prefix}-foreign-database`,
+    cookieKeyId: `${prefix}-foreign-cookie`,
+    signingKeyId: `${prefix}-foreign-signing`,
+  },
+});
+
+const isolationAttestations: Phase1RuntimeIsolationAttestations = {
+  oracle: attestation('oracle', 'oracle-primary-database'),
+  candidate: attestation('candidate', 'candidate-primary-database'),
+};
+
+const authorization = (mode: Phase1RunMode): Phase1RunAuthorization => {
+  const provenance = Object.freeze(
+    mode === 'review-candidate'
+      ? { kind: 'review-candidate' as const, harnessCommit, publishable: false as const }
+      : {
+          kind: 'accepted-harness' as const,
+          harnessCommit,
+          protectedBranch: 'phase1-acceptance-lock',
+          pullRequestNumber: 17,
+          publishable: true as const,
+        }
+  );
+
+  return authorizePhase1RunForTesting(
+    Object.freeze({
+      mode,
+      profile: Object.freeze({
+        phase1Harness: Object.freeze({ commit: harnessCommit }),
+      }) as Phase1Profile,
+      profileSha256: '3'.repeat(64),
+      schemaSha256: '4'.repeat(64),
+      provenance,
+      protectedExecution:
+        mode === 'review-candidate' ? undefined : Object.freeze({ mode, provenance }),
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+    }) as unknown as Phase1RunAuthorization
+  );
+};
+
+const context = (mode: Phase1RunMode = 'mirror-control'): Phase1EvidenceRuntimeContext =>
+  (() => {
+    const input = {
+      authorization: authorization(mode),
+      oracleImageDigest: digest,
+      candidateImageDigest: mode === 'mirror-control' ? digest : `sha256:${'5'.repeat(64)}`,
+      evidenceDirectory: '/var/tmp/henry-build/phase1/evidence',
+      oracleSnapshotPath: '/var/tmp/henry-build/phase1/oracle-snapshots.json',
+      repositoryRoot: '/home/henry/repo/logto',
+      conformanceRoot: '/var/tmp/henry-build/phase1/conformance',
+      isolationAttestations,
+    };
+
+    return mode === 'review-candidate'
+      ? createPhase1EvidenceRuntimeContext(input, environment)
+      : createPhase1EvidenceRuntimeContextForTesting(input, environment, {
+          assertRunAuthorization: (value): asserts value is Phase1RunAuthorization => {
+            expect(value).toBe(input.authorization);
+          },
+          authorizeProtectedExecution: (acceptedMode, provenance) =>
+            Object.freeze({ mode: acceptedMode, provenance }),
+        });
+  })();
+
+const provisioner = (): Phase1BrowserFixtureProvisioner => ({
+  provision: async () => {
+    throw new Error('not used by the injected browser runner');
+  },
+  projectState: async () => {
+    throw new Error('not used by the injected browser runner');
+  },
+  readUserActivityState: async () => {
+    throw new Error('not used by the injected browser runner');
+  },
+  cleanup: async () => {},
+});
+
+const observation = (
+  id: (typeof phase1BrowserFlowIds)[number],
+  implementation: 'oracle' | 'candidate' = 'oracle'
+): JsonObject => ({
+  flow: id,
+  accepted: true,
+  nested: {
+    stable: true,
+    managementExchange: {
+      resource:
+        implementation === 'candidate'
+          ? 'urn:aster:resource:management'
+          : 'https://default.logto.app/api',
+      responseScope:
+        implementation === 'candidate'
+          ? 'urn:aster:scope:organizations profile'
+          : 'urn:logto:scope:organizations profile',
+    },
+    consent: {
+      resource: {
+        indicator: 'https://api.example.com',
+        permissions: [{ id: 'scope-id', name: 'read:profile' }],
+      },
+    },
+    missingResourceScopes: [
+      {
+        resource: {
+          indicator: 'https://api.example.com',
+          scopes: [{ id: 'scope-id', name: 'read:profile' }],
+        },
+        scopes: [{ id: 'scope-id', name: 'read:profile' }],
+      },
+    ],
+  },
+});
+
+const runEvidence = (
+  mutateApplicationFlow = false,
+  implementation: 'oracle' | 'candidate' = 'oracle'
+): Phase1BrowserRunEvidence => ({
+  groups: [
+    {
+      id: 'experience',
+      flows: [
+        {
+          id: 'experience.password-pkce-consent',
+          executionGroup: 'experience',
+          sourceEvidence: [],
+          observation: observation('experience.password-pkce-consent', implementation),
+        },
+      ],
+    },
+    {
+      id: 'console',
+      flows: [
+        {
+          id: 'console.clean-authentication',
+          executionGroup: 'console',
+          sourceEvidence: [],
+          observation: observation('console.clean-authentication', implementation),
+        },
+        {
+          id: 'console.application-read',
+          executionGroup: 'console',
+          sourceEvidence: [],
+          observation: mutateApplicationFlow
+            ? { ...observation('console.application-read', implementation), accepted: false }
+            : observation('console.application-read', implementation),
+        },
+        {
+          id: 'console.user-read',
+          executionGroup: 'console',
+          sourceEvidence: [],
+          observation: observation('console.user-read', implementation),
+        },
+      ],
+    },
+  ],
+});
+
+const dependencies = (
+  mutateCandidate = false,
+  runtimeCandidate = false,
+  failCandidateBootstrapCleanup = false
+) => {
+  type ReferenceProvisionerInput = Parameters<
+    Phase1BrowserRuntimeDependencies['createReferenceProvisioner']
+  >[0];
+  type CommandProvisionerInput = Parameters<
+    Phase1BrowserRuntimeDependencies['createCommandProvisioner']
+  >[0];
+  const targetOrder: Array<TargetConfig['label']> = [];
+  const profileImplementations: string[] = [];
+  const artifactImplementations: string[] = [];
+  const provisionerInputs: ReferenceProvisionerInput[] = [];
+  const commandProvisionerInputs: CommandProvisionerInput[] = [];
+  const runtimeOrder: string[] = [];
+  const adapter = provisioner();
+  const commandAdapter: Phase1BrowserFixtureProvisioner = {
+    provision: async (recipe) => {
+      runtimeOrder.push(`candidate-bootstrap:provision:${recipe}`);
+      if (recipe !== 'none') {
+        throw new Error('unexpected injected candidate recipe');
+      }
+      return createProvisionedPhase1Fixture({
+        public: { schemaVersion: 1, recipe: 'none', allocations: [] },
+        passwords: [],
+        clientSecrets: [],
+      });
+    },
+    projectState: async () => {
+      throw new Error('not used by the injected browser runner');
+    },
+    readUserActivityState: async () => {
+      throw new Error('not used by the injected browser runner');
+    },
+    cleanup: async (fixture) => {
+      runtimeOrder.push(`candidate-bootstrap:cleanup:${fixture.public.recipe}`);
+      if (failCandidateBootstrapCleanup) {
+        throw new Error('injected candidate bootstrap cleanup failure');
+      }
+    },
+  };
+  const observer: Phase1BrowserGroupObserver = {
+    runInFreshContext: async () => {
+      throw new Error('not used by the injected browser runner');
+    },
+  };
+  const value: Phase1BrowserRuntimeDependencies = {
+    environment: commandEnvironment,
+    projectProfile: (profile, implementation) => {
+      profileImplementations.push(implementation);
+      return profile;
+    },
+    projectArtifact: (artifact, implementation) => {
+      artifactImplementations.push(implementation);
+      return projectNativeSurfaceArtifact(artifact, implementation);
+    },
+    createObserver: () => observer,
+    createCommandProvisioner: (input) => {
+      commandProvisionerInputs.push(input);
+      return commandAdapter;
+    },
+    createReferenceProvisioner: (input) => {
+      provisionerInputs.push(input);
+      return adapter;
+    },
+    runBrowserFlows: async (input) => {
+      targetOrder.push(input.target.label);
+      runtimeOrder.push(`browser:${input.target.label}`);
+      return runEvidence(
+        mutateCandidate && input.target.label === 'candidate',
+        runtimeCandidate && input.target.label === 'candidate' ? 'candidate' : 'oracle'
+      );
+    },
+  };
+
+  return {
+    value,
+    targetOrder,
+    profileImplementations,
+    artifactImplementations,
+    provisionerInputs,
+    commandProvisionerInputs,
+    runtimeOrder,
+  };
+};
+
+describe('Phase 1 browser production runtime', () => {
+  it('runs oracle then candidate and emits exact sorted zero-difference mirror evidence', async () => {
+    const runtimeContext = context();
+    const harness = dependencies();
+    const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
+
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(result.provenance).toMatchObject({
+      imageDigest: runtimeContext.oracleImageDigest,
+      candidateImageDigest: runtimeContext.candidateImageDigest,
+    });
+    expect(harness.profileImplementations).toEqual(['oracle', 'oracle']);
+    expect(harness.artifactImplementations).toEqual(Array.from({ length: 8 }, () => 'oracle'));
+    expect(harness.provisionerInputs).toHaveLength(2);
+    expect(harness.commandProvisionerInputs).toHaveLength(0);
+    expect(harness.provisionerInputs[0]).toMatchObject({
+      target: runtimeContext.targets.oracle.primary,
+      foreignTarget: runtimeContext.targets.oracle.foreign,
+      isolation: runtimeContext.isolationAttestations.oracle,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
+    });
+    expect(harness.provisionerInputs[1]).toMatchObject({
+      target: runtimeContext.targets.candidate.primary,
+      foreignTarget: runtimeContext.targets.candidate.foreign,
+      isolation: runtimeContext.isolationAttestations.candidate,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
+    });
+    expect(Object.keys(result)).toEqual([
+      'schemaVersion',
+      'mode',
+      'provenance',
+      'sanitizerSuccess',
+      'flows',
+    ]);
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      mode: 'mirror-control',
+      provenance: {
+        harnessCommit,
+        profileSha256: '3'.repeat(64),
+        schemaSha256: '4'.repeat(64),
+        imageDigest: digest,
+        candidateImageDigest: digest,
+      },
+      sanitizerSuccess: true,
+    });
+    expect(result.flows.map(({ id }) => id)).toEqual([
+      'console.application-read',
+      'console.clean-authentication',
+      'console.user-read',
+      'experience.password-pkce-consent',
+    ]);
+    expect(result.flows.every(({ differences }) => differences.length === 0)).toBe(true);
+    expect(result.flows[0]?.oracle.label).toBe('oracle-browser');
+    expect(result.flows[0]?.candidate.label).toBe('candidate-browser');
+    expect(result.flows[0]?.oracle.projectionSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(result.flows[0]?.oracle.projectionSha256).toBe(
+      result.flows[0]?.candidate.projectionSha256
+    );
+    expect(JSON.stringify(result)).toContain('urn:aster:resource:management');
+    expect(JSON.stringify(result)).toContain('urn:aster:scope:organizations');
+    expect(JSON.stringify(result)).not.toContain('https://default.logto.app/api');
+    expect(JSON.stringify(result)).not.toContain('urn:logto:scope:organizations');
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.flows[0]?.oracle.value)).toBe(true);
+  });
+
+  it('uses the command fixture adapter and candidate namespace for runtime-candidate', async () => {
+    const runtimeContext = context('runtime-candidate');
+    const harness = dependencies(false, true);
+    const result = await runPhase1BrowserRuntimeForTesting(runtimeContext, harness.value);
+
+    expect(result.provenance).toMatchObject({
+      imageDigest: runtimeContext.oracleImageDigest,
+      candidateImageDigest: runtimeContext.candidateImageDigest,
+    });
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.profileImplementations).toEqual(['oracle', 'candidate']);
+    expect(harness.artifactImplementations).toEqual(
+      Array.from({ length: 4 }, () => ['oracle', 'candidate']).flat()
+    );
+    expect(harness.provisionerInputs).toHaveLength(1);
+    expect(harness.provisionerInputs[0]).toMatchObject({
+      target: runtimeContext.targets.oracle.primary,
+      foreignTarget: runtimeContext.targets.oracle.foreign,
+      isolation: runtimeContext.isolationAttestations.oracle,
+      applicationRedirectUriMode: 'target',
+      signInExperienceBrandingMode: 'clear',
+    });
+    expect(harness.commandProvisionerInputs).toHaveLength(1);
+    expect(harness.runtimeOrder).toEqual([
+      'browser:oracle',
+      'candidate-bootstrap:provision:none',
+      'candidate-bootstrap:cleanup:none',
+      'browser:candidate',
+    ]);
+    expect(harness.commandProvisionerInputs[0]).toMatchObject({
+      profile: runtimeContext.authorization.profile,
+      target: runtimeContext.targets.candidate.primary,
+      foreignTarget: runtimeContext.targets.candidate.foreign,
+      environment: {
+        PATH: '/approved/bin',
+        ASTER_FIXTURE_SOCKET: '/private/fixture.sock',
+      },
+    });
+    expect(
+      harness.commandProvisionerInputs[0]?.environment?.ASTER_FIXTURE_PRIMARY_OWNER_DATABASE_URL
+    ).toBeUndefined();
+    expect(result.mode).toBe('runtime-candidate');
+    expect(result.flows.every(({ differences }) => differences.length === 0)).toBe(true);
+    expect(JSON.stringify(result)).toContain('urn:aster:resource:management');
+    expect(JSON.stringify(result)).not.toContain('https://default.logto.app/api');
+  });
+
+  it('does not start the runtime candidate browser when bootstrap cleanup fails', async () => {
+    const harness = dependencies(false, true, true);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.runtimeOrder).toEqual([
+      'browser:oracle',
+      'candidate-bootstrap:provision:none',
+      'candidate-bootstrap:cleanup:none',
+    ]);
+  });
+
+  it('rejects a runtime-candidate browser observation difference', async () => {
+    const harness = dependencies(true, true);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.provisionerInputs).toHaveLength(1);
+    expect(harness.commandProvisionerInputs).toHaveLength(1);
+  });
+
+  it('rejects reference-namespace evidence from the runtime candidate', async () => {
+    const harness = dependencies(false, false);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), harness.value)
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+    expect(harness.artifactImplementations).toEqual(['oracle', 'candidate']);
+  });
+
+  it('rejects runtime-candidate before adapter construction without an absolute fixture socket', async () => {
+    const harness = dependencies(false, true);
+
+    await expect(
+      runPhase1BrowserRuntimeForTesting(context('runtime-candidate'), {
+        ...harness.value,
+        environment: { PATH: '/approved/bin' },
+      })
+    ).rejects.toThrow(/^Invalid Phase 1 browser runtime$/u);
+    expect(harness.targetOrder).toEqual([]);
+    expect(harness.provisionerInputs).toEqual([]);
+    expect(harness.commandProvisionerInputs).toEqual([]);
+  });
+
+  it('rejects a candidate browser observation difference instead of publishing false parity', async () => {
+    const harness = dependencies(true);
+
+    await expect(runPhase1BrowserRuntimeForTesting(context(), harness.value)).rejects.toThrow(
+      /^Invalid Phase 1 browser runtime$/u
+    );
+    expect(harness.targetOrder).toEqual(['oracle', 'candidate']);
+  });
+});
+
+/* eslint-enable @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function, max-lines */

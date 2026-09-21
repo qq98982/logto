@@ -13,9 +13,9 @@ type Props = {
 
 type AppData = {
   /**
-   * The Logto endpoint for the current tenant.
+   * The Aster endpoint for the current tenant.
    *
-   * Always use this value as the base URL when referring to the Logto URL of the current user's tenant.
+   * Always use this value as the base URL for the current Aster tenant.
    */
   tenantEndpoint?: URL;
 };

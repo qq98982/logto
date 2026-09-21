@@ -50,9 +50,12 @@
   align-items: center;
   gap: _.unit(3);
 
-  .icon {
-    width: 30px;
-    height: 36px;
+  .brand {
+    color: var(--color-text);
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 24px;
+    letter-spacing: 0;
   }
 
   .title {
@@ -177,39 +180,12 @@
 }
 
 .footer {
-  display: flex;
-  align-items: center;
   font: var(--font-label-2);
-  font-weight: normal;
+  font-weight: 600;
   color: var(--color-neutral-variant-60);
   padding: _.unit(1) _.unit(2);
-  text-decoration: none;
   opacity: 75%;
-
-  span {
-    margin-inline-end: _.unit(1);
-  }
-
-  .staticLogo {
-    display: block;
-  }
-
-  .highlightLogo {
-    display: none;
-  }
-
-  &:hover,
-  &:active {
-    opacity: 100%;
-
-    .staticLogo {
-      display: none;
-    }
-
-    .highlightLogo {
-      display: block;
-    }
-  }
+  letter-spacing: 0;
 }
 
 .successCard {

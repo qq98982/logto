@@ -1,0 +1,94 @@
+name: Aster Phase 1 compatibility
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  phase1-pr:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact pull-request head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pnpm 10.15.1
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.15.1
+      - name: Install Node 22.23.2
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.2
+      - name: Run untrusted Phase 1 checks in a closed environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          node_source="$(realpath -e -- "$(command -v node)")"
+          [[ -f "$node_source" && ! -L "$node_source" && -x "$node_source" ]]
+          [[ "$("$node_source" --version)" == 'v22.23.2' ]]
+          stat -c 'Setup Node: %u:%g %a %F %n' -- "$node_source"
+          if [[ "$node_source" != /usr/bin/node ]]; then
+            sudo install -o root -g root -m 0755 -- "$node_source" /usr/bin/node
+          fi
+          [[ -f /usr/bin/node && ! -L /usr/bin/node ]]
+          [[ "$(realpath -e -- /usr/bin/node)" == /usr/bin/node ]]
+          [[ "$(stat -c '%u:%g:%a:%F' -- /usr/bin/node)" == '0:0:755:regular file' ]]
+          [[ "$(/usr/bin/node --version)" == 'v22.23.2' ]]
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends socat
+          [[ -x /usr/bin/socat ]]
+          runtime_uid="$(id -u)"
+          runtime_gid="$(id -g)"
+          runtime_root="/run/user/$runtime_uid"
+          [[ ! -L "$runtime_root" ]]
+          sudo install -d -o "$runtime_uid" -g "$runtime_gid" -m 0700 -- "$runtime_root"
+          [[ "$(realpath -e -- "$runtime_root")" == "$runtime_root" ]]
+          [[ "$(stat -c '%u:%g:%a:%F' -- "$runtime_root")" == "$runtime_uid:$runtime_gid:700:directory" ]]
+          stat -L -c 'Phase 1 prerequisite: %u:%g %a %F %n' -- \
+            /usr/bin/node /usr/bin/git /usr/bin/flock /usr/bin/setsid /usr/bin/timeout \
+            /usr/bin/env /usr/bin/ps /usr/bin/awk /usr/bin/sha256sum /usr/bin/ss \
+            /usr/bin/socat "$runtime_root"
+          repository_root="$PWD"
+          private_root="$RUNNER_TEMP/aster-phase1-pr"
+          playwright_root="$RUNNER_TEMP/aster-playwright"
+          pnpm_store="$RUNNER_TEMP/aster-phase1-pr-pnpm-store"
+          install -d -m 0700 \
+            "$private_root" "$private_root/home" "$private_root/tmp" \
+            "$private_root/xdg" "$playwright_root" "$pnpm_store"
+          closed_path="/usr/bin:$(dirname -- "$(command -v pnpm)"):/bin"
+          closed_script="$private_root/run.sh"
+          cat >"$closed_script" <<'ASTER_PHASE1_PR'
+          set -euo pipefail
+          cd "$REPOSITORY_ROOT"
+          pnpm install --frozen-lockfile --ignore-scripts --store-dir "$PNPM_STORE"
+          (cd packages/connectors && node templates/sync-preset.js)
+          pnpm prepack
+          pnpm --filter @logto/integration-tests build
+          pnpm --filter @logto/integration-tests check
+          pnpm --filter @logto/integration-tests lint
+          PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" \
+            pnpm --dir packages/integration-tests exec playwright install --with-deps chromium
+          pnpm --filter @logto/integration-tests test:compatibility
+          pnpm --filter @logto/integration-tests test:compatibility:phase1
+          ASTER_PHASE1_PR
+          chmod 0700 "$closed_script"
+          env -i \
+            PATH="$closed_path" \
+            HOME="$private_root/home" \
+            TMPDIR="$private_root/tmp" \
+            XDG_RUNTIME_DIR="$private_root/xdg" \
+            CI=true \
+            LANG=C.UTF-8 \
+            REPOSITORY_ROOT="$repository_root" \
+            PNPM_STORE="$pnpm_store" \
+            PLAYWRIGHT_BROWSERS_PATH="$playwright_root" \
+            /bin/bash "$closed_script"

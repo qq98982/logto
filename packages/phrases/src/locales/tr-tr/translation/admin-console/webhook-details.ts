@@ -19,14 +19,14 @@ const webhook_details = {
   settings: {
     settings: 'Ayarlar',
     settings_description:
-      'Webhooklar, belirli olaylarla ilgili gerçek zamanlı güncellemeleri almanızı sağlar, sağladıkları POST isteği Logto’daki uç nokta URL’nize göndererek. Bu, yeni alınan bilgilere dayalı hemen harekete geçmenizi sağlar.',
+      "Webhooklar, belirli olaylarla ilgili gerçek zamanlı güncellemeleri almanızı sağlar, sağladıkları POST isteği Aster'deki uç nokta URL’nize göndererek. Bu, yeni alınan bilgilere dayalı hemen harekete geçmenizi sağlar.",
     events: 'Olaylar',
-    events_description: 'Logto’nun POST isteğini göndereceği tetikleyici olayları seçin.',
+    events_description: "Aster'in POST isteğini göndereceği tetikleyici olayları seçin.",
     name: 'İsim',
     endpoint_url: 'Uç nokta URL’si',
     signing_key: 'İmza anahtarı',
     signing_key_tip:
-      'Webhook’un yükü için kimliğinin doğruluğunu sağlamak için Logto tarafından sağlanan gizli anahtarın istek başlığı olarak uç noktanızda ekleyin.',
+      'Webhook’un yükü için kimliğinin doğruluğunu sağlamak için Aster tarafından sağlanan gizli anahtarın istek başlığı olarak uç noktanızda ekleyin.',
     regenerate: 'Yeniden oluştur',
     regenerate_key_title: 'İmza anahtarını yeniden oluştur',
     regenerate_key_reminder:

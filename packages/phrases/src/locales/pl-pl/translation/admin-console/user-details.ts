@@ -149,11 +149,11 @@ const user_details = {
   sessions: {
     title: 'Sesje',
     description:
-      'Zarządzaj sesjami utrzymywanymi przez serwer autoryzacji Logto. Odwołanie sesji Logto tutaj uniemożliwia automatyczną zgodę na przyszłe żądania autoryzacji.',
+      'Zarządzaj sesjami utrzymywanymi przez serwer autoryzacji Aster. Odwołanie sesji Aster tutaj uniemożliwia automatyczną zgodę na przyszłe żądania autoryzacji.',
     field_name: 'Sesje',
     multiple_signed_in: 'Ten użytkownik zalogował się na wielu urządzeniach lub w przeglądarkach.',
     not_found:
-      'Nie znaleziono aktywnych sesji Logto. Użytkownik nie jest obecnie zalogowany na żadnym urządzeniu.',
+      'Nie znaleziono aktywnych sesji Aster. Użytkownik nie jest obecnie zalogowany na żadnym urządzeniu.',
     name_column: 'Nazwa',
     session_id_column: 'Identyfikator sesji',
     location_column: 'Lokalizacja',
@@ -172,7 +172,7 @@ const user_details = {
   third_party_apps: {
     title: 'Aplikacje zewnętrzne',
     description:
-      'Użyj Logto jako dostawcy tożsamości, aby autoryzować aplikacje zewnętrzne. Przeglądaj i zarządzaj aplikacjami, którym ten użytkownik przyznał dostęp.',
+      'Użyj Aster jako dostawcy tożsamości, aby autoryzować aplikacje zewnętrzne. Przeglądaj i zarządzaj aplikacjami, którym ten użytkownik przyznał dostęp.',
     field_name: 'Autoryzowane aplikacje zewnętrzne',
     multiple_authorized: 'Ten użytkownik autoryzował wiele aplikacji i usług zewnętrznych.',
     not_authorized:

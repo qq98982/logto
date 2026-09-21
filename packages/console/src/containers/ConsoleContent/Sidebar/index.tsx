@@ -4,7 +4,6 @@ import { isDevFeaturesEnabled } from '@/consts/env';
 import OverlayScrollbar from '@/ds-components/OverlayScrollbar';
 import useMatchTenantPath from '@/hooks/use-tenant-pathname';
 
-import OssCloudCard from './OssCloudCard';
 import Item from './components/Item';
 import Section from './components/Section';
 import { useSidebarMenuItems } from './hook';
@@ -45,7 +44,6 @@ function Sidebar() {
             </Section>
           ))}
           {isDevFeaturesEnabled && <div aria-hidden className={styles.devStatusSpacer} />}
-          <OssCloudCard />
         </div>
       </OverlayScrollbar>
     </div>

@@ -10,7 +10,7 @@ import RedirectUrisWeb, { defaultBaseUrl } from '../../fragments/_redirect-uris-
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK"
+  subtitle="Install the upstream SDK"
 >
 
 <NpmLikeInstallation packageName="@logto/next" />
@@ -53,7 +53,7 @@ export const logtoClient = new LogtoClient({
 
 <Step title="Prepare API routes">
 
-Prepare [API routes](https://nextjs.org/docs/api-routes/introduction) to connect with Logto.
+Prepare [API routes](https://nextjs.org/docs/api-routes/introduction) to connect with Aster.
 
 Go back to your IDE/editor, use the following code to implement the API routes first:
 
@@ -65,10 +65,10 @@ export default logtoClient.handleAuthRoutes();
 
 This will create 4 routes automatically:
 
-1. `/api/logto/sign-in`: Sign in with Logto.
+1. `/api/logto/sign-in`: Sign in with Aster.
 2. `/api/logto/sign-in-callback`: Handle sign-in callback (redirect URI).
-3. `/api/logto/sign-out`: Sign out with Logto.
-4. `/api/logto/user`: Check if user is authenticated with Logto, if yes, return user info.
+3. `/api/logto/sign-out`: Sign out with Aster.
+4. `/api/logto/user`: Check if user is authenticated with Aster, if yes, return user info.
 
 </Step>
 

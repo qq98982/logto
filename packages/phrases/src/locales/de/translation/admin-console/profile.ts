@@ -17,7 +17,7 @@ const profile = {
       check_information:
         'Es tut uns leid zu hören, dass du dein Konto löschen möchtest. Bitte überprüfe die folgenden Informationen sorgfältig, bevor du fortfährst.',
       remove_all_data:
-        'Das Löschen deines Kontos wird alle Daten über dich in der Logto Cloud dauerhaft entfernen. Bitte stelle sicher, dass du alle wichtigen Daten sicherst, bevor du fortfährst.',
+        'Das Löschen deines Kontos wird alle Daten über dich in der Cloud dauerhaft entfernen. Bitte stelle sicher, dass du alle wichtigen Daten sicherst, bevor du fortfährst.',
       confirm_information:
         'Bitte bestätige, dass die oben stehenden Informationen deinen Erwartungen entsprechen. Sobald du dein Konto löschst, können wir es nicht wiederherstellen.',
       has_admin_role:
@@ -42,7 +42,7 @@ const profile = {
       'Entschuldigung, beim Löschen deines Kontos ist ein Fehler aufgetreten:',
     request_id: 'Anfrage-ID: {{requestId}}',
     try_again_later:
-      'Bitte versuche es später erneut. Wenn das Problem weiterhin besteht, kontaktiere bitte das Logto-Team mit der Anfrage-ID.',
+      'Bitte versuche es später erneut. Wenn das Problem weiterhin besteht, kontaktiere bitte das Aster-Team mit der Anfrage-ID.',
     final_confirmation: 'Endgültige Bestätigung',
     about_to_start_deletion:
       'Du bist dabei, den Löschvorgang zu starten und diese Aktion kann nicht rückgängig gemacht werden.',

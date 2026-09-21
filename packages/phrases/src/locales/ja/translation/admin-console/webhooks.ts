@@ -30,7 +30,7 @@ const webhooks = {
     subtitle:
       'Webhookを追加して、エンドポイントURLにPOSTリクエストを送信し、ユーザーイベントの詳細を送信します。',
     events: 'イベント',
-    events_description: 'LogtoがPOSTリクエストを送信するトリガーイベントを選択します。',
+    events_description: 'AsterがPOSTリクエストを送信するトリガーイベントを選択します。',
     name: '名前',
     name_placeholder: 'Webhook名を入力してください',
     endpoint_url: 'エンドポイントURL',

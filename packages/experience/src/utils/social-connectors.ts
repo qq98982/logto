@@ -5,7 +5,7 @@ import { getCookie } from 'tiny-cookie';
 
 import { SearchParameters } from '@/types';
 import { generateRandomString } from '@/utils';
-import { getLogtoNativeSdk, isNativeWebview } from '@/utils/native-sdk';
+import { getAsterNativeSdk, isNativeWebview } from '@/utils/native-sdk';
 
 /**
  * Social Connector State Utility Methods
@@ -95,7 +95,7 @@ export const buildSocialLandingUri = (path: string, redirectTo: string) => {
   const url = new URL(`${origin}${path}`);
   url.searchParams.set(SearchParameters.RedirectTo, redirectTo);
 
-  const callbackLink = getLogtoNativeSdk()?.callbackLink;
+  const callbackLink = getAsterNativeSdk()?.callbackLink;
 
   if (callbackLink) {
     url.searchParams.set(SearchParameters.NativeCallbackLink, callbackLink);
@@ -156,7 +156,7 @@ export const filterSocialConnectors = (socialConnectors?: ExperienceSocialConnec
    * Native platform has higher priority.
    **/
 
-  const { supportedConnector, getPostMessage, callbackLink } = getLogtoNativeSdk() ?? {};
+  const { supportedConnector, getPostMessage, callbackLink } = getAsterNativeSdk() ?? {};
 
   if (!getPostMessage) {
     // Invalid Native SDK bridge injections, not able to sign in with any social connectors.

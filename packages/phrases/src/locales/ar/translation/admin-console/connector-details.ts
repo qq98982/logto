@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+1 555-123-4567',
   test_message_sent: 'تم إرسال رسالة الاختبار',
   test_sender_description:
-    'يستخدم Logto القالب "العام" للفحص. ستتلقى رسالة إذا تم تكوين الموصل الخاص بك بشكل صحيح.',
+    'يستخدم Aster القالب "العام" للفحص. ستتلقى رسالة إذا تم تكوين الموصل الخاص بك بشكل صحيح.',
   options_change_email: 'تغيير موصل البريد الإلكتروني',
   options_change_sms: 'تغيير موصل الرسائل القصيرة',
   connector_deleted: 'تم حذف الموصل بنجاح',
@@ -34,43 +34,6 @@ const connector_details = {
     'هذا {{name}} قيد الاستخدام في تجربة تسجيل الدخول الخاصة بك. عن طريق الحذف ، لن تعمل تجربة تسجيل الدخول الخاصة بك بشكل صحيح حتى تحل الصراع. ستحتاج إلى إعادة تكوينه إذا قررت إضافته مرة أخرى.',
   deletion_description:
     'أنت تقوم بإزالة هذا الموصل. لا يمكن التراجع عنها ، وستحتاج إلى إعادة تكوينه إذا قررت إضافته مرة أخرى.',
-  logto_email: {
-    total_email_sent: 'إجمالي البريد الإلكتروني المرسل: {{value, number}}',
-    total_email_sent_tip:
-      'يستخدم Logto SendGrid للبريد الإلكتروني المدمج الآمن والمستقر. إنه مجاني تمامًا للاستخدام. <a>تعرف على المزيد</a>',
-    hosted_email_usage: {
-      daily: 'يومي <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: 'يومي <value>{{usage, number}}</value>',
-      monthly: 'شهري <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: 'شهري <value>{{usage, number}}</value>',
-      tip: 'تتضمن خطتا Free و Development حدودًا يومية وشهرية لخدمة البريد الإلكتروني المدمجة.',
-      banner: {
-        approaching:
-          'أنت تقترب من حد إرسال خدمة البريد الإلكتروني المدمجة من Logto. <provider>قم بتوصيل مزود البريد الإلكتروني الخاص بك</provider> أو <upgrade>قم بترقية خطتك</upgrade> لمواصلة استخدام خدمة البريد الإلكتروني المدمجة من Logto.',
-        reached:
-          'لقد وصلت إلى حد إرسال خدمة البريد الإلكتروني المدمجة من Logto، مما قد يعطل رسائل تسجيل الدخول. <provider>قم بتوصيل مزود البريد الإلكتروني الخاص بك</provider> أو <upgrade>قم بترقية خطتك</upgrade> لمواصلة استخدام خدمة البريد الإلكتروني المدمجة من Logto.',
-      },
-    },
-    email_template_title: 'قالب البريد الإلكتروني',
-    template_description:
-      'يستخدم البريد الإلكتروني المدمج قوالب افتراضية لتسليم سلس لرسائل التحقق. لا يلزم أي تكوين ، ويمكنك تخصيص معلومات العلامة التجارية الأساسية.',
-    template_description_link_text: 'عرض القوالب',
-    description_action_text: 'عرض القوالب',
-    from_email_field: 'عنوان البريد الإلكتروني المرسل',
-    sender_name_field: 'اسم المرسل',
-    sender_name_tip:
-      'قم بتخصيص اسم المرسل للرسائل الإلكترونية. إذا تركته فارغًا ، سيتم استخدام "التحقق" كاسم افتراضي.',
-    sender_name_placeholder: 'اسم المرسل الخاص بك',
-    company_information_field: 'معلومات الشركة',
-    company_information_description:
-      'عرض اسم الشركة أو العنوان أو الرمز البريدي في أسفل الرسائل الإلكترونية لتعزيز المصداقية.',
-    company_information_placeholder: 'معلومات الشركة الأساسية',
-    email_logo_field: 'شعار البريد الإلكتروني',
-    email_logo_tip:
-      'عرض شعار العلامة التجارية الخاصة بك في أعلى الرسائل الإلكترونية. استخدم نفس الصورة لكل من وضع الضوء الفاتح ووضع الضوء الداكن.',
-    urls_not_allowed: 'غير مسموح بالروابط',
-    test_notes: 'يستخدم Logto القالب "العام" للفحص.',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description:

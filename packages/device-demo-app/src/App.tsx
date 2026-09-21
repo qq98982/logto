@@ -10,7 +10,6 @@ import DevPanel, { getDevConfig } from './DevPanel';
 import Footer, { useIsDarkMode } from './Footer';
 import congratsDark from './assets/congrats-dark.svg';
 import congrats from './assets/congrats.svg';
-import logtoIcon from './assets/logto-icon.svg';
 import type { AppState, DeviceAuthResponse, TokenResponse, UserInfo } from './types';
 import { getStringClaim, parseJsonResponse } from './types';
 
@@ -189,7 +188,7 @@ const App = () => {
     return (
       <div className={styles.app}>
         <div className={styles.loading}>Initializing device flow...</div>
-        <Footer isDarkMode={isDarkMode} />
+        <Footer />
       </div>
     );
   }
@@ -249,7 +248,7 @@ const App = () => {
             {showDevPanel ? 'Close dev panel' : 'Open dev panel'}
           </button>
         </div>
-        <Footer isDarkMode={isDarkMode} />
+        <Footer />
       </div>
     );
   }
@@ -276,7 +275,7 @@ const App = () => {
             Try again
           </button>
         </div>
-        <Footer isDarkMode={isDarkMode} />
+        <Footer />
       </div>
     );
   }
@@ -285,7 +284,7 @@ const App = () => {
     <div className={styles.app}>
       <div className={styles.container}>
         <div className={styles.header}>
-          <img className={styles.icon} src={logtoIcon} alt="Logto" />
+          <div className={styles.brand}>Aster</div>
           <h1 className={styles.title}>Sign in to your account</h1>
         </div>
         {deviceAuth && (
@@ -318,7 +317,7 @@ const App = () => {
           </>
         )}
       </div>
-      <Footer isDarkMode={isDarkMode} />
+      <Footer />
     </div>
   );
 };

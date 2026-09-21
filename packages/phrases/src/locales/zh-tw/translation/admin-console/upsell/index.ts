@@ -10,7 +10,7 @@ const upsell = {
   create_tenant: {
     title: '選擇您的租戶計劃',
     description:
-      'Logto 提供創新且經濟實惠的定價計劃，旨在為不斷發展的公司提供競爭優勢。 <a>了解更多</a>',
+      'Aster 提供創新且經濟實惠的定價計劃，旨在為不斷發展的公司提供競爭優勢。 <a>了解更多</a>',
     base_price: '基礎價格',
     monthly_price: '每月 {{value, number}}',
     view_all_features: '查看所有功能',
@@ -23,18 +23,18 @@ const upsell = {
   mau_exceeded_modal: {
     title: 'MAU 超過限制，請升級您的計劃。',
     notification:
-      '您當前的 MAU 已超過<planName/>的限制。請立即升級到高級計劃，以避免 Logto 服務的暫停。',
+      '您當前的 MAU 已超過<planName/>的限制。請立即升級到高級計劃，以避免 Aster 服務的暫停。',
     update_plan: '更新計劃',
   },
   token_exceeded_modal: {
     title: '令牌使用超過限制，請升級您的計劃。',
     notification:
-      '您的<planName/>令牌使用已超過限制。用戶將無法正常訪問 Logto 服務。請儘快升級您的計劃至高級，以避免任何不便。',
+      '您的<planName/>令牌使用已超過限制。用戶將無法正常訪問 Aster 服務。請儘快升級您的計劃至高級，以避免任何不便。',
   },
   payment_overdue_modal: {
     title: '賬單逾期未付',
     notification:
-      '糟糕！租戶<span>{{name}}</span>的賬單支付失敗。請儘快支付賬單，以避免 Logto 服務的中止。',
+      '糟糕！租戶<span>{{name}}</span>的賬單支付失敗。請儘快支付賬單，以避免 Aster 服務的中止。',
     unpaid_bills: '未付賬單',
     update_payment: '更新支付',
   },
@@ -45,7 +45,7 @@ const upsell = {
     tenant_member: '租戶成員',
   },
   charge_notification_for_quota_limit:
-    '您已超出{{item}}額度限制。Logto將為超出額度限制的使用添加費用。計費將從新的附加價格設計發布當天開始。 <a>了解更多</a>',
+    '您已超出{{item}}額度限制。Aster將為超出額度限制的使用添加費用。計費將從新的附加價格設計發布當天開始。 <a>了解更多</a>',
   paywall,
   featured_plan_content,
   add_on,

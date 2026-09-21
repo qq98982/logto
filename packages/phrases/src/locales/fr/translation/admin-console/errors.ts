@@ -21,7 +21,7 @@ const errors = {
   unexpected_error: "Une erreur inattendue s'est produite",
   not_found: '404 non trouvé',
   create_internal_role_violation:
-    'Vous créez un nouveau rôle interne qui est interdit par Logto. Essayez un autre nom qui ne commence pas par "#internal:".',
+    'Vous créez un nouveau rôle interne qui est interdit par Aster. Essayez un autre nom qui ne commence pas par "#internal:".',
   should_be_an_integer: 'Doit être un entier.',
   number_should_be_between_inclusive:
     'Le nombre doit être compris entre {{min}} et {{max}} (inclusivement).',

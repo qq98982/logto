@@ -2,7 +2,7 @@ const actions = {
   page_title: 'Actions',
   title: 'Actions',
   subtitle:
-    'Exécutez du code personnalisé à des étapes précises du flux d’authentification pour étendre le comportement de Logto.',
+    "Exécutez du code personnalisé à des étapes précises du flux d’authentification pour étendre le comportement d'Aster.",
   status: {
     not_configured: 'Non configuré',
     configured: 'Configuré',
@@ -31,7 +31,7 @@ const actions = {
   },
   result_data: {
     title: 'Résultat de l’action',
-    subtitle: 'Renvoyez un objet de résultat que Logto comprend pour ce type d’action.',
+    subtitle: "Renvoyez un objet de résultat qu'Aster comprend pour ce type d’action.",
   },
   environment_variables: {
     title: 'Définir les variables d’environnement',
@@ -55,11 +55,11 @@ const actions = {
     },
     on_execution_error: {
       title: 'En cas d’erreur du script',
-      description: 'Choisissez le comportement de Logto lorsque le script échoue à l’exécution.',
+      description: "Choisissez le comportement d'Aster lorsque le script échoue à l’exécution.",
       block: 'Bloquer le flux d’authentification',
       allow: 'Autoriser la poursuite du flux d’authentification',
       post_first_factor_description:
-        'Lorsque ce script échoue, Logto rejette toujours les identifiants invalides afin que la vérification du mot de passe ne puisse pas être contournée.',
+        'Lorsque ce script échoue, Aster rejette toujours les identifiants invalides afin que la vérification du mot de passe ne puisse pas être contournée.',
     },
   },
   test_context: {

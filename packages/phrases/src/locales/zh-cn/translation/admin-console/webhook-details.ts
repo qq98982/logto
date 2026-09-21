@@ -19,12 +19,12 @@ const webhook_details = {
     settings_description:
       'Webhook 允许您通过向端点 URL 发送 POST 请求，实时接收特定事件的更新。这使您可以根据接收到的新信息立即采取行动。',
     events: '事件',
-    events_description: '选择 Logto 将发送 POST 请求的触发事件。',
+    events_description: '选择 Aster 将发送 POST 请求的触发事件。',
     name: '名称',
     endpoint_url: '端点 URL',
     signing_key: '签名密钥',
     signing_key_tip:
-      '将由 Logto 提供的密钥作为请求标头添加到您的端点中，以确保 Webhook 负载的真实性。',
+      '将由 Aster 提供的密钥作为请求标头添加到您的端点中，以确保 Webhook 负载的真实性。',
     regenerate: '重新生成',
     regenerate_key_title: '重新生成签名密钥',
     regenerate_key_reminder:

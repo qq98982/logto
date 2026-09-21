@@ -1,15 +1,15 @@
 const oss_onboarding = {
   page_title: '入门',
   title: '简单介绍一下你自己',
-  description: '告诉我们一点关于你和你的项目的信息，这将帮助我们为所有人打造更好的 Logto。',
+  description: '告诉我们一点关于你和你的项目的信息，这将帮助我们为所有人打造更好的 Aster。',
   email: {
     label: '邮箱地址',
     description: '如果我们需要就你的账户联系你，会使用这个邮箱地址。',
     placeholder: 'email@example.com',
   },
-  newsletter: '接收来自 Logto 的产品更新、安全通知和精选内容。',
+  newsletter: '接收来自 Aster 的产品更新、安全通知和精选内容。',
   project: {
-    label: '我使用 Logto 是为了',
+    label: '我使用 Aster 是为了',
     personal: '个人项目',
     company: '公司项目',
   },

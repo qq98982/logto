@@ -161,7 +161,7 @@ const postFirstFactorVerificationModel: ModelSettings = {
   extraLibs: [
     {
       content: postFirstFactorVerificationDefinition,
-      filePath: 'file:///logto-action.d.ts',
+      filePath: 'file:///aster-action.d.ts',
     },
     {
       content: `${buildSharedContextTypeDefinitions(actionUserTypeDefinition)}
@@ -169,7 +169,7 @@ const postFirstFactorVerificationModel: ModelSettings = {
 declare ${postFirstFactorVerificationEventTypeDefinition}
 
 declare ${postFirstFactorVerificationResultTypeDefinition}`,
-      filePath: 'file:///logto-action-context.d.ts',
+      filePath: 'file:///aster-action-context.d.ts',
     },
   ],
 };
@@ -183,7 +183,7 @@ const postSignInModel: ModelSettings = {
   extraLibs: [
     {
       content: postSignInDefinition,
-      filePath: 'file:///logto-action.d.ts',
+      filePath: 'file:///aster-action.d.ts',
     },
     {
       content: `${buildSharedContextTypeDefinitions(jwtCustomizerUserContextTypeDefinition)}
@@ -191,7 +191,7 @@ const postSignInModel: ModelSettings = {
 declare ${postSignInEventTypeDefinition}
 
 declare ${postSignInResultTypeDefinition}`,
-      filePath: 'file:///logto-action-context.d.ts',
+      filePath: 'file:///aster-action-context.d.ts',
     },
   ],
 };

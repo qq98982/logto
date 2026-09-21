@@ -4,7 +4,7 @@ import { type GuideMetadata } from '../types';
 
 const metadata: Readonly<GuideMetadata> = Object.freeze({
   name: 'Chrome extension',
-  description: 'Build a Chrome extension with Logto.',
+  description: 'Build a Chrome extension with Aster.',
   target: ApplicationType.SPA,
   sample: {
     repo: 'js',

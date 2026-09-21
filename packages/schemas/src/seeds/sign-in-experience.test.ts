@@ -7,6 +7,10 @@ import {
 import { adminTenantId } from './tenant.js';
 
 describe('createAdminTenantSignInExperience', () => {
+  it('does not seed an upstream product logo', () => {
+    expect(createAdminTenantSignInExperience().branding).toEqual({});
+  });
+
   it('seeds an empty passwordPolicy by default', () => {
     const row = createAdminTenantSignInExperience();
     expect(row.passwordPolicy).toEqual({});
@@ -29,6 +33,10 @@ describe('createAdminTenantSignInExperience', () => {
 });
 
 describe('createDefaultSignInExperience', () => {
+  it('does not seed an upstream product logo', () => {
+    expect(createDefaultSignInExperience('some-tenant-id', false).branding).toEqual({});
+  });
+
   it('still has a two-parameter signature and seeds an empty passwordPolicy', () => {
     const row = createDefaultSignInExperience('some-tenant-id', false);
     expect(row.passwordPolicy).toEqual({});

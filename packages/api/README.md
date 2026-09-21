@@ -74,7 +74,7 @@ const response = await client.GET('/api/applications/{id}', {
 
 ### API documentation
 
-For detailed API documentation, refer to the [Logto Management API documentation](https://openapi.logto.io/).
+For detailed API documentation, refer to the [Aster Management API documentation](https://openapi.logto.io/).
 
 ## Development
 

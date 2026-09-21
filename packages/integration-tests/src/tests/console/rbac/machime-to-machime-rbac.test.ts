@@ -29,7 +29,7 @@ await page.setViewport({ width: 1920, height: 1080 });
 
 describe('M2M RBAC', () => {
   const logtoConsoleUrl = new URL(logtoConsoleUrlString);
-  const managementApiResourceName = 'Logto Management API';
+  const managementApiResourceName = 'Aster Management API';
   const managementApiPermission = 'all';
   const apiResourceName = generateResourceName();
   const apiResourceIndicator = generateResourceIndicator();

@@ -24,8 +24,8 @@ const parseSignInExperienceResponse = (
 };
 
 export const getSignInExperienceSettings = async (): Promise<SignInExperienceResponse> => {
-  if (isObject(logtoSsr)) {
-    const { data, ...rest } = logtoSsr.signInExperience;
+  if (isObject(asterSsr)) {
+    const { data, ...rest } = asterSsr.signInExperience;
 
     if (
       searchKeysCamelCase.every((key) => {
@@ -66,7 +66,7 @@ export const parseHtmlTitle = (path: string) => {
     return;
   }
 
-  return 'Logto';
+  return 'Aster';
 };
 
 export const codeVerificationTypeMap = Object.freeze({

@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+1 555-123-4567',
   test_message_sent: 'Messaggio di prova inviato',
   test_sender_description:
-    'Logto utilizza il modello "Generico" per i test. Riceverai un messaggio se il tuo connettore è correttamente configurato.',
+    'Aster utilizza il modello "Generico" per i test. Riceverai un messaggio se il tuo connettore è correttamente configurato.',
   options_change_email: 'Cambia connettore per email',
   options_change_sms: 'Cambia connettore per SMS',
   connector_deleted: 'Il connettore è stato eliminato con successo',
@@ -34,43 +34,6 @@ const connector_details = {
     'Questo {{name}} è in uso nella tua esperienza di accesso. Eliminandolo, la tua esperienza di accesso non funzionerà correttamente fino a quando non risolverai il conflitto. Dovrai riconfigurarlo se decidi di aggiungerlo di nuovo.',
   deletion_description:
     'Stai rimuovendo questo connettore. Non può essere annullato e dovrai riconfigurarlo se decidi di aggiungerlo di nuovo.',
-  logto_email: {
-    total_email_sent: 'Totale email inviate: {{value, number}}',
-    total_email_sent_tip:
-      "Logto utilizza SendGrid per l'invio sicuro ed affidabile delle email integrate. È completamente gratuito da utilizzare. <a>Scopri di più</a>",
-    hosted_email_usage: {
-      daily: 'Giornaliero <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: 'Giornaliero <value>{{usage, number}}</value>',
-      monthly: 'Mensile <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: 'Mensile <value>{{usage, number}}</value>',
-      tip: 'I piani Free e Development includono limiti giornalieri e mensili per il servizio email integrato.',
-      banner: {
-        approaching:
-          'Stai per raggiungere il limite di invio del servizio email integrato di Logto. <provider>Collega il tuo provider email</provider> o <upgrade>aggiorna il tuo piano</upgrade> per continuare a usare il servizio email integrato di Logto.',
-        reached:
-          'Hai raggiunto il limite di invio del servizio email integrato di Logto, il che può interrompere le email di accesso. <provider>Collega il tuo provider email</provider> o <upgrade>aggiorna il tuo piano</upgrade> per continuare a usare il servizio email integrato di Logto.',
-      },
-    },
-    email_template_title: 'Modello email',
-    template_description:
-      "L'email integrata utilizza modelli predefiniti per la consegna senza soluzione di continuità delle email di verifica. Non è richiesta alcuna configurazione e puoi personalizzare le informazioni di base del marchio.",
-    template_description_link_text: 'Visualizza modelli',
-    description_action_text: 'Visualizza i modelli',
-    from_email_field: 'Email mittente',
-    sender_name_field: 'Nome mittente',
-    sender_name_tip:
-      'Personalizza il nome del mittente per le email. Se lasciato vuoto, verrà utilizzato "Verification" come nome predefinito.',
-    sender_name_placeholder: 'Il tuo nome mittente',
-    company_information_field: 'Informazioni aziendali',
-    company_information_description:
-      "Mostra il nome dell'azienda, l'indirizzo o il codice postale in fondo alle email per migliorare l'autenticità.",
-    company_information_placeholder: 'Le informazioni di base della tua azienda',
-    email_logo_field: 'Logo email',
-    email_logo_tip:
-      'Mostra il logo del tuo marchio in cima alle email. Usa la stessa immagine sia per la modalità chiara che per la modalità scura.',
-    urls_not_allowed: 'URL non sono ammessi',
-    test_notes: 'Logto utilizza il modello "Generico" per i test.',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description: 'Google One Tap è un modo sicuro e facile per gli utenti di accedere al tuo sito.',

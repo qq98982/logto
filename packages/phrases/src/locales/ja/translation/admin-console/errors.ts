@@ -21,7 +21,7 @@ const errors = {
   unexpected_error: '予期しないエラーが発生しました。',
   not_found: '404が見つかりません',
   create_internal_role_violation:
-    '新しい内部ロールを作成しているため、Logtoによって禁止されています。 「#internal：」で始まらない別の名前を試してください。',
+    '新しい内部ロールを作成しているため、Asterによって禁止されています。 「#internal：」で始まらない別の名前を試してください。',
   should_be_an_integer: '整数である必要があります。',
   number_should_be_between_inclusive:
     "'{{min}}'から'{{max}}'（両方含む）までの数値である必要があります。",

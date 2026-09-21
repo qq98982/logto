@@ -40,4 +40,4 @@ export type AccountCenterSsrData = {
  *
  * @see {@link SsrData} for the data structure to replace the placeholders.
  */
-export const ssrPlaceholder = '"__LOGTO_SSR__"';
+export const ssrPlaceholder = '"__ASTER_SSR__"';

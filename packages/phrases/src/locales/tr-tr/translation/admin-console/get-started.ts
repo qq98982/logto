@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Başlangıca Başlayın',
   title: 'Başarınızı Desteklemek İçin Keşfedilecek Bir Şey',
-  subtitle: "Logto'nun değerini hızla elde etmek için yapabileceğiniz birkaç şey",
+  subtitle: "Aster'in değerini hızla elde etmek için yapabileceğiniz birkaç şey",
   develop: {
     title: 'Geliştir: Uygulamanızı entegre etmek için 5 dakika ayırın',
     title_cloud: 'Geliştir: Uygulamanızı dakikalar içinde güvenli bir şekilde entegre edin',
@@ -13,7 +13,7 @@ const get_started = {
     title: 'Özelleştir: Harika bir oturum açma deneyimi sunun',
     preview: {
       title: 'Yeni özelleştirdiğiniz oturum açma deneyiminin canlı önizlemesini kontrol edin',
-      subtitle: 'Nasıl çalıştığını görmek için şimdi Logto oturum açma deneyimini deneyin',
+      subtitle: 'Nasıl çalıştığını görmek için şimdi Aster oturum açma deneyimini deneyin',
     },
     connector: {
       title:
@@ -43,26 +43,6 @@ const get_started = {
     subtitle:
       'Ücretsiz test için bir geliştirici kiracısı kullanıyorsunuz. Yayına geçmek için bir üretim kiracısı oluşturun veya dönüştürün. Özel bir şeye mi ihtiyacınız var? <a>Bizimle iletişime geçin</a>',
     convert_button: 'Üretim kiracısına dönüştür',
-  },
-  oss_cloud: {
-    try: {
-      title: 'Operasyon yükünü atlayın, Logto Cloud’u ücretsiz deneyin',
-      badge: 'Önerilen',
-      description:
-        'Bakım gerektirmeyen tamamen yönetilen bir Logto’ya sahip olun; ayrıca MCP ile hızlı entegrasyon, çoklu kiracı desteği, ekip iş birliği ve tüm premium özellikler de dahil. Kredi kartı gerektirmeden ücretsiz başlayın.',
-      action: 'Logto Cloud’u keşfedin',
-    },
-    private_cloud: {
-      title: 'Uyumluluk veya özel dağıtım mı gerekiyor?',
-      card_title: 'Özel bulut',
-      description:
-        'Tam veri izolasyonu, özel alan adı ve SLA garantileri ile özel bir Logto örneği edinin. Katı veri yerleşimi veya uyumluluk gereksinimleri olan şirketler için idealdir. Siz ürününüze odaklanırken altyapıyı biz yönetiriz.',
-    },
-    sidebar: {
-      title: 'Barındırmaya değil, geliştirmeye odaklanın.',
-      description: 'Kimlik doğrulama altyapısını sizin için Logto Cloud yönetsin.',
-      action: "Logto Cloud'u deneyin",
-    },
   },
   view_all: 'Hepsini görüntüle →',
 };

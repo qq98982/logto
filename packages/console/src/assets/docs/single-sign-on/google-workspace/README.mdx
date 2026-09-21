@@ -1,13 +1,6 @@
 import OidcCallbackUri from '@/mdx-components/OidcCallbackUri';
 import Step from '@/mdx-components/Step';
 
-import clientCredentials from './assets/client_credentials.webp';
-import consentScreenScopes from './assets/consent_screen_scopes.webp';
-import consentScreenSettings from './assets/consent_screen_settings.webp';
-import consentScreenUserType from './assets/consent_screen_user_type.webp';
-import createCredentials from './assets/create_credentials.webp';
-import credentialsConfig from './assets/credentials_config.webp';
-import credentials from './assets/credentials.webp';
 
 <Step index={0} title="Create an new project on Google Cloud Platform" >
 
@@ -21,24 +14,15 @@ In order to create a new OIDC credential, you need to configure the consent scre
 
 1. Navigate to the [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent) page and select the `Internal` user type. This will make the OAuth application only available to users within your organization.
 
-<center>
-  <img src={consentScreenUserType} alt="consent screen user type" />
-</center>
 
 2. Fill in the `Consent Screen` settings following the instructions on the page. You need to provide the following minimum information:
 
 - **Application name**: The name of your application. It will be displayed on the consent screen.
 - **Support email**: The support email of your application. It will be displayed on the consent screen.
 
-<center>
-  <img src={consentScreenSettings} alt="consent screen settings" />
-</center>
 
-3. Set the `Scopes` for your application. In order to retrieve the user's identity information and email address properly from the IdP, Logto SSO connector need to grant the following scopes from the IdP:
+3. Set the `Scopes` for your application. In order to retrieve the user's identity information and email address properly from the IdP, Aster SSO connector need to grant the following scopes from the IdP:
 
-<center>
-  <img src={consentScreenScopes} alt="consent screen scopes" />
-</center>
 
 - **openid**: This scope is required for OIDC authentication. It is used to retrieve ID token and get access to the userInfo endpoint of the IdP.
 - **profile**: This scope is required for accessing the user's basic profile information.
@@ -52,41 +36,32 @@ Click the `Save` button to save the consent screen settings.
 
 Navigate to the [Credentials](https://console.cloud.google.com/apis/credentials) page and click the `Create Credentials` button. Select the `OAuth client ID` option from the dropdown menu to create a new OAuth credential for your application.
 
-<center>
-  <img src={createCredentials} alt="create credentials" />
-</center>
 
 Continue set up the OAuth credential by filling up the following information:
 
-<center>
-  <img src={credentialsConfig} alt="credentials config" />
-</center>
 
 1. Select the `Web application` as the application type.
 
-2. Fill in the `Name` of your client application, `Logto SSO Connector` for example. This will help you to identify the credential in the future.
+2. Fill in the `Name` of your client application, `Aster SSO Connector` for example. This will help you to identify the credential in the future.
 
-3. Fill in the `Authorized redirect URIs` with the Logto callback URI. This is the URI that the Google will redirect the user's browser after successful authentication. After a user successfully authenticates with the IdP, the IdP redirects the user's browser back to this designated URI along with an authorization code. Logto will complete the authentication process based on authorization code received from this URI.
+3. Fill in the `Authorized redirect URIs` with the Aster callback URI. This is the URI that the Google will redirect the user's browser after successful authentication. After a user successfully authenticates with the IdP, the IdP redirects the user's browser back to this designated URI along with an authorization code. Aster will complete the authentication process based on authorization code received from this URI.
 
 <OidcCallbackUri />
 
-4. Fill in the `Authorized JavaScript origins` with the Logto callback URI's origin. This ensures only your Logto application can send requests to the Google OAuth server.
+4. Fill in the `Authorized JavaScript origins` with the Aster callback URI's origin. This ensures only your Aster application can send requests to the Google OAuth server.
 
 5. Click the `Create` button to create the OAuth credential.
 
 </Step>
 
-<Step index={3} title="Set up Logto connector with the client credentials">
+<Step index={3} title="Set up Aster connector with the client credentials">
 
 After successfully creating the OAuth credential, you will receive a prompt modal with the client ID and client secret.
 
-<center>
-  <img src={clientCredentials} alt="client credentials" />
-</center>
 
-Copy the `client ID` and `client secret` and fill in the corresponding fields on the Logto SSO connector `connection` tab.
+Copy the `client ID` and `client secret` and fill in the corresponding fields on the Aster SSO connector `connection` tab.
 
-Now you have successfully configured a Google Workspace SSO connector on Logto.
+Now you have successfully configured a Google Workspace SSO connector on Aster.
 
 </Step>
 
@@ -106,22 +81,22 @@ Scopes define the permissions your app requests from users and control which dat
 3. Click **Update** to confirm the selection.
 4. Click **Save and Continue** to apply the changes.
 
-**In Logto Google Workspace connector:**
+**In Aster Google Workspace connector:**
 
-1. Logto automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information
+1. Aster automatically includes `openid`, `profile`, and `email` scopes to retrieve basic user identity information. You can leave the `Scopes` field blank if you only need basic user information
 2. Add additional scopes (separated by spaces) in the `Scopes` field to request more data from Google. Use full scope URLs, for example: `https://www.googleapis.com/auth/calendar.readonly`
 
 </Step>
 
 <Step index={5} title="Store tokens to access Google APIs (Optional)">
 
-If you want to access [Google APIs](https://console.cloud.google.com/apis/library) and perform actions with user authorization, Logto needs to get specific API scopes and store tokens.
+If you want to access [Google APIs](https://console.cloud.google.com/apis/library) and perform actions with user authorization, Aster needs to get specific API scopes and store tokens.
 
-1. Add the required scopes in your Google Cloud Console OAuth consent screen configuration and Logto Google connector.
-2. Enable **Store tokens for persistent API access** in Logto Google connector. Logto will securely [store Google access and refresh tokens in the Secret Vault](https://docs.logto.io/secret-vault/federated-token-set/token-retrieval).
-3. To ensure refresh tokens are returned, configure your Logto Google connector to enable **Offline Access**.
+1. Add the required scopes in your Google Cloud Console OAuth consent screen configuration and Aster Google connector.
+2. Enable **Store tokens for persistent API access** in Aster Google connector. Aster will securely store Google access and refresh tokens in the Secret Vault.
+3. To ensure refresh tokens are returned, configure your Aster Google connector to enable **Offline Access**.
 
-**Warning**: You do not need to add `offline_access` in the Logto `Scope` field — doing so may cause an error. Google uses `access_type=offline` automatically when offline access is enabled.
+**Warning**: You do not need to add `offline_access` in the Aster `Scope` field — doing so may cause an error. Google uses `access_type=offline` automatically when offline access is enabled.
 
 
 </Step>

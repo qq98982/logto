@@ -39,9 +39,9 @@ const content = {
     subtitle:
       'Локализуйте продукт, добавляя языки и переводы. Ваш вклад можно назначить языком по умолчанию.',
     add_language: 'Добавить язык',
-    logto_provided: 'Предоставлено Logto',
+    aster_provided: 'Предоставлено Aster',
     key: 'Ключ',
-    logto_source_values: 'Исходные значения Logto',
+    aster_source_values: 'Исходные значения Aster',
     custom_values: 'Пользовательские значения',
     clear_all_tip: 'Очистить все значения',
     unsaved_description: 'Изменения не сохранятся, если вы покинете страницу без сохранения.',

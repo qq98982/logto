@@ -10,7 +10,7 @@ const upsell = {
   create_tenant: {
     title: 'Selecciona tu plan de tenant',
     description:
-      'Logto ofrece opciones de planes competitivos con una innovadora y asequible estructura de precios diseñada para empresas en crecimiento. <a>Más información</a>',
+      'Aster ofrece opciones de planes competitivos con una innovadora y asequible estructura de precios diseñada para empresas en crecimiento. <a>Más información</a>',
     base_price: 'Precio base',
     monthly_price: '{{value, number}}/mes',
     view_all_features: 'Ver todas las características',
@@ -23,18 +23,18 @@ const upsell = {
   mau_exceeded_modal: {
     title: 'Se ha superado el límite de MAU. Actualiza tu plan.',
     notification:
-      'Tu MAU actual ha superado el límite de <planName/>. Por favor, actualiza tu plan a premium a tiempo para evitar la suspensión del servicio de Logto.',
+      'Tu MAU actual ha superado el límite de <planName/>. Por favor, actualiza tu plan a premium a tiempo para evitar la suspensión del servicio de Aster.',
     update_plan: 'Actualizar plan',
   },
   token_exceeded_modal: {
     title: 'Se ha superado el límite de uso de tokens. Actualiza tu plan.',
     notification:
-      'Has excedido el límite de uso de tokens de <planName/>. Los usuarios no podrán acceder al servicio de Logto correctamente. Por favor, actualiza tu plan a premium sin demora para evitar cualquier inconveniente.',
+      'Has excedido el límite de uso de tokens de <planName/>. Los usuarios no podrán acceder al servicio de Aster correctamente. Por favor, actualiza tu plan a premium sin demora para evitar cualquier inconveniente.',
   },
   payment_overdue_modal: {
     title: 'Factura con pagos atrasados',
     notification:
-      '¡Ups! El pago de la factura del inquilino <span>{{name}}</span> ha fallado. Por favor, pague la factura a tiempo para evitar la suspensión del servicio de Logto.',
+      '¡Ups! El pago de la factura del inquilino <span>{{name}}</span> ha fallado. Por favor, pague la factura a tiempo para evitar la suspensión del servicio de Aster.',
     unpaid_bills: 'Facturas impagas',
     update_payment: 'Actualizar pago',
   },
@@ -45,7 +45,7 @@ const upsell = {
     tenant_member: 'miembro del tenant',
   },
   charge_notification_for_quota_limit:
-    'Has superado tu límite de cuota de {{item}}. Logto agregará cargos por el uso más allá de tu límite de cuota. La facturación comenzará el día en que se lance el nuevo diseño de precios del complemento. <a>Más información</a>',
+    'Has superado tu límite de cuota de {{item}}. Aster agregará cargos por el uso más allá de tu límite de cuota. La facturación comenzará el día en que se lance el nuevo diseño de precios del complemento. <a>Más información</a>',
   paywall,
   featured_plan_content,
   add_on,

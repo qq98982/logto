@@ -31,9 +31,9 @@ const roles = {
     'نقش‌ها گروهی از مجوزها هستند که می‌توانند به کاربران اختصاص یابند. قبل از ایجاد نقش، حتماً ابتدا مجوز اضافه کنید.',
   assign_roles: 'اختصاص نقش‌ها',
   management_api_access_notification:
-    'برای دسترسی به Management API مربوط به Logto، نقش‌هایی با مجوزهای Management API انتخاب کنید <flag/>.',
+    'برای دسترسی به Management API مربوط به Aster، نقش‌هایی با مجوزهای Management API انتخاب کنید <flag/>.',
   with_management_api_access_tip:
-    'این نقش ماشین به ماشین شامل مجوزهای Management API مربوط به Logto است',
+    'این نقش ماشین به ماشین شامل مجوزهای Management API مربوط به Aster است',
   role_creation_hint: 'نقش مناسب را پیدا نمی‌کنید؟ <a>ایجاد نقش</a>',
 };
 

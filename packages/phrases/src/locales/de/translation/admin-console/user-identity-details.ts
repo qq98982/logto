@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       'Die gespeicherten Token löschen. Benutzer müssen den Zugriff erneut autorisieren, um die Funktionalität wiederherzustellen.',
     confirmation_message:
-      'Sind Sie sicher, dass Sie die Token löschen möchten? Logto Secret Vault entfernt die gespeicherten {{connectorName}} Zugriffs- und Aktualisierungstoken. Dieser Benutzer muss die {{connectorName}} API-Zugriffsrechte erneut autorisieren.',
+      'Sind Sie sicher, dass Sie die Token löschen möchten? Aster Secret Vault entfernt die gespeicherten {{connectorName}} Zugriffs- und Aktualisierungstoken. Dieser Benutzer muss die {{connectorName}} API-Zugriffsrechte erneut autorisieren.',
   },
   token_storage_disabled: {
     title: 'Token-Speicherung ist für diesen Connector deaktiviert',

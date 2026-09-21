@@ -21,12 +21,12 @@ const webhook_details = {
     settings_description:
       'Webhooks를 통해 이벤트가 발생할 때마다 POST request를 내 엔드포인트 URL로 보내 변경 실시간으로 확인 할 수 있습니다.',
     events: '이벤트',
-    events_description: 'Logto에서 POST request를 보낼 이벤트를 선택하세요.',
+    events_description: 'Aster에서 POST request를 보낼 이벤트를 선택하세요.',
     name: '이름',
     endpoint_url: '엔드포인트 URL',
     signing_key: 'Signing key',
     signing_key_tip:
-      'Logto에서 제공된 시크릿 키를 사용하여 엔드포인트에 요청 헤더로 추가하여 웹훅 페이로드의 진위성 보장',
+      'Aster에서 제공된 시크릿 키를 사용하여 엔드포인트에 요청 헤더로 추가하여 웹훅 페이로드의 진위성 보장',
     regenerate: '재생성',
     regenerate_key_title: 'Signing key 재생성',
     regenerate_key_reminder:

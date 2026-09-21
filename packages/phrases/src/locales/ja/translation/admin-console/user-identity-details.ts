@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       '保存されたトークンを削除します。ユーザーは、機能を復元するためにアクセスを再許可する必要があります。',
     confirmation_message:
-      '本当にトークンを削除してもよろしいですか？ Logto シークレットボールトは、保存された {{connectorName}} アクセスおよびリフレッシュトークンを削除します。このユーザーは、{{connectorName}} API アクセスを復元するために再認可する必要があります。',
+      '本当にトークンを削除してもよろしいですか？ Aster シークレットボールトは、保存された {{connectorName}} アクセスおよびリフレッシュトークンを削除します。このユーザーは、{{connectorName}} API アクセスを復元するために再認可する必要があります。',
   },
   token_storage_disabled: {
     title: 'このコネクターのトークンストレージは無効です',

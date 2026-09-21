@@ -6,7 +6,7 @@ const role = {
   application_exists: '应用程序 ID {{applicationId}} 已添加到此角色',
   default_role_missing: '某些默认角色名称在数据库中不存在，请确保先创建角色',
   internal_role_violation:
-    '你可能正在尝试更新或删除 Logto 禁止的内部角色。如果你要创建新角色，请尝试使用不以“#internal:”开头的名称。',
+    '你可能正在尝试更新或删除 Aster 禁止的内部角色。如果你要创建新角色，请尝试使用不以“#internal:”开头的名称。',
 };
 
 export default Object.freeze(role);

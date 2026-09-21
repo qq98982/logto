@@ -6,10 +6,10 @@ const user_scopes = {
     profile: 'Adın, kullanıcı adın, profil fotoğrafın ve diğer kişisel bilgilerin',
     roles: 'Rollerin',
     identities: 'Bağlı sosyal hesapların',
-    'urn:logto:scope:organizations': 'Organizasyon bilgilerin',
-    'urn:logto:scope:organization_roles': 'Organizasyon rollerin',
+    'urn:aster:scope:organizations': 'Organizasyon bilgilerin',
+    'urn:aster:scope:organization_roles': 'Organizasyon rollerin',
     address: 'Adresin',
-    'urn:logto:scope:sessions': 'Aktif oturumların',
+    'urn:aster:scope:sessions': 'Aktif oturumların',
   },
 };
 

@@ -8,7 +8,7 @@ const enterprise_sso = {
   col_email_domain: 'Dominio email',
   placeholder_title: 'Connettore aziendale',
   placeholder_description:
-    'Logto ha fornito molti provider di identità aziendale incorporati per connettersi, nel frattempo puoi creare il tuo con i protocolli SAML e OIDC.',
+    'Aster ha fornito molti provider di identità aziendale incorporati per connettersi, nel frattempo puoi creare il tuo con i protocolli SAML e OIDC.',
   create_modal: {
     title: 'Aggiungi connettore aziendale',
     text_divider: 'Oppure puoi personalizzare il tuo connettore con un protocollo standard.',
@@ -34,7 +34,7 @@ const enterprise_sso = {
       entity_id_field_placeholder: 'urn:your-domain.com:sp:saml:{serviceProviderId}',
       sign_auth_request: 'Firma la richiesta di autenticazione',
       sign_auth_request_tooltip:
-        'Logto firma le richieste di autenticazione SAML con un certificato generato. Abilitalo solo se il tuo identity provider è configurato per verificare le richieste firmate.',
+        'Aster firma le richieste di autenticazione SAML con un certificato generato. Abilitalo solo se il tuo identity provider è configurato per verificare le richieste firmate.',
       signing_certificate_field_name: 'Certificato di firma delle richieste',
       signing_keys_empty: 'Non è stata ancora generata alcuna chiave di firma.',
       generate_signing_key: 'Genera nuova chiave',
@@ -50,14 +50,14 @@ const enterprise_sso = {
       redirect_uri_field_description:
         "L'URI di reindirizzamento è dove gli utenti vengono reindirizzati dopo l'autenticazione SSO. Aggiungi questa URI alla configurazione del tuo IdP.",
       redirect_uri_field_custom_domain_description:
-        "Se utilizzi più <a>domini personalizzati</a> in Logto, assicurati di aggiungere tutte le rispettive URI di callback al tuo IdP per far funzionare l'SSO su ogni dominio.\n\nIl dominio predefinito di Logto (*.logto.app) è sempre valido: includilo solo se desideri supportare l'SSO anche su quel dominio.",
+        "Se utilizzi più <a>domini personalizzati</a> in Aster, assicurati di aggiungere tutte le rispettive URI di callback al tuo IdP per far funzionare l'SSO su ogni dominio.\n\nIl dominio predefinito di Aster è sempre valido: includilo solo se desideri supportare l'SSO anche su quel dominio.",
     },
   },
   attribute_mapping: {
     title: 'Mappatura degli attributi',
     description:
       '`id` e `email` sono necessari per sincronizzare il profilo utente da IdP. Immetti il nome del claim e il valore seguenti nel tuo IdP.',
-    col_sp_claims: 'Valore del fornitore di servizi (Logto)',
+    col_sp_claims: 'Valore del fornitore di servizi (Aster)',
     col_idp_claims: 'Nome del claim del provider di identità',
     idp_claim_tooltip: 'Il nome del claim del provider di identità',
   },

@@ -16,7 +16,7 @@ const connectors = {
   connector_type: 'Tip',
   placeholder_title: 'Sosyal bağlayıcı',
   placeholder_description:
-    'Logto, çok sayıda kullanılan sosyal oturum açma bağlayıcısı sağlamıştır. Bu arada, standart protokollerle kendi bağlayıcınızı oluşturabilirsiniz.',
+    'Aster, çok sayıda kullanılan sosyal oturum açma bağlayıcısı sağlamıştır. Bu arada, standart protokollerle kendi bağlayıcınızı oluşturabilirsiniz.',
   save_and_done: 'Kaydet ve bitir',
   type: {
     email: 'E-posta bağlayıcısı',
@@ -46,7 +46,7 @@ const connectors = {
     target_tip_standard:
       '“IdP adı” değeri, sosyal kimliklerinizi ayırt etmek için benzersiz bir tanımlayıcı dize olabilir. Bu ayar, bağlayıcı oluşturulduktan sonra değiştirilemez.',
     target_tooltip:
-      'Logto sosyal bağlayıcılarındaki "Hedef", sosyal kimliklerinizin "kaynağı" na işaret eder. Logto tasarımında, aynı bir platformun "hedef" i kabul edilmez ve çakışmaları önlemek için benzersiz olmalıdır. Bir bağlayıcı eklemeniz gerektiğinde çok dikkatli olmalısınız çünkü oluşturulduktan sonra "hedef" değerini DEĞİŞTİREMEZSİNİZ. <a>Daha fazla bilgi edinin</a>',
+      'Aster sosyal bağlayıcılarındaki "Hedef", sosyal kimliklerinizin "kaynağı" na işaret eder. Aster tasarımında, aynı bir platformun "hedef" i kabul edilmez ve çakışmaları önlemek için benzersiz olmalıdır. Bir bağlayıcı eklemeniz gerektiğinde çok dikkatli olmalısınız çünkü oluşturulduktan sonra "hedef" değerini DEĞİŞTİREMEZSİNİZ. <a>Daha fazla bilgi edinin</a>',
     target_conflict:
       'Kullanılan IdP adı, <span>adı</span> ile eşleşmektedir. Aynı idp adını kullanmak, kullanıcıların iki farklı bağlayıcı aracılığıyla aynı hesaba erişebileceği şekilde beklenmeyen oturum açma davranışına neden olabilir.',
     target_conflict_line2:
@@ -68,7 +68,7 @@ const connectors = {
     callback_uri_description:
       "Yeniden yönlendirme URI'leri, sosyal yetkilendirmeden sonra kullanıcıların yönlendirildiği yerlerdir. Görüntülenen tüm URI'leri IdP yapılandırmanıza ekleyin.",
     callback_uri_custom_domain_description:
-      "Logto'da birden fazla <a>özel alan adı</a> kullanıyorsanız, sosyal oturum açmanın her alan adında çalışması için ilgili tüm geri dönüş URI'lerini IdP'nize eklediğinizden emin olun.\n\nVarsayılan Logto alan adı (*.logto.app) her zaman geçerlidir; yalnızca o alan adı altında oturumları desteklemek istiyorsanız ekleyin.",
+      "Aster'de birden fazla <a>özel alan adı</a> kullanıyorsanız, sosyal oturum açmanın her alan adında çalışması için ilgili tüm geri dönüş URI'lerini IdP'nize eklediğinizden emin olun.\n\nVarsayılan Aster alan adı her zaman geçerlidir; yalnızca o alan adı altında oturumları desteklemek istiyorsanız ekleyin.",
     acs_url: 'Assertion consumer service URL',
   },
   platform: {
@@ -84,11 +84,6 @@ const connectors = {
   create_form: {
     third_party_connectors:
       'Hızlı sosyal oturum açma, sosyal hesap bağlama ve API erişimi için üçüncü taraf sağlayıcıları entegre edin. <a>Daha fazla bilgi edinin</a>',
-    email_connector_upsell: {
-      title: "Logto'nun yerleşik e-posta hizmeti",
-      description:
-        'Yapılandırma gerektirmeden e-posta gönderimi. Doğrulama kodlarını ve sihirli bağlantıları hemen gönderin.',
-    },
     standard_connectors: 'Veya standart bir protokolle sosyal bağlayıcınızı özelleştirebilirsiniz.',
   },
 };

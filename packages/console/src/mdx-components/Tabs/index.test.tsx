@@ -53,7 +53,7 @@ describe('<Tabs />', () => {
     expect(secondV1?.getAttribute('aria-selected')).toBe('true');
 
     // And it is persisted for future visits.
-    expect(localStorage.getItem('logto:admin_console:guide_tab_group:sync-test')).toBe('v1');
+    expect(localStorage.getItem('aster:admin_console:guide_tab_group:sync-test')).toBe('v1');
   });
 
   it('does not sync tab groups without a `groupId`', async () => {
@@ -75,7 +75,7 @@ describe('<Tabs />', () => {
   });
 
   it('restores the persisted choice on mount', () => {
-    localStorage.setItem('logto:admin_console:guide_tab_group:restore-test', 'v1');
+    localStorage.setItem('aster:admin_console:guide_tab_group:restore-test', 'v1');
 
     render(renderVersionTabs('restore-test'));
 

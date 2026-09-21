@@ -53,7 +53,7 @@ const sign_up_and_sign_in = {
     settings_title: '社交登入體驗',
     automatic_account_linking: '自動連結具有相同標識符的賬戶',
     automatic_account_linking_tip:
-      '啟用後，如果使用者使用新的社交身份登入，且有唯一一個賬戶的標識符（例如，郵件地址）與其相同，Logto 將自動連結這個社交身份到該賬戶。用戶不會被要求選擇是否連結賬戶。',
+      '啟用後，如果使用者使用新的社交身份登入，且有唯一一個賬戶的標識符（例如，郵件地址）與其相同，Aster 將自動連結這個社交身份到該賬戶。用戶不會被要求選擇是否連結賬戶。',
     required_sign_up_identifiers: '要求用戶提供缺失的註冊標識符',
     required_sign_up_identifiers_tip:
       '啟用後，通過社交提供者登入的用戶必須在完成登入前填寫任何缺失的註冊標識符（例如郵件）。\n\n如果禁用，用戶可以在不提供缺失標識符的情況下繼續，即使社交帳戶未同步它們。',
@@ -98,7 +98,7 @@ const sign_up_and_sign_in = {
       '啟用或禁止使用者註冊。禁用後，管理員仍然可以新增使用者，但無法透過登入界面建立帳戶。',
     unknown_session_redirect_url: '未知會話重定向 URL',
     unknown_session_redirect_url_tip:
-      '有時，Logto 可能無法識別使用者在登入頁面的會話，例如當會話過期或使用者收藏或分享登入連結時。預設情況下，會出現 "unknown session" 404 錯誤。為了增強使用者體驗，請設置一個回退 URL，將使用者重定向回你的應用程式並重新開始身分驗證。',
+      '有時，Aster 可能無法識別使用者在登入頁面的會話，例如當會話過期或使用者收藏或分享登入連結時。預設情況下，會出現 "unknown session" 404 錯誤。為了增強使用者體驗，請設置一個回退 URL，將使用者重定向回你的應用程式並重新開始身分驗證。',
   },
   username_policy: {
     title: '使用者名稱政策',

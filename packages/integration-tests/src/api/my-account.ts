@@ -9,7 +9,7 @@ import type {
 import { conditional } from '@silverhand/essentials';
 import { type KyInstance } from 'ky';
 
-const verificationRecordIdHeader = 'logto-verification-id';
+const verificationRecordIdHeader = 'aster-verification-id';
 
 export const updatePassword = async (
   api: KyInstance,

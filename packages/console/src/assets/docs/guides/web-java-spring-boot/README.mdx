@@ -10,9 +10,9 @@ import RedirectUrisWeb from '../../fragments/_redirect-uris-web.mdx';
 
 <Step title="Get started">
 
-This tutorial will show you how to integrate Logto into your Java Spring Boot application.
+This tutorial will show you how to integrate Aster into your Java Spring Boot application.
 
-No official SDK is required to integrate Logto with your Java Spring Boot application. We will use the [Spring Security](https://spring.io/projects/spring-security) and [Spring Security OAuth2](https://spring.io/guides/tutorials/spring-boot-oauth2) libraries to handle the OIDC authentication flow with Logto.
+No official SDK is required to integrate Aster with your Java Spring Boot application. We will use the [Spring Security](https://spring.io/projects/spring-security) and [Spring Security OAuth2](https://spring.io/guides/tutorials/spring-boot-oauth2) libraries to handle the OIDC authentication flow with Aster.
 
 Before we begin, make sure you have went through the spring boot guides linked above.
 
@@ -56,9 +56,9 @@ For maven, include the following dependencies in your `pom.xml` file:
 
 </Step>
 
-<Step title="Configure Logto OAuth2 Client registration">
+<Step title="Configure Aster OAuth2 Client registration">
   
-Register your application with Logto to get the client credentials and IdP configurations.
+Register your application with Aster to get the client credentials and IdP configurations.
 Add the following configuration to your `application.properties` file:
 
 <Code className="language-properties" title="application.properties">
@@ -82,7 +82,7 @@ spring.security.oauth2.client.provider.logto.jwk-set-uri=${props.endpoint}oidc/j
 
 </Step>
 
-<Step title="Setup the redirect URI in Logto">
+<Step title="Setup the redirect URI in Aster">
 
 <RedirectUrisWeb
   defaultBaseUrl="http://localhost:8080/"
@@ -90,7 +90,7 @@ spring.security.oauth2.client.provider.logto.jwk-set-uri=${props.endpoint}oidc/j
   defaultPostSignOutUri="http://localhost:8080/login/oauth2/code/logto"
 />
 
-Make sure the redirect URI in Logto matches the `redirect-uri` set in the `application.properties` file in the previous step.
+Make sure the redirect URI in Aster matches the `redirect-uri` set in the `application.properties` file in the previous step.
 
 </Step>
 
@@ -116,7 +116,7 @@ public class WebSecurityConfig {
 
 ### Create a idTokenDecoderFactory bean to set the JWS algorithm to `ES384`
 
-This is required because Logto uses ES384 as the default algorithm, we need to update the OidcIdTokenDecoderFactory to use the same algorithm.
+This is required because Aster uses ES384 as the default algorithm, we need to update the OidcIdTokenDecoderFactory to use the same algorithm.
 
 ```java title="WebSecurityConfig.java"
 import org.springframework.context.annotation.Bean;
@@ -257,7 +257,7 @@ This controller will redirect the user to the user page if the user is authentic
 <body>
   <h1>Welcome!</h1>
 
-  <p><a th:href="@{/oauth2/authorization/logto}">Login with Logto</a></p>
+  <p><a th:href="@{/oauth2/authorization/logto}">Login with Aster</a></p>
 </body>
 ```
 

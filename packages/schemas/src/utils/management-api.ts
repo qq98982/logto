@@ -1,2 +1,3 @@
-export const isManagementApi = (indicator: string) =>
-  /^https:\/\/[^.]+\.logto\.app\/api$/.test(indicator);
+import { isManagementApiResourceIndicator } from '@logto/core-kit';
+
+export const isManagementApi = (indicator: string) => isManagementApiResourceIndicator(indicator);

@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aster:compatibility:phase-1-public-record:1",
+  "title": "Aster Phase 1 public acceptance record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mode",
+    "profileId",
+    "asterCommit",
+    "schemaSourceCommit",
+    "harnessCommit",
+    "profileSha256",
+    "schemaSha256",
+    "oracleImageDigest",
+    "candidateImageDigest",
+    "uiSource",
+    "differential",
+    "candidateInvariantControls",
+    "browser",
+    "conformance",
+    "evidenceManifestSha256",
+    "artifactFiles",
+    "statement",
+    "asterGovernanceSatisfied",
+    "asterPrivateRecordSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "mode": { "enum": ["runtime-candidate", "mirror-control"] },
+    "profileId": { "$ref": "#/$defs/nonEmptyString" },
+    "asterCommit": { "$ref": "#/$defs/commit" },
+    "schemaSourceCommit": { "$ref": "#/$defs/commit" },
+    "harnessCommit": { "$ref": "#/$defs/commit" },
+    "profileSha256": { "$ref": "#/$defs/sha256" },
+    "schemaSha256": { "$ref": "#/$defs/sha256" },
+    "oracleImageDigest": { "$ref": "#/$defs/imageDigest" },
+    "candidateImageDigest": { "$ref": "#/$defs/imageDigest" },
+    "uiSource": { "$ref": "#/$defs/uiSource" },
+    "differential": { "$ref": "#/$defs/differential" },
+    "candidateInvariantControls": {
+      "$ref": "#/$defs/candidateInvariantControls"
+    },
+    "browser": { "$ref": "#/$defs/browser" },
+    "conformance": { "$ref": "#/$defs/conformance" },
+    "evidenceManifestSha256": { "$ref": "#/$defs/sha256" },
+    "artifactFiles": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filename", "sha256", "size"],
+          "properties": {
+            "filename": { "const": "phase-1-browser.json" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "size": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filename", "sha256", "size"],
+          "properties": {
+            "filename": { "const": "phase-1-candidate-invariants.json" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "size": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filename", "sha256", "size"],
+          "properties": {
+            "filename": { "const": "phase-1-conformance.json" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "size": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filename", "sha256", "size"],
+          "properties": {
+            "filename": { "const": "phase-1-differential.json" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "size": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+          }
+        }
+      ],
+      "items": false
+    },
+    "statement": { "$ref": "#/$defs/nonEmptyString" },
+    "asterGovernanceSatisfied": { "const": true },
+    "asterPrivateRecordSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": { "mode": { "const": "mirror-control" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "conformance": {
+            "type": "object",
+            "properties": {
+              "officialPlanIds": { "type": "array", "maxItems": 0 }
+            }
+          },
+          "statement": {
+            "const": "Mirror control only; this record does not claim Aster runtime compatibility or OpenID Foundation certification."
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": { "mode": { "const": "runtime-candidate" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "conformance": {
+            "type": "object",
+            "properties": {
+              "officialPlanIds": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "statement": {
+            "const": "Aster Phase 1 acceptance passed for the pinned profile, schema, harness, images, and evidence."
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "imageDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "gitObject": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "uiSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consoleTree",
+        "experienceTree",
+        "demoAppTree",
+        "pnpmLockBlob"
+      ],
+      "properties": {
+        "consoleTree": { "$ref": "#/$defs/gitObject" },
+        "experienceTree": { "$ref": "#/$defs/gitObject" },
+        "demoAppTree": { "$ref": "#/$defs/gitObject" },
+        "pnpmLockBlob": { "$ref": "#/$defs/gitObject" }
+      }
+    },
+    "differential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioCount", "differenceCount", "aggregateSha256"],
+      "properties": {
+        "scenarioCount": { "type": "integer", "const": 22 },
+        "differenceCount": { "type": "integer", "const": 0 },
+        "aggregateSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "candidateInvariantControls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarioCount", "allDetected", "aggregateSha256"],
+      "properties": {
+        "scenarioCount": { "type": "integer", "const": 18 },
+        "allDetected": { "const": true },
+        "aggregateSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "browser": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flowCount", "differenceCount", "aggregateSha256"],
+      "properties": {
+        "flowCount": { "type": "integer", "const": 4 },
+        "differenceCount": { "type": "integer", "const": 0 },
+        "aggregateSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "opaqueResultId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$"
+    },
+    "conformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapterIds", "officialPlanIds"],
+      "properties": {
+        "adapterIds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "prefixItems": [
+            { "const": "oidf-basic-1" },
+            { "const": "oidf-basic-2" },
+            { "const": "oidf-post-1" }
+          ],
+          "items": false
+        },
+        "officialPlanIds": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueResultId" }
+        }
+      }
+    }
+  }
+}

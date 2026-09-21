@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: 'Échec de la connexion',
   },
   update_endpoint_notice:
-    'N’oubliez pas de mettre à jour le domaine pour l’URI de rappel du connecteur social et le point de terminaison Logto dans votre application si vous souhaitez utiliser un domaine personnalisé pour les fonctionnalités.',
+    'N’oubliez pas de mettre à jour le domaine pour l’URI de rappel du connecteur social et le point de terminaison Aster dans votre application si vous souhaitez utiliser un domaine personnalisé pour les fonctionnalités.',
   error_hint:
     'Assurez-vous de mettre à jour vos enregistrements DNS. Nous continuerons à vérifier toutes les {{value}} secondes.',
   custom: {
@@ -39,7 +39,7 @@ const domain = {
       in_used_description:
         'Êtes-vous sûr de vouloir supprimer ce domaine personnalisé "<span>{{domain}}</span>" ?',
       in_used_tip:
-        'Si vous avez configuré ce domaine personnalisé dans votre fournisseur de connecteur social ou le point de terminaison de l’application avant, vous devrez d’abord modifier l’URI vers le domaine Logto par défaut "<span>{{domain}}</span>". Ceci est nécessaire pour que le bouton de connexion sociale fonctionne correctement.',
+        'Si vous avez configuré ce domaine personnalisé dans votre fournisseur de connecteur social ou le point de terminaison de l’application avant, vous devrez d’abord modifier l’URI vers le domaine Aster par défaut "<span>{{domain}}</span>". Ceci est nécessaire pour que le bouton de connexion sociale fonctionne correctement.',
       deleted: 'Suppression du domaine personnalisé réussie !',
     },
     config_custom_domain_description:
@@ -67,8 +67,8 @@ const domain = {
   default: {
     default_domain: 'Domaine par défaut',
     default_domain_description:
-      'Logto offre un domaine par défaut préconfiguré, prêt à être utilisé sans aucune configuration supplémentaire. Ce domaine par défaut sert de solution de secours même si vous avez activé un domaine personnalisé.',
-    default_domain_field: 'Domaine par défaut de Logto',
+      'Aster offre un domaine par défaut préconfiguré, prêt à être utilisé sans aucune configuration supplémentaire. Ce domaine par défaut sert de solution de secours même si vous avez activé un domaine personnalisé.',
+    default_domain_field: "Domaine par défaut d'Aster",
   },
   custom_endpoint_note:
     'Vous pouvez personnaliser le nom de domaine de ces points de terminaison selon vos besoins. Choisissez soit "{{custom}}" ou "{{default}}".',

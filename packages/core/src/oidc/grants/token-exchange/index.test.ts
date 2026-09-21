@@ -1,3 +1,4 @@
+import { buildOrganizationUrn } from '@logto/core-kit';
 import { type SubjectToken } from '@logto/schemas';
 import { type KoaContextWithOIDC, errors } from 'oidc-provider';
 import Sinon from 'sinon';
@@ -256,7 +257,7 @@ describe('token exchange', () => {
       expect(value).toMatchObject({
         accountId,
         clientId,
-        aud: 'urn:logto:organization:some_org_id',
+        aud: buildOrganizationUrn('some_org_id'),
       });
     });
   });

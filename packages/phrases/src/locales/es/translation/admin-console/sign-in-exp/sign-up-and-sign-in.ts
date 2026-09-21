@@ -62,7 +62,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Experiencia de inicio de sesión social',
     automatic_account_linking: 'Vincular automáticamente las cuentas con el mismo identificador',
     automatic_account_linking_tip:
-      'Cuando está habilitado, si un usuario inicia sesión con una nueva identidad social y existe exactamente una cuenta con el mismo identificador (por ejemplo, una dirección de correo electrónico), Logto vinculará automáticamente la identidad social a esa cuenta. No se le pedirá al usuario que elija si desea vincular cuentas.',
+      'Cuando está habilitado, si un usuario inicia sesión con una nueva identidad social y existe exactamente una cuenta con el mismo identificador (por ejemplo, una dirección de correo electrónico), Aster vinculará automáticamente la identidad social a esa cuenta. No se le pedirá al usuario que elija si desea vincular cuentas.',
     required_sign_up_identifiers:
       'Requerir a los usuarios que proporcionen identificadores de registro faltantes',
     required_sign_up_identifiers_tip:
@@ -114,7 +114,7 @@ const sign_up_and_sign_in = {
       'Habilitar o deshabilitar el registro de usuarios. Una vez deshabilitado, los usuarios aún se pueden agregar en la consola de administración, pero los usuarios ya no pueden establecer cuentas a través de la interfaz de inicio de sesión.',
     unknown_session_redirect_url: 'URL de redirección de sesión desconocida',
     unknown_session_redirect_url_tip:
-      'A veces, Logto puede no reconocer la sesión de un usuario en la página de inicio de sesión, como cuando una sesión expira o el usuario marca como favorito o comparte el enlace de inicio de sesión. Por defecto, aparece un error 404 de “sesión desconocida”. Para mejorar la experiencia del usuario, establece una URL de respaldo para redirigir a los usuarios de vuelta a tu aplicación y reiniciar la autenticación.',
+      'A veces, Aster puede no reconocer la sesión de un usuario en la página de inicio de sesión, como cuando una sesión expira o el usuario marca como favorito o comparte el enlace de inicio de sesión. Por defecto, aparece un error 404 de “sesión desconocida”. Para mejorar la experiencia del usuario, establece una URL de respaldo para redirigir a los usuarios de vuelta a tu aplicación y reiniciar la autenticación.',
   },
   username_policy: {
     title: 'Política de nombre de usuario',

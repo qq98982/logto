@@ -21,12 +21,12 @@ const webhook_details = {
     settings_description:
       "I webhook ti consentono di ricevere aggiornamenti in tempo reale su eventi specifici non appena avvengono, inviando una richiesta POST all'URL dell'endpoint. Ciò ti consente di agire immediatamente in base alle nuove informazioni ricevute.",
     events: 'Eventi',
-    events_description: 'Seleziona gli eventi trigger che Logto invierà la richiesta POST.',
+    events_description: 'Seleziona gli eventi trigger che Aster invierà la richiesta POST.',
     name: 'Nome',
     endpoint_url: 'Endpoint URL',
     signing_key: 'Chiave di firma',
     signing_key_tip:
-      "Aggiungi la chiave segreta fornita da Logto al tuo endpoint come header richiesta per garantire l'autenticità del payload del webhook.",
+      "Aggiungi la chiave segreta fornita da Aster al tuo endpoint come header richiesta per garantire l'autenticità del payload del webhook.",
     regenerate: 'Rigenera',
     regenerate_key_title: 'Rigenera chiave di firma',
     regenerate_key_reminder:

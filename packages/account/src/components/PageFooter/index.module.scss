@@ -38,11 +38,6 @@
   }
 }
 
-.signature {
-  flex-shrink: 0;
-  max-width: 100%;
-}
-
 :global(body.mobile) {
   .footer {
     flex-wrap: wrap;

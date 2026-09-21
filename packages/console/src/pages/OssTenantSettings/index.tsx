@@ -6,11 +6,8 @@ import DynamicT from '@/ds-components/DynamicT';
 import TabNav, { TabNavItem } from '@/ds-components/TabNav';
 
 import styles from './index.module.scss';
-import { shouldShowOssTenantMembersTab } from './utils';
 
 function OssTenantSettings() {
-  const shouldShowMembersTab = shouldShowOssTenantMembersTab({ isCloud: false });
-
   return (
     <div className={styles.container}>
       <CardTitle
@@ -22,11 +19,6 @@ function OssTenantSettings() {
         <TabNavItem href={`/tenant-settings/${TenantSettingsTabs.OidcConfigs}`}>
           <DynamicT forKey="tenants.tabs.oidc_configs" />
         </TabNavItem>
-        {shouldShowMembersTab && (
-          <TabNavItem href={`/tenant-settings/${TenantSettingsTabs.Members}`}>
-            <DynamicT forKey="tenants.tabs.members" />
-          </TabNavItem>
-        )}
       </TabNav>
       <Outlet />
     </div>

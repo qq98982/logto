@@ -17,6 +17,7 @@ export type NormalizationRule =
 export type NormalizationContext = {
   target: TargetConfig;
   symbols: SymbolTable;
+  nativeSurfaceImplementation?: 'oracle' | 'candidate';
 };
 
 export type JsonValue =

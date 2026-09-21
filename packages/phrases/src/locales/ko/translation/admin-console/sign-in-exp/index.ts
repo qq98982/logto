@@ -27,7 +27,7 @@ const sign_in_exp = {
     primary_color: '브랜드 색상',
     dark_primary_color: '브랜드 색상 (다크 모드)',
     dark_mode: '다크 모드 활성화',
-    dark_mode_description: 'Logto 가 브랜드 색상에 알맞게 자동으로 다크 모드 테마를 생성해요.',
+    dark_mode_description: 'Aster 가 브랜드 색상에 알맞게 자동으로 다크 모드 테마를 생성해요.',
     dark_mode_reset_tip: '브랜드 색상에 알맞게 다크 모드 색상',
     reset: '재생성',
   },
@@ -39,10 +39,6 @@ const sign_in_exp = {
     app_logo_and_favicon: '앱 로고 및 파비콘',
     company_logo_and_favicon: '회사 로고 및 파비콘',
     organization_logo_and_favicon: '조직 로고 및 파비콘',
-    hide_logto_branding: 'Logto 브랜딩 숨기기',
-    hide_logto_branding_description:
-      '"Powered by Logto" 문구를 제거하고 깔끔하고 전문적인 로그인 경험에서 브랜드만 돋보이게 하세요.',
-    hide_logto_branding_oss_note: '이 기능은 <a>Logto Cloud</a>에서 기본 제공됩니다.',
   },
   branding_uploads: {
     app_logo: {
@@ -78,7 +74,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: '커스텀 UI',
-    cloud_tag: 'Cloud',
     css_code_editor_title: '커스텀 CSS',
     css_code_editor_field_title: 'CSS 오버라이드',
     css_code_editor_description1: '커스텀 CSS 예제를 확인하세요.',
@@ -89,11 +84,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'UI 가져오기',
     bring_your_ui_upload_title: '커스텀 UI 자산 업로드',
     bring_your_ui_description:
-      'Logto 가미리 제공하는 UI 를 나만의 코드로 대체하기 위해 압축 패키지 (.zip)를 업로드하세요. <a>더 알아보기</a>',
-    bring_your_ui_oss_description: '자신의 코드로 로그인 UI를 맞춤 설정하세요.',
-    bring_your_ui_oss_card_description:
-      '사용자 지정 로그인 UI를 <a>Logto Cloud</a>에 직접 업로드하세요. 포크하거나 다시 배포할 필요가 없습니다.',
-    bring_your_ui_oss_try_cloud: 'Cloud 사용해 보기',
+      'Aster 가미리 제공하는 UI 를 나만의 코드로 대체하기 위해 압축 패키지 (.zip)를 업로드하세요. <a>더 알아보기</a>',
     preview_with_bring_your_ui_description:
       '커스텀 UI 자산이 성공적으로 업로드되어 현재 제공되고 있습니다. 따라서 기본 제공 미리보기 창이 비활성화되었습니다.\n개인화된 로그인 UI 를 테스트하려면 "실시간 미리보기" 버튼을 클릭하여 새 브라우저 탭에서 엽니다.',
     csp_description:
@@ -110,10 +101,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: '계정 센터',
-    description: 'Logto API로 계정 센터 플로우를 사용자 지정하세요.',
+    description: 'Aster API로 계정 센터 플로우를 사용자 지정하세요.',
     enable_account_api: '계정 센터와 Account API 활성화',
     enable_account_api_description:
-      '최종 사용자용 Account API와 Logto의 즉시 제공되는 계정 센터를 함께 활성화합니다. 끄면 두 기능 모두 사용할 수 없습니다.',
+      '최종 사용자용 Account API와 Aster의 즉시 제공되는 계정 센터를 함께 활성화합니다. 끄면 두 기능 모두 사용할 수 없습니다.',
     field_options: {
       off: '끄기',
       edit: '편집',

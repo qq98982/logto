@@ -34,7 +34,7 @@ const organizations = {
     title: 'Comece com guias',
     subtitle: 'Inicie as configurações da sua organização com os nossos guias',
     introduction: {
-      title: 'Vamos entender como uma organização funciona na Logto',
+      title: 'Vamos entender como uma organização funciona na Aster',
       section_1: {
         title: 'Uma organização é um grupo de utilizadores (identidades)',
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           'O modelo de organização é projetado para o controlo de acesso a aplicações multi-inquilinos',
         description:
-          'Nas aplicações SaaS multi-inquilinos, muitas organizações frequentemente partilham o mesmo modelo de controlo de acesso, que inclui permissões e funções. Na Logto, chamamos-lhe "modelo de organização."',
+          'Nas aplicações SaaS multi-inquilinos, muitas organizações frequentemente partilham o mesmo modelo de controlo de acesso, que inclui permissões e funções. Na Aster, chamamos-lhe "modelo de organização."',
         permission_description:
           'A permissão da organização refere-se à autorização para aceder a um recurso no contexto da organização.',
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: 'Posso atribuir permissões de API a papéis de organização?',
         description:
-          'Sim, pode atribuir permissões de API a papéis de organização. O Logto oferece a flexibilidade para gerir eficazmente os papéis da sua organização, permitindo incluir tanto permissões de organização como permissões de API nesses papéis.',
+          'Sim, pode atribuir permissões de API a papéis de organização. O Aster oferece a flexibilidade para gerir eficazmente os papéis da sua organização, permitindo incluir tanto permissões de organização como permissões de API nesses papéis.',
       },
       section_4: {
         title: 'Interaja com a ilustração para ver como tudo está conectado',

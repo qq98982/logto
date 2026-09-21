@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'MAU 는 청구 주기 동안 Logto 와 적어도 한 번 토큰을 교환한 고유 사용자입니다. Pro 플랜에는 무제한입니다. <a>자세히 알아보기</a>',
+      'MAU 는 청구 주기 동안 Aster 와 적어도 한 번 토큰을 교환한 고유 사용자입니다. Pro 플랜에는 무제한입니다. <a>자세히 알아보기</a>',
     tooltip_for_enterprise:
-      'MAU 는 청구 주기 동안 Logto 와 적어도 한 번 토큰을 교환한 고유 사용자입니다. 기업 플랜에서는 무제한입니다.',
+      'MAU 는 청구 주기 동안 Aster 와 적어도 한 번 토큰을 교환한 고유 사용자입니다. 기업 플랜에서는 무제한입니다.',
   },
   organizations: {
     title: '조직',

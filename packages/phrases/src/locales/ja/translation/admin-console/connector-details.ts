@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+1 555-123-4567',
   test_message_sent: 'テストメッセージが送信されました',
   test_sender_description:
-    'Logto はテストのために「共通」テンプレートを使用しています。コネクタが正しく構成されている場合、メッセージを受信します。',
+    'Aster はテストのために「共通」テンプレートを使用しています。コネクタが正しく構成されている場合、メッセージを受信します。',
   options_change_email: 'メールコネクタの変更',
   options_change_sms: 'SMS コネクタの変更',
   connector_deleted: 'コネクタが正常に削除されました',
@@ -34,43 +34,6 @@ const connector_details = {
     'この{{name}}はあなたのサインイン体験で使用されています。削除すると、競合が解決されるまでサインイン体験が正常に機能しません。再追加する場合は再設定する必要があります。',
   deletion_description:
     'このコネクタを削除します。元に戻すことはできず、再追加する場合は再設定する必要があります。',
-  logto_email: {
-    total_email_sent: '総送信数: {{value, number}}',
-    total_email_sent_tip:
-      'Logto はセキュアかつ安定した組み込みメールのために SendGrid を利用しています。完全に無料です。<a>詳細を見る</a>',
-    hosted_email_usage: {
-      daily: '日次 <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: '日次 <value>{{usage, number}}</value>',
-      monthly: '月次 <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: '月次 <value>{{usage, number}}</value>',
-      tip: 'Free および Development プランには、組み込みメールサービスの日次および月次の上限が含まれます。',
-      banner: {
-        approaching:
-          'Logto の組み込みメールサービスの送信上限に近づいています。Logto の組み込みメールサービスを引き続き使用するには、<provider>独自のメールプロバイダーを接続</provider>するか、<upgrade>プランをアップグレード</upgrade>してください。',
-        reached:
-          'Logto の組み込みメールサービスの送信上限に達しました。サインインメールが中断される可能性があります。Logto の組み込みメールサービスを引き続き使用するには、<provider>独自のメールプロバイダーを接続</provider>するか、<upgrade>プランをアップグレード</upgrade>してください。',
-      },
-    },
-    email_template_title: 'メールテンプレート',
-    template_description:
-      '組み込みのメールは、シームレスな認証メールの配信のためにデフォルトのテンプレートを使用します。設定は必要ありません。基本的なブランド情報をカスタマイズできます。',
-    template_description_link_text: 'テンプレートを表示',
-    description_action_text: 'テンプレートを表示',
-    from_email_field: '送信元メールアドレス',
-    sender_name_field: '送信元名',
-    sender_name_tip:
-      'メールの送信元名をカスタマイズします。空白の場合、「Verification」がデフォールト名として使用されます。',
-    sender_name_placeholder: '送信元の名前を入力してください',
-    company_information_field: '企業情報',
-    company_information_description:
-      'メールの下部に会社名、住所、郵便番号などを表示して、真正性を高めます。',
-    company_information_placeholder: '会社の基本情報を入力してください',
-    email_logo_field: 'メール ロゴ',
-    email_logo_tip:
-      'メールの上部にブランドロゴを表示します。ライトモードとダークモードの両方で同じ画像を使用します。',
-    urls_not_allowed: 'URLは許可されません',
-    test_notes: 'Logto はテストのために「共通」テンプレートを使用しています。',
-  },
   google_one_tap: {
     title: 'Google ワンタップ',
     description:

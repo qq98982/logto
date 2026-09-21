@@ -21,7 +21,7 @@ export type Props = AnchorHTMLAttributes<HTMLAnchorElement> &
      * - When it's `true`, the `rel` attribute will be set to `noopener noreferrer`.
      * - When it's `noopener`, the `rel` attribute will be set to `noopener`.
      *
-     * Typically, when navigating to Logto's website (official site, blog, documentation, etc.), use 'noopener'.
+     * Use `noopener` for links to configured external Aster services.
      *
      * Note: This prop is align with the `targetBlank` prop of {@link LinkButton}, they share the same logic.
      */
@@ -30,6 +30,7 @@ export type Props = AnchorHTMLAttributes<HTMLAnchorElement> &
 
 function TextLink({
   to,
+  href,
   children,
   icon,
   isTrailingIcon = false,
@@ -42,13 +43,14 @@ function TextLink({
   const props = useMemo(
     () => ({
       ...rest,
+      href,
       className: classNames(styles.link, isTrailingIcon && styles.trailingIcon, className),
       ...(Boolean(targetBlank) && {
         rel: typeof targetBlank === 'string' ? targetBlank : 'noopener noreferrer',
         target: '_blank',
       }),
     }),
-    [className, isTrailingIcon, rest, targetBlank]
+    [className, href, isTrailingIcon, rest, targetBlank]
   );
 
   if (to) {
@@ -60,12 +62,12 @@ function TextLink({
     );
   }
 
-  return (
+  return href ? (
     <a {...props}>
       {icon}
       {children}
     </a>
-  );
+  ) : null;
 }
 
 export default TextLink;

@@ -35,10 +35,11 @@ RUN pnpm --filter @logto/connector-wechat-web test \
 
 FROM connector-test AS white-label-test
 
-RUN pnpm --filter @logto/experience exec jest \
-  src/shared/components/LogtoSignature/index.test.tsx \
-  src/utils/social-connectors.test.ts \
-  --runInBand
+RUN test ! -e packages/experience/src/shared/components/LogtoSignature \
+  && ! grep -R -F 'LogtoSignature' packages/experience/src packages/account/src \
+  && pnpm --filter @logto/experience exec jest \
+    src/utils/social-connectors.test.ts \
+    --runInBand
 
 FROM white-label-test AS box-ai-build
 

@@ -21,7 +21,7 @@ const protected_app = {
     domain_field_description_short:
       "Questo URL funge da proxy di protezione dell'autenticazione per l'URL originale.",
     domain_field_tooltip:
-      "Le app protette da Logto saranno ospitate di default su 'tuo-dominio.{{domain}}'. Il dominio personalizzato può essere applicato dopo la creazione.",
+      "Le app protette da Aster saranno ospitate di default su 'tuo-dominio.{{domain}}'. Il dominio personalizzato può essere applicato dopo la creazione.",
     create_application: 'Crea applicazione',
     create_protected_app: 'Creazione rapida',
     errors: {

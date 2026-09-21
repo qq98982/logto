@@ -41,9 +41,9 @@ const content = {
     subtitle:
       'Localiza la experiencia del producto añadiendo idiomas y traducciones. Tu contribución se puede establecer como idioma predeterminado.',
     add_language: 'Añadir idioma',
-    logto_provided: 'Proporcionado por Logto',
+    aster_provided: 'Proporcionado por Aster',
     key: 'Clave',
-    logto_source_values: 'Valores de origen de Logto',
+    aster_source_values: 'Valores de origen de Aster',
     custom_values: 'Valores personalizados',
     clear_all_tip: 'Borrar todos los valores',
     unsaved_description: 'Los cambios no se guardarán si sales de esta página sin guardar.',

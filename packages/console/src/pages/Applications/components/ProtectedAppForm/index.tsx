@@ -14,6 +14,7 @@ import ContactUsPhraseLink from '@/components/ContactUsPhraseLink';
 import QuotaGuardFooter from '@/components/QuotaGuardFooter';
 import SkuName from '@/components/SkuName';
 import { isProtectedAppEnabled, isProtectedAppLocalDevEnabled } from '@/consts/env';
+import { resolveAsterDocumentationLink } from '@/consts/external-links';
 import { SubscriptionDataContext } from '@/contexts/SubscriptionDataProvider';
 import Button, { type Props as ButtonProps } from '@/ds-components/Button';
 import FormField from '@/ds-components/FormField';
@@ -150,7 +151,11 @@ function ProtectedAppForm({
                 <Trans
                   components={{
                     a: (
-                      <TextLink to="https://docs.logto.io/docs/recipes/protected-app/#local-development" />
+                      <TextLink
+                        href={resolveAsterDocumentationLink(
+                          'integration/protected-app#local-development'
+                        )}
+                      />
                     ),
                   }}
                 >

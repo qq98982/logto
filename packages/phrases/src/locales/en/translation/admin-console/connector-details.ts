@@ -21,7 +21,7 @@ const connector_details = {
   test_sms_placeholder: '+1 555-123-4567',
   test_message_sent: 'Test message sent',
   test_sender_description:
-    'Logto uses the "Generic" template for testing. You will receive a message if your connector is rightly configured.',
+    'Aster uses the "Generic" template for testing. You will receive a message if your connector is rightly configured.',
   options_change_email: 'Change email connector',
   options_change_sms: 'Change SMS connector',
   connector_deleted: 'The connector has been successfully deleted',
@@ -34,43 +34,6 @@ const connector_details = {
     'This {{name}} is in-use in your sign-in experience. By deleting, your sign-in experience will not work properly until you resolve the conflict. You will need to reconfigure it if you decide to add it back.',
   deletion_description:
     'You are removing this connector. It cannot be undone, and you will need to reconfigure it if you decide to add it back.',
-  logto_email: {
-    total_email_sent: 'Total email sent: {{value, number}}',
-    total_email_sent_tip:
-      'Logto utilizes SendGrid for secure and stable built-in email. It’s completely free to use. <a>Learn more</a>',
-    hosted_email_usage: {
-      daily: 'Daily <value>{{usage, number}}</value> / {{limit, number}}',
-      daily_unlimited: 'Daily <value>{{usage, number}}</value>',
-      monthly: 'Monthly <value>{{usage, number}}</value> / {{limit, number}}',
-      monthly_unlimited: 'Monthly <value>{{usage, number}}</value>',
-      tip: 'Free and Development plans include daily and monthly built-in email service limits.',
-      banner: {
-        approaching:
-          "You're approaching your Logto built-in email service sending limit. <provider>Connect your own email provider</provider>, or <upgrade>upgrade your plan</upgrade> to keep using the Logto built-in email service.",
-        reached:
-          "You've reached your Logto built-in email service sending limit, which may interrupt sign-in emails. <provider>Connect your own email provider</provider>, or <upgrade>upgrade your plan</upgrade> to keep using the Logto built-in email service.",
-      },
-    },
-    email_template_title: 'Email Template',
-    template_description:
-      'Built-in email uses default templates for seamless delivery of verification emails. No configuration is required, and you can customize basic brand information.',
-    template_description_link_text: 'View templates',
-    description_action_text: 'View templates',
-    from_email_field: 'From email',
-    sender_name_field: 'Sender name',
-    sender_name_tip:
-      'Customize the sender name for emails. If left empty, "Verification" will be used as the default name.',
-    sender_name_placeholder: 'Your sender name',
-    company_information_field: 'Company information',
-    company_information_description:
-      'Display your company name, address, or zip code in the bottom of emails to enhance authenticity.',
-    company_information_placeholder: "Your company's basic information",
-    email_logo_field: 'Email logo',
-    email_logo_tip:
-      'Display your brand logo in the top of emails. Use the same image for both light mode and dark mode.',
-    urls_not_allowed: 'URLs are not allowed',
-    test_notes: 'Logto uses the “Generic” template for testing.',
-  },
   google_one_tap: {
     title: 'Google One Tap',
     description: 'Google One Tap is a secure and easy way for users to sign in to your website.',

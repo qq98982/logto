@@ -7,9 +7,9 @@ const api_resource_details = {
   settings_description:
     'Ресурсы API, также известные как индикаторы ресурсов, указывают целевые службы или ресурсы, запрашиваемые обычно в виде переменной формата URI, представляющей идентификатор ресурса.',
   management_api_settings_description:
-    'Logto Management API - это комплексный набор API, который дает администраторам возможность управлять широким спектром задач, связанных с идентификацией, обеспечивать политику безопасности и соблюдать требования и стандарты.',
+    'Aster Management API - это комплексный набор API, который дает администраторам возможность управлять широким спектром задач, связанных с идентификацией, обеспечивать политику безопасности и соблюдать требования и стандарты.',
   management_api_notice:
-    "Bu API, Logto varlığını temsil eder ve değiştirilemez veya silinemez. Logto yönetim API'sini çağırmak için makineden makineye bir uygulama oluşturun. <a>Daha fazla bilgi edinin</a>",
+    "Bu API, Aster varlığını temsil eder ve değiştirilemez veya silinemez. Aster yönetim API'sini çağırmak için makineden makineye bir uygulama oluşturun. <a>Daha fazla bilgi edinin</a>",
   token_expiration_time_in_seconds: 'Время истечения токена (в секундах)',
   token_expiration_time_in_seconds_placeholder: 'Введите время истечения вашего токена',
   delete_description:

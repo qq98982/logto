@@ -64,10 +64,10 @@ const enterprise_sso_details = {
     'Füllen Sie die Informationen vom Identitätsanbieter aus, um eine Verbindung herzustellen.',
   service_provider_property_title: 'Konfigurieren im Identitätsanbieter',
   service_provider_property_description:
-    'Richten Sie eine Anwendungsintegration mit {{protocol}} in Ihrem Identitätsanbieter ein. Geben Sie die von Logto bereitgestellten Details ein.',
+    'Richten Sie eine Anwendungsintegration mit {{protocol}} in Ihrem Identitätsanbieter ein. Geben Sie die von Aster bereitgestellten Details ein.',
   attribute_mapping_title: 'Attributzuordnungen',
   attribute_mapping_description:
-    'Synchronisieren Sie Benutzerprofile vom Identitätsanbieter, indem Sie die Benutzerattributzumordnung entweder auf der Seite des Identitätsanbieters oder von Logto konfigurieren.',
+    'Synchronisieren Sie Benutzerprofile vom Identitätsanbieter, indem Sie die Benutzerattributzumordnung entweder auf der Seite des Identitätsanbieters oder von Aster konfigurieren.',
   saml_preview: {
     sign_on_url: 'Anmeldungs-URL',
     entity_id: 'Aussteller',
@@ -108,7 +108,7 @@ const enterprise_sso_details = {
       'Die Client Callback-URI zum Initiieren eines SP-initiierten SSO-Authentifizierungsflusses. Eine ssoConnectorId wird der URI als Abfrageparameter hinzugefügt. (z.B., https://deine.domain/sso/callback?connectorId={{ssoConnectorId}})',
     redirect_uri: 'Post-Login Redirect-URI',
     redirect_uri_tooltip:
-      'Die Redirect-URI, um Benutzer nach erfolgreichem Anmelden weiterzuleiten. Logto wird diese URI als die OIDC-Redirect-URI in der Autorisierungsanforderung verwenden. Verwende eine dedizierte URI für den IdP-initiierten SSO-Authentifizierungsfluss für bessere Sicherheit.',
+      'Die Redirect-URI, um Benutzer nach erfolgreichem Anmelden weiterzuleiten. Aster wird diese URI als die OIDC-Redirect-URI in der Autorisierungsanforderung verwenden. Verwende eine dedizierte URI für den IdP-initiierten SSO-Authentifizierungsfluss für bessere Sicherheit.',
     empty_redirect_uris_error:
       'Keine Redirect-URI wurde für die Anwendung registriert. Bitte füge zuerst eine hinzu.',
     redirect_uri_placeholder: 'Wähle eine Post-Login Redirect-URI',
@@ -120,9 +120,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     'Vertraue immer den unverifizierten E-Mail-Adressen, die vom Identitätsanbieter zurückgegeben werden',
   trust_unverified_email_tip:
-    'Der Entra ID (OIDC) Connector gibt den `email_verified` Anspruch nicht zurück, was bedeutet, dass E-Mail-Adressen von Azure nicht garantiert überprüft werden. Standardmäßig synchronisiert Logto keine unverifizierten E-Mail-Adressen mit dem Benutzerprofil. Aktiviere diese Option nur, wenn du allen E-Mail-Adressen aus dem Entra ID Verzeichnis vertraust.',
+    'Der Entra ID (OIDC) Connector gibt den `email_verified` Anspruch nicht zurück, was bedeutet, dass E-Mail-Adressen von Azure nicht garantiert überprüft werden. Standardmäßig synchronisiert Aster keine unverifizierten E-Mail-Adressen mit dem Benutzerprofil. Aktiviere diese Option nur, wenn du allen E-Mail-Adressen aus dem Entra ID Verzeichnis vertraust.',
   trust_unverified_email_tip_oidc:
-    'Der OIDC-Connector gibt den `email_verified`-Claim möglicherweise nicht zurück, was bedeutet, dass E-Mail-Adressen vom IdP nicht garantiert verifiziert sind. Standardmäßig synchronisiert Logto keine unverifizierten E-Mail-Adressen mit dem Benutzerprofil. Aktivieren Sie diese Option nur, wenn Sie allen E-Mail-Adressen des IdP vertrauen.',
+    'Der OIDC-Connector gibt den `email_verified`-Claim möglicherweise nicht zurück, was bedeutet, dass E-Mail-Adressen vom IdP nicht garantiert verifiziert sind. Standardmäßig synchronisiert Aster keine unverifizierten E-Mail-Adressen mit dem Benutzerprofil. Aktivieren Sie diese Option nur, wenn Sie allen E-Mail-Adressen des IdP vertrauen.',
   offline_access: {
     label: 'Zugriffstoken aktualisieren',
     description:

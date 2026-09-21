@@ -1,7 +1,7 @@
 const get_started = {
   page_title: 'Commencer',
   title: 'Quelque chose à explorer pour vous aider à réussir',
-  subtitle: 'Quelques choses que vous pouvez faire pour obtenir rapidement de la valeur de Logto',
+  subtitle: "Quelques choses que vous pouvez faire pour obtenir rapidement de la valeur d'Aster",
   develop: {
     title: 'Développer: Prenez 5 minutes pour intégrer votre application',
     title_cloud: 'Développer: Intégrez votre application de manière sécurisée en quelques minutes',
@@ -15,7 +15,7 @@ const get_started = {
       title:
         "Vérifiez l'aperçu en direct de l'expérience de connexion que vous venez de personnaliser",
       subtitle:
-        "Essayez dès maintenant l'expérience de connexion de Logto pour voir comment cela fonctionne",
+        "Essayez dès maintenant l'expérience de connexion d'Aster pour voir comment cela fonctionne",
     },
     connector: {
       title:
@@ -46,26 +46,6 @@ const get_started = {
     subtitle:
       'Vous utilisez un locataire de développement pour les tests gratuits. Pour passer en direct, créez ou convertissez en un locataire de production. Besoin de quelque chose de personnalisé? <a>Contactez-nous</a>',
     convert_button: 'Convertir en locataire de production',
-  },
-  oss_cloud: {
-    try: {
-      title: 'Évitez le travail d’exploitation et essayez Logto Cloud gratuitement',
-      badge: 'Recommandé',
-      description:
-        'Profitez d’un Logto entièrement géré sans maintenance, avec en plus une intégration rapide via MCP, la prise en charge du multi-tenant, la collaboration d’équipe et toutes les fonctionnalités premium incluses. Commencez gratuitement, sans carte bancaire.',
-      action: 'Explorer Logto Cloud',
-    },
-    private_cloud: {
-      title: 'Besoin de conformité ou d’un déploiement personnalisé ?',
-      card_title: 'Cloud privé',
-      description:
-        'Obtenez une instance Logto dédiée avec isolation complète des données, domaine personnalisé et garanties SLA. Idéal pour les entreprises ayant des exigences strictes en matière de résidence des données ou de conformité. Nous gérons l’infrastructure pour que vous puissiez vous concentrer sur votre produit.',
-    },
-    sidebar: {
-      title: 'Concentrez-vous sur le développement, pas sur l’hébergement.',
-      description: 'Laissez Logto Cloud gérer l’infrastructure d’authentification pour vous.',
-      action: 'Essayer Logto Cloud',
-    },
   },
   view_all: 'Tout afficher →',
 };

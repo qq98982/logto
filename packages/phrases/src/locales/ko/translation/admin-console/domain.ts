@@ -5,7 +5,7 @@ const domain = {
     failed_to_connect: '연결 실패',
   },
   update_endpoint_notice:
-    '사용자 지정 도메인을 사용하려면 애플리케이션에서 소셜 커넥터 콜백 URI 및 Logto 엔드포인트의 도메인을 업데이트해야합니다.',
+    '사용자 지정 도메인을 사용하려면 애플리케이션에서 소셜 커넥터 콜백 URI 및 Aster 엔드포인트의 도메인을 업데이트해야합니다.',
   error_hint: 'DNS 레코드를 업데이트해야합니다. {{value}}초마다 체크하도록 계속합니다.',
   custom: {
     custom_domain: '사용자 지정 도메인',
@@ -38,7 +38,7 @@ const domain = {
       in_used_description:
         '이 사용자 지정 도메인 "<span>{{domain}}</span>"이 현재 사용 중입니다. 삭제하시겠습니까?',
       in_used_tip:
-        '이전에 소셜 커넥터 공급자나 애플리케이션 엔드포인트에 이 사용자 지정 도메인을 설정한 경우 로그인 버튼이 작동하도록 먼저 Logto 기본 도메인의 "<span>{{domain}}</span>" URI를 수정해야합니다.',
+        '이전에 소셜 커넥터 공급자나 애플리케이션 엔드포인트에 이 사용자 지정 도메인을 설정한 경우 로그인 버튼이 작동하도록 먼저 Aster 기본 도메인의 "<span>{{domain}}</span>" URI를 수정해야합니다.',
       deleted: '사용자 지정 도메인을 성공적으로 삭제했습니다!',
     },
     config_custom_domain_description:
@@ -66,8 +66,8 @@ const domain = {
   default: {
     default_domain: '기본 도메인',
     default_domain_description:
-      'Logto는 추가 구성 없이 사용할 수 있는 미리 구성된 기본 도메인을 제공합니다. 이 기본 도메인은 사용자 지정 도메인을 사용하지 않더라도 백업 옵션으로 사용됩니다.',
-    default_domain_field: 'Logto 기본 도메인',
+      'Aster는 추가 구성 없이 사용할 수 있는 미리 구성된 기본 도메인을 제공합니다. 이 기본 도메인은 사용자 지정 도메인을 사용하지 않더라도 백업 옵션으로 사용됩니다.',
+    default_domain_field: 'Aster 기본 도메인',
   },
   custom_endpoint_note:
     '이 엔드포인트의 도메인 이름을 필요에 따라 사용자 정의할 수 있습니다. "{{custom}}" 또는 "{{default}}" 중 하나를 선택하세요.',

@@ -112,7 +112,7 @@ type LinkProps = Omit<HTMLProps<HTMLAnchorElement>, 'type' | 'size' | 'title' | 
    * - When it's `true`, the `rel` attribute will be set to `noopener noreferrer`.
    * - When it's `noopener`, the `rel` attribute will be set to `noopener`.
    *
-   * Typically, when navigating to Logto's website (official site, blog, documentation, etc.), use 'noopener'.
+   * Use `noopener` for links to configured external Aster services.
    */
   readonly targetBlank?: boolean | 'noopener';
   readonly type?: ButtonType;
@@ -154,7 +154,11 @@ export function LinkButton({
     [title]
   );
 
-  return !href || isAbsoluteUrl(href) ? (
+  if (!href) {
+    return null;
+  }
+
+  return isAbsoluteUrl(href) ? (
     <a {...props} href={href}>
       {innerElement}
     </a>

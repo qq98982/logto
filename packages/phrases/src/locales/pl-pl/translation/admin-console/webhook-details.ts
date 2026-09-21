@@ -21,12 +21,12 @@ const webhook_details = {
     settings_description:
       'Webhootsy pozwalają na otrzymywanie aktualizacji w czasie rzeczywistym z określonych zdarzeń, wysyłając żądanie POST na Twój adres URL końcowy. Dzięki temu możesz natychmiast podjąć działania na podstawie otrzymanych nowych informacji.',
     events: 'Zdarzenia',
-    events_description: 'Wybierz zdarzenia wywołujące, które Logto wyśle żądanie POST.',
+    events_description: 'Wybierz zdarzenia wywołujące, które Aster wyśle żądanie POST.',
     name: 'Nazwa',
     endpoint_url: 'Adres URL końcowego',
     signing_key: 'Klucz podpisu',
     signing_key_tip:
-      'Dodaj klucz sekretny dostarczony przez Logto do swojego endpointu jako nagłówek żądania, aby zapewnić autentyczność ładunku webhooka.',
+      'Dodaj klucz sekretny dostarczony przez Aster do swojego endpointu jako nagłówek żądania, aby zapewnić autentyczność ładunku webhooka.',
     regenerate: 'Przebuduj',
     regenerate_key_title: 'Wygeneruj ponownie klucz podpisu',
     regenerate_key_reminder:

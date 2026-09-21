@@ -1,3 +1,4 @@
+import { UserScope } from '@logto/core-kit';
 import { Prompt } from '@logto/node';
 import { demoAppApplicationId } from '@logto/schemas';
 
@@ -78,7 +79,7 @@ describe('OpenID Connect ID token', () => {
     await organizationApi.addUserRoles(org1.id, userId, [role.id]);
 
     // Organizations claim
-    const { organizations } = await fetchIdToken(['urn:logto:scope:organizations']);
+    const { organizations } = await fetchIdToken([UserScope.Organizations]);
 
     expect(organizations).toHaveLength(2);
     expect(organizations).toContainEqual(org1.id);
@@ -86,7 +87,7 @@ describe('OpenID Connect ID token', () => {
 
     // Organization roles claim
     const { organization_roles: organizationRoles } = await fetchIdToken([
-      'urn:logto:scope:organization_roles',
+      UserScope.OrganizationRoles,
     ]);
 
     expect(organizationRoles).toHaveLength(1);

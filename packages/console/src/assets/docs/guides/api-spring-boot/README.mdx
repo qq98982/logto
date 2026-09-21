@@ -34,7 +34,7 @@ dependencies {
 
 <InlineNotification>
   Since Spring Boot and Spring Security have built-in support for both OAuth2 resource server and JWT validation,
-  you DO NOT need to add additional libraries from Logto to integrate.
+  you DO NOT need to add additional libraries from Aster to integrate.
 
 See [Spring Security OAuth 2.0 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
 and [Spring Security Architecture](https://spring.io/guides/topicals/spring-security-architecture)
@@ -52,7 +52,7 @@ and signed with [JWK](https://datatracker.ietf.org/doc/html/rfc7517)
 
 Before moving on, you will need to get an issuer and a JWKS URI to verify the issuer and the signature of the Bearer Token (`access_token`).
 
-All the Logto Authorization server configurations can be found by requesting{' '}
+All the Aster Authorization server configurations can be found by requesting{' '}
 <code>{appendPath(props.endpoint, '/oidc/.well-known/openid-configuration').href}</code>, including the{' '}
 <strong>issuer</strong>, <strong>jwks_uri</strong> and other authorization configs.
 
@@ -94,7 +94,7 @@ spring:
 </Code>
 
 - `audience`: The unique API identifier of your protected API resource.
-- `spring.security.oauth2.resourceserver.jwt.issuer-uri`: The iss claim value and the issuer URI in the JWT issued by Logto.
+- `spring.security.oauth2.resourceserver.jwt.issuer-uri`: The iss claim value and the issuer URI in the JWT issued by Aster.
 - `spring.security.oauth2.resourceserver.jwt.jwk-set-uri`: Spring Security uses this URI to get the authorization server's public keys to validate JWT signatures.
 
 </Step>
@@ -182,7 +182,7 @@ public class SecurityConfiguration {
     @Bean
     public JwtDecoder jwtDecoder() {
         NimbusJwtDecoder jwtDecoder = NimbusJwtDecoder.withJwkSetUri(jwksUri)
-                // Logto uses the ES384 algorithm to sign the JWTs by default.
+                // Aster uses the ES384 algorithm to sign the JWTs by default.
                 .jwsAlgorithm(ES384)
                 // The decoder should support the token type: Access Token + JWT.
                 .jwtProcessorCustomizer(customizer -> customizer.setJWSTypeVerifier(
@@ -298,7 +298,7 @@ WWW-Authenticate: Bearer error="invalid_token", error_description="An error occu
 
 <Step title="Resources">
 
-- [Protect your API](https://docs.logto.io/docs/recipes/protect-your-api/)
+- Protect your API
 - [Spring Security OAuth 2.0 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
 - [Spring Security Architecture](https://spring.io/guides/topicals/spring-security-architecture)
 

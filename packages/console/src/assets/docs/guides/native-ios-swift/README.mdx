@@ -11,11 +11,11 @@ import RedirectUrisNative, { defaultRedirectUri } from '../../fragments/_redirec
 <Steps>
 
 <Step
-  title="Integrate Logto Swift SDK"
-  subtitle="Add Logto SDK as a dependency"
+  title="Integrate the upstream Swift SDK"
+  subtitle="Add the upstream SDK as a dependency"
 >
 
-Use the following URL to add Logto SDK as a dependency in Swift Package Manager.
+Use the following URL to add the upstream SDK as a dependency in Swift Package Manager.
 
 ```bash
 https://github.com/logto-io/swift.git
@@ -23,10 +23,10 @@ https://github.com/logto-io/swift.git
 
 Since Xcode 11, you can [directly import a swift package](https://developer.apple.com/documentation/swift_packages/adding_package_dependencies_to_your_app) w/o any additional tool.
 
-Logto Swift SDK comes in two major versions:
+The upstream Swift SDK comes in two major versions:
 
-- **v1**: Opens the sign-in experience in an embedded WebView, which is required by the native social connectors, but does not support [passkey sign-in](https://docs.logto.io/end-user-flows/sign-up-and-sign-in/passkey-sign-in) (WebView does not support WebAuthn, the underlying standard of passkeys).
-- **v2 (beta)**: Opens the sign-in experience in [ASWebAuthenticationSession](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (the system browser), which unlocks passkey sign-in and shares the browser session. Note that v2 removes support for the [WeChat (Native)](https://docs.logto.io/integrations/wechat-native) and [Alipay (Native)](https://docs.logto.io/integrations/alipay-native) connectors; you can use [WeChat (Web)](https://docs.logto.io/integrations/wechat-web) and [Alipay (Web)](https://docs.logto.io/integrations/alipay-web) instead, which work through the browser. If you depend on the native connectors, stay on v1.
+- **v1**: Opens the sign-in experience in an embedded WebView, which is required by the native social connectors, but does not support passkey sign-in (WebView does not support WebAuthn, the underlying standard of passkeys).
+- **v2 (beta)**: Opens the sign-in experience in [ASWebAuthenticationSession](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (the system browser), which unlocks passkey sign-in and shares the browser session. Note that v2 removes support for the WeChat (Native) and Alipay (Native) connectors; you can use WeChat (Web) and Alipay (Web) instead, which work through the browser. If you depend on the native connectors, stay on v1.
 
 This guide covers both versions.
 
@@ -128,7 +128,7 @@ let config = try? LogtoConfig(
 
 In v2, the sign-in experience opens in `ASWebAuthenticationSession` (the system browser), and the redirect is routed back to your app through the redirect URI. For a custom scheme redirect URI, register only the scheme part in your app's `Info.plist`, not the full redirect URI.
 
-For example, if the redirect URI is `io.logto://callback`, register `io.logto` as a URL scheme:
+For example, if the redirect URI is `aster://callback`, register `aster` as a URL scheme:
 
 ```xml title="Info.plist"
 <key>CFBundleURLTypes</key>
@@ -137,16 +137,16 @@ For example, if the redirect URI is `io.logto://callback`, register `io.logto` a
     <key>CFBundleTypeRole</key>
     <string>Editor</string>
     <key>CFBundleURLName</key>
-    <string>io.logto</string>
+    <string>aster</string>
     <key>CFBundleURLSchemes</key>
     <array>
-      <string>io.logto</string>
+      <string>aster</string>
     </array>
   </dict>
 </array>
 ```
 
-Replace `io.logto` with your redirect URI's scheme. In Xcode, you can also open your app target, select **Info**, expand **URL Types**, and add the scheme to **URL Schemes**.
+Replace `aster` with your redirect URI's scheme. In Xcode, you can also open your app target, select **Info**, expand **URL Types**, and add the scheme to **URL Schemes**.
 
 <details>
 
@@ -191,7 +191,7 @@ For example, in a SwiftUI app:
 
 <TabItem value="v2" label="v2 (beta)">
 
-In v2, `client.signOut(postLogoutRedirectUri:)` performs a complete sign-out: it clears the local credentials, revokes the refresh token, and ends the Logto session by opening the end session endpoint in the browser. The browser then navigates back to your app through the post sign-out redirect URI. If the post sign-out redirect URI uses a custom scheme, register that scheme in `Info.plist` as well. Let's configure it first:
+In v2, `client.signOut(postLogoutRedirectUri:)` performs a complete sign-out: it clears the local credentials, revokes the refresh token, and ends the Aster session by opening the end session endpoint in the browser. The browser then navigates back to your app through the post sign-out redirect URI. If the post sign-out redirect URI uses a custom scheme, register that scheme in `Info.plist` as well. Let's configure it first:
 
 <UriInputField name="postLogoutRedirectUris" />
 
@@ -243,7 +243,7 @@ In v2, `client.signOut(postLogoutRedirectUri:)` performs a complete sign-out: it
 
 <InlineNotification>
 
-You can also call `client.signOut()` without a post sign-out redirect URI. No configuration is needed in this case: the browser shows the Logto sign-out page, and the user returns to the app by dismissing it manually. If no UI context is available, call `client.clearCredentials()` to clear the local credentials and revoke the refresh token. Note that this keeps the Logto session in the browser, so the next `signInWithBrowser` may silently sign the user back in through that session.
+You can also call `client.signOut()` without a post sign-out redirect URI. No configuration is needed in this case: the browser shows the Aster sign-out page, and the user returns to the app by dismissing it manually. If no UI context is available, call `client.clearCredentials()` to clear the local credentials and revoke the refresh token. Note that this keeps the Aster session in the browser, so the next `signInWithBrowser` may silently sign the user back in through that session.
 
 </InlineNotification>
 

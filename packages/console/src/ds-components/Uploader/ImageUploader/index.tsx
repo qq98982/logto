@@ -11,7 +11,7 @@ import type { Props as FileUploaderProps } from '../FileUploader';
 
 import styles from './index.module.scss';
 
-export type Props = Omit<FileUploaderProps, 'maxSize' | 'allowedMimeTypes'> & {
+type Props = Omit<FileUploaderProps, 'maxSize' | 'allowedMimeTypes'> & {
   readonly allowedMimeTypes?: AllowedUploadMimeType[];
   readonly name: string;
   readonly value: string;

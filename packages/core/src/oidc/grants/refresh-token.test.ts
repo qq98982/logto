@@ -1,4 +1,4 @@
-import { UserScope } from '@logto/core-kit';
+import { UserScope, buildOrganizationUrn } from '@logto/core-kit';
 import { type KoaContextWithOIDC, errors, type Adapter } from 'oidc-provider';
 import Sinon from 'sinon';
 
@@ -422,7 +422,7 @@ describe('refresh token grant', () => {
       clientId,
       grantId,
       scope: requestScopes.join(' '),
-      aud: 'urn:logto:organization:some_org_id',
+      aud: buildOrganizationUrn('some_org_id'),
     });
   });
 });

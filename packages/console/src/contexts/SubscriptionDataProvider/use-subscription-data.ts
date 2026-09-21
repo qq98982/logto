@@ -1,141 +1,26 @@
-import { pick } from '@silverhand/essentials';
-import { useContext, useEffect, useMemo } from 'react';
-import useSWR from 'swr';
+import { noop } from '@silverhand/essentials';
 
-import { useCloudApi } from '@/cloud/hooks/use-cloud-api';
 import {
-  type LogtoSkuResponse,
-  type SubscriptionCountBasedUsage,
-  type SubscriptionQuota,
-  type SubscriptionUsageResponse,
-} from '@/cloud/types/router';
-import {
-  defaultLogtoSku,
+  defaultSku,
   defaultTenantResponse,
   defaultSubscriptionQuota,
   defaultSubscriptionUsage,
 } from '@/consts';
-import { isCloud } from '@/consts/env';
-import { TenantsContext } from '@/contexts/TenantsProvider';
-import { LogtoSkuType } from '@/types/skus';
-import { normalizeActionsQuota } from '@/utils/actions';
-import { formatLogtoSkusResponses } from '@/utils/subscription';
-
-import useSubscription from '../../hooks/use-subscription';
 
 import { type SubscriptionContext } from './types';
 
-const normalizeSubscriptionQuota = (
-  quota?: SubscriptionUsageResponse['quota']
-): SubscriptionQuota => ({
-  ...defaultSubscriptionQuota,
-  ...(quota ? normalizeActionsQuota(quota) : {}),
+const useSubscriptionData = (): SubscriptionContext & { isLoading: boolean } => ({
+  isLoading: false,
+  skus: [],
+  currentSku: defaultSku,
+  currentSubscription: defaultTenantResponse.subscription,
+  onCurrentSubscriptionUpdated: noop,
+  mutateSubscriptionQuotaAndUsages: noop,
+  currentSubscriptionQuota: defaultSubscriptionQuota,
+  currentSubscriptionBasicQuota: defaultSubscriptionQuota,
+  currentSubscriptionUsage: defaultSubscriptionUsage,
+  currentSubscriptionResourceScopeUsage: {},
+  currentSubscriptionRoleScopeUsage: {},
 });
-
-const normalizeSubscriptionUsage = (
-  usage?: SubscriptionUsageResponse['usage']
-): SubscriptionCountBasedUsage => ({
-  ...defaultSubscriptionUsage,
-  ...(usage ? normalizeActionsQuota(usage) : {}),
-});
-
-const useSubscriptionData: () => SubscriptionContext & { isLoading: boolean } = () => {
-  const cloudApi = useCloudApi();
-
-  const { currentTenant, currentTenantId, updateTenant } = useContext(TenantsContext);
-
-  const {
-    data: currentSubscription,
-    isLoading: isSubscriptionLoading,
-    mutate: mutateSubscription,
-  } = useSubscription(currentTenantId);
-
-  const {
-    data: subscriptionUsageData,
-    isLoading: isSubscriptionUsageDataLoading,
-    mutate: mutateSubscriptionQuotaAndUsages,
-  } = useSWR<SubscriptionUsageResponse, Error>(
-    isCloud && currentTenantId && `/api/tenants/${currentTenantId}/subscription-usage`,
-    async () =>
-      cloudApi.get('/api/tenants/:tenantId/subscription-usage', {
-        params: { tenantId: currentTenantId },
-      })
-  );
-
-  // Fetch tenant specific available SKUs
-  // Unlike the `useLogtoSkus` hook, apart from public available SKUs, this hook also fetches tenant specific private SKUs
-  // For enterprise tenants who have their own private SKUs, and all grandfathered plan tenants,
-  // this is the only place to retrieve their current SKU data.
-  const { isLoading: isLogtoSkusLoading, data: fetchedLogtoSkus } = useSWR<
-    LogtoSkuResponse[],
-    Error
-  >(isCloud && currentTenantId && `/api/tenants/${currentTenantId}/available-skus`, async () =>
-    cloudApi.get('/api/tenants/:tenantId/available-skus', {
-      params: { tenantId: currentTenantId },
-      search: { type: LogtoSkuType.Basic },
-    })
-  );
-
-  const logtoSkus = useMemo(() => formatLogtoSkusResponses(fetchedLogtoSkus), [fetchedLogtoSkus]);
-
-  const currentSubscriptionQuota = useMemo(
-    () => normalizeSubscriptionQuota(subscriptionUsageData?.quota),
-    [subscriptionUsageData?.quota]
-  );
-
-  const currentSubscriptionBasicQuota = useMemo(
-    () => normalizeSubscriptionQuota(subscriptionUsageData?.basicQuota),
-    [subscriptionUsageData?.basicQuota]
-  );
-
-  const currentSubscriptionUsage = useMemo(
-    () => normalizeSubscriptionUsage(subscriptionUsageData?.usage),
-    [subscriptionUsageData?.usage]
-  );
-
-  const currentSku = useMemo(
-    () => logtoSkus.find((logtoSku) => logtoSku.id === currentTenant?.planId) ?? defaultLogtoSku,
-    [currentTenant?.planId, logtoSkus]
-  );
-
-  useEffect(() => {
-    if (subscriptionUsageData?.quota) {
-      updateTenant(currentTenantId, {
-        quota: pick(subscriptionUsageData.quota, 'mauLimit', 'tokenLimit'),
-      });
-    }
-  }, [currentTenantId, subscriptionUsageData?.quota, updateTenant]);
-
-  return useMemo(
-    () => ({
-      isLoading: isSubscriptionLoading || isLogtoSkusLoading || isSubscriptionUsageDataLoading,
-      logtoSkus,
-      currentSku,
-      currentSubscription: currentSubscription ?? defaultTenantResponse.subscription,
-      onCurrentSubscriptionUpdated: mutateSubscription,
-      mutateSubscriptionQuotaAndUsages,
-      currentSubscriptionQuota,
-      currentSubscriptionBasicQuota,
-      currentSubscriptionUsage,
-      currentSubscriptionResourceScopeUsage: subscriptionUsageData?.resources ?? {},
-      currentSubscriptionRoleScopeUsage: subscriptionUsageData?.roles ?? {},
-    }),
-    [
-      currentSku,
-      currentSubscription,
-      currentSubscriptionBasicQuota,
-      currentSubscriptionQuota,
-      currentSubscriptionUsage,
-      isLogtoSkusLoading,
-      isSubscriptionLoading,
-      isSubscriptionUsageDataLoading,
-      logtoSkus,
-      mutateSubscription,
-      mutateSubscriptionQuotaAndUsages,
-      subscriptionUsageData?.resources,
-      subscriptionUsageData?.roles,
-    ]
-  );
-};
 
 export default useSubscriptionData;

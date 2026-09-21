@@ -63,10 +63,10 @@ const enterprise_sso_details = {
   upload_oidc_idp_info_text: 'Complete la información del proveedor de identidad para conectar.',
   service_provider_property_title: 'Configurar en el IdP',
   service_provider_property_description:
-    'Configure una integración de aplicaciones utilizando {{protocol}} en su proveedor de identidad. Ingrese los detalles proporcionados por Logto.',
+    'Configure una integración de aplicaciones utilizando {{protocol}} en su proveedor de identidad. Ingrese los detalles proporcionados por Aster.',
   attribute_mapping_title: 'Mapeo de atributos',
   attribute_mapping_description:
-    'Sincronice perfiles de usuario desde el proveedor de identidad configurando el mapeo de atributos de usuario en el proveedor de identidad o en Logto.',
+    'Sincronice perfiles de usuario desde el proveedor de identidad configurando el mapeo de atributos de usuario en el proveedor de identidad o en Aster.',
   saml_preview: {
     sign_on_url: 'URL de inicio de sesión',
     entity_id: 'Emisor',
@@ -108,7 +108,7 @@ const enterprise_sso_details = {
       'El URI de devolución de llamada del cliente para iniciar un flujo de autenticación SSO iniciado por el SP. Un ssoConnectorId se añadirá al URI como un parámetro de consulta. (por ejemplo, https://tu.dominio/sso/callback?connectorId={{ssoConnectorId}})',
     redirect_uri: 'URI de redirección posterior al inicio de sesión',
     redirect_uri_tooltip:
-      'El URI de redirección para redirigir a los usuarios después de un inicio de sesión exitoso. Logto usará este URI como el URI de redirección OIDC en la solicitud de autorización. Usa un URI dedicado para el flujo de autenticación SSO iniciado por el IdP para una mejor seguridad.',
+      'El URI de redirección para redirigir a los usuarios después de un inicio de sesión exitoso. Aster usará este URI como el URI de redirección OIDC en la solicitud de autorización. Usa un URI dedicado para el flujo de autenticación SSO iniciado por el IdP para una mejor seguridad.',
     empty_redirect_uris_error:
       'No se ha registrado ningún URI de redirección para la aplicación. Por favor, añade uno primero.',
     redirect_uri_placeholder: 'Selecciona un URI de redirección posterior al inicio de sesión',
@@ -120,9 +120,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     'Confiar siempre en las direcciones de correo electrónico no verificadas devueltas por el proveedor de identidad',
   trust_unverified_email_tip:
-    'El conector Entra ID (OIDC) no devuelve la reclamación `email_verified`, lo que significa que las direcciones de correo electrónico de Azure no están garantizadas como verificadas. Por defecto, Logto no sincronizará direcciones de correo electrónico no verificadas con el perfil del usuario. Habilite esta opción solo si confía en todas las direcciones de correo electrónico del directorio Entra ID.',
+    'El conector Entra ID (OIDC) no devuelve la reclamación `email_verified`, lo que significa que las direcciones de correo electrónico de Azure no están garantizadas como verificadas. Por defecto, Aster no sincronizará direcciones de correo electrónico no verificadas con el perfil del usuario. Habilite esta opción solo si confía en todas las direcciones de correo electrónico del directorio Entra ID.',
   trust_unverified_email_tip_oidc:
-    'El conector OIDC puede no devolver la reclamación `email_verified`, lo que significa que las direcciones de correo electrónico del IdP no están garantizadas como verificadas. Por defecto, Logto no sincronizará direcciones de correo electrónico no verificadas con el perfil del usuario. Habilite esta opción solo si confía en todas las direcciones de correo electrónico del IdP.',
+    'El conector OIDC puede no devolver la reclamación `email_verified`, lo que significa que las direcciones de correo electrónico del IdP no están garantizadas como verificadas. Por defecto, Aster no sincronizará direcciones de correo electrónico no verificadas con el perfil del usuario. Habilite esta opción solo si confía en todas las direcciones de correo electrónico del IdP.',
   offline_access: {
     label: 'Refrescar token de acceso',
     description:

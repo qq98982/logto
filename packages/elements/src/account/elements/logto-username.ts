@@ -6,7 +6,7 @@ import usernameIcon from '../icons/username.svg';
 
 import { LogtoProfileItemElement } from './LogtoProfileItemElement.js';
 
-const tagName = 'logto-username';
+const tagName = 'aster-username';
 
 @customElement(tagName)
 export class LogtoUsername extends LogtoProfileItemElement {

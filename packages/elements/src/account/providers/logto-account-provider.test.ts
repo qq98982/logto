@@ -12,7 +12,7 @@ import {
   LogtoAccountProvider,
 } from './logto-account-provider.js';
 
-@customElement('test-logto-account-provider-consumer')
+@customElement('test-aster-account-provider-consumer')
 export class TestLogtoAccountProviderConsumer extends LitElement {
   @consume({ context: logtoAccountContext, subscribe: true })
   @property({ attribute: false })
@@ -27,15 +27,19 @@ export class TestLogtoAccountProviderConsumer extends LitElement {
   }
 }
 
-suite('logto-account-provider', () => {
+suite('aster-account-provider', () => {
+  test('uses the Aster account context identifier', () => {
+    assert.equal(String(logtoAccountContext), 'aster-account-context');
+  });
+
   test('is defined', () => {
-    const element = document.createElement('logto-account-provider');
+    const element = document.createElement('aster-account-provider');
     assert.instanceOf(element, LogtoAccountProvider);
   });
 
   test('should render not initialized content when account api is not provided', async () => {
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider></logto-account-provider>`
+      html`<aster-account-provider></aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -56,15 +60,15 @@ suite('logto-account-provider', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <test-logto-account-provider-consumer></test-logto-account-provider-consumer>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <test-aster-account-provider-consumer></test-aster-account-provider-consumer>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
 
     const consumer = provider.querySelector<TestLogtoAccountProviderConsumer>(
-      'test-logto-account-provider-consumer'
+      'test-aster-account-provider-consumer'
     )!;
 
     await waitUntil(
@@ -87,9 +91,9 @@ suite('logto-account-provider', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <test-logto-account-provider-consumer></test-logto-account-provider-consumer>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <test-aster-account-provider-consumer></test-aster-account-provider-consumer>
+      </aster-account-provider>`
     );
 
     provider.addEventListener('error', (event) => {

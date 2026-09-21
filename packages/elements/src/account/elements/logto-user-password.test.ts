@@ -5,7 +5,7 @@ import { type LogtoAccountProvider } from '../providers/logto-account-provider.j
 
 import { LogtoUserPassword } from './logto-user-password.js';
 
-suite('logto-user-password', () => {
+suite('aster-user-password', () => {
   test('is defined', () => {
     const element = document.createElement(LogtoUserPassword.tagName);
     assert.instanceOf(element, LogtoUserPassword);
@@ -13,7 +13,7 @@ suite('logto-user-password', () => {
 
   test('should render error message when account context is not available', async () => {
     const element = await fixture<LogtoUserPassword>(
-      html`<logto-user-password></logto-user-password>`
+      html`<aster-user-password></aster-user-password>`
     );
     await element.updateComplete;
 
@@ -28,9 +28,9 @@ suite('logto-user-password', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-user-password></logto-user-password>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-user-password></aster-user-password>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -52,9 +52,9 @@ suite('logto-user-password', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-user-password></logto-user-password>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-user-password></aster-user-password>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;

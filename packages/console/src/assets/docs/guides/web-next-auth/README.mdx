@@ -67,9 +67,9 @@ const handler = NextAuth({
   providers: [
     {
       id: 'logto',
-      name: 'Logto',
+      name: 'Aster',
       type: 'oauth',
-      // You can get the well-known URL from the Logto Application Details page,
+      // You can get the well-known URL from the Aster Application Details page,
       // in the field "OpenID Provider configuration endpoint"
       wellKnown: '${props.endpoint}oidc/.well-known/openid-configuration',
       authorization: { params: { scope: 'openid offline_access profile email' } },
@@ -103,7 +103,7 @@ export { handler as GET, handler as POST };`}
 
 </Step>
 
-<Step title="Checkpoint: Test Logto and Next Auth integration">
+<Step title="Checkpoint: Test Aster and Next Auth integration">
 
 Now, you can test your application to see if the authentication works as expected.
 

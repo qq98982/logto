@@ -7,14 +7,14 @@ import { LogtoUsername } from './logto-username.js';
 
 const fakeLogtoEndpoint = 'https://logto.dev';
 
-suite('logto-username', () => {
+suite('aster-username', () => {
   test('is defined', () => {
     const element = document.createElement(LogtoUsername.tagName);
     assert.instanceOf(element, LogtoUsername);
   });
 
   test('should render error message when account context is not available', async () => {
-    const element = await fixture<LogtoUsername>(html`<logto-username></logto-username>`);
+    const element = await fixture<LogtoUsername>(html`<aster-username></aster-username>`);
     await element.updateComplete;
 
     assert.equal(element.shadowRoot?.textContent, 'Unable to retrieve account context.');
@@ -28,9 +28,9 @@ suite('logto-username', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-username></logto-username>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-username></aster-username>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;
@@ -53,9 +53,9 @@ suite('logto-username', () => {
     });
 
     const provider = await fixture<LogtoAccountProvider>(
-      html`<logto-account-provider .accountApi=${mockAccountApi}>
-        <logto-username></logto-username>
-      </logto-account-provider>`
+      html`<aster-account-provider .accountApi=${mockAccountApi}>
+        <aster-username></aster-username>
+      </aster-account-provider>`
     );
 
     await provider.updateComplete;

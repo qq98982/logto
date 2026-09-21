@@ -5,9 +5,9 @@ import usage from './usage.js';
 const subscription = {
   free_plan: 'Plan Gratuit',
   free_plan_description:
-    'Pour les projets secondaires et les premiers essais de Logto. Aucune carte de crédit.',
+    "Pour les projets secondaires et les premiers essais d'Aster. Aucune carte de crédit.",
   pro_plan: 'Plan Professionnel',
-  pro_plan_description: 'Pour les entreprises qui bénéficient de Logto sans soucis.',
+  pro_plan_description: "Pour les entreprises qui bénéficient d'Aster sans soucis.",
   enterprise: 'Plan Entreprise',
   enterprise_description:
     'Pour les grandes équipes et les entreprises avec des exigences de niveau entreprise.',
@@ -28,7 +28,7 @@ const subscription = {
   upgrade_pro: 'Passer au Plan Professionnel',
   update_payment: 'Mettre à jour le paiement',
   payment_error:
-    'Problème de paiement détecté. Impossible de traiter ${{price, number}} pour le cycle précédent. Mettez à jour le paiement pour éviter la suspension du service Logto.',
+    'Problème de paiement détecté. Impossible de traiter ${{price, number}} pour le cycle précédent. Mettez à jour le paiement pour éviter la suspension du service Aster.',
   downgrade: 'Passer à un Plan Inférieur',
   current: 'Actuel',
   upgrade: 'Mettre à niveau',
@@ -61,7 +61,7 @@ const subscription = {
     downgrade_help_tip: "Besoin d'aide pour rétrograder ? <a>Contactez-nous</a>.",
     upgrade_title: 'Rappel amical pour nos précieux early adopters',
     upgrade_description:
-      'Vous utilisez actuellement plus que ce que <name /> autorise. Logto est désormais officiel, avec des fonctionnalités adaptées à chaque plan. Avant de envisager une mise à niveau vers <name />, assurez-vous de remplir les critères suivants avant de faire la mise à niveau.',
+      'Vous utilisez actuellement plus que ce que <name /> autorise. Aster est désormais officiel, avec des fonctionnalités adaptées à chaque plan. Avant de envisager une mise à niveau vers <name />, assurez-vous de remplir les critères suivants avant de faire la mise à niveau.',
     upgrade_pro_tip: ' Ou envisagez de passer au Plan Pro.',
     upgrade_help_tip: "Besoin d'aide pour la mise à niveau ? <a>Contactez-nous</a>.",
     a_maximum_of: 'Un maximum de <item/>',
@@ -76,9 +76,9 @@ const subscription = {
     exceeded:
       'Vous avez dépassé 100 % de votre limite de quota. Les utilisateurs ne pourront plus se connecter correctement. Veuillez mettre à niveau immédiatement pour éviter tout inconvénient.',
     close_to_limit:
-      "Vous avez presque atteint votre limite d'utilisation de jetons. Logto cessera d'accorder des jetons si votre utilisation dépasse 100 %. Veuillez mettre à niveau le plan Gratuit pour éviter tout inconvénient.",
+      "Vous avez presque atteint votre limite d'utilisation de jetons. Aster cessera d'accorder des jetons si votre utilisation dépasse 100 %. Veuillez mettre à niveau le plan Gratuit pour éviter tout inconvénient.",
     dev_plan_exceeded:
-      "Ce locataire a atteint la limite de jetons selon la politique de limite d'entité de Logto.",
+      "Ce locataire a atteint la limite de jetons selon la politique de limite d'entité d'Aster.",
   },
 };
 

@@ -2,7 +2,7 @@ import { noop } from '@silverhand/essentials';
 import { createContext, type ReactNode } from 'react';
 
 import {
-  defaultLogtoSku,
+  defaultSku,
   defaultTenantResponse,
   defaultSubscriptionQuota,
   defaultSubscriptionUsage,
@@ -20,8 +20,8 @@ export const SubscriptionDataContext = createContext<FullContext>({
   currentSubscription: defaultSubscription,
   onCurrentSubscriptionUpdated: noop,
   /* ==== For new pricing model ==== */
-  logtoSkus: [],
-  currentSku: defaultLogtoSku,
+  skus: [],
+  currentSku: defaultSku,
   currentSubscriptionQuota: defaultSubscriptionQuota,
   currentSubscriptionBasicQuota: defaultSubscriptionQuota,
   currentSubscriptionUsage: defaultSubscriptionUsage,

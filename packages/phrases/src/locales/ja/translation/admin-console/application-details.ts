@@ -6,10 +6,8 @@ const application_details = {
   check_guide: 'ガイドを確認',
   settings: '設定',
   settings_description:
-    '「アプリケーション」とは、ユーザー情報にアクセスしたり利用者に代わって操作したりできる登録済みのソフトウェアやサービスを指します。アプリケーションは、Logto に誰が何を要求しているのかを認識させ、サインインと権限の処理を担います。認証に必要な項目を入力してください。',
+    '「アプリケーション」とは、ユーザー情報にアクセスしたり利用者に代わって操作したりできる登録済みのソフトウェアやサービスを指します。アプリケーションは、Aster に誰が何を要求しているのかを認識させ、サインインと権限の処理を担います。認証に必要な項目を入力してください。',
   integration: '統合',
-  integration_description:
-    "Deploy with Logto secure workers, powered by Cloudflare's edge network for top-tier performance and 0ms cold starts worldwide.",
   service_configuration: 'サービス構成',
   service_configuration_description: 'サービスで必要な構成を完了します。',
   session: 'セッション',
@@ -32,16 +30,16 @@ const application_details = {
     '認証と認可を実行するエンドポイントです。OpenID Connect の<a>認証</a>に使用されます。',
   show_endpoint_details: 'エンドポイントの詳細を表示',
   hide_endpoint_details: 'エンドポイントの詳細を非表示',
-  logto_endpoint: 'Logto エンドポイント',
+  aster_endpoint: 'Aster エンドポイント',
   application_id: 'アプリ ID',
   application_id_tip:
-    '通常 Logto によって生成される一意のアプリケーション識別子です。OpenID Connect では「<a>client_id</a>」とも呼ばれます。',
+    '通常 Aster によって生成される一意のアプリケーション識別子です。OpenID Connect では「<a>client_id</a>」とも呼ばれます。',
   application_secret: 'アプリのシークレット',
   application_secret_other: 'アプリのシークレット',
   redirect_uri: 'リダイレクト URI',
   redirect_uris: 'リダイレクト URI',
   redirect_uri_placeholder: 'https://your.website.com/app',
-  redirect_uri_placeholder_native: 'io.logto://callback',
+  redirect_uri_placeholder_native: 'aster://callback',
   redirect_uri_tip:
     'ユーザーがサインイン（成功した場合も失敗した場合も）した後にリダイレクトされる URI です。詳細については、OpenID Connect の<a>AuthRequest</a>を参照してください。',
   mixed_redirect_uri_warning:
@@ -64,15 +62,15 @@ const application_details = {
     '管理 API へのアクセスを有効または無効にします。有効にすると、アクセストークンを使用してこのアプリケーションを代表して管理 API を呼び出すことができます。',
   always_issue_refresh_token: '常に Refresh Token を発行する',
   always_issue_refresh_token_label:
-    'この設定を有効にすると、Logto は、認証要求に「prompt = consent」が提示されたかどうかにかかわらず、常に Refresh Token を発行することができます。ただし、OpenID Connect と互換性がないため、必要でない限りこのプラクティスは推奨されず、問題が発生する可能性があります。',
+    'この設定を有効にすると、Aster は、認証要求に「prompt = consent」が提示されたかどうかにかかわらず、常に Refresh Token を発行することができます。ただし、OpenID Connect と互換性がないため、必要でない限りこのプラクティスは推奨されず、問題が発生する可能性があります。',
   refresh_token_ttl: 'リフレッシュトークンの有効期限（日単位）',
   refresh_token_ttl_tip:
     'リフレッシュトークンが期限切れになるまでの期間です。トークンリクエストは、リフレッシュトークンの TTL をこの値に延長します。',
   rotate_refresh_token: 'Refresh Token を切り替える',
   rotate_refresh_token_label:
-    '有効にすると、Logto は、元の TTL の 70％ が経過したときまたは特定の条件が満たされた場合、トークン要求で新しい Refresh Token を発行します。<a>詳細を見る</a>',
+    '有効にすると、Aster は、元の TTL の 70％ が経過したときまたは特定の条件が満たされた場合、トークン要求で新しい Refresh Token を発行します。<a>詳細を見る</a>',
   rotate_refresh_token_label_for_public_clients:
-    '有効にすると、Logto は各トークンリクエストに対して新しいリフレッシュトークンを発行します。<a>詳細を見る</a>',
+    '有効にすると、Aster は各トークンリクエストに対して新しいリフレッシュトークンを発行します。<a>詳細を見る</a>',
   backchannel_logout: 'バックチャネルログアウト',
   backchannel_logout_description:
     'OpenID Connect バックチャネルログアウトエンドポイントを構成し、このアプリケーションにセッションが必要かどうかを設定します。',
@@ -97,9 +95,9 @@ const application_details = {
   application_deleted: 'アプリケーション{{name}}が正常に削除されました',
   redirect_uri_required: 'リダイレクト URI を少なくとも 1 つ入力する必要があります',
   app_domain_description_1:
-    'Logto によって提供される {{domain}} を使用して、ドメインを自由に利用できます。これは永久に有効です。',
+    'Aster によって提供される {{domain}} を使用して、ドメインを自由に利用できます。これは永久に有効です。',
   app_domain_description_2:
-    'Logto によって提供される <domain>{{domain}}</domain> を自由に利用できます。これは永久に有効です。',
+    'Aster によって提供される <domain>{{domain}}</domain> を自由に利用できます。これは永久に有効です。',
   custom_rules: 'カスタム認証ルール',
   custom_rules_placeholder: '^/(admin|privacy)/.+',
   custom_rules_description:
@@ -113,7 +111,7 @@ const application_details = {
   protect_origin_server_description:
     'オリジンサーバーへの直接アクセスを保護してください。詳細については、ガイドを参照してください。<a>詳細な手順</a>',
   third_party_settings_description:
-    'OIDC / OAuth 2.0 を使用して Logto をアイデンティティプロバイダ（IdP）として、サードパーティアプリケーションと統合し、ユーザー承認のための同意画面を提供します。',
+    'OIDC / OAuth 2.0 を使用して Aster をアイデンティティプロバイダ（IdP）として、サードパーティアプリケーションと統合し、ユーザー承認のための同意画面を提供します。',
   session_duration: 'セッション期間（日単位）',
   try_it: 'お試しください',
   no_organization_placeholder: '組織が見つかりません。<a>組織に行く</a>',
@@ -202,7 +200,7 @@ const application_details = {
     user_data_permission_description_tips:
       '個人ユーザーデータ権限の説明を「サインイン体験 > コンテンツ > 言語管理」を介して変更できます',
     permission_description_tips:
-      'Logto がサードパーティアプリケーションの認証プロバイダ（IdP）として使用され、ユーザーに承認を要求される場合、この説明が同意画面に表示されます。',
+      'Aster がサードパーティアプリケーションの認証プロバイダ（IdP）として使用され、ユーザーに承認を要求される場合、この説明が同意画面に表示されます。',
     user_title: 'ユーザー',
     user_description:
       '特定のユーザーデータにアクセスするためにサードパーティアプリケーションが要求する権限を選択します。',
@@ -292,11 +290,11 @@ const application_details = {
     title: 'Name ID フォーマット',
     description: 'SAML IdP の Name ID フォーマットを選択します。',
     persistent: '永続的',
-    persistent_description: 'Logto ユーザー ID を Name ID として使用',
+    persistent_description: 'Aster ユーザー ID を Name ID として使用',
     transient: '一時的',
     transient_description: '一回限りのユーザー ID を Name ID として使用',
     unspecified: '未指定',
-    unspecified_description: 'Logto ユーザー ID を Name ID として使用',
+    unspecified_description: 'Aster ユーザー ID を Name ID として使用',
     email_address: 'メールアドレス',
     email_address_description: 'メールアドレスを Name ID として使用',
   },
@@ -320,8 +318,8 @@ const application_details = {
     name: '属性マッピング',
     title: '基本属性マッピング',
     description:
-      'Logto からアプリケーションにユーザープロファイルを同期するために属性マッピングを追加します。',
-    col_logto_claims: 'Logto の値',
+      'Aster からアプリケーションにユーザープロファイルを同期するために属性マッピングを追加します。',
+    col_aster_claims: 'Aster の値',
     col_sp_claims: 'アプリケーションの値名',
     add_button: '別のものを追加',
   },

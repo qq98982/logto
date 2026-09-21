@@ -14,7 +14,7 @@ const enterprise_subscription = {
       '這是你的企業計劃訂閱，這個配額是跨租戶共享的。使用情況的更新可能會有輕微的延遲。',
     add_on_title: '按使用量付費的附加功能',
     add_on_description:
-      '這些是基於你的合約或 Logto 的標準按使用量付費費率的附加功能。你將根據你的實際使用量進行收費。',
+      '這些是基於你的合約或 Aster 的標準按使用量付費費率的附加功能。你將根據你的實際使用量進行收費。',
     included: '已包含',
     over_quota: '超出配額',
     basic_plan_column_title: {

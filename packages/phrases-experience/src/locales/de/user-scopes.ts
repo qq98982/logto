@@ -6,10 +6,10 @@ const user_scopes = {
     profile: 'Dein Name, Benutzername, Avatar und andere Profilinformationen',
     roles: 'Deine Rollen',
     identities: 'Deine verknüpften sozialen Identitäten',
-    'urn:logto:scope:organizations': 'Die Informationen deiner Organisationen',
-    'urn:logto:scope:organization_roles': 'Deine Rollen in der Organisation',
+    'urn:aster:scope:organizations': 'Die Informationen deiner Organisationen',
+    'urn:aster:scope:organization_roles': 'Deine Rollen in der Organisation',
     address: 'Deine Adresse',
-    'urn:logto:scope:sessions': 'Deine aktiven Sitzungen',
+    'urn:aster:scope:sessions': 'Deine aktiven Sitzungen',
   },
 };
 

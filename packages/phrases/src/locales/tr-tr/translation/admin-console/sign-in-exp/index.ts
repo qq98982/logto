@@ -42,11 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'Uygulama logosu ve favicon',
     company_logo_and_favicon: 'Şirket logosu ve favicon',
     organization_logo_and_favicon: 'Organizasyon logosu ve favicon',
-    hide_logto_branding: 'Logto markasını gizle',
-    hide_logto_branding_description:
-      '"Powered by Logto" ibaresini kaldırın. Temiz ve profesyonel bir oturum açma deneyimiyle yalnızca kendi markanızı öne çıkarın.',
-    hide_logto_branding_oss_note:
-      'Bu özellik <a>Logto Cloud</a> içinde yerel olarak kullanılabilir.',
   },
   branding_uploads: {
     app_logo: {
@@ -82,7 +77,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'Özelleştirilmiş UI',
-    cloud_tag: 'Cloud',
     css_code_editor_title: 'Özelleştirilmiş CSS',
     css_code_editor_field_title: 'CSS geçersiz kılma',
     css_code_editor_description1: 'Özelleştirilmiş CSS örneğine bakın.',
@@ -93,11 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: "UI'nizi Getirin",
     bring_your_ui_upload_title: 'Özel UI varlıklarını yükle',
     bring_your_ui_description:
-      "Logto'nun önceden oluşturulmuş UI'sini kendi kodunuzla değiştirmek için sıkıştırılmış bir paket (.zip) yükleyin. <a>Daha fazla bilgi edinin</a>",
-    bring_your_ui_oss_description: 'Oturum açma arayüzünü kendi kodunuzla özelleştirin.',
-    bring_your_ui_oss_card_description:
-      "Özel oturum açma arayüzünüzü doğrudan <a>Logto Cloud</a>'a yükleyin. Fork almanıza veya yeniden dağıtmanıza gerek yok.",
-    bring_your_ui_oss_try_cloud: "Cloud'u deneyin",
+      "Aster'in önceden oluşturulmuş UI'sini kendi kodunuzla değiştirmek için sıkıştırılmış bir paket (.zip) yükleyin. <a>Daha fazla bilgi edinin</a>",
     preview_with_bring_your_ui_description:
       'Özelleştirilmiş UI varlıklarınız başarıyla yüklendi ve şimdi sunuluyor. Sonuç olarak, yerleşik önizleme penceresi devre dışı bırakıldı.\nKişiselleştirilmiş oturum açma UI\'nizi test etmek için "Canlı Önizleme" düğmesine tıklayarak yeni bir tarayıcı sekmesinde açın.',
     csp_description:
@@ -114,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'HESAP MERKEZİ',
-    description: "Hesap merkezi akışlarını Logto API'leriyle özelleştirin.",
+    description: "Hesap merkezi akışlarını Aster API'leriyle özelleştirin.",
     enable_account_api: "Hesap merkezi ve Account API'yi etkinleştir",
     enable_account_api_description:
-      "Son kullanıcıya yönelik Account API'yi ve Logto'nun hazır hesap merkezini birlikte etkinleştirir. Kapatıldığında bu iki özellik de kullanılamaz.",
+      "Son kullanıcıya yönelik Account API'yi ve Aster'in hazır hesap merkezini birlikte etkinleştirir. Kapatıldığında bu iki özellik de kullanılamaz.",
     field_options: {
       off: 'Kapalı',
       edit: 'Düzenle',

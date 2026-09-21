@@ -48,7 +48,7 @@ const DevPanel = () => {
   return (
     <div className={[styles.card, styles.devPanel].join(' ')}>
       <form onSubmit={submitConfig}>
-        <div className={styles.title}>Logto config</div>
+        <div className={styles.title}>Aster config</div>
         <div className={styles.item}>
           <div className={styles.text}>App ID</div>
           <input

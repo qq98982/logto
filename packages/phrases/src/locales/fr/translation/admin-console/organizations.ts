@@ -34,7 +34,7 @@ const organizations = {
     title: 'Commencez avec les guides',
     subtitle: 'Démarrez vos paramètres organisationnels avec nos guides',
     introduction: {
-      title: "Comprendre le fonctionnement de l'organisation dans Logto",
+      title: "Comprendre le fonctionnement de l'organisation dans Aster",
       section_1: {
         title: "Une organisation est un groupe d'utilisateurs (identités)",
       },
@@ -42,7 +42,7 @@ const organizations = {
         title:
           "Le modèle d'organisation est conçu pour le contrôle d'accès des applications multi-locataires",
         description:
-          "Dans les applications multi-locataires SaaS, plusieurs organisations partagent souvent le même modèle de contrôle d'accès, comprenant des autorisations et des rôles. Chez Logto, nous l'appelons \"modèle d'organisation\".",
+          "Dans les applications multi-locataires SaaS, plusieurs organisations partagent souvent le même modèle de contrôle d'accès, comprenant des autorisations et des rôles. Chez Aster, nous l'appelons \"modèle d'organisation\".",
         permission_description:
           "L'autorisation d'organisation se réfère à l'autorisation d'accéder à une ressource dans le contexte de l'organisation.",
         role_description_deprecated:
@@ -53,7 +53,7 @@ const organizations = {
       section_3: {
         title: "Puis-je attribuer des permissions API aux rôles de l'organisation?",
         description:
-          "Oui, vous pouvez attribuer des permissions API aux rôles de l'organisation. Logto offre la flexibilité de gérer efficacement les rôles de votre organisation, vous permettant d'inclure à la fois les permissions d'organisation et les permissions API au sein de ces rôles.",
+          "Oui, vous pouvez attribuer des permissions API aux rôles de l'organisation. Aster offre la flexibilité de gérer efficacement les rôles de votre organisation, vous permettant d'inclure à la fois les permissions d'organisation et les permissions API au sein de ces rôles.",
       },
       section_4: {
         title: "Interagissez avec l'illustration pour voir comment tout est connecté",

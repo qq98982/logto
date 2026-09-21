@@ -21,7 +21,7 @@ const errors = {
   unexpected_error: 'حدث خطأ غير متوقع.',
   not_found: '404 غير موجود',
   create_internal_role_violation:
-    'أنت تقوم بإنشاء دور داخلي جديد وهذا ممنوع من قبل Logto. جرب اسمًا آخرًا لا يبدأ بـ "#internal:".',
+    'أنت تقوم بإنشاء دور داخلي جديد وهذا ممنوع من قبل Aster. جرب اسمًا آخرًا لا يبدأ بـ "#internal:".',
   should_be_an_integer: 'يجب أن يكون عدد صحيح.',
   number_should_be_between_inclusive:
     'يجب أن يكون العدد بين {{min}} و {{max}} (شاملاً لكلا الحدود).',

@@ -40,13 +40,7 @@ const paywall = {
     '已达到 <planName/> 的{{count, number}}个角色每个权限限制。升级计划以添加额外的角色和权限。如需任何帮助，请 <a>联系我们</a>。',
   scopes_per_role_other:
     '已达到 <planName/> 的{{count, number}}个角色每个权限限制。升级计划以添加额外的角色和权限。如需任何帮助，请 <a>联系我们</a>。',
-  saml_applications_oss: '额外的 SAML 应用可用于 Logto Enterprise 计划。如需帮助，请联系我们。',
-  saml_applications_oss_limit_notice:
-    '你的开源实例最多支持 {{limit}} 个 SAML 应用。你可以使用 Logto Cloud，或联系我们了解更多可选方案。',
-  logto_pricing_button_text: 'Logto 云定价',
-  saml_applications: '额外的 SAML 应用可在 Logto Enterprise 计划中使用。如果需要帮助，请联系我们。',
-  saml_applications_add_on:
-    '通过升级到付费计划解锁 SAML 应用功能。如需任何帮助，请随时 <a>联系我们</a>。',
+  saml_applications_oss_limit_notice: '你的开源实例最多支持 {{limit}} 个 SAML 应用。',
   hooks:
     '已达到 <planName/> 的{{count, number}}个 Webhook 限制。升级计划以创建更多 Webhook。如需任何帮助，请 <a>联系我们</a>。',
   hooks_other:
@@ -54,7 +48,7 @@ const paywall = {
   mfa: '升级到付费计划以解锁 MFA 进行安全验证。如果需要任何帮助，请随时 <a>联系我们</a>。',
   organizations: '升级到付费计划以解锁组织功能。如有任何需要，请不要犹豫 <a>联系我们</a>。',
   third_party_apps:
-    '通过升级到付费计划，可将 Logto 解锁为第三方应用的 IdP。如需任何帮助，请随时 <a>联系我们</a>。',
+    '通过升级到付费计划，可将 Aster 解锁为第三方应用的 IdP。如需任何帮助，请随时 <a>联系我们</a>。',
   sso_connectors: '通过升级到付费计划，可解锁企业 SSO 功能。如需任何帮助，请随时 <a>联系我们</a>。',
   tenant_members: '通过升级到付费计划，可解锁协作功能。如需任何帮助，请随时 <a>联系我们</a>。',
   tenant_members_dev_plan:
@@ -65,7 +59,7 @@ const paywall = {
       '升级到付费计划以获取自定义 JWT 功能和高级福利。如有任何问题，请不要犹豫 <a>联系我们</a>。',
   },
   branding_customization:
-    '升级计划，解锁 "隐藏 Logto 品牌" 和 "带上你的 UI" 功能，全面掌控品牌体验。',
+    '升级计划，解锁 "隐藏 Aster 品牌" 和 "带上你的 UI" 功能，全面掌控品牌体验。',
   bring_your_ui: '升级到付费计划，可带上自定义界面功能和高级福利。',
   security_features:
     '通过升级到 Pro 计划解锁高级安全功能。如有任何问题，请不要犹豫 <a>联系我们</a>。',

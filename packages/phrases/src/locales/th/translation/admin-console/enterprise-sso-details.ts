@@ -59,10 +59,10 @@ const enterprise_sso_details = {
   upload_oidc_idp_info_text: 'กรอกข้อมูลที่ได้จาก Identity Provider เพื่อเชื่อมต่อ',
   service_provider_property_title: 'ตั้งค่าใน IdP',
   service_provider_property_description:
-    'ตั้งค่า Integration สำหรับแอปโดยใช้ {{protocol}} บน Identity Provider ของคุณ และกรอกรายละเอียดที่ได้จาก Logto',
+    'ตั้งค่า Integration สำหรับแอปโดยใช้ {{protocol}} บน Identity Provider ของคุณ และกรอกรายละเอียดที่ได้จาก Aster',
   attribute_mapping_title: 'การจับคู่ Attributes',
   attribute_mapping_description:
-    'ซิงค์โปรไฟล์ผู้ใช้จาก Identity Provider โดยตั้งค่าการจับคู่ attribute ผู้ใช้ไม่ว่าจะทางฝั่ง Identity Provider หรือ Logto',
+    'ซิงค์โปรไฟล์ผู้ใช้จาก Identity Provider โดยตั้งค่าการจับคู่ attribute ผู้ใช้ไม่ว่าจะทางฝั่ง Identity Provider หรือ Aster',
   saml_preview: {
     sign_on_url: 'URL สำหรับ Sign on',
     entity_id: 'Issuer',
@@ -101,7 +101,7 @@ const enterprise_sso_details = {
       'Client callback URI เพื่อเริ่มการยืนยันตัวตนแบบ SP-initiated SSO โดยจะเพิ่ม ssoConnectorId เป็น query parameter (เช่น https://your.domain/sso/callback?connectorId={{ssoConnectorId}})',
     redirect_uri: 'Post sign-in redirect URI',
     redirect_uri_tooltip:
-      'Redirect URI สำหรับเปลี่ยนเส้นทางผู้ใช้หลังเข้าสู่ระบบ Logto จะใช้ URI นี้เป็น OIDC redirect URI ในคำขอ authorization แนะนำให้ใช้ URI พิเศษสำหรับ SSO ที่เริ่มโดย IdP เพื่อความปลอดภัย',
+      'Redirect URI สำหรับเปลี่ยนเส้นทางผู้ใช้หลังเข้าสู่ระบบ Aster จะใช้ URI นี้เป็น OIDC redirect URI ในคำขอ authorization แนะนำให้ใช้ URI พิเศษสำหรับ SSO ที่เริ่มโดย IdP เพื่อความปลอดภัย',
     empty_redirect_uris_error: 'ยังไม่มีการลงทะเบียน Redirect URI สำหรับแอปนี้ กรุณาเพิ่มก่อน',
     redirect_uri_placeholder: 'เลือก URI สำหรับเปลี่ยนเส้นทางหลังเข้าสู่ระบบ',
     auth_params: 'พารามิเตอร์เสริมสำหรับการยืนยันตัวตน',
@@ -112,9 +112,9 @@ const enterprise_sso_details = {
   trust_unverified_email_label:
     'เชื่อถือที่อยู่อีเมลที่ยังไม่ได้ยืนยันที่ส่งกลับจาก Identity Provider เสมอ',
   trust_unverified_email_tip:
-    'ตัวเชื่อมต่อ Entra ID (OIDC) ไม่ได้ส่ง claim `email_verified` หมายความว่าอีเมลที่ได้จาก Azure อาจยังไม่ได้รับการยืนยัน โดยปกติแล้ว Logto จะไม่ซิงค์อีเมลที่ยังไม่ได้รับการยืนยันไปยังโปรไฟล์ผู้ใช้ เปิดใช้งานตัวเลือกนี้หากคุณเชื่อถืออีเมลทั้งหมดจากไดเรกทอรี Entra ID',
+    'ตัวเชื่อมต่อ Entra ID (OIDC) ไม่ได้ส่ง claim `email_verified` หมายความว่าอีเมลที่ได้จาก Azure อาจยังไม่ได้รับการยืนยัน โดยปกติแล้ว Aster จะไม่ซิงค์อีเมลที่ยังไม่ได้รับการยืนยันไปยังโปรไฟล์ผู้ใช้ เปิดใช้งานตัวเลือกนี้หากคุณเชื่อถืออีเมลทั้งหมดจากไดเรกทอรี Entra ID',
   trust_unverified_email_tip_oidc:
-    'ตัวเชื่อมต่อ OIDC อาจไม่ส่งคลেম `email_verified` ซึ่งหมายความว่าอีเมลจาก IdP ไม่ได้มีการยืนยันเสมอไป โดยปกติ Logto จะไม่ซิงค์อีเมลที่ยังไม่ได้ยืนยันไปยังโปรไฟล์ผู้ใช้ เปิดใช้งานตัวเลือกนี้เฉพาะเมื่อคุณเชื่อถืออีเมลทั้งหมดจาก IdP เท่านั้น',
+    'ตัวเชื่อมต่อ OIDC อาจไม่ส่งคลেম `email_verified` ซึ่งหมายความว่าอีเมลจาก IdP ไม่ได้มีการยืนยันเสมอไป โดยปกติ Aster จะไม่ซิงค์อีเมลที่ยังไม่ได้ยืนยันไปยังโปรไฟล์ผู้ใช้ เปิดใช้งานตัวเลือกนี้เฉพาะเมื่อคุณเชื่อถืออีเมลทั้งหมดจาก IdP เท่านั้น',
   offline_access: {
     label: 'รีเฟรช access token',
     description:

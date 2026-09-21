@@ -1,0 +1,20 @@
+diff --git a/lib/provider.js b/lib/provider.js
+index 83e49d1c0d4c8417a01d33ea8cb2c7a8b465540f..21b9ba66b6a5de145ec5010449cd0f35022ad519 100644
+--- a/lib/provider.js
++++ b/lib/provider.js
+@@ -404,11 +404,11 @@ export class Provider extends Koa {
+     }
+ 
+     /**
+-     * LOGTO PATCH(client-specific-interaction-uid): resolve this client's interaction UID from
+-     * the cookie mapping. The client ID comes from the Logto-App-Id header (requests sent by
+-     * the Logto Experience UI) or the app_id query parameter (OIDC requests and redirections).
++     * ASTER PATCH(client-specific-interaction-uid): resolve this client's interaction UID from
++     * the cookie mapping. The client ID comes from the Aster-App-Id header (requests sent by
++     * the Aster Experience UI) or the app_id query parameter (OIDC requests and redirections).
+      */
+-    const clientId = ctx.headers['logto-app-id'] || new URL(ctx.request.url, this.issuer).searchParams.get('app_id');
++    const clientId = ctx.headers['aster-app-id'] || new URL(ctx.request.url, this.issuer).searchParams.get('app_id');
+     const id = getInteractionUid(cookieValue, clientId);
+ 
+     const interaction = await this.Interaction.find(id);

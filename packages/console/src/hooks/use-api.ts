@@ -88,12 +88,17 @@ const useGlobalRequestErrorHandler = (toastDisabledErrorCodes?: LogtoErrorCode[]
 
         // Toast system limit exceeded error
         if (data.code === 'system_limit.limit_exceeded') {
-          toastWithAction({
-            message: parseSystemLimitErrorMessage(data),
-            actionText: 'general.contact_us_action',
-            actionHref: contactEmailLink,
-            variant: 'error',
-          });
+          const message = parseSystemLimitErrorMessage(data);
+          if (contactEmailLink) {
+            toastWithAction({
+              message,
+              actionText: 'general.contact_us_action',
+              actionHref: contactEmailLink,
+              variant: 'error',
+            });
+          } else {
+            toast.error(message);
+          }
           return;
         }
 
@@ -127,7 +132,7 @@ const useGlobalRequestErrorHandler = (toastDisabledErrorCodes?: LogtoErrorCode[]
  * @param {StaticApiProps} props
  * @param {URL} props.prefixUrl  The base URL for the API.
  * @param {boolean} props.hideErrorToast  Whether to disable the global error handling.
- * @param {string} props.resourceIndicator  The resource indicator for the API. Used by the Logto SDK to validate the access token.
+ * @param {string} props.resourceIndicator  The resource indicator validated by the upstream SDK.
  *
  * @returns
  */

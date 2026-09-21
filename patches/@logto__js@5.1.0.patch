@@ -1,0 +1,148 @@
+diff --git a/lib/consts/openid.d.ts b/lib/consts/openid.d.ts
+index 0d3aaf8243ee657f73cbf5789a1f251f09873004..1fffb20eb3cc5c353b93815e664e8fb51cf94b80 100644
+--- a/lib/consts/openid.d.ts
++++ b/lib/consts/openid.d.ts
+@@ -13,7 +13,7 @@ export declare enum ReservedResource {
+      *
+      * @see {@link https://github.com/logto-io/rfcs | RFC 0001} for more details.
+      */
+-    Organization = "urn:logto:resource:organizations"
++    Organization = "urn:aster:resource:organizations"
+ }
+ export type UserClaim = 'name' | 'picture' | 'username' | 'email' | 'email_verified' | 'phone_number' | 'phone_number_verified' | 'roles' | 'organizations' | 'organization_roles' | 'custom_data' | 'identities';
+ /**
+@@ -61,13 +61,13 @@ export declare enum UserScope {
+      *
+      * See {@link idTokenClaims} for mapped claims in ID Token and {@link userinfoClaims} for additional claims in Userinfo Endpoint.
+      */
+-    Organizations = "urn:logto:scope:organizations",
++    Organizations = "urn:aster:scope:organizations",
+     /**
+      * Scope for user's organization roles per [RFC 0001](https://github.com/logto-io/rfcs).
+      *
+      * See {@link idTokenClaims} for mapped claims in ID Token and {@link userinfoClaims} for additional claims in Userinfo Endpoint.
+      */
+-    OrganizationRoles = "urn:logto:scope:organization_roles"
++    OrganizationRoles = "urn:aster:scope:organization_roles"
+ }
+ /**
+  * Mapped claims that ID Token includes.
+@@ -79,29 +79,29 @@ export declare const idTokenClaims: Readonly<Record<UserScope, UserClaim[]>>;
+ export declare const userinfoClaims: Readonly<Record<UserScope, UserClaim[]>>;
+ export declare const userClaims: Readonly<Record<UserScope, UserClaim[]>>;
+ /**
+- * The prefix of the URN (Uniform Resource Name) for the organization in Logto.
++ * The prefix of the URN (Uniform Resource Name) for an organization in Aster.
+  *
+  * @example
+  * ```
+- * urn:logto:organization:123 // organization with ID 123
++ * urn:aster:organization:123 // organization with ID 123
+  * ```
+  * @see {@link https://en.wikipedia.org/wiki/Uniform_Resource_Name | Uniform Resource Name}
+  */
+-export declare const organizationUrnPrefix = "urn:logto:organization:";
++export declare const organizationUrnPrefix = "urn:aster:organization:";
+ /**
+- * Build the URN (Uniform Resource Name) for the organization in Logto.
++ * Build the URN (Uniform Resource Name) for an organization in Aster.
+  *
+  * @param organizationId The ID of the organization.
+  * @returns The URN for the organization.
+  * @see {@link organizationUrnPrefix} for the prefix of the URN.
+  * @example
+  * ```ts
+- * buildOrganizationUrn('1') // returns 'urn:logto:organization:1'
++ * buildOrganizationUrn('1') // returns 'urn:aster:organization:1'
+  * ```
+  */
+ export declare const buildOrganizationUrn: (organizationId: string) => string;
+ /**
+- * Get the organization ID from the URN (Uniform Resource Name) for the organization in Logto.
++ * Get the organization ID from an Aster organization URN (Uniform Resource Name).
+  *
+  * @param urn The URN for the organization. Must start with {@link organizationUrnPrefix}.
+  * @returns The ID of the organization.
+@@ -109,7 +109,7 @@ export declare const buildOrganizationUrn: (organizationId: string) => string;
+  * @example
+  * ```ts
+  * getOrganizationIdFromUrn('1') // throws TypeError
+- * getOrganizationIdFromUrn('urn:logto:organization:1') // returns '1'
++ * getOrganizationIdFromUrn('urn:aster:organization:1') // returns '1'
+  * ```
+  */
+ export declare const getOrganizationIdFromUrn: (urn: string) => string;
+diff --git a/lib/consts/openid.js b/lib/consts/openid.js
+index 68fe4ead18814e136da40ad48bdeebdbe408d0b0..bba152f5191ec0eb8006fddb44e121b05cb6b682 100644
+--- a/lib/consts/openid.js
++++ b/lib/consts/openid.js
+@@ -15,7 +15,7 @@ var ReservedResource;
+      *
+      * @see {@link https://github.com/logto-io/rfcs | RFC 0001} for more details.
+      */
+-    ReservedResource["Organization"] = "urn:logto:resource:organizations";
++    ReservedResource["Organization"] = "urn:aster:resource:organizations";
+ })(ReservedResource || (ReservedResource = {}));
+ /**
+  * Scopes for ID Token and Userinfo Endpoint.
+@@ -63,13 +63,13 @@ var UserScope;
+      *
+      * See {@link idTokenClaims} for mapped claims in ID Token and {@link userinfoClaims} for additional claims in Userinfo Endpoint.
+      */
+-    UserScope["Organizations"] = "urn:logto:scope:organizations";
++    UserScope["Organizations"] = "urn:aster:scope:organizations";
+     /**
+      * Scope for user's organization roles per [RFC 0001](https://github.com/logto-io/rfcs).
+      *
+      * See {@link idTokenClaims} for mapped claims in ID Token and {@link userinfoClaims} for additional claims in Userinfo Endpoint.
+      */
+-    UserScope["OrganizationRoles"] = "urn:logto:scope:organization_roles";
++    UserScope["OrganizationRoles"] = "urn:aster:scope:organization_roles";
+ })(UserScope || (UserScope = {}));
+ /**
+  * Mapped claims that ID Token includes.
+@@ -105,29 +105,29 @@ Object.fromEntries(Object.values(UserScope).map((current) => [
+     [...idTokenClaims[current], ...userinfoClaims[current]],
+ ])));
+ /**
+- * The prefix of the URN (Uniform Resource Name) for the organization in Logto.
++ * The prefix of the URN (Uniform Resource Name) for an organization in Aster.
+  *
+  * @example
+  * ```
+- * urn:logto:organization:123 // organization with ID 123
++ * urn:aster:organization:123 // organization with ID 123
+  * ```
+  * @see {@link https://en.wikipedia.org/wiki/Uniform_Resource_Name | Uniform Resource Name}
+  */
+-const organizationUrnPrefix = 'urn:logto:organization:';
++const organizationUrnPrefix = 'urn:aster:organization:';
+ /**
+- * Build the URN (Uniform Resource Name) for the organization in Logto.
++ * Build the URN (Uniform Resource Name) for an organization in Aster.
+  *
+  * @param organizationId The ID of the organization.
+  * @returns The URN for the organization.
+  * @see {@link organizationUrnPrefix} for the prefix of the URN.
+  * @example
+  * ```ts
+- * buildOrganizationUrn('1') // returns 'urn:logto:organization:1'
++ * buildOrganizationUrn('1') // returns 'urn:aster:organization:1'
+  * ```
+  */
+ const buildOrganizationUrn = (organizationId) => `${organizationUrnPrefix}${organizationId}`;
+ /**
+- * Get the organization ID from the URN (Uniform Resource Name) for the organization in Logto.
++ * Get the organization ID from an Aster organization URN (Uniform Resource Name).
+  *
+  * @param urn The URN for the organization. Must start with {@link organizationUrnPrefix}.
+  * @returns The ID of the organization.
+@@ -135,7 +135,7 @@ const buildOrganizationUrn = (organizationId) => `${organizationUrnPrefix}${orga
+  * @example
+  * ```ts
+  * getOrganizationIdFromUrn('1') // throws TypeError
+- * getOrganizationIdFromUrn('urn:logto:organization:1') // returns '1'
++ * getOrganizationIdFromUrn('urn:aster:organization:1') // returns '1'
+  * ```
+  */
+ const getOrganizationIdFromUrn = (urn) => {

@@ -31,9 +31,9 @@ const roles = {
     'Rollen sind eine Gruppierung von Berechtigungen, die Benutzern zugewiesen werden können. Stellen Sie sicher, dass Sie zuerst Berechtigungen hinzufügen, bevor Sie Rollen erstellen.',
   assign_roles: 'Rollen zuweisen',
   management_api_access_notification:
-    'Für den Zugriff auf die Logto-Verwaltungs-API wählen Sie Rollen mit Verwaltungs-API-Berechtigungen <flag/> aus.',
+    'Für den Zugriff auf die Aster-Verwaltungs-API wählen Sie Rollen mit Verwaltungs-API-Berechtigungen <flag/> aus.',
   with_management_api_access_tip:
-    'Diese Maschinenrollen umfassen Berechtigungen für die Logto-Verwaltungs-API',
+    'Diese Maschinenrollen umfassen Berechtigungen für die Aster-Verwaltungs-API',
   role_creation_hint: 'Können Sie die richtige Rolle nicht finden? <a>Erstellen Sie eine Rolle</a>',
 };
 

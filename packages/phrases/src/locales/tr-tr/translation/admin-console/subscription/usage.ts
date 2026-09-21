@@ -10,9 +10,9 @@ const usage = {
   mau: {
     title: 'MAU',
     tooltip:
-      'Bir MAU, bir faturalandırma döngüsü içinde Logto ile en az bir token değiştirmiş benzersiz bir kullanıcıdır. Pro Plan için sınırsızdır. <a>Daha fazla bilgi edin</a>',
+      'Bir MAU, bir faturalandırma döngüsü içinde Aster ile en az bir token değiştirmiş benzersiz bir kullanıcıdır. Pro Plan için sınırsızdır. <a>Daha fazla bilgi edin</a>',
     tooltip_for_enterprise:
-      'Bir MAU, Logto ile bir faturalandırma döngüsü içinde en az bir token değiştirmiş benzersiz bir kullanıcıdır. Kurumsal Plan için sınırsızdır.',
+      'Bir MAU, Aster ile bir faturalandırma döngüsü içinde en az bir token değiştirmiş benzersiz bir kullanıcıdır. Kurumsal Plan için sınırsızdır.',
   },
   organizations: {
     title: 'Organizasyonlar',

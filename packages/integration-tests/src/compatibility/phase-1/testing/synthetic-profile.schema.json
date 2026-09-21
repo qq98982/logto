@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:example:phase-1-loader-synthetic:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profileSchema", "phase1Harness", "metadata", "items", "transport"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "profileSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceCommit", "sha256"],
+      "properties": {
+        "sourceCommit": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "sourceCommit": { "type": "null" },
+            "sha256": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "sourceCommit": { "type": "string" },
+            "sha256": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "phase1Harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit"],
+      "properties": {
+        "commit": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "nested"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "nested": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "transport": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "http" },
+            "url": { "type": "string", "format": "uri" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "topic"],
+          "properties": {
+            "kind": { "const": "queue" },
+            "topic": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  }
+}

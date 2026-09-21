@@ -1,4 +1,3 @@
-import LogtoSignature from '@experience/shared/components/LogtoSignature';
 import { LogtoProvider, ReservedScope, useLogto, UserScope } from '@logto/react';
 import { accountCenterApplicationId, SignInIdentifier } from '@logto/schemas';
 import classNames from 'classnames';
@@ -211,8 +210,7 @@ export const Main = () => {
 };
 
 const Layout = () => {
-  const { accountCenterSettings, experienceSettings, theme, platform } = useContext(PageContext);
-  const hideLogtoBranding = experienceSettings?.hideLogtoBranding === true;
+  const { accountCenterSettings, experienceSettings, platform } = useContext(PageContext);
   const { pathname } = useLocation();
   const accountNavItems = useMemo(
     () => getAccountTabSettings({ accountCenterSettings, experienceSettings }).navItems,
@@ -263,12 +261,6 @@ const Layout = () => {
                   <Main />
                 </LogtoErrorBoundary>
               </ErrorBoundary>
-              {!isFullPage && !hideLogtoBranding && (
-                <LogtoSignature
-                  className={classNames(styles.signature, layoutClassNames.signature)}
-                  theme={theme}
-                />
-              )}
             </main>
           </AccountLayoutProvider>
         </div>

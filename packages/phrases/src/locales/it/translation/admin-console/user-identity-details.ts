@@ -48,7 +48,7 @@ const user_identity_details = {
     description:
       "Elimina i token memorizzati. Gli utenti devono ri-autorizzare l'accesso per ripristinare la funzionalità.",
     confirmation_message:
-      "Sei sicuro di voler eliminare i token? Il Logto Secret Vault rimuoverà i token di accesso e aggiornamento {{connectorName}} memorizzati. Questo utente deve ri-autorizzare per ripristinare l'accesso alle API {{connectorName}}.",
+      "Sei sicuro di voler eliminare i token? L'Aster Secret Vault rimuoverà i token di accesso e aggiornamento {{connectorName}} memorizzati. Questo utente deve ri-autorizzare per ripristinare l'accesso alle API {{connectorName}}.",
   },
   token_storage_disabled: {
     title: 'La memorizzazione dei token è disabilitata per questo connettore',

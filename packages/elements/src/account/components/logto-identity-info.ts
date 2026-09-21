@@ -3,7 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 
 import fallbackAvatar from '../icons/fallback-avatar.svg';
 
-const tagName = 'logto-identity-info';
+const tagName = 'aster-identity-info';
 
 @customElement(tagName)
 export class LogtoIdentityInfo extends LitElement {
@@ -13,17 +13,17 @@ export class LogtoIdentityInfo extends LitElement {
     :host {
       display: flex;
       align-items: center;
-      gap: var(--logto-spacing-sm);
+      gap: var(--aster-spacing-sm);
     }
 
     .avatar {
-      --logto-icon-size: var(--logto-identity-info-avatar-size, 36px);
+      --aster-icon-size: var(--aster-identity-info-avatar-size, 36px);
 
       > img {
         display: block;
-        width: var(--logto-identity-info-avatar-size, 36px);
-        height: var(--logto-identity-info-avatar-size, 36px);
-        border-radius: var(--logto-identity-info-avatar-shape, var(--logto-shape-corner-md));
+        width: var(--aster-identity-info-avatar-size, 36px);
+        height: var(--aster-identity-info-avatar-size, 36px);
+        border-radius: var(--aster-identity-info-avatar-shape, var(--aster-shape-corner-md));
       }
     }
 
@@ -32,18 +32,18 @@ export class LogtoIdentityInfo extends LitElement {
       flex-direction: column;
 
       .name {
-        font: var(--logto-identity-info-name-font-size, var(--logto-font-body-md));
+        font: var(--aster-identity-info-name-font-size, var(--aster-font-body-md));
         color: var(
-          --logto-identity-info-name-color,
-          var(--logto-color---logto-color-typeface-primary)
+          --aster-identity-info-name-color,
+          var(--aster-color---aster-color-typeface-primary)
         );
       }
 
       .email {
-        font: var(--logto-identity-info-email-font, var(--logto-font-body-sm));
+        font: var(--aster-identity-info-email-font, var(--aster-font-body-sm));
         color: var(
-          --logto-identity-info-email-color,
-          var(--logto-color---logto-color-typeface-primary)
+          --aster-identity-info-email-color,
+          var(--aster-color---aster-color-typeface-primary)
         );
       }
     }
@@ -66,7 +66,7 @@ export class LogtoIdentityInfo extends LitElement {
       <div class="avatar">
         ${this.avatar && !this.failedToLoadAvatar
           ? html`<img src="${this.avatar}" alt="user avatar" @error=${this.handleAvatarError} />`
-          : html`<logto-icon>${fallbackAvatar}</logto-icon>`}
+          : html`<aster-icon>${fallbackAvatar}</aster-icon>`}
       </div>
       <div class="info">
         <div class="name">${this.name}</div>

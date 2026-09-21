@@ -1,6 +1,6 @@
 const system_limit = {
   limit_exceeded:
-    'Dieser <planName/>-Mandant hat sein {{entity}}-Limit gemäß <a>Logtos Entitätsrichtlinie</a> erreicht.',
+    'Dieser <planName/>-Mandant hat sein {{entity}}-Limit gemäß <a>Asters Entitätsrichtlinie</a> erreicht.',
   entities: {
     application: 'Anwendung',
     third_party_application: 'Drittanbieter-Anwendung',

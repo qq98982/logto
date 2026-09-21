@@ -1,7 +1,6 @@
-import { ServiceConnector } from '@logto/connector-kit';
 import { ConnectorType } from '@logto/schemas';
 import type { ConnectorFactoryResponse, ConnectorResponse } from '@logto/schemas';
-import { condArray, conditional } from '@silverhand/essentials';
+import { condArray } from '@silverhand/essentials';
 import { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
@@ -26,14 +25,12 @@ import { ConnectorsTabs } from '@/consts/page-tabs';
 import TabNav, { TabNavItem } from '@/ds-components/TabNav';
 import type { RequestError } from '@/hooks/use-api';
 import useApi from '@/hooks/use-api';
-import useConnectorApi from '@/hooks/use-connector-api';
 import useConnectorInUse from '@/hooks/use-connector-in-use';
 import useTenantPathname from '@/hooks/use-tenant-pathname';
 
 import ConnectorContent from './ConnectorContent';
 import ConnectorTabs from './ConnectorTabs';
 import ConnectorTypeName from './ConnectorTypeName';
-import EmailUsage from './EmailUsage';
 import styles from './index.module.scss';
 
 // TODO: refactor path-related operation utils in both Connectors and ConnectorDetails page
@@ -43,7 +40,6 @@ const getConnectorsPathname = (isSocial: boolean) =>
 function ConnectorDetails() {
   const { pathname } = useLocation();
   const { connectorId } = useParams();
-  const { createConnector } = useConnectorApi();
   const { mutate: mutateGlobal } = useSWRConfig();
   const [isDeleted, setIsDeleted] = useState(false);
   const [isReadMeOpen, setIsReadMeOpen] = useState(false);
@@ -125,20 +121,13 @@ function ConnectorDetails() {
             title={<UnnamedTrans resource={data.name} />}
             primaryTag={<ConnectorTypeName type={data.type} />}
             identifier={{ name: 'ID', value: data.id }}
-            additionalActionButton={conditional(
-              data.connectorId !== ServiceConnector.Email && {
-                title: 'connector_details.check_readme',
-                icon: <File />,
-                onClick: () => {
-                  setIsReadMeOpen(true);
-                },
-              }
-            )}
-            additionalCustomElement={conditional(
-              data.type === ConnectorType.Email && data.connectorId === ServiceConnector.Email && (
-                <EmailUsage usage={data.usage} />
-              )
-            )}
+            additionalActionButton={{
+              title: 'connector_details.check_readme',
+              icon: <File />,
+              onClick: () => {
+                setIsReadMeOpen(true);
+              },
+            }}
             actionMenuItems={[
               ...condArray(
                 !isSocial && [
@@ -181,18 +170,6 @@ function ConnectorDetails() {
               setIsSetupOpen(false);
 
               if (connectorId) {
-                /**
-                 * Note:
-                 * The "Email Service Connector" is a built-in connector that can be directly created without the need for setup in the guide.
-                 */
-                if (connectorId === ServiceConnector.Email) {
-                  const created = await createConnector({ connectorId });
-                  navigate(`/connectors/${ConnectorsTabs.Passwordless}/${created.id}`, {
-                    replace: true,
-                  });
-                  return;
-                }
-
                 navigate(`${getConnectorsPathname(isSocial)}/guide/${connectorId}`);
               }
             }}

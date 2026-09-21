@@ -11,7 +11,7 @@ import * as s from 'superstruct';
  * fallback is only consulted when `sessionStorage` state is missing (not mismatched).
  */
 
-const fallbackKeyPrefix = 'logto:redirect-context:fallback:';
+const fallbackKeyPrefix = 'aster:redirect-context:fallback:';
 
 /** Time-to-live for fallback bundles: 10 minutes. */
 const ttlMs = 10 * 60 * 1000;

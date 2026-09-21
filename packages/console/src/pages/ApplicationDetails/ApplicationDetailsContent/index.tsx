@@ -17,7 +17,7 @@ import DetailsForm from '@/components/DetailsForm';
 import DetailsPageHeader from '@/components/DetailsPage/DetailsPageHeader';
 import Drawer from '@/components/Drawer';
 import UnsavedChangesAlertModal from '@/components/UnsavedChangesAlertModal';
-import { ApplicationDetailsTabs, logtoThirdPartyGuideLink, protectedApp } from '@/consts';
+import { ApplicationDetailsTabs, thirdPartyGuideLink, protectedApp } from '@/consts';
 import DeleteConfirmModal from '@/ds-components/DeleteConfirmModal';
 import TabNav, { TabNavItem } from '@/ds-components/TabNav';
 import TabWrapper from '@/ds-components/TabWrapper';
@@ -154,7 +154,7 @@ function ApplicationDetailsContent({ data, secrets, oidcConfig, onApplicationUpd
           onClick: () => {
             // Open IdP docs link in new tab if it's a third party app
             if (data.isThirdParty) {
-              window.open(getDocumentationUrl(logtoThirdPartyGuideLink), '_blank');
+              window.open(getDocumentationUrl(thirdPartyGuideLink), '_blank');
               return;
             }
             // Open protected app docs link in new tab

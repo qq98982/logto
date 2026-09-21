@@ -41,15 +41,8 @@ const paywall = {
     'Vous avez atteint la limite de {{count, number}} permission par rôle de <planName/>. Mettez à niveau votre plan pour ajouter des rôles et des permissions supplémentaires. Pour toute assistance, n’hésitez pas à <a>nous contacter</a>.',
   scopes_per_role_other:
     'Vous avez atteint la limite de {{count, number}} permissions par rôle de <planName/>. Mettez à niveau votre plan pour ajouter des rôles et des permissions supplémentaires. Pour toute assistance, n’hésitez pas à <a>nous contacter</a>.',
-  saml_applications_oss:
-    "L'application SAML supplémentaire est disponible avec le plan Logto Enterprise. Contactez-nous si vous avez besoin d'assistance.",
   saml_applications_oss_limit_notice:
-    "Votre instance open source prend en charge jusqu'à {{limit}} applications SAML. Vous pouvez utiliser Logto Cloud ou nous contacter pour obtenir des options supplémentaires.",
-  logto_pricing_button_text: 'Tarification Logto Cloud',
-  saml_applications:
-    "L'application SAML supplémentaire est disponible avec le plan Logto Enterprise. Contactez-nous si vous avez besoin d'assistance.",
-  saml_applications_add_on:
-    "Débloquez la fonctionnalité des applications SAML en passant à un plan payant. Pour toute assistance, n'hésitez pas à <a>nous contacter</a>.",
+    "Votre instance open source prend en charge jusqu'à {{limit}} applications SAML.",
   hooks:
     "Vous avez atteint la limite de {{count, number}} webhook de <planName/>. Mettez à niveau votre plan pour créer plus de webhooks. N’hésitez pas à <a>nous contacter</a> si vous avez besoin d'aide.",
   hooks_other:
@@ -58,7 +51,7 @@ const paywall = {
   organizations:
     "Débloquez les organisations en passant à un plan payant. N’hésitez pas à <a>nous contacter</a> si vous avez besoin d'aide.",
   third_party_apps:
-    "Débloquez Logto en tant qu'IdP pour les applications tierces en passant à un plan payant. Pour toute assistance, n'hésitez pas à <a>nous contacter</a>.",
+    "Débloquez Aster en tant qu'IdP pour les applications tierces en passant à un plan payant. Pour toute assistance, n'hésitez pas à <a>nous contacter</a>.",
   sso_connectors:
     "Débloquez le SSO d'entreprise en passant à un plan payant. Pour toute assistance, n'hésitez pas à <a>nous contacter</a>.",
   tenant_members:
@@ -71,7 +64,7 @@ const paywall = {
       "Passez à un plan payant pour obtenir la fonctionnalité JWT personnalisée et des avantages premium. N'hésitez pas à <a>nous contacter</a> si vous avez des questions.",
   },
   branding_customization:
-    'Débloquez un contrôle total de l\'image de marque grâce aux fonctionnalités "Masquer la marque Logto" et "Apportez votre UI" en mettant votre plan à niveau.',
+    'Débloquez un contrôle total de l\'image de marque grâce aux fonctionnalités "Masquer la marqu\'Aster" et "Apportez votre UI" en mettant votre plan à niveau.',
   bring_your_ui:
     "Passez à un plan payant pour obtenir des fonctionnalités de personnalisation de l'interface utilisateur ainsi que des avantages premium.",
   security_features:

@@ -27,7 +27,7 @@ const guide = {
     modal_subtitle: '使用我們提供的 SDK 和集成教程加速你的應用開發過程。',
     select_a_framework: '選擇一個框架',
     continue_without_framework: '跳過教程直接創建應用',
-    describe_guide_looking_for_placeholder: '例如：我想將 Logto 集成到我的 Angular 應用程式中。',
+    describe_guide_looking_for_placeholder: '例如：我想將 Aster 集成到我的 Angular 應用程式中。',
   },
   api: {
     modal_title: '首先從教程開始',

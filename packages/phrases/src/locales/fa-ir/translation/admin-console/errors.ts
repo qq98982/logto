@@ -21,7 +21,7 @@ const errors = {
   unexpected_error: 'خطای غیرمنتظره‌ای رخ داد.',
   not_found: '404 پیدا نشد',
   create_internal_role_violation:
-    'شما در حال ایجاد یک نقش داخلی جدید هستید که توسط Logto مجاز نیست. نامی را امتحان کنید که با "#internal:" شروع نشود.',
+    'شما در حال ایجاد یک نقش داخلی جدید هستید که توسط Aster مجاز نیست. نامی را امتحان کنید که با "#internal:" شروع نشود.',
   should_be_an_integer: 'باید یک عدد صحیح باشد.',
   number_should_be_between_inclusive:
     'عدد باید بین {{min}} و {{max}} باشد (هر دو طرف شامل می‌شوند).',

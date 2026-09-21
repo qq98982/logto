@@ -28,7 +28,7 @@ const guide = {
       '私たちの事前ビルドされた SDK とチュートリアルを使用してアプリ開発プロセスをスタートさせます。',
     select_a_framework: 'フレームワークを選択',
     continue_without_framework: 'フレームワークなしで作成',
-    describe_guide_looking_for_placeholder: '例: Logto を Angular アプリに統合したい',
+    describe_guide_looking_for_placeholder: '例: Aster を Angular アプリに統合したい',
   },
   api: {
     modal_title: 'チュートリアルで開始',

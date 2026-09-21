@@ -12,7 +12,7 @@ import RedirectUrisWeb, { defaultBaseUrl } from '../../fragments/_redirect-uris-
 
 <Step
   title="Installation"
-  subtitle="Install Logto SDK"
+  subtitle="Install the upstream SDK"
 >
 
 <NpmLikeInstallation packageName="@logto/react-router" />
@@ -31,7 +31,7 @@ import { makeLogtoReactRouter } from '@logto/react-router';
 
 const sessionStorage = createCookieSessionStorage({
   cookie: {
-    name: 'logto-session',
+    name: 'aster-session',
     maxAge: 14 * 24 * 60 * 60,
     secrets: ['${generateStandardSecret()}'], // Auto-generated 32 digit secret
   },
@@ -132,7 +132,7 @@ export default [
 
 As you can see, the mount process is configurable and you can adjust it for your particular route structure. The whole URL path structure can be customized via the passed configuration object.
 
-When mounting the routes as described above, you can navigate your browser to `/api/logto/sign-in` and you should be redirected to your Logto instance where you have to authenticate then.
+When mounting the routes as described above, you can navigate your browser to `/api/logto/sign-in` and you should be redirected to your Aster instance where you have to authenticate then.
 
 </Step>
 
@@ -140,7 +140,7 @@ When mounting the routes as described above, you can navigate your browser to `/
   title="Implement sign-in and sign-out"
 >
 
-We have prepared the authentication routes, now let's implement the sign-in and sign-out buttons in your home page. We need to redirect the user to the sign-in or sign-out route when needed. To help with this, use `loader` to fetch authentication status from Logto client.
+We have prepared the authentication routes, now let's implement the sign-in and sign-out buttons in your home page. We need to redirect the user to the sign-in or sign-out route when needed. To help with this, use `loader` to fetch authentication status from Aster client.
 
 ```tsx title="app/routes/_index.tsx"
 import { type LogtoContext } from '@logto/react-router';

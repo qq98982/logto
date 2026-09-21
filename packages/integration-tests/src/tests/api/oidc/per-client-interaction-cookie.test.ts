@@ -27,7 +27,7 @@ const createClient = (applicationId: string) => {
   });
 
   // eslint-disable-next-line @silverhand/fp/no-mutation
-  client.extraHeaders = { 'Logto-App-Id': applicationId };
+  client.extraHeaders = { 'Aster-App-Id': applicationId };
 
   return client;
 };

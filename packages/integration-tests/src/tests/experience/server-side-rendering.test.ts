@@ -48,7 +48,7 @@ describe('server-side rendering', () => {
 
     // Check page variables
     const data = await experience.page.evaluate(() => {
-      return window.logtoSsr;
+      return window.asterSsr;
     });
 
     const parsed = ssrDataGuard.parse(data);
@@ -72,7 +72,7 @@ describe('server-side rendering', () => {
 
     // Check page variables
     const data = await experience.page.evaluate(() => {
-      return window.logtoSsr;
+      return window.asterSsr;
     });
 
     const parsed = ssrDataGuard.parse(data);
@@ -97,7 +97,7 @@ describe('server-side rendering', () => {
 
     // Check page variables
     const data = await experience.page.evaluate(() => {
-      return window.logtoSsr;
+      return window.asterSsr;
     });
 
     const parsed = ssrDataGuard.parse(data);

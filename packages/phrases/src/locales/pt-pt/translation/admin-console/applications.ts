@@ -2,8 +2,8 @@ const applications = {
   page_title: 'Aplicações',
   title: 'Aplicações',
   subtitle:
-    'Configure uma aplicação móvel, de página única, máquina a máquina ou tradicional para utilizar o Logto para autenticação',
-  subtitle_with_app_type: 'Configurar autenticação Logto para a aplicação {{name}}',
+    'Configure uma aplicação móvel, de página única, máquina a máquina ou tradicional para utilizar o Aster para autenticação',
+  subtitle_with_app_type: 'Configurar autenticação Aster para a aplicação {{name}}',
   create_device_flow_description:
     'Crie uma aplicação nativa que utiliza a concessão de autorização de dispositivo OAuth 2.0 para dispositivos com entrada limitada ou aplicações headless.',
   create: 'Criar aplicação',
@@ -44,7 +44,7 @@ const applications = {
     },
     protected: {
       title: 'App Protegida',
-      subtitle: 'Uma aplicação protegida pelo Logto',
+      subtitle: 'Uma aplicação protegida pelo Aster',
       description: 'N/A',
     },
     saml: {
@@ -75,14 +75,14 @@ const applications = {
   },
   placeholder_title: 'Selecione um tipo de aplicação para continuar',
   placeholder_description:
-    'O Logto usa uma entidade de aplicativo para OIDC para ajudar em tarefas como identificar seus aplicativos, gerenciar o registro e criar registros de auditoria.',
+    'O Aster usa uma entidade de aplicativo para OIDC para ajudar em tarefas como identificar seus aplicativos, gerenciar o registro e criar registros de auditoria.',
   third_party_application_placeholder_description:
-    'Use o Logto como um Provedor de Identidade para fornecer autorização OAuth para serviços de terceiros. \n Inclui uma tela de consentimento do utilizador pré-construída para acesso a recursos. <a>Saiba mais</a>',
+    'Use o Aster como um Provedor de Identidade para fornecer autorização OAuth para serviços de terceiros. \n Inclui uma tela de consentimento do utilizador pré-construída para acesso a recursos. <a>Saiba mais</a>',
   guide: {
     third_party: {
       title: 'Integrar uma aplicação de terceiros',
       description:
-        'Use o Logto como o seu Fornecedor de Identidade para fornecer autorização OAuth a serviços de terceiros. Inclui um ecrã de consentimento do utilizador pré-construído para acesso seguro aos recursos. <a>Saiba mais</a>',
+        'Use o Aster como o seu Fornecedor de Identidade para fornecer autorização OAuth a serviços de terceiros. Inclui um ecrã de consentimento do utilizador pré-construído para acesso seguro aos recursos. <a>Saiba mais</a>',
     },
   },
 };

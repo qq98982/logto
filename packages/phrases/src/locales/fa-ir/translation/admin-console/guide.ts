@@ -29,7 +29,7 @@ const guide = {
     select_a_framework: 'یک فریم‌ورک انتخاب کنید',
     continue_without_framework: 'ایجاد برنامه بدون فریم‌ورک',
     describe_guide_looking_for_placeholder:
-      'مثلاً، می‌خواهم Logto را در برنامه Angular خود یکپارچه کنم.',
+      'مثلاً، می‌خواهم Aster را در برنامه Angular خود یکپارچه کنم.',
   },
   api: {
     modal_title: 'شروع با آموزش‌ها',

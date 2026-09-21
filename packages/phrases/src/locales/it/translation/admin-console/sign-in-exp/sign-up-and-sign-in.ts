@@ -59,7 +59,7 @@ const sign_up_and_sign_in = {
     settings_title: 'Esperienza di accesso con i social',
     automatic_account_linking: 'Collega automaticamente gli account con lo stesso identificatore',
     automatic_account_linking_tip:
-      "Quando abilitato, se un utente accede con una nuova identità social e c'è esattamente un account esistente con lo stesso identificatore (ad esempio, un indirizzo email), Logto collegherà automaticamente l'identità social a quell'account. All'utente non verrà chiesto di scegliere se collegare gli account.",
+      "Quando abilitato, se un utente accede con una nuova identità social e c'è esattamente un account esistente con lo stesso identificatore (ad esempio, un indirizzo email), Aster collegherà automaticamente l'identità social a quell'account. All'utente non verrà chiesto di scegliere se collegare gli account.",
     required_sign_up_identifiers:
       "Richiedi agli utenti di fornire l'identificatore di registrazione mancante",
     required_sign_up_identifiers_tip:
@@ -109,7 +109,7 @@ const sign_up_and_sign_in = {
       "Abilita o disabilita la registrazione degli utenti. Una volta disabilitata, gli utenti possono comunque essere aggiunti nella console di amministrazione, ma gli utenti non possono più creare account tramite l'interfaccia di accesso.",
     unknown_session_redirect_url: 'URL di reindirizzamento sessione sconosciuta',
     unknown_session_redirect_url_tip:
-      "A volte, Logto potrebbe non riconoscere la sessione di un utente nella pagina di accesso, come quando una sessione scade o l'utente aggiunge ai segnalibri o condivide il link di accesso. Per impostazione predefinita, appare un errore 404 di \"sessione sconosciuta\". Per migliorare l'esperienza utente, imposta un URL di fallback per reindirizzare gli utenti alla tua app e riavviare l'autenticazione.",
+      "A volte, Aster potrebbe non riconoscere la sessione di un utente nella pagina di accesso, come quando una sessione scade o l'utente aggiunge ai segnalibri o condivide il link di accesso. Per impostazione predefinita, appare un errore 404 di \"sessione sconosciuta\". Per migliorare l'esperienza utente, imposta un URL di fallback per reindirizzare gli utenti alla tua app e riavviare l'autenticazione.",
   },
   username_policy: {
     title: 'Criterio nome utente',

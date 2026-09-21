@@ -1,7 +1,7 @@
 const actions = {
   page_title: 'Actions',
   title: 'Actions',
-  subtitle: '認証フローの特定のポイントでカスタムコードを実行し、Logto の動作を拡張します。',
+  subtitle: '認証フローの特定のポイントでカスタムコードを実行し、Aster の動作を拡張します。',
   status: {
     not_configured: '未設定',
     configured: '設定済み',
@@ -28,7 +28,7 @@ const actions = {
   },
   result_data: {
     title: 'アクション結果',
-    subtitle: 'このアクションタイプで Logto が理解できる結果オブジェクトを返します。',
+    subtitle: 'このアクションタイプで Aster が理解できる結果オブジェクトを返します。',
   },
   environment_variables: {
     title: '環境変数を設定',
@@ -50,11 +50,11 @@ const actions = {
     },
     on_execution_error: {
       title: 'スクリプトエラー時',
-      description: 'スクリプトの実行に失敗したときの Logto の動作を選択します。',
+      description: 'スクリプトの実行に失敗したときの Aster の動作を選択します。',
       block: '認証フローをブロックする',
       allow: '認証フローの続行を許可する',
       post_first_factor_description:
-        'このスクリプトが失敗した場合、Logto は常に無効な認証情報を拒否し、パスワード検証をバイパスできないようにします。',
+        'このスクリプトが失敗した場合、Aster は常に無効な認証情報を拒否し、パスワード検証をバイパスできないようにします。',
     },
   },
   test_context: {

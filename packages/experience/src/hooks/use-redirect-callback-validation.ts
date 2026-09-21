@@ -74,7 +74,7 @@ const useRedirectCallbackValidation = ({
         return { valid: false, error: 'invalid_connector_auth' };
       }
 
-      // Critical: global API interceptor reads app_id for Logto-App-Id header
+      // Critical: global API interceptor reads app_id for the Aster application header.
       if (fallback.appId) {
         sessionStorage.setItem(searchKeys.appId, fallback.appId);
       }

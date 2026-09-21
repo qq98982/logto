@@ -13,7 +13,7 @@ const profile = {
       after_resolved: '一旦你解決了這些問題，你就可以刪除賬戶了。如需任何幫助，請隨時聯繫我們。',
       check_information: '很抱歉聽到你想刪除你的賬戶。請在繼續操作前仔細檢查以下信息。',
       remove_all_data:
-        '刪除賬戶將會永久刪除你在 Logto Cloud 的所有數據。因此，請確保在繼續操作前備份所有重要數據。',
+        '刪除賬戶將會永久刪除你在 Cloud 的所有數據。因此，請確保在繼續操作前備份所有重要數據。',
       confirm_information: '請確認上述信息是否符合你的預期。一旦刪除賬戶，我們將無法恢復。',
       has_admin_role: '由於你是以下租戶的管理員，這些租戶將與你的賬戶一起被刪除：',
       has_admin_role_other: '由於你是以下租戶的管理員，這些租戶將與你的賬戶一起被刪除：',
@@ -31,7 +31,7 @@ const profile = {
     error_occurred: '發生錯誤',
     error_occurred_description: '抱歉，刪除賬戶時出現問題：',
     request_id: '請求 ID：{{requestId}}',
-    try_again_later: '請稍後再試。如果問題仍然存在，請聯繫 Logto 團隊並提供請求 ID。',
+    try_again_later: '請稍後再試。如果問題仍然存在，請聯繫 Aster 團隊並提供請求 ID。',
     final_confirmation: '最終確認',
     about_to_start_deletion: '你即將開始刪除過程，這一操作無法撤銷。',
     permanently_delete: '永久刪除',

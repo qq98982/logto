@@ -30,7 +30,7 @@ const sign_in_exp = {
     dark_primary_color: 'Markenfarbe (Dunkler Modus)',
     dark_mode: 'Aktiviere Dunklen Modus',
     dark_mode_description:
-      'Deine App erhält einen automatisch generierten Dunklen Modus, der auf deiner Markenfarbe und dem Logto-Algorithmus basiert. Du kannst diesen nach Belieben anpassen.',
+      'Deine App erhält einen automatisch generierten Dunklen Modus, der auf deiner Markenfarbe und dem Aster-Algorithmus basiert. Du kannst diesen nach Belieben anpassen.',
     dark_mode_reset_tip: 'Neuberechnung der Farbe des dunklen Modus basierend auf der Markenfarbe.',
     reset: 'Neuberechnen',
   },
@@ -42,10 +42,6 @@ const sign_in_exp = {
     app_logo_and_favicon: 'App-Logo und Favicon',
     company_logo_and_favicon: 'Firmenlogo und Favicon',
     organization_logo_and_favicon: 'Organisationslogo und Favicon',
-    hide_logto_branding: 'Logto-Branding ausblenden',
-    hide_logto_branding_description:
-      'Entferne "Powered by Logto". Präsentiere deine Marke exklusiv mit einer klaren, professionellen Anmeldeerfahrung.',
-    hide_logto_branding_oss_note: 'Diese Funktion ist nativ in <a>Logto Cloud</a> verfügbar.',
   },
   branding_uploads: {
     app_logo: {
@@ -81,7 +77,6 @@ const sign_in_exp = {
   },
   custom_ui: {
     title: 'Benutzerdefinierte UI',
-    cloud_tag: 'Cloud',
     css_code_editor_title: 'Benutzerdefiniertes CSS',
     css_code_editor_field_title: 'CSS-Override',
     css_code_editor_description1: 'Siehe das Beispiel für benutzerdefiniertes CSS.',
@@ -92,11 +87,7 @@ const sign_in_exp = {
     bring_your_ui_title: 'Bringen Sie Ihr UI',
     bring_your_ui_upload_title: 'Benutzerdefinierte UI-Assets hochladen',
     bring_your_ui_description:
-      'Laden Sie ein komprimiertes Paket (.zip) hoch, um die vorgefertigte Benutzeroberfläche von Logto durch Ihren eigenen Code zu ersetzen. <a>Erfahren Sie mehr</a>',
-    bring_your_ui_oss_description: 'Passen Sie die Anmeldeoberfläche mit Ihrem eigenen Code an.',
-    bring_your_ui_oss_card_description:
-      'Laden Sie Ihre benutzerdefinierte Anmeldeoberfläche direkt in <a>Logto Cloud</a> hoch. Kein Fork und kein erneutes Deployment erforderlich.',
-    bring_your_ui_oss_try_cloud: 'Cloud ausprobieren',
+      'Laden Sie ein komprimiertes Paket (.zip) hoch, um die vorgefertigte Benutzeroberfläche von Aster durch Ihren eigenen Code zu ersetzen. <a>Erfahren Sie mehr</a>',
     preview_with_bring_your_ui_description:
       'Ihre benutzerdefinierten UI-Assets wurden erfolgreich hochgeladen und werden jetzt bereitgestellt. Daher wurde das eingebaute Vorschaufenster deaktiviert.\nUm Ihre personalisierte Anmelde-Benutzeroberfläche zu testen, klicken Sie auf die Schaltfläche "Live-Vorschau", um sie in einem neuen Browser-Tab zu öffnen.',
     csp_description:
@@ -113,10 +104,10 @@ const sign_in_exp = {
   },
   account_center: {
     title: 'KONTOZENTRUM',
-    description: 'Passen Sie Ihre Kontozentrums-Workflows mit den Logto-APIs an.',
+    description: 'Passen Sie Ihre Kontozentrums-Workflows mit den Aster-APIs an.',
     enable_account_api: 'Kontozentrum und Account-API aktivieren',
     enable_account_api_description:
-      'Aktiviert sowohl die benutzerseitige Account-API als auch das vorgefertigte Kontocenter von Logto. Wenn dies deaktiviert ist, sind beide Funktionen nicht verfügbar.',
+      'Aktiviert sowohl die benutzerseitige Account-API als auch das vorgefertigte Kontocenter von Aster. Wenn dies deaktiviert ist, sind beide Funktionen nicht verfügbar.',
     field_options: {
       off: 'Aus',
       edit: 'Bearbeiten',

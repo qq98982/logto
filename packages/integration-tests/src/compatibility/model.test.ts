@@ -22,6 +22,42 @@ describe('compatibility evidence model', () => {
     expect(jsonValueGuard.safeParse(value)).toEqual({ success: true, data: value });
   });
 
+  it('returns independent parsed records and arrays for valid evidence', () => {
+    const value = { nested: [{ number: 42, enabled: false, empty: null }] };
+    const parsed = jsonValueGuard.parse(value) as typeof value;
+
+    expect(parsed).toEqual(value);
+    expect(parsed).not.toBe(value);
+    expect(parsed.nested).not.toBe(value.nested);
+    expect(parsed.nested[0]).not.toBe(value.nested[0]);
+  });
+
+  it('accepts null-prototype JSON records and preserves nested validation paths', () => {
+    const value: unknown = Object.create(null, {
+      value: { enumerable: true, value: ['text', false, null, 1] },
+    });
+
+    expect(jsonValueGuard.parse(value)).toEqual({ value: ['text', false, null, 1] });
+    const invalid = observationGuard.safeParse({
+      stepId: 'inspect',
+      kind: 'http',
+      value: { nested: [Number.NaN] },
+    });
+
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.issues.map(({ path }) => path)).toEqual([['value', 'nested', 0]]);
+    }
+  });
+
+  it.each([undefined, Number.NaN, 1n, Symbol('invalid'), () => 1, new Date(0)])(
+    'rejects non-JSON values both directly and inside evidence: %p',
+    (value) => {
+      expect(jsonValueGuard.safeParse(value).success).toBe(false);
+      expect(jsonValueGuard.safeParse({ nested: [value] }).success).toBe(false);
+    }
+  );
+
   it.each([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'rejects nested non-finite number %p',
     (value) => {
