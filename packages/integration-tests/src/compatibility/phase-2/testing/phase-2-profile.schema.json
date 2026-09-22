@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aster:compatibility:phase-2-profile:1",
+  "title": "Aster Phase 2 OIDC OAuth Compatibility Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "unevaluatedProperties": false,
+  "required": [
+    "schemaVersion",
+    "profileId",
+    "baseAcceptance",
+    "units",
+    "grantTypes",
+    "differentialScenarios",
+    "candidateInvariantScenarios",
+    "discovery"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "profileId": { "const": "aster.phase-2.oidc-oauth" },
+    "baseAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordCommit",
+        "recordPath",
+        "recordSha256",
+        "runtimeSourceCommit",
+        "harnessCommit",
+        "profileSha256"
+      ],
+      "properties": {
+        "recordCommit": { "const": "f6dcacc04226511d36547b08aaee600208c39c6d" },
+        "recordPath": { "const": "compatibility/phase-1-acceptance/phase-1-accepted.md" },
+        "recordSha256": { "const": "e31b5f6635cdcddcca319a6020dcba6325ab4ac86840aff09965f296f6b7a386" },
+        "runtimeSourceCommit": { "const": "2132b4d9f537c618013c5c76542fbf8e325c19d9" },
+        "harnessCommit": { "const": "83d08f0821345d1bdc01491152949cc6f044ecfb" },
+        "profileSha256": { "const": "5212b72090d1c9ab1956c07da652629af1312a9784f8a513028e5e297801fcf7" }
+      }
+    },
+    "units": {
+      "type": "array",
+      "uniqueItems": true,
+      "const": ["client-credentials-foundation"]
+    },
+    "grantTypes": {
+      "type": "array",
+      "uniqueItems": true,
+      "const": ["client_credentials"]
+    },
+    "differentialScenarios": {
+      "type": "array",
+      "uniqueItems": true,
+      "const": [
+        "client-credentials.basic-explicit-resource",
+        "client-credentials.post-explicit-resource",
+        "client-credentials.default-resource",
+        "client-credentials.resource-no-scope",
+        "client-credentials.resource-partial-scope",
+        "client-credentials.organization-empty-scope",
+        "client-credentials.organization-scope",
+        "client-credentials.organization-resource-scope",
+        "client-credentials.unknown-client-basic",
+        "client-credentials.unknown-client-post",
+        "client-credentials.wrong-secret-basic",
+        "client-credentials.wrong-secret-post",
+        "client-credentials.mixed-authentication",
+        "client-credentials.missing-target",
+        "client-credentials.unknown-resource",
+        "client-credentials.unassociated-organization",
+        "client-credentials.duplicate-resource",
+        "client-credentials.duplicate-scope-name",
+        "client-credentials.malformed-scope-whitespace",
+        "client-credentials.unsupported-parameter"
+      ],
+      "items": { "$ref": "#/$defs/scenarioId" }
+    },
+    "candidateInvariantScenarios": {
+      "type": "array",
+      "uniqueItems": true,
+      "const": [
+        "client-credentials.cross-tenant-authority-rejected",
+        "client-credentials.request-role-write-rejected",
+        "client-credentials.signing-failure-rolls-back",
+        "client-credentials.user-authority-unchanged"
+      ],
+      "items": { "$ref": "#/$defs/scenarioId" }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grantTypesSupportedAppend", "stillAbsent"],
+      "properties": {
+        "grantTypesSupportedAppend": {
+          "type": "array",
+          "uniqueItems": true,
+          "const": ["client_credentials"]
+        },
+        "stillAbsent": {
+          "type": "array",
+          "uniqueItems": true,
+          "const": [
+            "introspection_endpoint",
+            "revocation_endpoint",
+            "device_authorization_endpoint",
+            "registration_endpoint"
+          ],
+          "items": { "$ref": "#/$defs/discoveryField" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "scenarioId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*)+$"
+    },
+    "discoveryField": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"
+    }
+  }
+}
