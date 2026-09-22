@@ -1,10 +1,16 @@
 /* eslint-disable max-lines -- One closed security-boundary suite keeps request, response, stream, JWKS, and leakage controls together. */
-import { createHash } from 'node:crypto';
+import {
+  createHash,
+  createPrivateKey,
+  sign as signBytes,
+  type JsonWebKey as NodeJsonWebKey,
+} from 'node:crypto';
 
 import { base64url, exportJWK, generateKeyPair, SignJWT, type JSONWebKeySet } from 'jose';
 
 import {
   ClientCredentialsClientError,
+  containsCompactJwt,
   observeClientCredentialsToken,
   type ClientCredentialsRequest,
   type ClientCredentialsRequestOptions,
@@ -31,6 +37,24 @@ const createSigningFixture = async (
     .sign(privateKey);
 
   return { jwks, token };
+};
+
+const createWhitespaceHeaderJwt = async (
+  payload = '{ "sub" : "fixture", "aud" : "https://resource.example/api" }',
+  protectedHeader = '{ "alg" : "ES256", "typ" : "JWT" }'
+) => {
+  const { privateKey } = await generateKeyPair('ES256', { extractable: true });
+  const privateJwk = await exportJWK(privateKey);
+  const signingKey = createPrivateKey({ key: privateJwk as NodeJsonWebKey, format: 'jwk' });
+  const protectedSegment = base64url.encode(new TextEncoder().encode(protectedHeader));
+  const payloadSegment = base64url.encode(new TextEncoder().encode(payload));
+  const signingInput = `${protectedSegment}.${payloadSegment}`;
+  const signature = signBytes('sha256', Buffer.from(signingInput), {
+    key: signingKey,
+    dsaEncoding: 'ieee-p1363',
+  });
+
+  return `${signingInput}.${base64url.encode(signature)}`;
 };
 
 const successfulResponse = (
@@ -259,7 +283,11 @@ describe('Phase 2 client credentials oracle request contract', () => {
   });
 
   it('removes credentials, token fields, cookie fields, and embedded values from success output', async () => {
-    const compactLookingValue = 'prefix abc.def.ghi suffix';
+    const compactJwt = await createWhitespaceHeaderJwt();
+    const compactLookingValue = `prefix ${compactJwt} suffix`;
+    const adjacentCompactValue = `x${compactJwt}suffix`;
+    const retainedAudience = 'https://phase2.example.invalid/api-primary';
+    const retainedIssuer = 'https://issuer.example/oidc';
     const basicCredential = Buffer.from(`${fixtureClientId}:${fixtureSecret}`).toString('base64');
     const authorization = `Basic ${basicCredential}`;
     const { jwks, token } = await createSigningFixture(
@@ -269,9 +297,15 @@ describe('Phase 2 client credentials oracle request contract', () => {
         cookie: 'session=private',
         unrelatedEcho: 'private',
         basicCredential,
+        aud: retainedAudience,
+        iss: retainedIssuer,
         [fixtureSecret]: 'secret-key',
-        'abc.def.ghi': 'token-key',
-        nested: { echoed: fixtureSecret, compact: compactLookingValue },
+        [compactJwt]: 'token-key',
+        nested: {
+          echoed: fixtureSecret,
+          compact: compactLookingValue,
+          adjacentCompact: adjacentCompactValue,
+        },
       },
       {
         authorization: fixtureSecret,
@@ -279,7 +313,7 @@ describe('Phase 2 client credentials oracle request contract', () => {
         unrelatedEcho: 'private',
         basicCredential,
         [fixtureSecret]: 'secret-key',
-        'abc.def.ghi': 'token-key',
+        [compactJwt]: 'token-key',
       }
     );
     const { requestFetch } = captureFetch(
@@ -290,14 +324,20 @@ describe('Phase 2 client credentials oracle request contract', () => {
           cookie: 'response-cookie',
           unrelatedEcho: 'private',
           basicCredential,
+          resource: retainedAudience,
           [fixtureSecret]: 'secret-key',
-          'abc.def.ghi': 'token-key',
-          nested: { echoed: fixtureSecret, authorization, compact: compactLookingValue },
+          [compactJwt]: 'token-key',
+          nested: {
+            echoed: fixtureSecret,
+            authorization,
+            compact: compactLookingValue,
+            adjacentCompact: adjacentCompactValue,
+          },
         },
         {
           'x-echoed-token': token,
           'set-cookie': 'sid="private"',
-          'abc.def.ghi': 'token-header',
+          [compactJwt]: 'token-header',
           [fixtureSecret]: 'secret-header-name',
         }
       )
@@ -317,6 +357,11 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(serialized).not.toContain(authorization);
     expect(serialized).not.toContain(basicCredential);
     expect(serialized).not.toContain(compactLookingValue);
+    expect(serialized).not.toContain(adjacentCompactValue);
+    expect(serialized).not.toContain(compactJwt);
+    expect(observation.body.resource).toBe(retainedAudience);
+    expect(observation.jwt?.claims.aud).toBe(retainedAudience);
+    expect(observation.jwt?.claims.iss).toBe(retainedIssuer);
     expect(normalized).not.toContain('access_token');
     expect(normalized).not.toContain('client_secret');
     expect(normalized).not.toContain('authorization');
@@ -335,9 +380,80 @@ describe('Phase 2 client credentials oracle request contract', () => {
     );
   });
 
+  it('redacts adjacent signed JWTs with noncanonical headers while retaining ordinary URLs', async () => {
+    const { jwks } = await createSigningFixture('noncanonical-diagnostic-key');
+    const token = await createWhitespaceHeaderJwt();
+    const resource = 'https://phase2.example.invalid/api-primary';
+    expect(containsCompactJwt(resource)).toBe(false);
+    expect(containsCompactJwt(token)).toBe(true);
+    expect(containsCompactJwt(`x${token}suffix`)).toBe(true);
+
+    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+      fetch: (async () =>
+        new Response(JSON.stringify({ diagnostic: `x${token}suffix`, resource }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch,
+    });
+
+    expect(observation.body).toEqual({ diagnostic: '<redacted>', resource });
+    expect(JSON.stringify(observation)).not.toContain(token);
+  });
+
+  it('fails closed for signed JWT payloads above the structural inspection budget', async () => {
+    const { jwks } = await createSigningFixture('oversized-diagnostic-key');
+    const token = await createWhitespaceHeaderJwt(
+      JSON.stringify({ sub: 'fixture', padding: 'x'.repeat(5000) })
+    );
+    const longDottedUrl = `https://example.invalid/${'a'.repeat(32)}.${'b'.repeat(
+      4097
+    )}.${'c'.repeat(16)}`;
+    const emptyHeader = `.${'a'.repeat(4097)}.${'b'.repeat(16)}`;
+    const payloadSegment = token.split('.')[1];
+    expect(payloadSegment?.length).toBeGreaterThan(4096);
+    expect(Buffer.byteLength(token)).toBeLessThan(64 * 1024);
+    expect(containsCompactJwt(longDottedUrl)).toBe(false);
+    expect(containsCompactJwt(emptyHeader)).toBe(false);
+    expect(containsCompactJwt(token)).toBe(true);
+
+    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+      fetch: (async () =>
+        new Response(JSON.stringify({ diagnostic: token }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch,
+    });
+
+    expect(observation.body).toEqual({ diagnostic: '<redacted>' });
+    expect(JSON.stringify(observation)).not.toContain(token);
+  });
+
+  it('fails closed for signed JWT protected headers above the structural inspection budget', async () => {
+    const { jwks } = await createSigningFixture('oversized-header-diagnostic-key');
+    const token = await createWhitespaceHeaderJwt(
+      undefined,
+      JSON.stringify({ alg: 'ES256', typ: 'JWT', padding: 'x'.repeat(5000) })
+    );
+    const headerSegment = token.split('.')[0];
+    expect(headerSegment?.length).toBeGreaterThan(4096);
+    expect(Buffer.byteLength(token)).toBeLessThan(64 * 1024);
+    expect(containsCompactJwt(token)).toBe(true);
+
+    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+      fetch: (async () =>
+        new Response(JSON.stringify({ diagnostic: token }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })) as typeof fetch,
+    });
+
+    expect(observation.body).toEqual({ diagnostic: '<redacted>' });
+    expect(JSON.stringify(observation)).not.toContain(token);
+  });
+
   it('retains bounded non-sensitive error response data while sanitizing recursively', async () => {
     const { jwks } = await createSigningFixture('error-key');
-    const compactLookingValue = 'prefix abc.def.ghi suffix';
+    const compactLookingValue = `prefix ${await createWhitespaceHeaderJwt()} suffix`;
     const response = new Response(
       JSON.stringify({
         error: 'invalid_client',

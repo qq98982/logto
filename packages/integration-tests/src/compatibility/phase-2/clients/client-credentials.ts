@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines, no-await-in-loop, no-restricted-syntax, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment, unicorn/no-useless-undefined -- The closed client bounds a streaming response, recursively sanitizes untrusted JSON, and preserves runtime checks beyond the static request type. */
+/* eslint-disable complexity, max-lines, no-await-in-loop, no-restricted-syntax, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment, unicorn/no-useless-undefined -- The closed client bounds a streaming response, structurally detects embedded JWTs, recursively sanitizes untrusted JSON, and preserves runtime checks beyond the static request type. */
 import { createHash } from 'node:crypto';
 
 import { base64url, createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'jose';
@@ -66,13 +66,17 @@ const omittedResponseHeaders = new Set([
   'cookie',
   'set-cookie',
 ]);
-const compactTokenPattern = /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/u;
 const credentialLabelPattern = /\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*:/iu;
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const defaultMaximumBodyBytes = 64 * 1024;
 const defaultMaximumHeaderBytes = 16 * 1024;
 const cancellationTimeoutMilliseconds = 100;
 const maximumFieldBytes = 4096;
+const maximumCompactSegmentCharacters = 4096;
+const maximumCompactDotPairs = 64;
+const maximumCompactHeaderAttempts = 4096;
+const base64urlSegmentPattern = /^[A-Za-z0-9_-]+$/u;
+const base64urlCharacterPattern = /^[A-Za-z0-9_-]$/u;
 const invalidRequestMessage = 'Client credentials request rejected';
 const requestFailureMessage = 'Client credentials request failed';
 const responseFailureMessage = 'Client credentials response rejected';
@@ -89,6 +93,122 @@ export class ClientCredentialsClientError extends Error {
 const fail = (message: string): never => {
   throw new ClientCredentialsClientError(message);
 };
+
+const decodeCompactJsonObject = (
+  segment: string
+): Readonly<Record<string, unknown>> | undefined => {
+  if (
+    segment.length === 0 ||
+    segment.length > maximumCompactSegmentCharacters ||
+    !base64urlSegmentPattern.test(segment)
+  ) {
+    return undefined;
+  }
+  try {
+    const decoded = base64url.decode(segment);
+    if (decoded.byteLength === 0 || decoded.byteLength > maximumFieldBytes) {
+      return undefined;
+    }
+    const parsed: unknown = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(decoded));
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Readonly<Record<string, unknown>>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/* eslint-disable max-depth, @silverhand/fp/no-let -- Bounded scanning walks attacker-controlled compact-token candidates without allocating an unbounded candidate graph. */
+export const containsCompactJwt = (value: string): boolean => {
+  let firstDot = value.indexOf('.');
+  let dotPairs = 0;
+  let headerAttempts = 0;
+
+  while (firstDot >= 0) {
+    const secondDot = value.indexOf('.', firstDot + 1);
+    if (secondDot < 0) {
+      break;
+    }
+    dotPairs += 1;
+    if (dotPairs > maximumCompactDotPairs) {
+      return fail(responseFailureMessage);
+    }
+
+    const payloadSegment = value.slice(firstDot + 1, secondDot);
+    if (payloadSegment.length > 0 && base64urlSegmentPattern.test(payloadSegment)) {
+      let headerStart = firstDot;
+      while (headerStart > 0 && base64urlCharacterPattern.test(value.charAt(headerStart - 1))) {
+        headerStart -= 1;
+      }
+      let signatureEnd = secondDot + 1;
+      while (
+        signatureEnd < value.length &&
+        base64urlCharacterPattern.test(value.charAt(signatureEnd))
+      ) {
+        signatureEnd += 1;
+      }
+      const headerRunLength = firstDot - headerStart;
+      const signatureSegment = value.slice(secondDot + 1, signatureEnd);
+      if (signatureSegment.length >= 16 && base64urlSegmentPattern.test(signatureSegment)) {
+        const boundedHeaderStart = Math.max(
+          headerStart,
+          firstDot - maximumCompactSegmentCharacters
+        );
+        let validHeader = false;
+        for (
+          let candidateStart = boundedHeaderStart;
+          candidateStart < firstDot;
+          candidateStart += 1
+        ) {
+          headerAttempts += 1;
+          if (headerAttempts > maximumCompactHeaderAttempts) {
+            return fail(responseFailureMessage);
+          }
+          const header = decodeCompactJsonObject(value.slice(candidateStart, firstDot));
+          if (typeof header?.alg === 'string' && header.alg.length > 0) {
+            validHeader = true;
+            break;
+          }
+        }
+        if (!validHeader) {
+          if (headerRunLength > maximumCompactSegmentCharacters) {
+            if (payloadSegment.length > maximumCompactSegmentCharacters) {
+              return fail(responseFailureMessage);
+            }
+            if (decodeCompactJsonObject(payloadSegment) !== undefined) {
+              return true;
+            }
+          }
+          firstDot = secondDot;
+          continue;
+        }
+        if (
+          payloadSegment.length > maximumCompactSegmentCharacters ||
+          headerRunLength > maximumCompactSegmentCharacters ||
+          signatureSegment.length > maximumCompactSegmentCharacters
+        ) {
+          return true;
+        }
+        try {
+          if (base64url.decode(signatureSegment).byteLength === 0) {
+            firstDot = secondDot;
+            continue;
+          }
+        } catch {
+          firstDot = secondDot;
+          continue;
+        }
+        if (decodeCompactJsonObject(payloadSegment) !== undefined) {
+          return true;
+        }
+      }
+    }
+    firstDot = secondDot;
+  }
+
+  return false;
+};
+/* eslint-enable max-depth, @silverhand/fp/no-let */
 
 const cancelSafely = async (value: unknown): Promise<void> => {
   try {
@@ -476,7 +596,7 @@ const readBoundedBody = async (
 const sanitizeString = (value: string, sensitiveValues: readonly string[]): string => {
   const normalized = value.toLowerCase();
   if (
-    compactTokenPattern.test(value) ||
+    containsCompactJwt(value) ||
     credentialLabelPattern.test(value) ||
     sensitiveValues.some(
       (sensitiveValue) =>
@@ -518,6 +638,8 @@ const assertObservationSanitized = (
   const serialized = JSON.stringify(observation);
   const normalized = serialized.toLowerCase();
   if (
+    containsCompactJwt(serialized) ||
+    credentialLabelPattern.test(serialized) ||
     sensitiveValues.some(
       (sensitiveValue) =>
         sensitiveValue.length > 0 && normalized.includes(sensitiveValue.toLowerCase())
