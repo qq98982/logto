@@ -16,6 +16,7 @@
     "compatibility:inventory": "node ./lib/compatibility/inventory/cli.js",
     "compatibility:phase1": "node ./lib/compatibility/phase-1/cli.js",
     "compatibility:phase2": "node ./src/compatibility/phase-2/launcher.mjs",
+    "compatibility:phase2-base-preservation": "node ./src/compatibility/phase-2/base-preservation/launcher.mjs",
     "compatibility:run": "node ./lib/compatibility/cli.js",
     "test:only": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:compatibility": "pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/",

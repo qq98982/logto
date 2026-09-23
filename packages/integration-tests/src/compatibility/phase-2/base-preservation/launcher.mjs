@@ -1,0 +1,210 @@
+#!/usr/bin/env node
+/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The tracked launcher owns one clean build, exact topology-environment selection, a verified runtime manifest, and fixed exit propagation. */
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+import {
+  computeRuntimeBundleManifest,
+  executeVerifiedPhase2Entry,
+  inspectCleanHead,
+} from '../launcher.mjs';
+
+const diagnostic = 'Phase 2 base-preservation launcher failed.\n';
+const failure = 'Invalid Phase 2 base-preservation launcher';
+
+export const basePreservationEnvironmentKeys = Object.freeze([
+  'PATH',
+  'ASTER_FIXTURE_SOCKET',
+  'ASTER_PHASE1_BUILD_ROOT',
+  'ASTER_PHASE1_CANDIDATE_ADMIN_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_ADMIN_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_ADMIN_URL',
+  'ASTER_PHASE1_CANDIDATE_DATA_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_DATA_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_FOREIGN_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_CONTAINER_ID',
+  'ASTER_PHASE1_CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_CANDIDATE_FOREIGN_ADMIN_URL',
+  'ASTER_PHASE1_CANDIDATE_FOREIGN_URL',
+  'ASTER_PHASE1_CANDIDATE_IMAGE_DIGEST',
+  'ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_CONTAINER_ID',
+  'ASTER_PHASE1_CANDIDATE_URL',
+  'ASTER_PHASE1_CONFORMANCE_ROOT',
+  'ASTER_PHASE1_ENGINE_SOCKET',
+  'ASTER_PHASE1_EVIDENCE_DIR',
+  'ASTER_PHASE1_MODE',
+  'ASTER_PHASE1_ORACLE_ADMIN_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_ADMIN_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_ADMIN_URL',
+  'ASTER_PHASE1_ORACLE_DATA_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_DATA_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_FOREIGN_COOKIE_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_FOREIGN_POSTGRES_CONTAINER_ID',
+  'ASTER_PHASE1_ORACLE_FOREIGN_SIGNING_KEY_SET_SHA256',
+  'ASTER_PHASE1_ORACLE_FOREIGN_ADMIN_URL',
+  'ASTER_PHASE1_ORACLE_FOREIGN_URL',
+  'ASTER_PHASE1_ORACLE_IMAGE_DIGEST',
+  'ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_CONTAINER_ID',
+  'ASTER_PHASE1_ORACLE_SNAPSHOT_PATH',
+  'ASTER_PHASE1_ORACLE_URL',
+  'ASTER_PHASE1_PHASE0_CANDIDATE_IMAGE_DIGEST',
+  'ASTER_PHASE1_PROCESS_TOKEN',
+  'ASTER_PHASE1_TOPOLOGY_ID',
+  'ASTER_PHASE2_CANDIDATE_SOURCE_COMMIT',
+]);
+
+const fail = () => {
+  throw new TypeError(failure);
+};
+
+const run = (command, args, options) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      shell: false,
+      stdio: options.stdio,
+    });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 250).unref();
+    }, options.timeoutMs);
+    timer.unref();
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      clearTimeout(timer);
+      if (timedOut || signal !== null || !Number.isSafeInteger(code)) {
+        reject(new TypeError(failure));
+        return;
+      }
+      resolve(code);
+    });
+  });
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+const repositoryRoot = path.resolve(packageRoot, '../..');
+const entryPath = path.join(packageRoot, 'lib/compatibility/phase-2/base-preservation/cli.js');
+
+const defaultDependencies = Object.freeze({
+  inspect: inspectCleanHead,
+  async build(root) {
+    const code = await run('pnpm', ['--filter', '@logto/integration-tests', 'build'], {
+      cwd: root,
+      env: {
+        HOME: process.env.HOME ?? fail(),
+        LC_ALL: 'C',
+        PATH: process.env.PATH ?? fail(),
+      },
+      stdio: 'ignore',
+      timeoutMs: 5 * 60_000,
+    });
+    if (code !== 0) fail();
+  },
+  identity: computeRuntimeBundleManifest,
+  async execute(entry, args, environment, manifest, capability) {
+    const result = await executeVerifiedPhase2Entry(entry, args, environment, manifest, capability);
+    if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
+      return 1;
+    }
+    process.stdout.write(result.stdout);
+    return 0;
+  },
+});
+
+export const selectBasePreservationEnvironment = (source = process.env) =>
+  Object.freeze(
+    Object.fromEntries(
+      basePreservationEnvironmentKeys.map((key) => {
+        const value = source[key];
+        if (
+          typeof value !== 'string' ||
+          value.length === 0 ||
+          Buffer.byteLength(value) > 4096 ||
+          /\p{Cc}/u.test(value)
+        ) {
+          return fail();
+        }
+        return [key, value];
+      })
+    )
+  );
+
+const validateEnvironment = (environment) => {
+  if (
+    typeof environment !== 'object' ||
+    environment === null ||
+    Array.isArray(environment) ||
+    JSON.stringify(Object.keys(environment).toSorted()) !==
+      JSON.stringify([...basePreservationEnvironmentKeys].toSorted())
+  ) {
+    return fail();
+  }
+  for (const value of Object.values(environment)) {
+    if (
+      typeof value !== 'string' ||
+      value.length === 0 ||
+      Buffer.byteLength(value) > 4096 ||
+      /\p{Cc}/u.test(value)
+    ) {
+      return fail();
+    }
+  }
+  return Object.freeze({ ...environment });
+};
+
+const validateArguments = (args) => {
+  if (
+    !Array.isArray(args) ||
+    args.length === 0 ||
+    args.some(
+      (value) =>
+        typeof value !== 'string' || /\p{Cc}/u.test(value) || Buffer.byteLength(value) > 4096
+    )
+  ) {
+    return fail();
+  }
+  return Object.freeze([...args]);
+};
+
+export const launchPhase2BasePreservation = async (
+  arguments_,
+  sourceEnvironment,
+  dependencies = defaultDependencies
+) => {
+  const args = validateArguments(arguments_);
+  const topologyEnvironment = validateEnvironment(sourceEnvironment);
+  const before = await dependencies.inspect(repositoryRoot);
+  await dependencies.build(repositoryRoot);
+  const after = await dependencies.inspect(repositoryRoot);
+  if (before.head !== after.head || before.tree !== after.tree) fail();
+  const manifest = await dependencies.identity(entryPath);
+  const environment = Object.freeze({
+    ...topologyEnvironment,
+    ASTER_PHASE2_HARNESS_HEAD: before.head,
+    ASTER_PHASE2_HARNESS_TREE: before.tree,
+    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: manifest.sha256,
+    LC_ALL: 'C',
+  });
+  const capability = randomBytes(32).toString('hex');
+  const code = await dependencies.execute(entryPath, args, environment, manifest, capability);
+  if (code !== 0) fail();
+  return 0;
+};
+
+if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
+  try {
+    await launchPhase2BasePreservation(
+      process.argv.slice(2),
+      selectBasePreservationEnvironment(process.env)
+    );
+  } catch {
+    process.exitCode = 1;
+    process.stderr.write(diagnostic);
+  }
+}
+
+/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
