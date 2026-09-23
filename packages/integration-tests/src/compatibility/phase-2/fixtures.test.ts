@@ -373,6 +373,79 @@ describe('Phase 2 fixture lifecycle', () => {
     }
   });
 
+  it('reconciles one failed candidate provision and retries the exact descriptor once', async () => {
+    const requests: CommandRunnerRequest[] = [];
+    let provisionAttempts = 0;
+    const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
+      requests.push(request);
+      const descriptor = JSON.parse(request.stdin) as { operation?: string };
+      if (descriptor.operation === 'provision') {
+        provisionAttempts += 1;
+        if (provisionAttempts === 1) {
+          return {
+            ...commandResult(''),
+            exitCode: 1,
+            stderr: 'Aster compatibility fixture command failed\n',
+          };
+        }
+        return commandResult(
+          JSON.stringify({
+            schemaVersion: 1,
+            operation: 'provision',
+            public: {
+              schemaVersion: 1,
+              recipe: 'dataProtocol',
+              allocations: [
+                {
+                  allocationId: 'candidate-retry',
+                  role: 'data',
+                  target: 'primary',
+                  entities: [],
+                },
+              ],
+            },
+          })
+        );
+      }
+      if (descriptor.operation === 'cleanup') {
+        return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+      }
+      return commandResult(
+        JSON.stringify({
+          schemaVersion: 1,
+          operation: 'projectState',
+          projection: { allocations: [] },
+        })
+      );
+    };
+    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-retry',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      runner,
+    });
+
+    const fixtureValue = await provisioner.provision();
+    await provisioner.cleanup(fixtureValue);
+
+    expect(requests.map(({ stdin }) => JSON.parse(stdin).operation)).toEqual([
+      'provision',
+      'cleanup',
+      'provision',
+      'cleanup',
+      'projectState',
+    ]);
+    const provisions = requests.filter(({ stdin }) => JSON.parse(stdin).operation === 'provision');
+    expect(provisions).toHaveLength(2);
+    expect(provisions[0]?.stdin).toBe(provisions[1]?.stdin);
+    expect(JSON.parse(requests[1]?.stdin ?? '{}')).not.toHaveProperty('public');
+    expect(JSON.parse(requests[3]?.stdin ?? '{}')).toHaveProperty('public');
+  });
+
   it('rejects coordinator output that leaks the private subject password', async () => {
     const planted = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
     const provisioner = createCandidatePhase2FixtureProvisioner({

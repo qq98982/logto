@@ -1029,26 +1029,22 @@ export const createCandidatePhase2FixtureProvisioner = (
     return parseCommandOutput(result, operation, secrets);
   };
 
-  const cleanupState = async (state: FixtureState): Promise<void> => {
-    revoke(state);
-    if (state.cleanup) {
-      return state.cleanup;
+  const cleanupAllocation = async (state: FixtureState): Promise<void> => {
+    const result = await run(
+      Object.freeze({
+        schemaVersion: 1,
+        operation: 'cleanup',
+        recipe: 'dataProtocol',
+        allocationId: state.allocationId,
+        ...(state.coordinatorPublic && { public: state.coordinatorPublic }),
+      }),
+      'cleanup',
+      state.sensitiveValues
+    );
+    if (own(result, 'ok') !== true) {
+      return fail(cleanupFailure);
     }
-    const cleanup = (async () => {
-      const result = await run(
-        Object.freeze({
-          schemaVersion: 1,
-          operation: 'cleanup',
-          recipe: 'dataProtocol',
-          allocationId: state.allocationId,
-          ...(state.coordinatorPublic && { public: state.coordinatorPublic }),
-        }),
-        'cleanup',
-        state.sensitiveValues
-      );
-      if (own(result, 'ok') !== true) {
-        return fail(cleanupFailure);
-      }
+    if (state.coordinatorPublic) {
       const projected = await run(
         Object.freeze({
           schemaVersion: 1,
@@ -1065,7 +1061,15 @@ export const createCandidatePhase2FixtureProvisioner = (
       if (!Array.isArray(allocations) || allocations.length > 0) {
         return fail(cleanupFailure);
       }
-    })();
+    }
+  };
+
+  const cleanupState = async (state: FixtureState): Promise<void> => {
+    revoke(state);
+    if (state.cleanup) {
+      return state.cleanup;
+    }
+    const cleanup = cleanupAllocation(state);
     state.cleanup = cleanup;
     try {
       await cleanup;
@@ -1139,18 +1143,30 @@ export const createCandidatePhase2FixtureProvisioner = (
           ]),
         }),
       });
+      const failures: unknown[] = [];
       try {
-        const result = await run(descriptor, 'provision', state.sensitiveValues);
+        let result: Record<string, unknown>;
+        try {
+          result = await run(descriptor, 'provision', state.sensitiveValues);
+        } catch (error: unknown) {
+          failures.push(error);
+          await cleanupAllocation(state);
+          result = await run(descriptor, 'provision', state.sensitiveValues);
+        }
         state.coordinatorPublic = validateCoordinatorPublic(own(result, 'public'), allocationId);
         const publicFixture = candidatePublicFixture(allocationId);
         const fixture = createFixture(publicFixture, secrets, state);
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {
+        failures.push(error);
         try {
           await cleanupState(state);
         } catch (cleanupError: unknown) {
-          throw new AggregateError([error, cleanupError], failure);
+          failures.push(cleanupError);
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, failure);
         }
         throw new Error(failure);
       }
