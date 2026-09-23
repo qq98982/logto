@@ -648,7 +648,7 @@ cleanup_resources() {
       cleanup_failed=1
     fi
   fi
-  if [[ "$original_status" != 0 || "$cleanup_failed" != 0 ]]; then
+  if [[ "$original_status" != 0 ]]; then
     remove_owned_result_directory "$RESULT_DIR" "$RESULT_DIR_IDENTITY" || cleanup_failed=1
     remove_owned_result_directory "$RESULT_STAGING_DIR" "$RESULT_STAGING_IDENTITY" || cleanup_failed=1
   fi
@@ -1233,7 +1233,9 @@ NODE
   invariant_sha256="$(sha256_file "$RESULT_STAGING_DIR/phase-2-client-credentials-candidate-invariants.json")"
   [[ "$oracle_sha256" =~ ^[0-9a-f]{64}$ && "$differential_sha256" =~ ^[0-9a-f]{64}$ && "$invariant_sha256" =~ ^[0-9a-f]{64}$ ]] || { failure_stage='result-hashes'; fail; return 1; }
 
-  cleanup_resources 0 || { failure_stage='cleanup'; fail; return 1; }
+  if ! cleanup_resources 0; then
+    cleanup_resources 0 || { failure_stage='cleanup'; fail; return 1; }
+  fi
 
   failure_stage='result-publication'
   assert_path_identity "$RESULT_ROOT" "$RESULT_ROOT_IDENTITY" || { fail; return 1; }

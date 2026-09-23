@@ -247,6 +247,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('RESULT_STAGING_IDENTITY');
     expect(source).toContain('remove_owned_result_directory');
     expect(source).toContain('verify_published_result_directory');
+    expect(source).toContain('if ! cleanup_resources 0; then');
+    expect(source).toContain("cleanup_resources 0 || { failure_stage='cleanup'; fail; return 1; }");
     expect(source).toContain('--no-clobber --no-target-directory');
     const cleanup = source.lastIndexOf('cleanup_resources 0');
     const publish = source.lastIndexOf('--no-clobber --no-target-directory');
@@ -523,7 +525,7 @@ second=$?
     await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
   });
 
-  it('removes hidden result staging when topology cleanup fails', async () => {
+  it('preserves staging for a success-path retry and removes it on failure exit', async () => {
     const resultRoot = path.join(temporaryRoot, 'results');
     const staging = path.join(resultRoot, '.staging.failure');
     const final = path.join(resultRoot, 'result.failure');
@@ -549,8 +551,11 @@ STATE_HANDLE_ROOT=''
 cleanup_project() { return 1; }
 assert_ports_released() { return 0; }
 cleanup_resources 0
-status=$?
-[[ "$status" == 1 && ! -e "$RESULT_STAGING_DIR" && ! -e "$RESULT_DIR" ]]
+first=$?
+[[ "$first" == 1 && -d "$RESULT_STAGING_DIR" && ! -e "$RESULT_DIR" ]]
+cleanup_resources 1
+second=$?
+[[ "$second" == 1 && ! -e "$RESULT_STAGING_DIR" && ! -e "$RESULT_DIR" ]]
 `;
     await writeFile(harnessPath, harness, { mode: 0o500 });
 
