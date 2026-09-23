@@ -405,20 +405,6 @@ export const runPhase2BasePreservationRuntime = async (
     if (!discoveryScenario) {
       return fail();
     }
-    const rawPhase1NegativeControl = await dependencies.runRawDiscoveryControl(
-      discoveryScenario,
-      createCandidateRuntime(
-        context,
-        containers.candidate,
-        containers.projectName,
-        discoveryScenario,
-        phase2Profile,
-        dependencies,
-        false,
-        []
-      )
-    );
-    assertRawDiscoveryControl(rawPhase1NegativeControl);
     const scenarios: Phase2BasePreservationScenario[] = [];
     const discoverySessions: Phase2BaseDiscoverySession[] = [];
 
@@ -464,6 +450,20 @@ export const runPhase2BasePreservationRuntime = async (
     if (discoverySessions.length !== 1) {
       return fail();
     }
+    const rawPhase1NegativeControl = await dependencies.runRawDiscoveryControl(
+      discoveryScenario,
+      createCandidateRuntime(
+        context,
+        containers.candidate,
+        containers.projectName,
+        discoveryScenario,
+        phase2Profile,
+        dependencies,
+        false,
+        []
+      )
+    );
+    assertRawDiscoveryControl(rawPhase1NegativeControl);
     const result =
       snapshotPhase1EvidencePreservingVerifiedTokens<Phase2BasePreservationRuntimeResult>({
         schemaVersion: 1 as const,

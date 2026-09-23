@@ -3,7 +3,7 @@ import type {
   Phase1TargetStepEvidence,
 } from '../../phase-1/scenario-runtime.js';
 import { phase1DifferentialScenarios } from '../../phase-1/scenarios/index.js';
-/* eslint-disable unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The 22-scenario fake runtime intentionally tracks mutable projection state, call order, and no-op validation ports. */
+/* eslint-disable max-lines, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The 22-scenario fake runtime intentionally tracks mutable projection state, destructive-control ordering, call order, and no-op validation ports. */
 import { SymbolTable } from '../../symbol-table.js';
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
 
@@ -40,6 +40,33 @@ const phase1Profile = Object.freeze({
   }),
 }) as never;
 
+const targetGraph = Object.freeze({
+  oracle: Object.freeze({
+    primary: Object.freeze({
+      label: 'oracle' as const,
+      coreUrl: 'http://localhost:3311/',
+      adminUrl: 'http://localhost:3411/',
+    }),
+    foreign: Object.freeze({
+      label: 'oracle' as const,
+      coreUrl: 'http://localhost:3312/',
+      adminUrl: 'http://localhost:3412/',
+    }),
+  }),
+  candidate: Object.freeze({
+    primary: Object.freeze({
+      label: 'candidate' as const,
+      coreUrl: 'http://localhost:3321/',
+      adminUrl: 'http://localhost:3421/',
+    }),
+    foreign: Object.freeze({
+      label: 'candidate' as const,
+      coreUrl: 'http://localhost:3322/',
+      adminUrl: 'http://localhost:3422/',
+    }),
+  }),
+});
+
 const rawDiscovery = Object.freeze({
   issuer: 'http://localhost:3321/oidc',
   grant_types_supported: Object.freeze([
@@ -62,8 +89,15 @@ const response = (body: unknown, mediaType = 'application/json') => {
   });
 };
 
+type DestructiveControlLifecycle = {
+  events: string[];
+  candidateMetadataAvailable: boolean;
+  rawControlCalls: number;
+};
+
 const createDependencies = (
-  calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>>
+  calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>>,
+  lifecycle?: DestructiveControlLifecycle
 ): Phase2BasePreservationRuntimeDependencies => {
   const createSessionBinding = (input: { target: { label: string } }) => {
     const request = async (operation: string) =>
@@ -85,6 +119,10 @@ const createDependencies = (
     scenario: (typeof phase1DifferentialScenarios)[number],
     runtime: Phase1TargetRuntime
   ): Promise<Phase1TargetStepEvidence> => {
+    if (lifecycle && !lifecycle.candidateMetadataAvailable) {
+      throw new Error('candidate protocol metadata was destroyed');
+    }
+    lifecycle?.events.push(`scenario:${scenario.id}:${runtime.target.label}`);
     const session = runtime.createProtocolSession({
       target: runtime.target,
       fixture: Object.freeze({
@@ -137,17 +175,25 @@ const createDependencies = (
         candidate: Object.freeze({ primary: 'c'.repeat(64), foreign: 'd'.repeat(64) }),
       }),
     runScenario,
-    runRawDiscoveryControl: async () =>
-      Object.freeze({
+    runRawDiscoveryControl: async () => {
+      if (lifecycle) {
+        lifecycle.events.push('raw-control-cleanup');
+        lifecycle.rawControlCalls += 1;
+        lifecycle.candidateMetadataAvailable = false;
+      }
+      return Object.freeze({
         scenarioId: 'discovery.config' as const,
         detected: true as const,
         errorName: 'Error' as const,
         error: 'Phase 1 candidate discovery contains unapproved metadata' as const,
-      }),
+      });
+    },
     assertCandidateArtifact: () => {},
     projectHttpCompatibility: (_id, oracle, candidate) => ({ oracle, candidate }),
     compare: () => Object.freeze([]),
-    assertSanitized: () => {},
+    assertSanitized: () => {
+      lifecycle?.events.push('sanitized');
+    },
   });
 };
 
@@ -247,7 +293,7 @@ describe('Phase 2 base-preservation runtime', () => {
           oracleSnapshotPath: '/private/oracle.json',
           repositoryRoot: '/home/henry/repo/logto',
           conformanceRoot: '/private/conformance',
-          targets: Object.freeze({}) as never,
+          targets: targetGraph,
           isolationAttestations: Object.freeze({}) as never,
         },
         phase2Profile,
@@ -280,7 +326,7 @@ describe('Phase 2 base-preservation runtime', () => {
           oracleSnapshotPath: '/private/oracle.json',
           repositoryRoot: '/home/henry/repo/logto',
           conformanceRoot: '/private/conformance',
-          targets: Object.freeze({}) as never,
+          targets: targetGraph,
           isolationAttestations: Object.freeze({}) as never,
         },
         phase2Profile,
@@ -301,8 +347,79 @@ describe('Phase 2 base-preservation runtime', () => {
         }
       )
     ).rejects.toThrow('Invalid Phase 2 base-preservation runtime');
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(44);
+  });
+
+  it('runs destructive raw discovery cleanup only after every adapted scenario execution', async () => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const lifecycle: DestructiveControlLifecycle = {
+      events: [],
+      candidateMetadataAvailable: true,
+      rawControlCalls: 0,
+    };
+
+    await expect(
+      runPhase2BasePreservationRuntime(
+        {
+          authorization: Object.freeze({
+            mode: 'runtime-candidate',
+            profile: phase1Profile,
+            profileSha256: '1'.repeat(64),
+            schemaSha256: '2'.repeat(64),
+          }) as never,
+          oracleImageDigest: `sha256:${'3'.repeat(64)}`,
+          candidateImageDigest: `sha256:${'4'.repeat(64)}`,
+          evidenceDirectory: '/private/evidence',
+          oracleSnapshotPath: '/private/oracle.json',
+          repositoryRoot: '/home/henry/repo/logto',
+          conformanceRoot: '/private/conformance',
+          targets: Object.freeze({
+            oracle: Object.freeze({
+              primary: Object.freeze({
+                label: 'oracle',
+                coreUrl: 'http://localhost:3311/',
+                adminUrl: 'http://localhost:3411/',
+              }),
+              foreign: Object.freeze({
+                label: 'oracle',
+                coreUrl: 'http://localhost:3312/',
+                adminUrl: 'http://localhost:3412/',
+              }),
+            }),
+            candidate: Object.freeze({
+              primary: Object.freeze({
+                label: 'candidate',
+                coreUrl: 'http://localhost:3321/',
+                adminUrl: 'http://localhost:3421/',
+              }),
+              foreign: Object.freeze({
+                label: 'candidate',
+                coreUrl: 'http://localhost:3322/',
+                adminUrl: 'http://localhost:3422/',
+              }),
+            }),
+          }),
+          isolationAttestations: Object.freeze({}) as never,
+        },
+        phase2Profile,
+        Object.freeze({
+          acceptedCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
+          roots: Object.freeze(['root.ts']),
+          files: Object.freeze([Object.freeze({ path: 'root.ts', blobId: '5'.repeat(40) })]),
+        }),
+        createDependencies(calls, lifecycle)
+      )
+    ).resolves.toMatchObject({ rawPhase1NegativeControl: { detected: true } });
+    expect(calls).toHaveLength(44);
+    expect(lifecycle.rawControlCalls).toBe(1);
+    expect(lifecycle.events).toHaveLength(46);
+    expect(lifecycle.events.slice(0, 44).every((event) => event.startsWith('scenario:'))).toBe(
+      true
+    );
+    expect(lifecycle.events[44]).toBe('raw-control-cleanup');
+    expect(lifecycle.events[45]).toBe('sanitized');
+    expect(lifecycle.events.slice(45).some((event) => event.startsWith('scenario:'))).toBe(false);
   });
 });
 
-/* eslint-enable unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
