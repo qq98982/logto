@@ -8,6 +8,7 @@ import {
   runPhase2BasePreservationCli,
   type Phase2BasePreservationCliDependencies,
 } from './cli.js';
+import type { AcceptedPhase1SourceClosureManifest } from './source-closure.js';
 
 const root = '/private/evidence';
 const arguments_ = Object.freeze([
@@ -40,6 +41,44 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     ] as const),
   }),
 });
+
+const verifiedClosure: AcceptedPhase1SourceClosureManifest = Object.freeze({
+  acceptedCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
+  roots: Object.freeze(['root.ts']),
+  files: Object.freeze([Object.freeze({ path: 'root.ts', blobId: '1'.repeat(40) })]),
+});
+
+const cloneClosure = (
+  closure: AcceptedPhase1SourceClosureManifest
+): AcceptedPhase1SourceClosureManifest =>
+  Object.freeze({
+    acceptedCommit: closure.acceptedCommit,
+    roots: Object.freeze([...closure.roots]),
+    files: Object.freeze(
+      closure.files.map(({ path: filePath, blobId }) => Object.freeze({ path: filePath, blobId }))
+    ),
+  });
+
+const runtimeResult = (sourceClosure: unknown) =>
+  Object.freeze({
+    schemaVersion: 1,
+    mode: 'phase-2-base-preservation',
+    phase1Provenance: Object.freeze({}),
+    sourceClosure,
+    rawPhase1NegativeControl: Object.freeze({
+      scenarioId: 'discovery.config',
+      detected: true,
+      errorName: 'Error',
+      error: 'Phase 1 candidate discovery contains unapproved metadata',
+    }),
+    discoveryAppendProofs: Object.freeze([]),
+    scenarios: Object.freeze(
+      Array.from({ length: 22 }, (_, index) =>
+        Object.freeze({ id: `scenario-${index}`, oracle: {}, candidate: {}, differences: [] })
+      )
+    ),
+    sanitizerSuccess: true,
+  }) as never;
 
 const dependencies = (
   calls: string[],
@@ -98,33 +137,13 @@ const dependencies = (
   createContext: () => Object.freeze({ repositoryRoot: '/home/henry/repo/logto' }) as never,
   createSourceClosure: async () => {
     calls.push('closure');
-    return Object.freeze({
-      acceptedCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
-      roots: Object.freeze(['root.ts']),
-      files: Object.freeze([Object.freeze({ path: 'root.ts', blobId: '1'.repeat(40) })]),
-    });
+    return verifiedClosure;
   },
   runRuntime: async (_context, _profile, sourceClosure) => {
     calls.push('runtime');
-    return Object.freeze({
-      schemaVersion: 1,
-      mode: 'phase-2-base-preservation',
-      phase1Provenance: Object.freeze({}),
-      sourceClosure,
-      rawPhase1NegativeControl: Object.freeze({
-        scenarioId: 'discovery.config',
-        detected: true,
-        errorName: 'Error',
-        error: 'Phase 1 candidate discovery contains unapproved metadata',
-      }),
-      discoveryAppendProofs: Object.freeze([]),
-      scenarios: Object.freeze(
-        Array.from({ length: 22 }, (_, index) =>
-          Object.freeze({ id: `scenario-${index}`, oracle: {}, candidate: {}, differences: [] })
-        )
-      ),
-      sanitizerSuccess: true,
-    }) as never;
+    const cloned = cloneClosure(sourceClosure);
+    expect(cloned).not.toBe(sourceClosure);
+    return runtimeResult(cloned);
   },
   inspectHarness: async () => {
     calls.push('harness');
@@ -198,7 +217,7 @@ describe('Phase 2 base-preservation CLI', () => {
     }
   });
 
-  it('publishes one source-bound artifact only after authority, closure, runtime and recheck', async () => {
+  it('publishes after a separately cloned but structurally exact runtime closure', async () => {
     const calls: string[] = [];
 
     await expect(
@@ -214,6 +233,72 @@ describe('Phase 2 base-preservation CLI', () => {
       'publish',
     ]);
   });
+
+  it.each([
+    [
+      'acceptedCommit',
+      (closure: AcceptedPhase1SourceClosureManifest) =>
+        Object.freeze({ ...cloneClosure(closure), acceptedCommit: '0'.repeat(40) }),
+    ],
+    [
+      'root',
+      (closure: AcceptedPhase1SourceClosureManifest) =>
+        Object.freeze({ ...cloneClosure(closure), roots: Object.freeze(['changed.ts']) }),
+    ],
+    [
+      'path',
+      (closure: AcceptedPhase1SourceClosureManifest) =>
+        Object.freeze({
+          ...cloneClosure(closure),
+          files: Object.freeze([
+            Object.freeze({ path: 'changed.ts', blobId: closure.files[0]?.blobId ?? '' }),
+          ]),
+        }),
+    ],
+    [
+      'blob',
+      (closure: AcceptedPhase1SourceClosureManifest) =>
+        Object.freeze({
+          ...cloneClosure(closure),
+          files: Object.freeze([
+            Object.freeze({ path: closure.files[0]?.path ?? '', blobId: '2'.repeat(40) }),
+          ]),
+        }),
+    ],
+    [
+      'extra field',
+      (closure: AcceptedPhase1SourceClosureManifest) =>
+        Object.freeze({ ...cloneClosure(closure), extra: true }),
+    ],
+    [
+      'missing field',
+      (closure: AcceptedPhase1SourceClosureManifest) => {
+        const { files: _files, ...missing } = cloneClosure(closure);
+        return Object.freeze(missing);
+      },
+    ],
+  ] as const)(
+    'rejects a runtime closure with changed %s before publication',
+    async (_name, mutate) => {
+      const calls: string[] = [];
+
+      await expect(
+        runPhase2BasePreservationCli(
+          arguments_,
+          'a'.repeat(64),
+          dependencies(calls, {
+            runRuntime: async (_context, _profile, sourceClosure) => {
+              calls.push('runtime');
+              return runtimeResult(mutate(sourceClosure));
+            },
+          })
+        )
+      ).resolves.toBe(1);
+      expect(calls).toEqual(['profile', 'harness', 'closure', 'phase1-authority', 'runtime']);
+      expect(calls).not.toContain('recheck');
+      expect(calls).not.toContain('publish');
+    }
+  );
 
   it('rejects a prepared Phase 1 profile that does not name the current H harness head', async () => {
     const calls: string[] = [];

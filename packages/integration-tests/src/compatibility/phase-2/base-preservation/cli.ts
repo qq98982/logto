@@ -2,6 +2,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import type { JsonValue } from '../../normalize.js';
 import { runPhase1Cli, type Phase1CliDependencies } from '../../phase-1/cli.js';
@@ -355,7 +356,7 @@ export const runPhase2BasePreservationCli = async (
             oracleImageDigest !== phase2OracleImageDigest ||
             runtime.scenarios.length !== 22 ||
             runtime.scenarios.some(({ differences }) => differences.length > 0) ||
-            runtime.sourceClosure !== closure
+            !isDeepStrictEqual(runtime.sourceClosure, closure)
           ) {
             return fail();
           }
