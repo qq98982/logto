@@ -1042,7 +1042,7 @@ main() {
   [[ "$primary_deployment_id" != "$foreign_deployment_id" && "$primary_sentinel" != "$foreign_sentinel" ]] || { failure_stage='candidate-config'; fail; return 1; }
   printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$primary_deployment_id" "$primary_sentinel" >"$PRIMARY_CONFIG_FILE"
   printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$foreign_deployment_id" "$foreign_sentinel" >"$FOREIGN_CONFIG_FILE"
-  /usr/bin/chmod 0600 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"
+  /usr/bin/chmod 0400 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"
 
   cat >"$ORACLE_ENV" <<EOF
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE

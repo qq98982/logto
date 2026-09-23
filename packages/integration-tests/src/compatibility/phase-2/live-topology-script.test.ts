@@ -158,6 +158,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   it('uses private artifacts, owner-only sockets, and tracked driver/admin copies', () => {
     for (const marker of [
       'chmod 0600',
+      'chmod 0400 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"',
       'chmod 0500',
       'phase2-client-credentials-state-driver.sh',
       'phase2-client-credentials-invariant-driver.sh',
