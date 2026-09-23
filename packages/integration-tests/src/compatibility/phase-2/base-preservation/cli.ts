@@ -80,13 +80,11 @@ const fail = (): never => {
   throw new TypeError(runFailure.trim());
 };
 
-const repositoryRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../../../'
-);
-const runtimeEntryPath = path.join(
-  repositoryRoot,
-  'packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js'
+const packageRoot = path.resolve(process.cwd());
+const repositoryRoot = path.resolve(packageRoot, '../..');
+export const phase2BasePreservationRuntimeEntryPath = path.join(
+  packageRoot,
+  'lib/compatibility/phase-2/base-preservation-entry.js'
 );
 
 const parseFlags = (values: readonly string[]) => {
@@ -240,13 +238,18 @@ const defaultDependencies: Phase2BasePreservationCliDependencies = {
   createSourceClosure: createAcceptedPhase1SourceClosureManifest,
   runRuntime: runPhase2BasePreservationRuntime,
   inspectHarness: async (runtimeCapability) =>
-    inspectLaunchedPhase2HarnessSource(repositoryRoot, runtimeEntryPath, runtimeCapability, {
-      ASTER_PHASE2_HARNESS_HEAD: process.env.ASTER_PHASE2_HARNESS_HEAD,
-      ASTER_PHASE2_HARNESS_TREE: process.env.ASTER_PHASE2_HARNESS_TREE,
-      ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: process.env.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256,
-      LC_ALL: process.env.LC_ALL,
-      PATH: process.env.PATH,
-    }),
+    inspectLaunchedPhase2HarnessSource(
+      repositoryRoot,
+      phase2BasePreservationRuntimeEntryPath,
+      runtimeCapability,
+      {
+        ASTER_PHASE2_HARNESS_HEAD: process.env.ASTER_PHASE2_HARNESS_HEAD,
+        ASTER_PHASE2_HARNESS_TREE: process.env.ASTER_PHASE2_HARNESS_TREE,
+        ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: process.env.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256,
+        LC_ALL: process.env.LC_ALL,
+        PATH: process.env.PATH,
+      }
+    ),
   recheckHarness: recheckCleanPhase2HarnessSource,
   publish: async (outputPath, value) => {
     await writeSecureJsonArtifact(outputPath, value);
@@ -407,7 +410,10 @@ export const runPhase2CliMain = runPhase2BasePreservationCli;
 
 const directEntry = path.resolve(process.argv[1] ?? '');
 
-if (directEntry === fileURLToPath(import.meta.url) || directEntry === runtimeEntryPath) {
+if (
+  directEntry === fileURLToPath(import.meta.url) ||
+  directEntry === phase2BasePreservationRuntimeEntryPath
+) {
   process.exitCode = await runPhase2BasePreservationCli();
 }
 

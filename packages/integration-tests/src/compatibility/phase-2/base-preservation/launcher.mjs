@@ -2,6 +2,8 @@
 /* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The tracked launcher owns one clean build, exact topology-environment selection, a verified runtime manifest, and fixed exit propagation. */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, open, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -13,6 +15,9 @@ import {
 
 const diagnostic = 'Phase 2 base-preservation launcher failed.\n';
 const failure = 'Invalid Phase 2 base-preservation launcher';
+export const basePreservationBridgeSource =
+  "export { runPhase2CliMain } from './base-preservation/cli.js';\n";
+const bridgeBytes = Buffer.from(basePreservationBridgeSource, 'utf8');
 
 export const basePreservationEnvironmentKeys = Object.freeze([
   'PATH',
@@ -87,7 +92,148 @@ const run = (command, args, options) =>
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const repositoryRoot = path.resolve(packageRoot, '../..');
-const entryPath = path.join(packageRoot, 'lib/compatibility/phase-2/base-preservation/cli.js');
+export const basePreservationRuntimeEntryPath = path.join(
+  packageRoot,
+  'lib/compatibility/phase-2/base-preservation-entry.js'
+);
+
+const bridgePathFor = (root) =>
+  path.join(root, 'lib/compatibility/phase-2/base-preservation-entry.js');
+const nestedEntryPathFor = (root) =>
+  path.join(root, 'lib/compatibility/phase-2/base-preservation/cli.js');
+
+const currentUid = () => {
+  const uid = process.getuid?.();
+  return Number.isSafeInteger(uid) ? uid : fail();
+};
+
+const assertOwnedDirectory = async (directory) => {
+  const state = await lstat(directory).catch(fail);
+  if (
+    state.isSymbolicLink() ||
+    !state.isDirectory() ||
+    state.uid !== currentUid() ||
+    (state.mode & 0o002) !== 0 ||
+    ((state.mode & 0o020) !== 0 && state.gid !== process.getgid?.()) ||
+    (await realpath(directory).catch(fail)) !== directory
+  ) {
+    return fail();
+  }
+  return state;
+};
+
+const assertBuiltNestedEntry = async (root) => {
+  const entry = nestedEntryPathFor(root);
+  const state = await lstat(entry).catch(fail);
+  if (
+    state.isSymbolicLink() ||
+    !state.isFile() ||
+    state.uid !== currentUid() ||
+    state.size <= 0 ||
+    (await realpath(entry).catch(fail)) !== entry
+  ) {
+    return fail();
+  }
+};
+
+const inspectBasePreservationBridgeEntry = async (root) => {
+  if (!path.isAbsolute(root) || path.normalize(root) !== root) return fail();
+  const bridge = bridgePathFor(root);
+  const parent = path.dirname(bridge);
+  const parentBefore = await assertOwnedDirectory(parent);
+  await assertBuiltNestedEntry(root);
+  const before = await lstat(bridge).catch(fail);
+  if (
+    before.isSymbolicLink() ||
+    !before.isFile() ||
+    before.uid !== currentUid() ||
+    before.nlink !== 1 ||
+    (before.mode & 0o777) !== 0o400 ||
+    before.size !== bridgeBytes.byteLength ||
+    (await realpath(bridge).catch(fail)) !== bridge
+  ) {
+    return fail();
+  }
+  const handle = await open(bridge, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(fail);
+  try {
+    const opened = await handle.stat();
+    const bytes = await handle.readFile();
+    const [after, pathAfter, parentAfter] = await Promise.all([
+      handle.stat(),
+      lstat(bridge),
+      lstat(parent),
+    ]);
+    if (
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size !== before.size ||
+      opened.uid !== before.uid ||
+      opened.nlink !== before.nlink ||
+      (opened.mode & 0o777) !== (before.mode & 0o777) ||
+      after.dev !== opened.dev ||
+      after.ino !== opened.ino ||
+      after.size !== opened.size ||
+      after.mtimeMs !== opened.mtimeMs ||
+      after.ctimeMs !== opened.ctimeMs ||
+      after.uid !== opened.uid ||
+      after.nlink !== opened.nlink ||
+      (after.mode & 0o777) !== (opened.mode & 0o777) ||
+      pathAfter.isSymbolicLink() ||
+      pathAfter.dev !== opened.dev ||
+      pathAfter.ino !== opened.ino ||
+      pathAfter.size !== opened.size ||
+      pathAfter.mtimeMs !== opened.mtimeMs ||
+      pathAfter.ctimeMs !== opened.ctimeMs ||
+      pathAfter.uid !== opened.uid ||
+      pathAfter.nlink !== opened.nlink ||
+      (pathAfter.mode & 0o777) !== (opened.mode & 0o777) ||
+      parentAfter.isSymbolicLink() ||
+      parentAfter.dev !== parentBefore.dev ||
+      parentAfter.ino !== parentBefore.ino ||
+      !bytes.equals(bridgeBytes)
+    ) {
+      return fail();
+    }
+  } finally {
+    await handle.close();
+  }
+  return bridge;
+};
+
+export const createBasePreservationBridgeEntry = async (root = packageRoot) => {
+  if (!path.isAbsolute(root) || path.normalize(root) !== root) return fail();
+  const bridge = bridgePathFor(root);
+  const parent = path.dirname(bridge);
+  const parentBefore = await assertOwnedDirectory(parent);
+  await assertBuiltNestedEntry(root);
+  const handle = await open(
+    bridge,
+    fsConstants.O_WRONLY |
+      fsConstants.O_CREAT |
+      fsConstants.O_EXCL |
+      fsConstants.O_NOFOLLOW,
+    0o400
+  ).catch(fail);
+  try {
+    await handle.writeFile(bridgeBytes);
+    await handle.chmod(0o400);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  const parentAfter = await lstat(parent).catch(fail);
+  if (
+    parentAfter.isSymbolicLink() ||
+    parentAfter.dev !== parentBefore.dev ||
+    parentAfter.ino !== parentBefore.ino
+  ) {
+    return fail();
+  }
+  return inspectBasePreservationBridgeEntry(root);
+};
+
+export const recheckBasePreservationBridgeEntry = async (root = packageRoot) =>
+  inspectBasePreservationBridgeEntry(root);
 
 const defaultDependencies = Object.freeze({
   inspect: inspectCleanHead,
@@ -104,7 +250,9 @@ const defaultDependencies = Object.freeze({
     });
     if (code !== 0) fail();
   },
+  createEntry: createBasePreservationBridgeEntry,
   identity: computeRuntimeBundleManifest,
+  recheckEntry: recheckBasePreservationBridgeEntry,
   async execute(entry, args, environment, manifest, capability) {
     const result = await executeVerifiedPhase2Entry(entry, args, environment, manifest, capability);
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
@@ -181,7 +329,10 @@ export const launchPhase2BasePreservation = async (
   await dependencies.build(repositoryRoot);
   const after = await dependencies.inspect(repositoryRoot);
   if (before.head !== after.head || before.tree !== after.tree) fail();
+  const entryPath = await dependencies.createEntry(packageRoot);
+  if (entryPath !== basePreservationRuntimeEntryPath) fail();
   const manifest = await dependencies.identity(entryPath);
+  if ((await dependencies.recheckEntry(packageRoot)) !== entryPath) fail();
   const environment = Object.freeze({
     ...topologyEnvironment,
     ASTER_PHASE2_HARNESS_HEAD: before.head,

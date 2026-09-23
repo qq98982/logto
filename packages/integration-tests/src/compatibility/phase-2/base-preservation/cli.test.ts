@@ -140,7 +140,7 @@ const dependencies = (
         runtimeBundleSha256: '4'.repeat(64),
       }),
       runtimeEntryPath:
-        '/home/henry/repo/logto/packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js',
+        '/home/henry/repo/logto/packages/integration-tests/lib/compatibility/phase-2/base-preservation-entry.js',
     });
   },
   recheckHarness: async () => {
@@ -237,7 +237,7 @@ describe('Phase 2 base-preservation CLI', () => {
                 runtimeBundleSha256: '4'.repeat(64),
               }),
               runtimeEntryPath:
-                '/home/henry/repo/logto/packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js',
+                '/home/henry/repo/logto/packages/integration-tests/lib/compatibility/phase-2/base-preservation-entry.js',
             });
           },
         })
