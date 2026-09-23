@@ -25,6 +25,7 @@ const ids = {
 };
 const rawImageId = 'a'.repeat(64);
 const imageDigest = `sha256:${'a'.repeat(64)}`;
+const oracleSigningKeyId = 'o'.repeat(43);
 const fixture = {
   allocationId: 'phase2-live-driver',
   clients: {
@@ -86,6 +87,7 @@ type Harness = Readonly<{
   restoreFailure: string;
   decision: string;
   postAuthorityMissing: string;
+  malformedJwks: string;
   hang: string;
   hangReached: string;
   env: Readonly<Record<string, string>>;
@@ -165,6 +167,7 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const restoreFailure = path.join(root, 'restore-failure');
   const decision = path.join(root, 'decision');
   const postAuthorityMissing = path.join(root, 'post-authority-missing');
+  const malformedJwks = path.join(root, 'malformed-jwks');
   const hang = path.join(root, 'hang');
   const hangReached = path.join(root, 'hang-reached');
   const primaryCoreService = `${kind}-primary-core`;
@@ -219,9 +222,11 @@ fi
 fi
 if [[ "$1" == exec ]]; then
   client_id=''
+  general_key_id='${kind === 'oracle' ? 'general-db-id' : 'general'}'
   for argument in "$@"; do
     case "$argument" in
       --set=client_id=*) client_id="${'$'}{argument#--set=client_id=}" ;;
+      --set=general_key_id=*) general_key_id="${'$'}{argument#--set=general_key_id=}" ;;
     esac
   done
   input="$(cat)"
@@ -266,9 +271,9 @@ if [[ "$1" == exec ]]; then
     target_json=null
   fi
   if [[ "$input" == *'WITH client_row AS'* ]]; then
-    printf '{"authority":{"decision":"%s","targetKind":"%s","target":%s,"availableScopes":["read","write"],"effectiveScopes":[]},"browser":{"users":"%s","sessions":"s","grants":"g","authorizationCodes":"c","interactions":"i","tokenFamilies":"f","refreshTokens":"r"},"machine":"machine","signing":{"static":"static","generalKeyId":"general","generalLastSignedAt":%s,"oidcIdTokenKeyId":"oidc","oidcIdTokenLastSignedAt":5}}' "$db_decision" "$target_kind" "$target_json" "$users" "$general"
+    printf '{"authority":{"decision":"%s","targetKind":"%s","target":%s,"availableScopes":["read","write"],"effectiveScopes":[]},"browser":{"users":"%s","sessions":"s","grants":"g","authorizationCodes":"c","interactions":"i","tokenFamilies":"f","refreshTokens":"r"},"machine":"machine","signing":{"static":"static","generalKeyId":"%s","generalLastSignedAt":%s,"oidcIdTokenKeyId":"oidc","oidcIdTokenLastSignedAt":5}}' "$db_decision" "$target_kind" "$target_json" "$users" "$general_key_id" "$general"
   else
-    printf '{"browser":{"users":"%s","sessions":"s","grants":"g","authorizationCodes":"c","interactions":"i","tokenFamilies":"f","refreshTokens":"r"},"machine":"machine","signing":{"static":"static","generalKeyId":"general","generalLastSignedAt":%s,"oidcIdTokenKeyId":"oidc","oidcIdTokenLastSignedAt":5}}' "$users" "$general"
+    printf '{"browser":{"users":"%s","sessions":"s","grants":"g","authorizationCodes":"c","interactions":"i","tokenFamilies":"f","refreshTokens":"r"},"machine":"machine","signing":{"static":"static","generalKeyId":"%s","generalLastSignedAt":%s,"oidcIdTokenKeyId":"oidc","oidcIdTokenLastSignedAt":5}}' "$users" "$general_key_id" "$general"
   fi
   exit 0
 fi
@@ -287,6 +292,14 @@ printf 'curl:' >>'${calls}'
 printf ' %q' "$@" >>'${calls}'
 printf '\n' >>'${calls}'
 args="$*"
+if [[ "$args" == *'/oidc/jwks'* ]]; then
+  if [[ -f '${malformedJwks}' ]]; then
+    printf '%s' '{"keys":[{"kid":"${oracleSigningKeyId}\\n"}]}'
+  else
+    printf '{"keys":[{"kid":"${oracleSigningKeyId}"}]}'
+  fi
+  exit 0
+fi
 if [[ "$args" == *'.well-known/openid-configuration'* ]]; then
   case "$args" in
     *localhost:3311*) issuer='http://localhost:3311/oidc' ;;
@@ -350,6 +363,7 @@ fi
     restoreFailure,
     decision,
     postAuthorityMissing,
+    malformedJwks,
     hang,
     hangReached,
     env: {
@@ -378,7 +392,14 @@ const stateRequest = (
     foreignTarget: kind === 'candidate' ? candidateForeignTarget : oracleForeignTarget,
     fixture,
     ...(operation === 'finish'
-      ? { signingKeyId: extra.tokenIssued === true ? 'general' : null }
+      ? {
+          signingKeyId:
+            extra.tokenIssued === true
+              ? kind === 'oracle'
+                ? oracleSigningKeyId
+                : 'general'
+              : null,
+        }
       : {}),
     ...extra,
   }) as const;
@@ -423,6 +444,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       expect(source).toContain('http://localhost:');
       expect(source).toContain('ps --no-trunc -q');
       expect(source).toContain('normalize_image_id');
+      if (driver === stateDriver) {
+        expect(source).toContain('oracle_signing_key_id');
+      }
     }
   );
 
@@ -1005,6 +1029,48 @@ describe('Phase 2 live client-credentials shell drivers', () => {
         foreign: { service: 'oracle-foreign-core' },
       },
     });
+    expect(await readFile(harness.calls, 'utf8')).toContain('localhost:3311/oidc/jwks');
+  });
+
+  it('rejects a newline-suffixed Oracle JWKS kid without making abort depend on JWKS', async () => {
+    const harness = await createHarness('oracle');
+    const stateEnv = {
+      ASTER_PHASE2_CONTROL_SOCKET: harness.socket,
+      LC_ALL: 'C',
+      PATH: '/usr/bin:/bin',
+    };
+    await writeFile(harness.decision, 'authorized\n', { mode: 0o600 });
+    const begun = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('begin', {}, 'oracle')),
+      stateEnv
+    );
+    expect(begun).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    await writeFile(harness.malformedJwks, 'malformed\n', { mode: 0o600 });
+
+    const finished = await invoke(
+      harness.state,
+      JSON.stringify(
+        stateRequest(
+          'finish',
+          { handle, responseStatus: 200, tokenIssued: true, responseError: null },
+          'oracle'
+        )
+      ),
+      stateEnv
+    );
+    expect(finished).toMatchObject({ code: 1, stdout: '' });
+    expect(finished.stderr).toBe('Phase 2 client credentials state driver failed.\n');
+
+    const aborted = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('abort', { handle }, 'oracle')),
+      stateEnv
+    );
+    expect(aborted).toMatchObject({ code: 0, stderr: '' });
+    const calls = await readFile(harness.calls, 'utf8');
+    expect(calls.match(/localhost:3311\/oidc\/jwks/gu)).toHaveLength(1);
   });
 
   it.each([

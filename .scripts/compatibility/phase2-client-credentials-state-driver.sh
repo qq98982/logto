@@ -234,6 +234,18 @@ readiness() {
     'type=="object" and .issuer==$issuer' >/dev/null 2>&1 || die
 }
 
+oracle_signing_key_id() {
+  local base_url=$1 body
+  body="$($CURL_BIN --fail --silent --show-error --max-time 10 --max-filesize "$MAX_ENGINE_BYTES" \
+    "${base_url}oidc/jwks" 2>/dev/null)" || die
+  [[ ${#body} -le $MAX_ENGINE_BYTES ]] || die
+  printf '%s' "$body" | "$JQ_BIN" -er '
+    if type=="object" and (.keys|type)=="array" and (.keys|length)>0 and
+       (.keys[0]|type)=="object" and (.keys[0].kid|type)=="string" and
+       (.keys[0].kid|length)==43 and (.keys[0].kid|test("^[A-Za-z0-9_-]+$"))
+    then .keys[0].kid else error("closed") end' 2>/dev/null
+}
+
 primary_core_url="$(fixture_value '.target.coreUrl')" || die
 primary_admin_url="$(fixture_value '.target.adminUrl')" || die
 foreign_core_url="$(fixture_value '.foreignTarget.coreUrl')" || die
@@ -631,14 +643,17 @@ case "$operation" in
     if [[ "$token_issued" == true ]]; then
       [[ "$response_status" == 200 && "$response_error" == null && "$db_decision" == authorized ]] || die
       [[ "$signing_key_id" =~ ^[A-Za-z0-9._~-]{1,256}$ ]] || die
-      current_general_key_id="$(printf '%s' "$current" | "$JQ_BIN" -er '.signing.generalKeyId')" || die
-      [[ "$signing_key_id" == "$current_general_key_id" ]] || die
       if [[ "$target_kind" == candidate ]]; then
+        current_general_key_id="$(printf '%s' "$current" | "$JQ_BIN" -er '.signing.generalKeyId')" || die
+        [[ "$signing_key_id" == "$current_general_key_id" ]] || die
         before_general_key_id="$(printf '%s' "$baseline" | "$JQ_BIN" -er '.signing.generalKeyId')" || die
         before_general="$(printf '%s' "$baseline" | "$JQ_BIN" -er '.signing.generalLastSignedAt')" || die
         after_general="$(printf '%s' "$current" | "$JQ_BIN" -er '.signing.generalLastSignedAt')" || die
         [[ "$before_general_key_id" == "$current_general_key_id" ]] || die
         [[ "$after_general" =~ ^[0-9]+$ && "$before_general" =~ ^[0-9]+$ && "$after_general" -gt "$before_general" ]] || die
+      else
+        current_general_key_id="$(oracle_signing_key_id "$primary_core_url")" || die
+        [[ "$signing_key_id" == "$current_general_key_id" ]] || die
       fi
       authority="$(printf '%s' "$current" | "$JQ_BIN" -ce '.authority')"
       general_use=verified
