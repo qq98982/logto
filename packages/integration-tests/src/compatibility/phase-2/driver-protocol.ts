@@ -1,0 +1,111 @@
+export const phase2StateRequestKind = 'phase2-client-credentials-state-request';
+export const phase2StateTerminalKind = 'phase2-client-credentials-state';
+export const phase2InvariantRequestKind = 'phase2-client-credentials-candidate-invariant-request';
+export const phase2InvariantTerminalKind = 'phase2-client-credentials-candidate-invariant';
+
+export const phase2DriverProtocol = Object.freeze({
+  schemaVersion: 1,
+  state: Object.freeze({
+    requests: Object.freeze({
+      begin: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'target',
+        'foreignTarget',
+        'fixture',
+      ]),
+      finish: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'target',
+        'foreignTarget',
+        'fixture',
+        'handle',
+        'responseStatus',
+        'tokenIssued',
+        'responseError',
+        'signingKeyId',
+      ]),
+      abort: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'target',
+        'foreignTarget',
+        'fixture',
+        'handle',
+      ]),
+      setDefaultResource: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'target',
+        'foreignTarget',
+        'fixture',
+        'enabled',
+      ]),
+    }),
+    terminals: Object.freeze({
+      begin: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'handle',
+        'attestation',
+      ]),
+      finish: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'handle',
+        'authority',
+        'signingUse',
+        'sideEffects',
+        'attestation',
+      ]),
+      abort: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'ok',
+        'attestation',
+      ]),
+      setDefaultResource: Object.freeze([
+        'schemaVersion',
+        'kind',
+        'operation',
+        'scenarioId',
+        'ok',
+        'attestation',
+      ]),
+    }),
+    abortHandle: 'string-or-null',
+    additionalProperties: false,
+  }),
+  invariant: Object.freeze({
+    request: Object.freeze([
+      'schemaVersion',
+      'kind',
+      'invariantId',
+      'target',
+      'fixture',
+      'credentials',
+    ]),
+    terminal: Object.freeze(['schemaVersion', 'kind', 'invariantId', 'projection', 'attestation']),
+    additionalProperties: false,
+  }),
+  attestation: Object.freeze({
+    keys: Object.freeze(['projectName', 'primary', 'foreign']),
+    containerKeys: Object.freeze(['containerId', 'service', 'imageDigest']),
+    additionalProperties: false,
+  }),
+});

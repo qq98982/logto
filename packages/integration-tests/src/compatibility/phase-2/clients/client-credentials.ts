@@ -1,5 +1,6 @@
 /* eslint-disable complexity, max-lines, no-await-in-loop, no-restricted-syntax, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment, unicorn/no-useless-undefined -- The closed client bounds a streaming response, structurally detects embedded JWTs, recursively sanitizes untrusted JSON, and preserves runtime checks beyond the static request type. */
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import { base64url, createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'jose';
 
@@ -29,6 +30,7 @@ export type ClientCredentialsRequestOptions = Readonly<{
   maximumBodyBytes?: number;
   maximumHeaderBytes?: number;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }>;
 
 const requestKeys = new Set([
@@ -45,6 +47,7 @@ const optionKeys = new Set([
   'maximumBodyBytes',
   'maximumHeaderBytes',
   'signal',
+  'timeoutMs',
 ]);
 const sensitiveFieldNames = new Set([
   'authorization',
@@ -60,6 +63,20 @@ const sensitiveFieldNames = new Set([
   'id_token',
   'idtoken',
 ]);
+const forbiddenResponseFieldName =
+  /^(?:authorization|proxyauthorization|cookie|setcookie|clientsecret|accesstoken|refreshtoken|idtoken)$/u;
+const successfulResponseFieldNames = new Set(['access_token', 'token_type', 'expires_in', 'scope']);
+const verifiedHeaderRequiredFields = Object.freeze(['alg', 'kid', 'typ']);
+const verifiedClaimRequiredFields = Object.freeze([
+  'aud',
+  'client_id',
+  'exp',
+  'iat',
+  'iss',
+  'jti',
+  'sub',
+]);
+const verifiedClaimOptionalFields = Object.freeze(['scope', 'organization_id']);
 const omittedResponseHeaders = new Set([
   'authorization',
   'proxy-authorization',
@@ -67,9 +84,12 @@ const omittedResponseHeaders = new Set([
   'set-cookie',
 ]);
 const credentialLabelPattern = /\b(?:authorization|proxy-authorization|cookie|set-cookie)\s*:/iu;
+const credentialValuePattern = /\b(?:Basic|Bearer)\s+[A-Za-z0-9._~+/-]+=*/u;
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const defaultMaximumBodyBytes = 64 * 1024;
 const defaultMaximumHeaderBytes = 16 * 1024;
+const defaultTimeoutMilliseconds = 10_000;
+const maximumTimeoutMilliseconds = 60_000;
 const cancellationTimeoutMilliseconds = 100;
 const maximumFieldBytes = 4096;
 const maximumCompactSegmentCharacters = 4096;
@@ -254,7 +274,7 @@ type ResolvedRequestOptions = Readonly<{
   headers: ReadonlyArray<readonly [string, string]>;
   maximumBodyBytes: number;
   maximumHeaderBytes: number;
-  signal: AbortSignal | undefined;
+  signal: AbortSignal;
 }>;
 
 const validateOptions = (options: ClientCredentialsRequestOptions): ResolvedRequestOptions => {
@@ -289,20 +309,31 @@ const validateOptions = (options: ClientCredentialsRequestOptions): ResolvedRequ
     const requestFetch = value('fetch');
     const headers = value('headers');
     const signal = value('signal');
+    const timeout = value('timeoutMs');
     if (
       (requestFetch !== undefined && typeof requestFetch !== 'function') ||
       (headers !== undefined && !Array.isArray(headers)) ||
-      (signal !== undefined && !(signal instanceof AbortSignal))
+      (signal !== undefined && !(signal instanceof AbortSignal)) ||
+      (timeout !== undefined &&
+        (typeof timeout !== 'number' ||
+          !Number.isSafeInteger(timeout) ||
+          timeout <= 0 ||
+          timeout > maximumTimeoutMilliseconds))
     ) {
       return fail(invalidRequestMessage);
     }
+    const timeoutSignal = AbortSignal.timeout(timeout ?? defaultTimeoutMilliseconds);
+    const externalSignal = signal instanceof AbortSignal ? signal : undefined;
 
     return Object.freeze({
       fetch: (requestFetch ?? fetch) as typeof fetch,
       headers: (headers ?? []) as ReadonlyArray<readonly [string, string]>,
       maximumBodyBytes: assertBound(value('maximumBodyBytes'), defaultMaximumBodyBytes),
       maximumHeaderBytes: assertBound(value('maximumHeaderBytes'), defaultMaximumHeaderBytes),
-      signal,
+      signal:
+        externalSignal === undefined
+          ? timeoutSignal
+          : AbortSignal.any([externalSignal, timeoutSignal]),
     });
   } catch (error: unknown) {
     if (error instanceof ClientCredentialsClientError) {
@@ -467,20 +498,67 @@ const requestToken = async (
   requestFetch: typeof fetch,
   endpoint: URL,
   prepared: ReturnType<typeof createRequest>,
-  signal: AbortSignal | undefined
+  signal: AbortSignal
 ): Promise<Response> => {
   try {
-    return await requestFetch(endpoint, {
-      method: 'POST',
-      body: prepared.body,
-      headers: prepared.headers,
-      redirect: 'manual',
+    return await raceWithAbort(
+      requestFetch(endpoint, {
+        method: 'POST',
+        body: prepared.body,
+        headers: prepared.headers,
+        redirect: 'manual',
+        signal,
+      }),
       signal,
-    });
+      requestFailureMessage
+    );
   } catch {
     return fail(requestFailureMessage);
   }
 };
+
+/* eslint-disable @silverhand/fp/no-let -- The exact listener reference is retained only long enough to remove it after the abort race settles. */
+const raceWithAbort = async <Value>(
+  operation: Promise<Value>,
+  signal: AbortSignal,
+  message: string,
+  cancel?: () => Promise<void>
+): Promise<Value> => {
+  if (signal.aborted) {
+    if (cancel) {
+      try {
+        await cancel();
+      } catch {
+        // Best-effort cancellation must not replace the fixed timeout category.
+      }
+    }
+    return fail(message);
+  }
+  let listener: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    listener = () => {
+      if (cancel) {
+        void (async () => {
+          try {
+            await cancel();
+          } catch {
+            // Best-effort cancellation must not replace the fixed timeout category.
+          }
+        })();
+      }
+      reject(new ClientCredentialsClientError(message));
+    };
+    signal.addEventListener('abort', listener, { once: true });
+  });
+  try {
+    return await Promise.race([operation, aborted]);
+  } finally {
+    if (listener) {
+      signal.removeEventListener('abort', listener);
+    }
+  }
+};
+/* eslint-enable @silverhand/fp/no-let */
 
 type ResponseSnapshot = Readonly<{
   status: number;
@@ -530,7 +608,8 @@ const projectResponseHeaders = async (
 
 const readBoundedBody = async (
   response: ResponseSnapshot,
-  maximumBytes: number
+  maximumBytes: number,
+  signal: AbortSignal
 ): Promise<Uint8Array> => {
   try {
     const contentLength = response.headers.get('content-length');
@@ -555,7 +634,12 @@ const readBoundedBody = async (
     try {
       // eslint-disable-next-line no-constant-condition -- The reader's done flag is the loop terminator.
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await raceWithAbort(
+          reader.read(),
+          signal,
+          responseFailureMessage,
+          async () => cancelSafely(reader)
+        );
 
         if (done) {
           break;
@@ -628,6 +712,123 @@ const sanitizeValue = (value: unknown, sensitiveValues: readonly string[]): unkn
     );
   }
 
+  return value;
+};
+
+type RawJsonBody = Readonly<{ parsed: false } | { parsed: true; value: unknown }>;
+
+const parseRawJsonBody = (bytes: Uint8Array): RawJsonBody => {
+  if (bytes.byteLength === 0) {
+    return Object.freeze({ parsed: false });
+  }
+  try {
+    return Object.freeze({
+      parsed: true,
+      value: JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)) as unknown,
+    });
+  } catch {
+    return Object.freeze({ parsed: false });
+  }
+};
+
+const normalizedResponseFieldName = (value: string): string =>
+  value.replaceAll(/[_\s-]/gu, '').toLowerCase();
+
+const assertRawErrorJsonIsCredentialFree = (
+  value: unknown,
+  sensitiveValues: readonly string[]
+): void => {
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    if (
+      containsCompactJwt(value) ||
+      credentialLabelPattern.test(value) ||
+      credentialValuePattern.test(value) ||
+      sensitiveValues.some(
+        (sensitiveValue) =>
+          sensitiveValue.length > 0 && normalized.includes(sensitiveValue.toLowerCase())
+      )
+    ) {
+      return fail(responseFailureMessage);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      assertRawErrorJsonIsCredentialFree(entry, sensitiveValues);
+    }
+    return;
+  }
+  if (typeof value !== 'object' || value === null) {
+    return;
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (forbiddenResponseFieldName.test(normalizedResponseFieldName(key))) {
+      return fail(responseFailureMessage);
+    }
+    assertRawErrorJsonIsCredentialFree(nested, sensitiveValues);
+  }
+};
+
+const assertRawVerifiedJwtRecord = (
+  value: unknown,
+  requiredFields: readonly string[],
+  optionalFields: readonly string[],
+  sensitiveValues: readonly string[]
+): Readonly<Record<string, unknown>> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail(responseFailureMessage);
+  }
+  const recordValue = value as Record<string, unknown>;
+  const keys = Object.keys(recordValue);
+  const allowedFields = new Set([...requiredFields, ...optionalFields]);
+  if (
+    keys.length < requiredFields.length ||
+    keys.length > requiredFields.length + optionalFields.length ||
+    requiredFields.some((field) => !keys.includes(field)) ||
+    keys.some((field) => !allowedFields.has(field))
+  ) {
+    return fail(responseFailureMessage);
+  }
+  assertRawErrorJsonIsCredentialFree(recordValue, sensitiveValues);
+  const sanitized = sanitizeValue(recordValue, sensitiveValues);
+  if (
+    typeof sanitized !== 'object' ||
+    sanitized === null ||
+    Array.isArray(sanitized) ||
+    !isDeepStrictEqual(sanitized, recordValue)
+  ) {
+    return fail(responseFailureMessage);
+  }
+  return Object.freeze(sanitized as Record<string, unknown>);
+};
+
+const assertRawSuccessfulJson = (body: RawJsonBody): Readonly<Record<string, unknown>> => {
+  if (
+    !body.parsed ||
+    typeof body.value !== 'object' ||
+    body.value === null ||
+    Array.isArray(body.value)
+  ) {
+    return fail(responseFailureMessage);
+  }
+  const value = body.value as Record<string, unknown>;
+  const keys = Object.keys(value);
+  if (
+    keys.length < 3 ||
+    keys.length > 4 ||
+    !keys.includes('access_token') ||
+    !keys.includes('token_type') ||
+    !keys.includes('expires_in') ||
+    keys.some((key) => !successfulResponseFieldNames.has(key)) ||
+    typeof value.access_token !== 'string' ||
+    typeof value.token_type !== 'string' ||
+    typeof value.expires_in !== 'number' ||
+    !Number.isFinite(value.expires_in) ||
+    (Object.hasOwn(value, 'scope') && typeof value.scope !== 'string')
+  ) {
+    return fail(responseFailureMessage);
+  }
   return value;
 };
 
@@ -721,7 +922,7 @@ const projectHeaders = (
       sensitiveFieldNames.has(name) ||
       sanitizeString(name, discoveredSensitiveValues) !== name
     ) {
-      continue;
+      return fail(responseFailureMessage);
     }
     const value = sanitizeString(rawValue, discoveredSensitiveValues);
     projected.push([name, value]);
@@ -897,26 +1098,28 @@ const observeClientCredentialsTokenUnchecked = async (
     resolvedOptions.maximumHeaderBytes,
     sensitiveValues
   );
-  const bodyBytes = await readBoundedBody(response, resolvedOptions.maximumBodyBytes);
+  const bodyBytes = await readBoundedBody(
+    response,
+    resolvedOptions.maximumBodyBytes,
+    resolvedOptions.signal
+  );
+  const rawBody = parseRawJsonBody(bodyBytes);
+  const successful = response.status >= 200 && response.status < 300;
+  if (successful) {
+    assertRawSuccessfulJson(rawBody);
+  } else if (rawBody.parsed) {
+    assertRawErrorJsonIsCredentialFree(rawBody.value, projectedHeaders.sensitiveValues);
+  }
   const body = projectBody(bodyBytes, projectedHeaders.sensitiveValues);
-  const rawBody = (() => {
-    try {
-      return JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bodyBytes)) as unknown;
-    } catch {
-      return undefined;
-    }
-  })();
 
-  if (response.status < 200 || response.status >= 300) {
+  if (!successful) {
     return assertObservationSanitized(
       Object.freeze({ status: response.status, headers: projectedHeaders.headers, body }),
       projectedHeaders.sensitiveValues
     );
   }
-  if (typeof rawBody !== 'object' || rawBody === null || Array.isArray(rawBody)) {
-    return fail(responseFailureMessage);
-  }
-  const compactJwt = Reflect.get(rawBody, 'access_token');
+  const successfulBody = assertRawSuccessfulJson(rawBody);
+  const compactJwt = successfulBody.access_token;
 
   if (typeof compactJwt !== 'string' || compactJwt.split('.').length !== 3) {
     return fail(responseFailureMessage);
@@ -930,18 +1133,18 @@ const observeClientCredentialsTokenUnchecked = async (
       return fail(verificationFailureMessage);
     }
 
-    const header = sanitizeValue(verified.protectedHeader, projectedHeaders.sensitiveValues);
-    const claims = sanitizeValue(verified.payload, projectedHeaders.sensitiveValues);
-    if (
-      typeof header !== 'object' ||
-      header === null ||
-      Array.isArray(header) ||
-      typeof claims !== 'object' ||
-      claims === null ||
-      Array.isArray(claims)
-    ) {
-      return fail(verificationFailureMessage);
-    }
+    const header = assertRawVerifiedJwtRecord(
+      verified.protectedHeader,
+      verifiedHeaderRequiredFields,
+      [],
+      projectedHeaders.sensitiveValues
+    );
+    const claims = assertRawVerifiedJwtRecord(
+      verified.payload,
+      verifiedClaimRequiredFields,
+      verifiedClaimOptionalFields,
+      projectedHeaders.sensitiveValues
+    );
 
     return assertObservationSanitized(
       Object.freeze({
@@ -949,8 +1152,8 @@ const observeClientCredentialsTokenUnchecked = async (
         headers: projectedHeaders.headers,
         body,
         jwt: Object.freeze({
-          header: Object.freeze(header as Record<string, unknown>),
-          claims: Object.freeze(claims as Record<string, unknown>),
+          header,
+          claims,
           signatureSha256: createHash('sha256').update(base64url.decode(signature)).digest('hex'),
         }),
       }),

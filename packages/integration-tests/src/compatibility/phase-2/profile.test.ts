@@ -61,10 +61,22 @@ describe('Phase 2 profile loader', () => {
       ],
     });
     expect(Object.keys(registries).toSorted()).toEqual([
+      'baseAcceptance',
       'candidateInvariantScenarios',
       'differentialScenarios',
       'discovery',
+      'profileSha256',
+      'schemaSha256',
     ]);
+    expect(registries.profileSha256).toBe(
+      '65a7f58a9ac12b08c662a0410fca9d9f29a32d69f9f59a0dfa9e4859e9043001'
+    );
+    expect(registries.schemaSha256).toBe(
+      '6aab5f1e6fa5a30203443ba827e44d0a2e6709cbf35b81f974bb42f3f548e97a'
+    );
+    expect(registries.baseAcceptance.harnessCommit).toBe(
+      '83d08f0821345d1bdc01491152949cc6f044ecfb'
+    );
     expect(Object.isFrozen(registries)).toBe(true);
     expect(Object.isFrozen(registries.differentialScenarios)).toBe(true);
     expect(Object.isFrozen(registries.candidateInvariantScenarios)).toBe(true);

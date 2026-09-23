@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- One closed security-boundary suite keeps request, response, stream, JWKS, and leakage controls together. */
+/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let -- One closed security-boundary suite keeps sequential hostile-response controls, request, response, stream, timeout state, JWKS, and leakage controls together. */
 import {
   createHash,
   createPrivateKey,
@@ -23,15 +23,24 @@ const endpoint = 'https://issuer.example/oidc/token';
 const createSigningFixture = async (
   kid: string,
   payload: Record<string, unknown> = {},
-  protectedHeader: Record<string, unknown> = {}
+  protectedHeader: Record<string, unknown> = {},
+  algorithm: 'ES256' | 'ES384' = 'ES256'
 ) => {
-  const { privateKey, publicKey } = await generateKeyPair('ES256');
+  const { privateKey, publicKey } = await generateKeyPair(algorithm);
   const publicJwk = await exportJWK(publicKey);
   const jwks: JSONWebKeySet = {
-    keys: [{ ...publicJwk, alg: 'ES256', kid, use: 'sig' }],
+    keys: [{ ...publicJwk, alg: algorithm, kid, use: 'sig' }],
   };
-  const token = await new SignJWT({ client_id: fixtureClientId, scope: 'read', ...payload })
-    .setProtectedHeader({ alg: 'ES256', kid, typ: 'at+jwt', ...protectedHeader })
+  const token = await new SignJWT({
+    aud: 'https://phase2.example.invalid/api-primary',
+    client_id: fixtureClientId,
+    iss: 'https://issuer.example/oidc',
+    jti: `${kid}-jti`,
+    scope: 'read',
+    sub: fixtureClientId,
+    ...payload,
+  })
+    .setProtectedHeader({ alg: algorithm, kid, typ: 'at+jwt', ...protectedHeader })
     .setIssuedAt()
     .setExpirationTime('5m')
     .sign(privateKey);
@@ -282,97 +291,31 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(requests).toHaveLength(0);
   });
 
-  it('removes credentials, token fields, cookie fields, and embedded values from success output', async () => {
-    const compactJwt = await createWhitespaceHeaderJwt();
-    const compactLookingValue = `prefix ${compactJwt} suffix`;
-    const adjacentCompactValue = `x${compactJwt}suffix`;
-    const retainedAudience = 'https://phase2.example.invalid/api-primary';
-    const retainedIssuer = 'https://issuer.example/oidc';
-    const basicCredential = Buffer.from(`${fixtureClientId}:${fixtureSecret}`).toString('base64');
-    const authorization = `Basic ${basicCredential}`;
-    const { jwks, token } = await createSigningFixture(
-      'sanitizer-key',
-      {
-        authorization: fixtureSecret,
-        cookie: 'session=private',
-        unrelatedEcho: 'private',
-        basicCredential,
-        aud: retainedAudience,
-        iss: retainedIssuer,
-        [fixtureSecret]: 'secret-key',
-        [compactJwt]: 'token-key',
-        nested: {
-          echoed: fixtureSecret,
-          compact: compactLookingValue,
-          adjacentCompact: adjacentCompactValue,
-        },
-      },
-      {
-        authorization: fixtureSecret,
-        cookie: 'header-cookie',
-        unrelatedEcho: 'private',
-        basicCredential,
-        [fixtureSecret]: 'secret-key',
-        [compactJwt]: 'token-key',
-      }
-    );
-    const { requestFetch } = captureFetch(
-      successfulResponse(
-        token,
-        {
-          client_secret: fixtureSecret,
-          cookie: 'response-cookie',
-          unrelatedEcho: 'private',
-          basicCredential,
-          resource: retainedAudience,
-          [fixtureSecret]: 'secret-key',
-          [compactJwt]: 'token-key',
-          nested: {
-            echoed: fixtureSecret,
-            authorization,
-            compact: compactLookingValue,
-            adjacentCompact: adjacentCompactValue,
-          },
-        },
-        {
-          'x-echoed-token': token,
-          'set-cookie': 'sid="private"',
-          [compactJwt]: 'token-header',
-          [fixtureSecret]: 'secret-header-name',
-        }
-      )
-    );
+  it('retains only the exact raw verified JWT header and claim contract', async () => {
+    const { jwks, token } = await createSigningFixture('exact-jwt-key', {
+      organization_id: 'phase2-org',
+    });
+    const { requestFetch } = captureFetch(successfulResponse(token));
     const observation = await observeClientCredentialsToken(
       endpoint,
       jwks,
       { ...baseRequest, method: 'client_secret_basic' },
       { fetch: requestFetch }
     );
-    const serialized = JSON.stringify(observation);
-    const normalized = serialized.toLowerCase();
-
-    expect(serialized).not.toContain(token);
-    expect(serialized).not.toContain(fixtureSecret);
-    expect(normalized).not.toContain(fixtureSecret.toLowerCase());
-    expect(serialized).not.toContain(authorization);
-    expect(serialized).not.toContain(basicCredential);
-    expect(serialized).not.toContain(compactLookingValue);
-    expect(serialized).not.toContain(adjacentCompactValue);
-    expect(serialized).not.toContain(compactJwt);
-    expect(observation.body.resource).toBe(retainedAudience);
-    expect(observation.jwt?.claims.aud).toBe(retainedAudience);
-    expect(observation.jwt?.claims.iss).toBe(retainedIssuer);
-    expect(normalized).not.toContain('access_token');
-    expect(normalized).not.toContain('client_secret');
-    expect(normalized).not.toContain('authorization');
-    expect(normalized).not.toContain('cookie');
+    expect(Object.keys(observation.jwt?.header ?? {}).toSorted()).toEqual(['alg', 'kid', 'typ']);
+    expect(Object.keys(observation.jwt?.claims ?? {}).toSorted()).toEqual([
+      'aud',
+      'client_id',
+      'exp',
+      'iat',
+      'iss',
+      'jti',
+      'organization_id',
+      'scope',
+      'sub',
+    ]);
+    expect(observation.jwt?.claims.organization_id).toBe('phase2-org');
     expect(observation.body).toMatchObject({ expires_in: 3600, token_type: 'Bearer' });
-    expect(observation.body.unrelatedEcho).toBe('<redacted>');
-    expect(observation.jwt?.claims.unrelatedEcho).toBe('<redacted>');
-    expect(observation.body.basicCredential).toBe('<redacted>');
-    expect(observation.jwt?.claims.basicCredential).toBe('<redacted>');
-    expect(observation.jwt?.header.unrelatedEcho).toBe('<redacted>');
-    expect(observation.jwt?.header.basicCredential).toBe('<redacted>');
     expect(observation.jwt?.signatureSha256).toBe(
       createHash('sha256')
         .update(base64url.decode(token.split('.')[2]!))
@@ -380,7 +323,76 @@ describe('Phase 2 client credentials oracle request contract', () => {
     );
   });
 
-  it('redacts adjacent signed JWTs with noncanonical headers while retaining ordinary URLs', async () => {
+  it('rejects cryptographically valid ES384 JWT headers and claims with extra or sensitive raw data', async () => {
+    const embeddedJwt = await createWhitespaceHeaderJwt();
+    const maliciousFixtures = await Promise.all([
+      createSigningFixture('es384-extra-header', {}, { authorization: 'Basic private' }, 'ES384'),
+      createSigningFixture('es384-extra-claim', { client_secret: fixtureSecret }, {}, 'ES384'),
+      createSigningFixture('es384-refresh-claim', { refresh_token: 'opaque-refresh' }, {}, 'ES384'),
+      createSigningFixture('es384-sensitive-value', { scope: fixtureSecret }, {}, 'ES384'),
+      createSigningFixture('es384-credential-value', { jti: 'Bearer opaque-token' }, {}, 'ES384'),
+      createSigningFixture('es384-compact-value', { organization_id: embeddedJwt }, {}, 'ES384'),
+    ]);
+
+    for (const { jwks, token } of maliciousFixtures) {
+      await expect(
+        observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+          fetch: (async () => successfulResponse(token)) as typeof fetch,
+        })
+      ).rejects.toThrow('Client credentials response rejected');
+    }
+  });
+
+  it('rejects forbidden raw token fields before body filtering', async () => {
+    const { jwks, token } = await createSigningFixture('raw-field-key');
+
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          new Response(
+            JSON.stringify({
+              error: 'invalid_client',
+              nested: { access_token: token },
+            }),
+            { status: 400, headers: { 'content-type': 'application/json' } }
+          )) as typeof fetch,
+      })
+    ).rejects.toThrow('Client credentials response rejected');
+
+    for (const message of [
+      token,
+      `alias-${fixtureSecret}`,
+      'Basic dXNlcjpwYXNzd29yZA==',
+      'Bearer opaque-credential-value',
+    ]) {
+      await expect(
+        observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+          fetch: (async () =>
+            new Response(JSON.stringify({ error: 'invalid_client', message }), {
+              status: 400,
+              headers: { 'content-type': 'application/json' },
+            })) as typeof fetch,
+        })
+      ).rejects.toThrow('Client credentials response rejected');
+    }
+
+    for (const forbidden of [{ refresh_token: 'opaque-refresh' }, { id_token: token }]) {
+      await expect(
+        observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+          fetch: (async () => successfulResponse(token, forbidden)) as typeof fetch,
+        })
+      ).rejects.toThrow('Client credentials response rejected');
+    }
+
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          successfulResponse(token, {}, { 'set-cookie': 'sid=private' })) as typeof fetch,
+      })
+    ).rejects.toThrow('Client credentials response rejected');
+  });
+
+  it('rejects compact JWT values in raw error JSON while recognizing ordinary URLs', async () => {
     const { jwks } = await createSigningFixture('noncanonical-diagnostic-key');
     const token = await createWhitespaceHeaderJwt();
     const resource = 'https://phase2.example.invalid/api-primary';
@@ -388,16 +400,15 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(containsCompactJwt(token)).toBe(true);
     expect(containsCompactJwt(`x${token}suffix`)).toBe(true);
 
-    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
-      fetch: (async () =>
-        new Response(JSON.stringify({ diagnostic: `x${token}suffix`, resource }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        })) as typeof fetch,
-    });
-
-    expect(observation.body).toEqual({ diagnostic: '<redacted>', resource });
-    expect(JSON.stringify(observation)).not.toContain(token);
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          new Response(JSON.stringify({ diagnostic: `x${token}suffix`, resource }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          })) as typeof fetch,
+      })
+    ).rejects.toThrow('Client credentials response rejected');
   });
 
   it('fails closed for signed JWT payloads above the structural inspection budget', async () => {
@@ -416,16 +427,15 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(containsCompactJwt(emptyHeader)).toBe(false);
     expect(containsCompactJwt(token)).toBe(true);
 
-    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
-      fetch: (async () =>
-        new Response(JSON.stringify({ diagnostic: token }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        })) as typeof fetch,
-    });
-
-    expect(observation.body).toEqual({ diagnostic: '<redacted>' });
-    expect(JSON.stringify(observation)).not.toContain(token);
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          new Response(JSON.stringify({ diagnostic: token }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          })) as typeof fetch,
+      })
+    ).rejects.toThrow('Client credentials response rejected');
   });
 
   it('fails closed for signed JWT protected headers above the structural inspection budget', async () => {
@@ -439,39 +449,32 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(Buffer.byteLength(token)).toBeLessThan(64 * 1024);
     expect(containsCompactJwt(token)).toBe(true);
 
-    const observation = await observeClientCredentialsToken(endpoint, jwks, baseRequest, {
-      fetch: (async () =>
-        new Response(JSON.stringify({ diagnostic: token }), {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        })) as typeof fetch,
-    });
-
-    expect(observation.body).toEqual({ diagnostic: '<redacted>' });
-    expect(JSON.stringify(observation)).not.toContain(token);
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          new Response(JSON.stringify({ diagnostic: token }), {
+            status: 401,
+            headers: { 'content-type': 'application/json' },
+          })) as typeof fetch,
+      })
+    ).rejects.toThrow('Client credentials response rejected');
   });
 
   it('retains bounded non-sensitive error response data while sanitizing recursively', async () => {
     const { jwks } = await createSigningFixture('error-key');
-    const compactLookingValue = `prefix ${await createWhitespaceHeaderJwt()} suffix`;
     const response = new Response(
       JSON.stringify({
         error: 'invalid_client',
         error_description: 'ordinary diagnostic',
-        client_secret: fixtureSecret,
-        cookie: 'sid=private',
-        unrelatedEcho: 'private',
+        unrelatedEcho: 'ordinary',
         nested: {
-          authorization: 'Basic private',
-          compact: compactLookingValue,
-          labeled: 'Authorization: Basic unrelated',
+          detail: 'ordinary nested diagnostic',
         },
       }),
       {
         status: 401,
         headers: {
           'content-type': 'application/json',
-          'set-cookie': 'sid="private"',
           'x-safe': 'retained',
         },
       }
@@ -488,12 +491,11 @@ describe('Phase 2 client credentials oracle request contract', () => {
       body: {
         error: 'invalid_client',
         error_description: 'ordinary diagnostic',
-        unrelatedEcho: '<redacted>',
-        nested: { compact: '<redacted>', labeled: '<redacted>' },
+        unrelatedEcho: 'ordinary',
+        nested: { detail: 'ordinary nested diagnostic' },
       },
     });
     expect(serialized).not.toContain(fixtureSecret);
-    expect(serialized).not.toContain(compactLookingValue);
     expect(serialized.toLowerCase()).not.toContain('cookie');
     expect(serialized.toLowerCase()).not.toContain('authorization');
 
@@ -508,11 +510,8 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(JSON.stringify(textObservation)).not.toContain('Authorization');
     expect(JSON.stringify(textObservation)).not.toContain('Cookie');
 
-    const quotedCookieObservation = await observeClientCredentialsToken(
-      endpoint,
-      jwks,
-      baseRequest,
-      {
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
         fetch: (async () =>
           new Response('{"echo":"alpha,beta"}', {
             status: 401,
@@ -521,10 +520,8 @@ describe('Phase 2 client credentials oracle request contract', () => {
               'set-cookie': 'sid="alpha,beta"',
             },
           })) as typeof fetch,
-      }
-    );
-    expect(quotedCookieObservation.body).toEqual({ echo: '<redacted>' });
-    expect(JSON.stringify(quotedCookieObservation)).not.toContain('alpha,beta');
+      })
+    ).rejects.toThrow('Client credentials response rejected');
 
     const readCancellations: Array<true> = [];
     const trappedResponse = {
@@ -851,5 +848,53 @@ describe('Phase 2 client credentials oracle request contract', () => {
     expect(statusReads).toEqual([1]);
     expect(JSON.stringify(statusObservation)).not.toContain(fixtureSecret);
   });
+
+  it('bounds a fetch that ignores its AbortSignal with the default deadline contract', async () => {
+    const { jwks } = await createSigningFixture('hanging-fetch-key');
+    const hangingFetch = (async () =>
+      new Promise<Response>(() => {
+        // Intentionally unresolved to exercise the default deadline.
+      })) as typeof fetch;
+
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: hangingFetch,
+        timeoutMs: 20,
+      })
+    ).rejects.toMatchObject({
+      message: 'Client credentials request failed',
+      name: 'ClientCredentialsClientError',
+    });
+  });
+
+  it('bounds a response body reader that never settles and cancels the stream', async () => {
+    const { jwks } = await createSigningFixture('hanging-body-key');
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull: async () =>
+        new Promise<void>(() => {
+          // Intentionally unresolved to exercise the body-read deadline.
+        }),
+      cancel: () => {
+        // eslint-disable-next-line @silverhand/fp/no-mutation -- The test records whether deadline cancellation reached the stream.
+        cancelled = true;
+      },
+    });
+
+    await expect(
+      observeClientCredentialsToken(endpoint, jwks, baseRequest, {
+        fetch: (async () =>
+          new Response(body, {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })) as typeof fetch,
+        timeoutMs: 20,
+      })
+    ).rejects.toMatchObject({
+      message: 'Client credentials response rejected',
+      name: 'ClientCredentialsClientError',
+    });
+    expect(cancelled).toBe(true);
+  });
 });
-/* eslint-enable max-lines */
+/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-let */

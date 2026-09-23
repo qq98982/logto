@@ -9,13 +9,20 @@ import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 const maximumInputBytes = 1024 * 1024;
 const expectedProfileSha256 = '65a7f58a9ac12b08c662a0410fca9d9f29a32d69f9f59a0dfa9e4859e9043001';
 const expectedSchemaSha256 = '6aab5f1e6fa5a30203443ba827e44d0a2e6709cbf35b81f974bb42f3f548e97a';
-const expectedBaseAcceptance = Object.freeze({
+export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
   recordSha256: 'e31b5f6635cdcddcca319a6020dcba6325ab4ac86840aff09965f296f6b7a386',
   runtimeSourceCommit: '2132b4d9f537c618013c5c76542fbf8e325c19d9',
   harnessCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
   profileSha256: '5212b72090d1c9ab1956c07da652629af1312a9784f8a513028e5e297801fcf7',
+});
+
+export type Phase2BaseAcceptance = typeof phase2ExpectedBaseAcceptance;
+export const phase2ExpectedProfileAuthority = Object.freeze({
+  profileSha256: expectedProfileSha256,
+  schemaSha256: expectedSchemaSha256,
+  baseAcceptance: phase2ExpectedBaseAcceptance,
 });
 
 const differentialScenarioIds = [
@@ -63,6 +70,9 @@ export type Phase2ProfilePaths = Readonly<{
 }>;
 
 export type Phase2ProfileRegistries = Readonly<{
+  profileSha256: string;
+  schemaSha256: string;
+  baseAcceptance: Phase2BaseAcceptance;
   differentialScenarios: readonly Phase2DifferentialScenarioId[];
   candidateInvariantScenarios: readonly Phase2CandidateInvariantId[];
   discovery: Readonly<{
@@ -209,7 +219,7 @@ export const loadPhase2Profile = async ({
     return fail();
   }
   const document = profile as Record<string, unknown>;
-  if (JSON.stringify(document.baseAcceptance) !== JSON.stringify(expectedBaseAcceptance)) {
+  if (JSON.stringify(document.baseAcceptance) !== JSON.stringify(phase2ExpectedBaseAcceptance)) {
     return fail();
   }
   const discovery = document.discovery;
@@ -218,6 +228,9 @@ export const loadPhase2Profile = async ({
   }
   const discoveryRecord = discovery as Record<string, unknown>;
   const registries: Phase2ProfileRegistries = {
+    profileSha256: profileHash,
+    schemaSha256: schemaHash,
+    baseAcceptance: phase2ExpectedBaseAcceptance,
     differentialScenarios: exactArray(document.differentialScenarios, differentialScenarioIds),
     candidateInvariantScenarios: exactArray(
       document.candidateInvariantScenarios,

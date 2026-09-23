@@ -1,0 +1,52 @@
+import {
+  phase2DriverProtocol,
+  phase2InvariantRequestKind,
+  phase2InvariantTerminalKind,
+  phase2StateRequestKind,
+  phase2StateTerminalKind,
+} from './driver-protocol.js';
+
+it('publishes the exact closed live-driver wire contract', () => {
+  expect([
+    phase2StateRequestKind,
+    phase2StateTerminalKind,
+    phase2InvariantRequestKind,
+    phase2InvariantTerminalKind,
+  ]).toEqual([
+    'phase2-client-credentials-state-request',
+    'phase2-client-credentials-state',
+    'phase2-client-credentials-candidate-invariant-request',
+    'phase2-client-credentials-candidate-invariant',
+  ]);
+  expect(phase2DriverProtocol.state.requests.abort).toContain('handle');
+  expect(phase2DriverProtocol.state.requests.finish).toEqual([
+    'schemaVersion',
+    'kind',
+    'operation',
+    'scenarioId',
+    'target',
+    'foreignTarget',
+    'fixture',
+    'handle',
+    'responseStatus',
+    'tokenIssued',
+    'responseError',
+    'signingKeyId',
+  ]);
+  expect(phase2DriverProtocol.state.abortHandle).toBe('string-or-null');
+  expect(phase2DriverProtocol.state.terminals.finish.at(-1)).toBe('attestation');
+  expect(phase2DriverProtocol.invariant.terminal).toEqual([
+    'schemaVersion',
+    'kind',
+    'invariantId',
+    'projection',
+    'attestation',
+  ]);
+  expect(phase2DriverProtocol.attestation.containerKeys).toEqual([
+    'containerId',
+    'service',
+    'imageDigest',
+  ]);
+  expect(phase2DriverProtocol.state.additionalProperties).toBe(false);
+  expect(phase2DriverProtocol.invariant.additionalProperties).toBe(false);
+});

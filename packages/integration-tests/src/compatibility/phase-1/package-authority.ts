@@ -33,6 +33,11 @@ const scriptAdditions = Object.freeze({
   'test:compatibility:phase1':
     'pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/phase-1/',
 });
+const phase2ScriptAdditions = Object.freeze({
+  'compatibility:phase2': 'node ./src/compatibility/phase-2/launcher.mjs',
+  'test:compatibility:phase2':
+    'pnpm test:only -i --config=jest.config.compatibility.js ./lib/compatibility/phase-2/',
+});
 const dependencyAdditions = Object.freeze({
   '@playwright/test': '1.62.1',
   ajv: '8.20.0',
@@ -233,7 +238,12 @@ export const assertPhase1IntegrationManifestDelta = (
   const base = parseManifest(baseBytes, 'base');
   const harness = parseManifest(harnessBytes, 'harness');
 
-  if (!isDeepStrictEqual(harness, expectedHarnessManifest(base))) {
+  const phase1 = expectedHarnessManifest(base);
+  const phase2 = Object.freeze({
+    ...phase1,
+    scripts: extendAuthoritySection(requireObjectMember(phase1, 'scripts'), phase2ScriptAdditions),
+  });
+  if (!isDeepStrictEqual(harness, phase1) && !isDeepStrictEqual(harness, phase2)) {
     return fail('/harness', 'manifest-delta');
   }
 };

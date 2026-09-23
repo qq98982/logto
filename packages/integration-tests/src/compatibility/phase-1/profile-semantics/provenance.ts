@@ -80,6 +80,43 @@ const featurePrefixes = Object.freeze([
   'compatibility/phase-1-acceptance/',
   'packages/integration-tests/src/compatibility/phase-1/',
 ]);
+const phase2AllowedPaths: ReadonlySet<string> = new Set([
+  '.scripts/compatibility/phase2-client-credentials-oracle.mjs',
+  '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh',
+  '.scripts/compatibility/phase2-client-credentials-state-driver.sh',
+  '.scripts/compatibility/run-phase2-client-credentials.sh',
+  ...[
+    'clients/client-credentials.ts',
+    'collector-contract.test.ts',
+    'oracle-contract.test.ts',
+    'profile.ts',
+    'profile.test.ts',
+    'testing/phase-2-profile.json',
+    'testing/phase-2-profile.schema.json',
+    'fixtures.ts',
+    'fixtures.test.ts',
+    'runtime.ts',
+    'runtime.test.ts',
+    'cli.ts',
+    'cli.test.ts',
+    'provenance.ts',
+    'provenance.test.ts',
+    'envelope.ts',
+    'envelope.test.ts',
+    'driver-protocol.ts',
+    'driver-protocol.test.ts',
+    'launcher.mjs',
+    'launcher.test.ts',
+    'live-driver-script.test.ts',
+    'live-topology-script.test.ts',
+    'projections/client-credentials.ts',
+    'projections/client-credentials.test.ts',
+    'scenarios/client-credentials.ts',
+    'scenarios/client-credentials.test.ts',
+    'candidate-invariants/client-credentials.ts',
+    'candidate-invariants/client-credentials.test.ts',
+  ].map((name) => `packages/integration-tests/src/compatibility/phase-2/${name}`),
+]);
 
 export type Phase1SourceEvidenceRef = Readonly<{
   commit: typeof oracleCommit | typeof phase0HarnessCommit;
@@ -393,7 +430,8 @@ const featureDeltaIsValid = (entries: readonly Phase1GitDeltaEntry[]): boolean =
     }
 
     return (
-      featurePrefixes.some((prefix) => entry.path.startsWith(prefix)) &&
+      (featurePrefixes.some((prefix) => entry.path.startsWith(prefix)) ||
+        phase2AllowedPaths.has(entry.path)) &&
       entry.status === 'added' &&
       entry.oldMode === missingFileMode &&
       entry.newMode === regularFileMode
@@ -403,6 +441,8 @@ const featureDeltaIsValid = (entries: readonly Phase1GitDeltaEntry[]): boolean =
 
 const assertReviewHarnessDelta = (value: unknown): 'prebootstrap' | 'rebased' => {
   const entries = snapshotGitDeltaEntries(value, '/phase1Harness/commit', 'review-harness-delta');
+  const phase2Entries = entries.filter(({ path }) => phase2AllowedPaths.has(path));
+  const phase1Entries = entries.filter(({ path }) => !phase2AllowedPaths.has(path));
   const governance = entries.filter(({ path }) => governanceDeltaPathSet.has(path));
   const feature = entries.filter(({ path }) => !governanceDeltaPathSet.has(path));
   const pureHarnessDelta =
@@ -411,10 +451,15 @@ const assertReviewHarnessDelta = (value: unknown): 'prebootstrap' | 'rebased' =>
       expectedGovernanceDelta.some((allowed) => isDeepStrictEqual(entry, allowed))
     );
 
-  if (
-    !pureHarnessDelta &&
-    hashSha256(Buffer.from(JSON.stringify(entries))) !== reviewedCombinedDeltaSha256
-  ) {
+  const exactPhase2 = phase2Entries.every(
+    (entry) =>
+      entry.status === 'added' &&
+      entry.oldMode === missingFileMode &&
+      entry.newMode === regularFileMode
+  );
+  const reviewedBase =
+    hashSha256(Buffer.from(JSON.stringify(phase1Entries))) === reviewedCombinedDeltaSha256;
+  if (!pureHarnessDelta && !(exactPhase2 && reviewedBase)) {
     fail('/phase1Harness/commit', 'review-harness-delta');
   }
 

@@ -145,7 +145,14 @@ const listen = async (handler: RequestListener) => {
 const createFixture = async (): Promise<Fixture> => {
   const { privateKey, publicKey } = await generateKeyPair('ES256');
   const publicJwk = await exportJWK(publicKey);
-  const plantedCompactToken = await new SignJWT({ client_id: 'fixture-client', scope: 'read' })
+  const plantedCompactToken = await new SignJWT({
+    aud: 'https://phase2.example.invalid/api-primary',
+    client_id: 'fixture-client',
+    iss: 'https://issuer.example/oidc',
+    jti: 'fixture-token-jti',
+    scope: 'read',
+    sub: 'fixture-client',
+  })
     .setProtectedHeader({ alg: 'ES256', kid: 'fixture-key', typ: 'at+jwt' })
     .setIssuedAt()
     .setExpirationTime('5m')
@@ -196,10 +203,6 @@ const createFixture = async (): Promise<Fixture> => {
         access_token: plantedCompactToken,
         expires_in: 3600,
         token_type: 'Bearer',
-        echoedSecret: plantedSecrets[1],
-        plantedAuthorization: 'Authorization: Basic planted-value',
-        plantedCompactToken,
-        adjacentCompactToken: `x${plantedCompactToken}suffix`,
       });
       return;
     }
