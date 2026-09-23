@@ -433,7 +433,7 @@ const value = {
 };
 const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
 try {
-  await handle.writeFile(JSON.stringify(value) + "\\n", 'utf8');
+  await handle.writeFile(JSON.stringify(value) + "\n", 'utf8');
   await handle.sync();
 } finally {
   await handle.close();

@@ -1,6 +1,6 @@
 /* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The source-contract and security failure harnesses stay together so the complete live runner contract remains auditable. */
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -122,6 +122,53 @@ describe('Phase 2 base-preservation live runner', () => {
     expect(generatedSource).not.toContain(
       `PHASE2_PROFILE_SOURCE="${phase1Root}/compatibility/phase-2-profile.json"`
     );
+  });
+
+  it('writes one parseable cleanup descriptor JSON document terminated by LF', async () => {
+    const generated = path.join(temporaryRoot, 'descriptor-derived-runner.sh');
+    const harness = path.join(temporaryRoot, 'descriptor-transform-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\ntransform_phase1_runner ${JSON.stringify(
+        path.join(repositoryRoot, acceptedPhase1Runner)
+      )} ${JSON.stringify(generated)}\n`,
+      { mode: 0o500 }
+    );
+    await executeFile('/usr/bin/bash', [harness]);
+    const generatedSource = await readFile(generated, 'utf8');
+    const descriptorMarker = ['$', '{ASTER_PHASE2_BASE_CLEANUP_DESCRIPTOR:?required}'].join('');
+    const marker = generatedSource.indexOf(descriptorMarker);
+    const heredoc = generatedSource.indexOf("<<'NODE'\n", marker);
+    const writerStart = heredoc + "<<'NODE'\n".length;
+    const writerEnd = generatedSource.indexOf('\nNODE\n', writerStart);
+    expect(marker).toBeGreaterThan(0);
+    expect(heredoc).toBeGreaterThan(marker);
+    expect(writerEnd).toBeGreaterThan(writerStart);
+    const writer = path.join(temporaryRoot, 'descriptor-writer.mjs');
+    const descriptor = path.join(temporaryRoot, 'cleanup-descriptor.json');
+    const projectName = 'aster-phase1-0123456789abcdef';
+    const runRoot = path.join(
+      temporaryRoot,
+      'aster-phase1-runtime-candidate-differential',
+      'run.ABC123'
+    );
+    await writeFile(writer, generatedSource.slice(writerStart, writerEnd), { mode: 0o400 });
+
+    await executeFile(process.execPath, [writer, descriptor, projectName, runRoot]);
+    const [bytes, state] = await Promise.all([readFile(descriptor), stat(descriptor)]);
+    expect(bytes.at(-1)).toBe(0x0a);
+    expect(bytes.subarray(-2).equals(Buffer.from('\\n'))).toBe(false);
+    expect(JSON.parse(bytes.toString('utf8'))).toEqual({
+      schemaVersion: 1,
+      projectName,
+      runRoot,
+      ports: [3311, 3411, 3312, 3412, 3321, 3421, 3322, 3422, 3331, 3431, 3341, 3441],
+    });
+    expect(state.mode % 0o1000).toBe(0o600);
+    expect(state.nlink).toBe(1);
+    expect(state.uid).toBe(process.getuid?.());
   });
 
   it('loads two distinct clean canonical Aster roots without changing their roles', async () => {
