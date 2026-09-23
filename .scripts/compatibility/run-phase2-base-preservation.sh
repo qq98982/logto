@@ -22,6 +22,10 @@ PUBLISHED_RESULT=''
 PUBLISHED_IDENTITY=''
 H_HEAD=''
 H_TREE=''
+PHASE1_ASTER_ROOT=''
+PHASE2_ASTER_ROOT=''
+PHASE1_ASTER_SOURCE_IDENTITY=''
+PHASE2_ASTER_SOURCE_IDENTITY=''
 
 fail() {
   printf '%s\n' 'Aster Phase 2 base-preservation live gate failed.' >&2
@@ -52,6 +56,43 @@ capture_path_identity() {
 
 assert_path_identity() {
   [[ "$(capture_path_identity "$1" 2>/dev/null || true)" == "$2" ]]
+}
+
+capture_aster_source_identity() {
+  local root=$1 resolved top head tree status origin directory
+  [[ "$root" == /* && "$root" != / && "$root" != */ && "$root" != *//* ]] || return 1
+  [[ "$root" != *'/./'* && "$root" != *'/../'* && ! "$root" =~ [[:cntrl:]] ]] || return 1
+  [[ -d "$root" && ! -L "$root" ]] || return 1
+  resolved="$(/usr/bin/realpath -e -- "$root" 2>/dev/null)" || return 1
+  [[ "$resolved" == "$root" ]] || return 1
+  top="$($GIT_BIN --no-replace-objects -C "$root" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  head="$($GIT_BIN --no-replace-objects -C "$root" rev-parse HEAD 2>/dev/null)" || return 1
+  tree="$($GIT_BIN --no-replace-objects -C "$root" rev-parse 'HEAD^{tree}' 2>/dev/null)" || return 1
+  status="$($GIT_BIN --no-replace-objects -C "$root" status --porcelain=v1 --untracked-files=all 2>/dev/null)" || return 1
+  origin="$($GIT_BIN --no-replace-objects -C "$root" remote get-url origin 2>/dev/null)" || return 1
+  directory="$(capture_path_identity "$root" 2>/dev/null)" || return 1
+  [[ "$top" == "$root" && "$head" =~ ^[0-9a-f]{40}$ && "$tree" =~ ^[0-9a-f]{40}$ && \
+    -z "$status" ]] || return 1
+  case "$origin" in
+    'https://github.com/qq98982/aster.git'|'git@github.com:qq98982/aster.git'|'ssh://git@github.com/qq98982/aster.git') ;;
+    *) return 1 ;;
+  esac
+  printf '%s|%s|%s|%s' "$head" "$tree" "$origin" "$directory"
+}
+
+load_required_aster_roots() {
+  local phase1 phase2 phase1_identity phase2_identity
+  [[ -n "${ASTER_PHASE1_ASTER_ROOT+x}" && -n "${ASTER_PHASE2_ASTER_ROOT+x}" ]] || return 1
+  phase1=$ASTER_PHASE1_ASTER_ROOT
+  phase2=$ASTER_PHASE2_ASTER_ROOT
+  [[ -n "$phase1" && -n "$phase2" && "$phase1" != "$phase2" ]] || return 1
+  phase1_identity="$(capture_aster_source_identity "$phase1")" || return 1
+  phase2_identity="$(capture_aster_source_identity "$phase2")" || return 1
+  [[ "$phase1_identity" != "$phase2_identity" ]] || return 1
+  PHASE1_ASTER_ROOT=$phase1
+  PHASE2_ASTER_ROOT=$phase2
+  PHASE1_ASTER_SOURCE_IDENTITY=$phase1_identity
+  PHASE2_ASTER_SOURCE_IDENTITY=$phase2_identity
 }
 
 validate_engine_socket() {
@@ -299,12 +340,39 @@ replaceExact(
   'env -i PATH="$(dirname -- "${NODE_BIN}"):$(dirname -- "${PNPM_BIN}"):${HOST_BIN_DIRECTORY}:/usr/bin:/bin" HOME="${PRIVATE_HOME}"'
 );
 replaceExact(
+  'ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"\nORACLE_IMAGE_INPUT=',
+  'ASTER_ROOT="${ASTER_PHASE1_ASTER_ROOT:?required}"\nPHASE2_ASTER_ROOT="${ASTER_PHASE2_ASTER_ROOT:?required}"\nORACLE_IMAGE_INPUT='
+);
+replaceExact(
+  'ASTER_ROOT="$(/usr/bin/realpath -e -- "${ASTER_ROOT}")"\nreadonly ASTER_ROOT ORACLE_IMAGE_INPUT CANDIDATE_IMAGE_INPUT',
+  'ASTER_ROOT="$(/usr/bin/realpath -e -- "${ASTER_ROOT}")"\n[[ "${PHASE2_ASTER_ROOT}" == /* && -d "${PHASE2_ASTER_ROOT}" && ! -L "${PHASE2_ASTER_ROOT}" ]] || fail\nPHASE2_ASTER_ROOT="$(/usr/bin/realpath -e -- "${PHASE2_ASTER_ROOT}")"\n[[ "${ASTER_ROOT}" != "${PHASE2_ASTER_ROOT}" ]] || fail\nreadonly ASTER_ROOT PHASE2_ASTER_ROOT ORACLE_IMAGE_INPUT CANDIDATE_IMAGE_INPUT'
+);
+const phase2RootSetup = String.raw`[[ -z "$("\${GIT_AUTHORITY[@]}" -C "\${ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail
+phase2_aster_origin="$("\${GIT_AUTHORITY[@]}" -C "\${PHASE2_ASTER_ROOT}" remote get-url origin 2>/dev/null || true)"
+case "\${phase2_aster_origin}" in
+  'https://github.com/qq98982/aster.git'|'git@github.com:qq98982/aster.git'|'ssh://git@github.com/qq98982/aster.git') ;;
+  *) fail ;;
+esac
+[[ -z "$("\${GIT_AUTHORITY[@]}" -C "\${PHASE2_ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail
+PROFILE_SOURCE="\${ASTER_ROOT}/compatibility/phase-1-profile.json"
+SCHEMA_SOURCE="\${ASTER_ROOT}/compatibility/phase-1-profile.schema.json"
+PHASE2_PROFILE_SOURCE="\${PHASE2_ASTER_ROOT}/compatibility/phase-2-profile.json"
+PHASE2_SCHEMA_SOURCE="\${PHASE2_ASTER_ROOT}/compatibility/phase-2-profile.schema.json"
+[[ -f "\${PROFILE_SOURCE}" && -f "\${SCHEMA_SOURCE}" && ! -L "\${PROFILE_SOURCE}" && ! -L "\${SCHEMA_SOURCE}" ]] || fail
+[[ -f "\${PHASE2_PROFILE_SOURCE}" && -f "\${PHASE2_SCHEMA_SOURCE}" && ! -L "\${PHASE2_PROFILE_SOURCE}" && ! -L "\${PHASE2_SCHEMA_SOURCE}" ]] || fail
+readonly PROFILE_SOURCE SCHEMA_SOURCE PHASE2_PROFILE_SOURCE PHASE2_SCHEMA_SOURCE
+`.replaceAll('\\${', '${');
+replaceExact(
+  '[[ -z "$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail\nPROFILE_SOURCE="${ASTER_ROOT}/compatibility/phase-1-profile.json"\nSCHEMA_SOURCE="${ASTER_ROOT}/compatibility/phase-1-profile.schema.json"\n[[ -f "${PROFILE_SOURCE}" && -f "${SCHEMA_SOURCE}" && ! -L "${PROFILE_SOURCE}" && ! -L "${SCHEMA_SOURCE}" ]] || fail\nreadonly PROFILE_SOURCE SCHEMA_SOURCE',
+  phase2RootSetup
+);
+replaceExact(
   '  ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"\n)',
   '  ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"\n  ASTER_PHASE2_CANDIDATE_SOURCE_COMMIT="${CANDIDATE_SOURCE_COMMIT}"\n)'
 );
 replaceExact(
   'CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:data:signing")"\n\nNODE_RUN_TOKEN=',
-  'CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:data:signing")"\nCANDIDATE_SOURCE_COMMIT="$("${GIT_AUTHORITY[@]}" -C "${ASTER_ROOT}" rev-parse HEAD)"\n[[ "${CANDIDATE_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || fail\nreadonly CANDIDATE_SOURCE_COMMIT\n\nNODE_RUN_TOKEN='
+  'CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:data:signing")"\nCANDIDATE_SOURCE_COMMIT="$("${GIT_AUTHORITY[@]}" -C "${PHASE2_ASTER_ROOT}" rev-parse HEAD)"\n[[ "${CANDIDATE_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || fail\n[[ -z "$("${GIT_AUTHORITY[@]}" -C "${PHASE2_ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail\nreadonly CANDIDATE_SOURCE_COMMIT\n\nNODE_RUN_TOKEN='
 );
 replaceExact(
   "differential) gate_command='run-differential'; artifact_name='phase-1-differential.json' ;;",
@@ -317,8 +385,8 @@ const execution = String.raw`failure_stage=base-preservation
 ASTER_PHASE1_PROCESS_TOKEN="\${NODE_RUN_TOKEN}" "\${SETSID_BIN}" "\${PUBLIC_ENV[@]}" \
   "\${NODE_BIN}" "\${REPO_ROOT}/packages/integration-tests/src/compatibility/phase-2/base-preservation/launcher.mjs" \
   run --phase1-profile "\${REVIEW_PROFILE}" --phase1-schema "\${SCHEMA_SOURCE}" \
-  --phase2-profile "\${ASTER_ROOT}/compatibility/phase-2-profile.json" \
-  --phase2-schema "\${ASTER_ROOT}/compatibility/phase-2-profile.schema.json" \
+  --phase2-profile "\${PHASE2_PROFILE_SOURCE}" \
+  --phase2-schema "\${PHASE2_SCHEMA_SOURCE}" \
   --output "\${EVIDENCE_DIR}/phase-2-base-preservation.json" --temp-root "\${EVIDENCE_DIR}" \
   >/dev/null 2>&1 &
 NODE_RUN_PID=$!
@@ -332,11 +400,12 @@ source = source.slice(0, executionStart) + execution + source.slice(artifactStar
 const validationStart = source.indexOf('"${CLOSED_NODE_ENV[@]}" "${NODE_BIN}" --input-type=module - "${artifact_path}"');
 const resultStart = source.indexOf('\nRESULT_DIR="$(/usr/bin/mktemp -d', validationStart);
 if (validationStart < 0 || resultStart < 0) throw new Error('validation markers');
-const validation = String.raw`"\${CLOSED_NODE_ENV[@]}" "\${NODE_BIN}" --input-type=module - "\${artifact_path}" "\${ORACLE_IMAGE}" "\${CANDIDATE_IMAGE}" <<'NODE'
+const validation = String.raw`"\${CLOSED_NODE_ENV[@]}" "\${NODE_BIN}" --input-type=module - "\${artifact_path}" "\${ORACLE_IMAGE}" "\${CANDIDATE_IMAGE}" "\${CANDIDATE_SOURCE_COMMIT}" <<'NODE'
 import { readFile } from 'node:fs/promises';
 const value = JSON.parse(await readFile(process.argv[2], 'utf8'));
 if (value.schemaVersion !== 1 || value.mode !== 'phase-2-base-preservation' || value.sanitizerSuccess !== true) process.exit(1);
 if (value.provenance?.oracle?.imageDigest !== process.argv[3] || value.provenance?.candidate?.imageDigest !== process.argv[4]) process.exit(1);
+if (value.provenance?.candidate?.sourceCommit !== process.argv[5]) process.exit(1);
 if (!Array.isArray(value.scenarios) || value.scenarios.length !== 22 || value.scenarios.some((item) => item.differences?.length !== 0)) process.exit(1);
 if (!Array.isArray(value.discoveryAppendProofs) || value.discoveryAppendProofs.length !== 2) process.exit(1);
 const negative = value.rawPhase1NegativeControl;
@@ -409,6 +478,8 @@ publish_verified_result() {
 run_transformed_topology() {
   local generated=$1
   ASTER_PHASE1_RUNTIME_GATE=differential \
+  ASTER_PHASE1_ASTER_ROOT="$PHASE1_ASTER_ROOT" \
+  ASTER_PHASE2_ASTER_ROOT="$PHASE2_ASTER_ROOT" \
   ASTER_PHASE2_BASE_SCRIPT_DIR="$SCRIPT_DIR" \
   ASTER_PHASE2_BASE_STAGING_ROOT="$STAGING_ROOT" \
   ASTER_PHASE2_BASE_CLEANUP_DESCRIPTOR="$CLEANUP_DESCRIPTOR" \
@@ -425,11 +496,15 @@ remove_owned_result() {
 }
 
 assert_source_identity_unchanged() {
-  local head tree status
+  local head tree status phase1_aster phase2_aster
   head="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" rev-parse HEAD)" || return 1
   tree="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" rev-parse 'HEAD^{tree}')" || return 1
   status="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" || return 1
-  [[ "$head" == "$H_HEAD" && "$tree" == "$H_TREE" && -z "$status" ]]
+  [[ "$head" == "$H_HEAD" && "$tree" == "$H_TREE" && -z "$status" ]] || return 1
+  phase1_aster="$(capture_aster_source_identity "$PHASE1_ASTER_ROOT")" || return 1
+  phase2_aster="$(capture_aster_source_identity "$PHASE2_ASTER_ROOT")" || return 1
+  [[ "$phase1_aster" == "$PHASE1_ASTER_SOURCE_IDENTITY" && \
+    "$phase2_aster" == "$PHASE2_ASTER_SOURCE_IDENTITY" ]]
 }
 
 cleanup() {
@@ -469,6 +544,9 @@ main() {
   H_TREE="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" rev-parse 'HEAD^{tree}')" || { fail; return 1; }
   status="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" || { fail; return 1; }
   [[ "$H_HEAD" =~ ^[0-9a-f]{40}$ && "$H_TREE" =~ ^[0-9a-f]{40}$ && -z "$status" ]] || { fail; return 1; }
+  load_required_aster_roots || { fail; return 1; }
+  readonly PHASE1_ASTER_ROOT PHASE2_ASTER_ROOT
+  readonly PHASE1_ASTER_SOURCE_IDENTITY PHASE2_ASTER_SOURCE_IDENTITY
   local build_root="${ASTER_PHASE1_BUILD_ROOT:-$DEFAULT_BUILD_ROOT}"
   require_private_root "$build_root" || { fail; return 1; }
   BUILD_ROOT="$build_root"

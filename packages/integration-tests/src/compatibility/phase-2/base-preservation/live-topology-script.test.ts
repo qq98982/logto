@@ -1,6 +1,6 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The source-contract assertions reuse one mutable private test root across the fixture lifecycle. */
+/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The source-contract and security failure harnesses stay together so the complete live runner contract remains auditable. */
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -13,6 +13,36 @@ const runnerPath = path.join(
 const acceptedPhase1Runner = '.scripts/compatibility/run-phase1-runtime-candidate.sh';
 let source = '';
 let temporaryRoot = '';
+
+const createAsterCheckout = async (
+  name: string,
+  origin = 'https://github.com/qq98982/aster.git'
+): Promise<string> => {
+  const root = path.join(temporaryRoot, name);
+  await mkdir(root, { mode: 0o700 });
+  await executeFile('/usr/bin/git', ['init', '--quiet'], { cwd: root });
+  await writeFile(path.join(root, 'sentinel.txt'), `${name}\n`);
+  await executeFile('/usr/bin/git', ['add', '--', 'sentinel.txt'], { cwd: root });
+  await executeFile(
+    '/usr/bin/git',
+    [
+      '-c',
+      'user.name=Phase2 Test',
+      '-c',
+      'user.email=phase2@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--quiet',
+      '-m',
+      'fixture',
+    ],
+    { cwd: root }
+  );
+  await executeFile('/usr/bin/git', ['remote', 'add', 'origin', origin], { cwd: root });
+
+  return root;
+};
 
 describe('Phase 2 base-preservation live runner', () => {
   beforeAll(async () => {
@@ -73,6 +103,96 @@ describe('Phase 2 base-preservation live runner', () => {
       '--harness-commit "83d08f0821345d1bdc01491152949cc6f044ecfb"'
     );
     expect(generatedSource).not.toContain('raw-phase1-negative-control');
+    const phase1Root = ['$', '{ASTER_ROOT}'].join('');
+    const phase2Root = ['$', '{PHASE2_ASTER_ROOT}'].join('');
+    const gitAuthority = ['$', '{GIT_AUTHORITY[@]}'].join('');
+
+    expect(generatedSource).toContain(
+      `PROFILE_SOURCE="${phase1Root}/compatibility/phase-1-profile.json"`
+    );
+    expect(generatedSource).toContain(
+      `PHASE2_PROFILE_SOURCE="${phase2Root}/compatibility/phase-2-profile.json"`
+    );
+    expect(generatedSource).toContain(
+      `CANDIDATE_SOURCE_COMMIT="$("${gitAuthority}" -C "${phase2Root}" rev-parse HEAD)"`
+    );
+    expect(generatedSource).toContain(
+      'value.provenance?.candidate?.sourceCommit !== process.argv[5]'
+    );
+    expect(generatedSource).not.toContain(
+      `PHASE2_PROFILE_SOURCE="${phase1Root}/compatibility/phase-2-profile.json"`
+    );
+  });
+
+  it('loads two distinct clean canonical Aster roots without changing their roles', async () => {
+    const phase1Root = await createAsterCheckout('phase1-authority-root');
+    const phase2Root = await createAsterCheckout('phase2-candidate-root');
+    const harness = path.join(temporaryRoot, 'root-split-success.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nGIT_BIN=/usr/bin/git\nASTER_PHASE1_ASTER_ROOT=${JSON.stringify(
+        phase1Root
+      )}\nASTER_PHASE2_ASTER_ROOT=${JSON.stringify(
+        phase2Root
+      )}\nload_required_aster_roots\nprintf '%s\\n%s\\n' "$PHASE1_ASTER_ROOT" "$PHASE2_ASTER_ROOT"\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({
+      stdout: `${phase1Root}\n${phase2Root}\n`,
+      stderr: '',
+    });
+  });
+
+  it('rejects a missing, dirty, noncanonical or symlinked Phase 2 candidate root', async () => {
+    const phase1Root = await createAsterCheckout('phase1-valid-root');
+    const dirtyRoot = await createAsterCheckout('phase2-dirty-root');
+    const noncanonicalRoot = await createAsterCheckout(
+      'phase2-noncanonical-root',
+      'https://example.invalid/aster.git'
+    );
+    const symlinkTarget = await createAsterCheckout('phase2-symlink-target');
+    const symlinkRoot = path.join(temporaryRoot, 'phase2-symlink-root');
+    await writeFile(path.join(dirtyRoot, 'dirty.txt'), 'dirty\n');
+    await symlink(symlinkTarget, symlinkRoot, 'dir');
+    const invalidRoots = [undefined, dirtyRoot, noncanonicalRoot, symlinkRoot];
+
+    for (const [index, invalidRoot] of invalidRoots.entries()) {
+      const harness = path.join(temporaryRoot, `root-split-invalid-${index}.sh`);
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+          runnerPath
+        )}\nGIT_BIN=/usr/bin/git\nASTER_PHASE1_ASTER_ROOT=${JSON.stringify(phase1Root)}\n${
+          invalidRoot === undefined
+            ? 'unset ASTER_PHASE2_ASTER_ROOT'
+            : `ASTER_PHASE2_ASTER_ROOT=${JSON.stringify(invalidRoot)}`
+        }\nif load_required_aster_roots; then exit 11; fi\n`,
+        { mode: 0o500 }
+      );
+
+      await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+    }
+  });
+
+  it('rejects root conflation instead of falling back to the Phase 1 authority root', async () => {
+    const sharedRoot = await createAsterCheckout('shared-aster-root');
+    const harness = path.join(temporaryRoot, 'root-conflation-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nGIT_BIN=/usr/bin/git\nASTER_PHASE1_ASTER_ROOT=${JSON.stringify(
+        sharedRoot
+      )}\nASTER_PHASE2_ASTER_ROOT=${JSON.stringify(
+        sharedRoot
+      )}\nif load_required_aster_roots; then exit 11; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
   });
 
   it('publishes only after the accepted child runner has completed cleanup', () => {
@@ -379,4 +499,4 @@ describe('Phase 2 base-preservation live runner', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
