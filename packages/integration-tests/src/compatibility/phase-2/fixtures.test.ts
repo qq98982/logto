@@ -46,6 +46,12 @@ const commandResult = (stdout: string): CommandRunnerResult => ({
   reaped: true,
 });
 
+const rejectedCommandResult = (): CommandRunnerResult => ({
+  ...commandResult(''),
+  exitCode: 1,
+  stderr: 'Aster compatibility fixture command failed\n',
+});
+
 const createReferenceAdmin = () => {
   const calls: Phase2AdminRequest[] = [];
   const ids = new Map<string, number>();
@@ -247,6 +253,7 @@ describe('Phase 2 fixture lifecycle', () => {
   it('uses the Aster fixture coordinator with a secret-safe closed descriptor', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
+    let cleanupCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
@@ -280,7 +287,10 @@ describe('Phase 2 fixture lifecycle', () => {
           })
         );
       }
-      return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+      cleanupCalls += 1;
+      return cleanupCalls === 1
+        ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+        : rejectedCommandResult();
     };
     const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
     const provisioner = createCandidatePhase2FixtureProvisioner({
@@ -361,10 +371,12 @@ describe('Phase 2 fixture lifecycle', () => {
     const projectDescriptor = JSON.parse(requests[1]?.stdin ?? '{}') as {
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
     };
-    const cleanupDescriptor = JSON.parse(requests[2]?.stdin ?? '{}') as {
+    const cleanupDescriptors = [requests[2], requests[3]].map((request) =>
+      JSON.parse(request?.stdin ?? '{}')
+    ) as Array<{
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
-    };
-    for (const descriptor of [projectDescriptor, cleanupDescriptor]) {
+    }>;
+    for (const descriptor of [projectDescriptor, ...cleanupDescriptors]) {
       expect(descriptor.public).toMatchObject({
         recipe: 'dataProtocol',
         allocations: [{ allocationId: 'candidate-fixture' }],
@@ -376,6 +388,7 @@ describe('Phase 2 fixture lifecycle', () => {
   it('reconciles one failed candidate provision and retries the exact descriptor once', async () => {
     const requests: CommandRunnerRequest[] = [];
     let provisionAttempts = 0;
+    let cleanupCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as { operation?: string };
@@ -408,7 +421,10 @@ describe('Phase 2 fixture lifecycle', () => {
         );
       }
       if (descriptor.operation === 'cleanup') {
-        return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+        cleanupCalls += 1;
+        return cleanupCalls % 2 === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
       }
       return commandResult(
         JSON.stringify({
@@ -435,19 +451,23 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(requests.map(({ stdin }) => JSON.parse(stdin).operation)).toEqual([
       'provision',
       'cleanup',
+      'cleanup',
       'provision',
       'cleanup',
-      'projectState',
+      'cleanup',
     ]);
     const provisions = requests.filter(({ stdin }) => JSON.parse(stdin).operation === 'provision');
     expect(provisions).toHaveLength(2);
     expect(provisions[0]?.stdin).toBe(provisions[1]?.stdin);
     expect(JSON.parse(requests[1]?.stdin ?? '{}')).not.toHaveProperty('public');
-    expect(JSON.parse(requests[3]?.stdin ?? '{}')).toHaveProperty('public');
+    expect(JSON.parse(requests[2]?.stdin ?? '{}')).not.toHaveProperty('public');
+    expect(JSON.parse(requests[4]?.stdin ?? '{}')).toHaveProperty('public');
+    expect(JSON.parse(requests[5]?.stdin ?? '{}')).toHaveProperty('public');
   });
 
   it('rejects coordinator output that leaks the private subject password', async () => {
     const planted = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    let cleanupCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -458,9 +478,10 @@ describe('Phase 2 fixture lifecycle', () => {
       runner: async (request) => {
         const descriptor = JSON.parse(request.stdin) as { operation?: string };
         if (descriptor.operation === 'cleanup') {
-          return commandResult(
-            JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true })
-          );
+          cleanupCalls += 1;
+          return cleanupCalls % 2 === 1
+            ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+            : rejectedCommandResult();
         }
         return commandResult(
           JSON.stringify({
@@ -476,6 +497,7 @@ describe('Phase 2 fixture lifecycle', () => {
 
   it('generates production candidate secrets as exact 32 lowercase alphanumeric characters', async () => {
     let provisionDescriptor: any;
+    let cleanupCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -514,7 +536,10 @@ describe('Phase 2 fixture lifecycle', () => {
             })
           );
         }
-        return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+        cleanupCalls += 1;
+        return cleanupCalls === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
       },
     });
     const fixtureValue = await provisioner.provision();

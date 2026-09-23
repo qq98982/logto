@@ -949,6 +949,32 @@ const requireCommandResult = (value: unknown): CommandRunnerResult => {
   return value as CommandRunnerResult;
 };
 
+const requireRejectedCommandResult = (value: unknown): CommandRunnerResult => {
+  const result = exactRecord(value, [
+    'exitCode',
+    'signal',
+    'stdout',
+    'stderr',
+    'timedOut',
+    'killed',
+    'reaped',
+  ]);
+  const stdout = own(result, 'stdout');
+  const stderr = own(result, 'stderr');
+  if (
+    own(result, 'exitCode') !== 1 ||
+    own(result, 'signal') !== null ||
+    stdout !== '' ||
+    stderr !== 'Aster compatibility fixture command failed\n' ||
+    own(result, 'timedOut') !== false ||
+    own(result, 'killed') !== false ||
+    own(result, 'reaped') !== true
+  ) {
+    return fail();
+  }
+  return value as CommandRunnerResult;
+};
+
 const parseCommandOutput = (
   result: CommandRunnerResult,
   operation: 'provision' | 'projectState' | 'cleanup',
@@ -1029,38 +1055,46 @@ export const createCandidatePhase2FixtureProvisioner = (
     return parseCommandOutput(result, operation, secrets);
   };
 
+  const runRejected = async (
+    descriptor: Readonly<Record<string, unknown>>,
+    secrets: readonly string[]
+  ): Promise<void> => {
+    const invoke = async () =>
+      requireRejectedCommandResult(
+        await runner({
+          command: options.executablePath,
+          args: Object.freeze(['fixture', 'apply']),
+          stdin: JSON.stringify(descriptor),
+          env: environment,
+          timeoutMs: commandTimeoutMs,
+          maxStdoutBytes: maximumCommandOutputBytes,
+          maxStderrBytes: maximumCommandOutputBytes,
+          shell: false,
+        })
+      );
+    const result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
+    assertPhase1RuntimeCredentialGraphIsSanitized(
+      { stdout: result.stdout, stderr: result.stderr },
+      secrets
+    );
+  };
+
   const cleanupAllocation = async (state: FixtureState): Promise<void> => {
-    const result = await run(
-      Object.freeze({
+    try {
+      const descriptor = Object.freeze({
         schemaVersion: 1,
         operation: 'cleanup',
         recipe: 'dataProtocol',
         allocationId: state.allocationId,
         ...(state.coordinatorPublic && { public: state.coordinatorPublic }),
-      }),
-      'cleanup',
-      state.sensitiveValues
-    );
-    if (own(result, 'ok') !== true) {
-      return fail(cleanupFailure);
-    }
-    if (state.coordinatorPublic) {
-      const projected = await run(
-        Object.freeze({
-          schemaVersion: 1,
-          operation: 'projectState',
-          recipe: 'dataProtocol',
-          allocationId: state.allocationId,
-          ...(state.coordinatorPublic && { public: state.coordinatorPublic }),
-        }),
-        'projectState',
-        state.sensitiveValues
-      );
-      const projection = exactRecord(own(projected, 'projection'), ['allocations']);
-      const allocations = own(projection, 'allocations');
-      if (!Array.isArray(allocations) || allocations.length > 0) {
+      });
+      const result = await run(descriptor, 'cleanup', state.sensitiveValues);
+      if (own(result, 'ok') !== true) {
         return fail(cleanupFailure);
       }
+      await runRejected(descriptor, state.sensitiveValues);
+    } catch {
+      return fail(cleanupFailure);
     }
   };
 
