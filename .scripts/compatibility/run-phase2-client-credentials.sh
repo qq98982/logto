@@ -1139,9 +1139,11 @@ NODE
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
-  failure_stage='service-closure'
+  failure_stage='service-closure-oracle'
   assert_exact_project_services oracle "${ORACLE_SERVICES[@]}" || { fail; return 1; }
+  failure_stage='service-closure-candidate'
   assert_exact_project_services candidate "${CANDIDATE_SERVICES[@]}" || { fail; return 1; }
+  failure_stage='service-closure-container-ids'
   assert_distinct_container_ids || { fail; return 1; }
 
   for binding in "${LOOPBACK_PROXY_BINDINGS[@]}"; do
