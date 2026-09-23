@@ -19,6 +19,7 @@ STAGING_IDENTITY=''
 CLEANUP_DESCRIPTOR=''
 ENGINE_HOME=''
 PUBLISHED_RESULT=''
+PUBLISHED_IDENTITY=''
 H_HEAD=''
 H_TREE=''
 
@@ -381,7 +382,7 @@ TRANSFORM_NODE
 }
 
 publish_verified_result() {
-  local staging=$1 files destination
+  local staging=$1 files destination staging_identity staging_device result_device
   [[ -n "$RESULT_ROOT" && -n "$STAGING_ROOT" ]] || return 1
   require_private_root "$RESULT_ROOT" || return 1
   require_private_root "$STAGING_ROOT" || return 1
@@ -392,10 +393,16 @@ publish_verified_result() {
   [[ "$(/usr/bin/stat -c '%u|%a|%h|%F' -- "$staging/$ARTIFACT_NAME")" == \
     "$(/usr/bin/id -u)|600|1|regular file" ]] || return 1
   assert_finalized_artifact "$staging/$ARTIFACT_NAME" || return 1
+  staging_identity="$(capture_path_identity "$staging")" || return 1
+  [[ -z "$STAGING_IDENTITY" || "$staging_identity" == "$STAGING_IDENTITY" ]] || return 1
+  staging_device="$(/usr/bin/stat -c %d -- "$staging")" || return 1
+  result_device="$(/usr/bin/stat -c %d -- "$RESULT_ROOT")" || return 1
+  [[ "$staging_device" == "$result_device" ]] || return 1
   destination="$RESULT_ROOT/result.$(random_hex 8)"
   [[ ! -e "$destination" && ! -L "$destination" ]] || return 1
-  /usr/bin/mv --no-clobber --no-target-directory "$staging" "$destination" || return 1
   PUBLISHED_RESULT="$destination"
+  PUBLISHED_IDENTITY="$staging_identity"
+  /usr/bin/mv --no-clobber --no-target-directory "$staging" "$destination" || return 1
   printf '%s' "$destination"
 }
 
@@ -429,6 +436,7 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM HUP
   if [[ "$status" != 0 ]]; then
+    remove_owned_result "$PUBLISHED_RESULT" "$PUBLISHED_IDENTITY" "$RESULT_ROOT" || status=1
     remove_owned_result "$RESULT_DIR" "$RESULT_IDENTITY" "$RESULT_ROOT" || status=1
     remove_owned_result "$STAGING_DIR" "$STAGING_IDENTITY" "$STAGING_ROOT" || status=1
   fi
@@ -492,7 +500,7 @@ main() {
   assert_source_identity_unchanged || { fail; return 1; }
   publish_verified_result "$staging" >/dev/null || { fail; return 1; }
   RESULT_DIR="$PUBLISHED_RESULT"
-  RESULT_IDENTITY="$(capture_path_identity "$RESULT_DIR")" || { fail; return 1; }
+  RESULT_IDENTITY="$PUBLISHED_IDENTITY"
   STAGING_DIR=''
   STAGING_IDENTITY=''
   local sha256

@@ -79,10 +79,15 @@ describe('Phase 2 base-preservation live runner', () => {
     const child = source.lastIndexOf('run_transformed_topology "$generated"');
     const finalization = source.lastIndexOf('finalize_cleanup_evidence "$staging/$ARTIFACT_NAME"');
     const publication = source.lastIndexOf('publish_verified_result "$staging"');
+    const registration = source.indexOf('PUBLISHED_RESULT="$destination"');
+    const move = source.indexOf('/usr/bin/mv --no-clobber --no-target-directory');
 
     expect(child).toBeGreaterThan(0);
     expect(finalization).toBeGreaterThan(child);
     expect(publication).toBeGreaterThan(finalization);
+    expect(registration).toBeGreaterThan(0);
+    expect(move).toBeGreaterThan(registration);
+    expect(source).toContain('PUBLISHED_IDENTITY="$staging_identity"');
     expect(source).toContain('--no-clobber --no-target-directory');
     expect(source).toContain('aster-phase2-base-preservation-results');
     expect(source).toContain('trap cleanup EXIT');
@@ -330,6 +335,47 @@ describe('Phase 2 base-preservation live runner', () => {
 
     await expect(executeFile('/usr/bin/bash', [harness])).rejects.toMatchObject({ code: 29 });
     await expect(readFile(artifact)).rejects.toThrow();
+  });
+
+  it('rolls back a moved result when execution fails before main registers the result', async () => {
+    const stagingRoot = path.join(temporaryRoot, 'post-move-staging');
+    const resultRoot = path.join(temporaryRoot, 'post-move-results');
+    const staging = path.join(stagingRoot, 'result.test');
+    const artifact = path.join(staging, 'phase-2-base-preservation.json');
+    const harness = path.join(temporaryRoot, 'post-move-failure-harness.sh');
+    await mkdir(staging, { mode: 0o700, recursive: true });
+    await mkdir(resultRoot, { mode: 0o700 });
+    await writeFile(
+      artifact,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        mode: 'phase-2-base-preservation',
+        sanitizerSuccess: true,
+        rawPhase1NegativeControl: {
+          scenarioId: 'discovery.config',
+          detected: true,
+          errorName: 'Error',
+          error: 'Phase 1 candidate discovery contains unapproved metadata',
+        },
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\nRESULT_ROOT=${JSON.stringify(
+        resultRoot
+      )}\nSTAGING_ROOT=${JSON.stringify(stagingRoot)}\nSTAGING_DIR=${JSON.stringify(
+        staging
+      )}\nSTAGING_IDENTITY="$(capture_path_identity "$STAGING_DIR")"\nRESULT_DIR=''\nRESULT_IDENTITY=''\nWORK_ROOT=''\ntrap cleanup EXIT\nfinalize_cleanup_evidence ${JSON.stringify(
+        artifact
+      )}\npublish_verified_result "$STAGING_DIR" >/dev/null\n[[ -d "$PUBLISHED_RESULT" ]]\nexit 31\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).rejects.toMatchObject({ code: 31 });
+    await expect(readdir(resultRoot)).resolves.toEqual([]);
   });
 });
 
