@@ -198,10 +198,10 @@ readiness() {
   [[ ${#body} -le $MAX_OUTPUT_BYTES ]] || die
   printf '%s' "$body" | "$JQ_BIN" -e --arg issuer "$issuer" 'type=="object" and .issuer==$issuer' >/dev/null 2>&1 || die
 }
-readiness "$ASTER_CORE_URL" 'http://localhost:3321/oidc'
-readiness "$ASTER_ADMIN_URL" 'http://localhost:3321/oidc'
-readiness "$ASTER_FOREIGN_CORE_URL" 'http://localhost:3322/oidc'
-readiness "$ASTER_FOREIGN_ADMIN_URL" 'http://localhost:3322/oidc'
+readiness "$ASTER_CORE_URL" "${ASTER_CORE_URL%/}/oidc"
+readiness "$ASTER_ADMIN_URL" "${ASTER_ADMIN_URL%/}/oidc"
+readiness "$ASTER_FOREIGN_CORE_URL" "${ASTER_FOREIGN_CORE_URL%/}/oidc"
+readiness "$ASTER_FOREIGN_ADMIN_URL" "${ASTER_FOREIGN_ADMIN_URL%/}/oidc"
 
 discover_postgres() {
   local service=$1 ids identity

@@ -96,10 +96,10 @@ describe('Phase 2 client-credentials live topology runner', () => {
       expect(source).toContain(port);
     }
     for (const binding of [
-      '3411|http://localhost:3311/oidc',
-      '3412|http://localhost:3312/oidc',
-      '3421|http://localhost:3321/oidc',
-      '3422|http://localhost:3322/oidc',
+      '3411|http://localhost:3411/oidc',
+      '3412|http://localhost:3412/oidc',
+      '3421|http://localhost:3421/oidc',
+      '3422|http://localhost:3422/oidc',
     ]) {
       expect(source).toContain(binding);
     }
@@ -108,6 +108,10 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).toContain('published_port');
     expect(source).toContain('port_is_listened_by_pid');
     expect(source).toContain('http_ready');
+    expect(source).toContain(
+      'printf \'Host: localhost:%s\\r\\nConnection: close\\r\\n\\r\\n\' "$port"'
+    );
+    expect(source).not.toContain("printf 'Host: localhost\\r\\nConnection: close\\r\\n\\r\\n'");
     expect(source).toContain('wait_for_fixture_socket');
     expect(source).toMatch(
       /libpod\/containers\/\$\{id\}\/healthcheck[\s\S]*\/usr\/bin\/sleep 1\n\s*continue/u

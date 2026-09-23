@@ -414,7 +414,7 @@ http_ready() {
   for ((attempt=0; attempt<90; attempt++)); do
     response="$({
       printf 'GET /oidc/.well-known/openid-configuration HTTP/1.1\r\n'
-      printf 'Host: localhost\r\nConnection: close\r\n\r\n'
+      printf 'Host: localhost:%s\r\nConnection: close\r\n\r\n' "$port"
     } | "$NC_BIN" -w 3 127.0.0.1 "$port" 2>/dev/null || true)"
     [[ "$response" == *' 200 OK'* && "$response" == *"\"issuer\":\"${issuer}\""* ]] && return 0
     /usr/bin/sleep 1
@@ -1153,10 +1153,10 @@ NODE
   done
 
   for readiness in \
-    '3311|http://localhost:3311/oidc' '3411|http://localhost:3311/oidc' \
-    '3312|http://localhost:3312/oidc' '3412|http://localhost:3312/oidc' \
-    '3321|http://localhost:3321/oidc' '3421|http://localhost:3321/oidc' \
-    '3322|http://localhost:3322/oidc' '3422|http://localhost:3322/oidc'; do
+    '3311|http://localhost:3311/oidc' '3411|http://localhost:3411/oidc' \
+    '3312|http://localhost:3312/oidc' '3412|http://localhost:3412/oidc' \
+    '3321|http://localhost:3321/oidc' '3421|http://localhost:3421/oidc' \
+    '3322|http://localhost:3322/oidc' '3422|http://localhost:3422/oidc'; do
     IFS='|' read -r readiness_port readiness_issuer <<<"$readiness"
     failure_stage="http-readiness-${readiness_port}"
     http_ready "$readiness_port" "$readiness_issuer" || { fail; return 1; }

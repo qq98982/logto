@@ -173,8 +173,6 @@ case "$target_kind" in
     foreign_core_service='oracle-foreign-core'
     primary_postgres_service='oracle-primary-postgres'
     foreign_postgres_service='oracle-foreign-postgres'
-    primary_port=3311
-    foreign_port=3312
     primary_database=aster
     database_user=aster
     ;;
@@ -183,8 +181,6 @@ case "$target_kind" in
     foreign_core_service='candidate-foreign-core'
     primary_postgres_service='candidate-primary-postgres'
     foreign_postgres_service='candidate-foreign-postgres'
-    primary_port=3321
-    foreign_port=3322
     primary_database=aster_phase1_candidate_primary
     database_user=postgres
     ;;
@@ -229,10 +225,10 @@ primary_core_url="$(fixture_value '.target.coreUrl')" || die
 primary_admin_url="$(fixture_value '.target.adminUrl')" || die
 foreign_core_url="$(fixture_value '.foreignTarget.coreUrl')" || die
 foreign_admin_url="$(fixture_value '.foreignTarget.adminUrl')" || die
-readiness "$primary_core_url" "http://localhost:${primary_port}/oidc"
-readiness "$primary_admin_url" "http://localhost:${primary_port}/oidc"
-readiness "$foreign_core_url" "http://localhost:${foreign_port}/oidc"
-readiness "$foreign_admin_url" "http://localhost:${foreign_port}/oidc"
+readiness "$primary_core_url" "${primary_core_url%/}/oidc"
+readiness "$primary_admin_url" "${primary_admin_url%/}/oidc"
+readiness "$foreign_core_url" "${foreign_core_url%/}/oidc"
+readiness "$foreign_admin_url" "${foreign_admin_url%/}/oidc"
 
 discover_postgres() {
   local service=$1 ids identity

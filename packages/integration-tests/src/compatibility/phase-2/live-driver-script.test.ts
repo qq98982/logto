@@ -288,10 +288,14 @@ printf '\n' >>'${calls}'
 args="$*"
 if [[ "$args" == *'.well-known/openid-configuration'* ]]; then
   case "$args" in
-    *localhost:3311*|*localhost:3411*) issuer='http://localhost:3311/oidc' ;;
-    *localhost:3312*|*localhost:3412*) issuer='http://localhost:3312/oidc' ;;
-    *localhost:3321*|*localhost:3421*) issuer='http://localhost:3321/oidc' ;;
-    *localhost:3322*|*localhost:3422*) issuer='http://localhost:3322/oidc' ;;
+    *localhost:3311*) issuer='http://localhost:3311/oidc' ;;
+    *localhost:3411*) issuer='http://localhost:3411/oidc' ;;
+    *localhost:3312*) issuer='http://localhost:3312/oidc' ;;
+    *localhost:3412*) issuer='http://localhost:3412/oidc' ;;
+    *localhost:3321*) issuer='http://localhost:3321/oidc' ;;
+    *localhost:3421*) issuer='http://localhost:3421/oidc' ;;
+    *localhost:3322*) issuer='http://localhost:3322/oidc' ;;
+    *localhost:3422*) issuer='http://localhost:3422/oidc' ;;
     *) exit 1 ;;
   esac
   printf '{"issuer":"%s"}' "$issuer"
