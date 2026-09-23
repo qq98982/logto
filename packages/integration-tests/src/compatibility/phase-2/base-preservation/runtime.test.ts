@@ -28,8 +28,9 @@ const phase2Profile: Phase2ProfileRegistries = Object.freeze({
   }),
 });
 
+const currentHarnessCommit = '9'.repeat(40);
 const phase1Profile = Object.freeze({
-  phase1Harness: Object.freeze({ commit: '83d08f0821345d1bdc01491152949cc6f044ecfb' }),
+  phase1Harness: Object.freeze({ commit: currentHarnessCommit }),
   fixtures: Object.freeze({}),
   oidc: Object.freeze({
     grants: Object.freeze(['authorization_code', 'refresh_token']),
@@ -136,6 +137,13 @@ const createDependencies = (
         candidate: Object.freeze({ primary: 'c'.repeat(64), foreign: 'd'.repeat(64) }),
       }),
     runScenario,
+    runRawDiscoveryControl: async () =>
+      Object.freeze({
+        scenarioId: 'discovery.config' as const,
+        detected: true as const,
+        errorName: 'Error' as const,
+        error: 'Phase 1 candidate discovery contains unapproved metadata' as const,
+      }),
     assertCandidateArtifact: () => {},
     projectHttpCompatibility: (_id, oracle, candidate) => ({ oracle, candidate }),
     compare: () => Object.freeze([]),
@@ -206,8 +214,11 @@ describe('Phase 2 base-preservation runtime', () => {
     expect(result.rawPhase1NegativeControl).toEqual({
       scenarioId: 'discovery.config',
       detected: true,
-      error: 'Phase 1 scenario execution failed',
+      errorName: 'Error',
+      error: 'Phase 1 candidate discovery contains unapproved metadata',
     });
+    expect(result.phase1Provenance.harnessCommit).toBe(currentHarnessCommit);
+    expect(result.sourceClosure.acceptedCommit).toBe('83d08f0821345d1bdc01491152949cc6f044ecfb');
     expect(calls).toHaveLength(44);
     expect(calls.filter(({ projected }) => projected)).toEqual([
       { scenarioId: 'discovery.config', target: 'candidate', projected: true },
@@ -248,6 +259,49 @@ describe('Phase 2 base-preservation runtime', () => {
         { ...dependencies, compare: () => [{ path: '/changed', expected: 1, actual: 2 }] }
       )
     ).rejects.toThrow('Invalid Phase 2 base-preservation runtime');
+  });
+
+  it('fails closed unless the raw discovery control proves the exact Phase 1 rejection', async () => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const dependencies = createDependencies(calls);
+
+    await expect(
+      runPhase2BasePreservationRuntime(
+        {
+          authorization: Object.freeze({
+            mode: 'runtime-candidate',
+            profile: phase1Profile,
+            profileSha256: '1'.repeat(64),
+            schemaSha256: '2'.repeat(64),
+          }) as never,
+          oracleImageDigest: `sha256:${'3'.repeat(64)}`,
+          candidateImageDigest: `sha256:${'4'.repeat(64)}`,
+          evidenceDirectory: '/private/evidence',
+          oracleSnapshotPath: '/private/oracle.json',
+          repositoryRoot: '/home/henry/repo/logto',
+          conformanceRoot: '/private/conformance',
+          targets: Object.freeze({}) as never,
+          isolationAttestations: Object.freeze({}) as never,
+        },
+        phase2Profile,
+        Object.freeze({
+          acceptedCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
+          roots: Object.freeze(['root.ts']),
+          files: Object.freeze([Object.freeze({ path: 'root.ts', blobId: '5'.repeat(40) })]),
+        }),
+        {
+          ...dependencies,
+          runRawDiscoveryControl: async () =>
+            Object.freeze({
+              scenarioId: 'discovery.config',
+              detected: true,
+              errorName: 'TypeError',
+              error: 'Phase 1 scenario execution failed',
+            }) as never,
+        }
+      )
+    ).rejects.toThrow('Invalid Phase 2 base-preservation runtime');
+    expect(calls).toHaveLength(0);
   });
 });
 

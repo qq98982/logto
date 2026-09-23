@@ -284,6 +284,8 @@ export const runPhase2BasePreservationCli = async (
       profilePath: command.phase2ProfilePath,
       schemaPath: command.phase2SchemaPath,
     });
+    const harness = await dependencies.inspectHarness(runtimeCapability);
+    const closure = await dependencies.createSourceClosure(harness.repositoryRoot);
     let artifact: JsonValue | undefined;
     const phase1Code = await dependencies.runPhase1Cli(
       [
@@ -299,10 +301,37 @@ export const runPhase2BasePreservationCli = async (
         '--candidate-invariant-controls',
       ],
       {
+        verifyRunProvenance: async (phase1Command, bundle) => {
+          const harnessCommit = bundle.profile.phase1Harness.commit;
+
+          if (
+            phase1Command.command !== 'run-differential' ||
+            phase1Command.mode !== 'runtime-candidate' ||
+            phase1Command.profilePath !== command.phase1ProfilePath ||
+            phase1Command.schemaPath !== command.phase1SchemaPath ||
+            phase1Command.controls.recordOracle ||
+            !phase1Command.controls.observationControls ||
+            !phase1Command.controls.discoveryExtraControl ||
+            !phase1Command.controls.candidateInvariantControls ||
+            !commitPattern.test(harnessCommit ?? '') ||
+            harnessCommit !== harness.public.headCommit ||
+            profile.baseAcceptance.harnessCommit !== closure.acceptedCommit
+          ) {
+            return fail();
+          }
+
+          return Object.freeze({
+            kind: 'review-candidate' as const,
+            harnessCommit,
+            publishable: false as const,
+          });
+        },
         executeDifferential: async (authorization) => {
-          const harness = await dependencies.inspectHarness(runtimeCapability);
           const context = dependencies.createContext(authorization);
-          const closure = await dependencies.createSourceClosure(context.repositoryRoot);
+
+          if (context.repositoryRoot !== harness.repositoryRoot) {
+            return fail();
+          }
           const runtime = await dependencies.runRuntime(context, profile, closure);
           const candidateSourceCommit = requiredEnvironment(
             dependencies.environment,

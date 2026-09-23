@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines, no-await-in-loop, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition -- The Phase 2-owned composition deliberately mirrors accepted ports with explicit mutable fixture/projector journals and literal closed-contract checks. */
+/* eslint-disable complexity, max-lines, no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition -- The Phase 2-owned composition deliberately mirrors accepted ports with explicit mutable fixture/projector journals and literal closed-contract checks. */
 import { compareJson } from '../../compare.js';
 import type { Difference } from '../../model.js';
 import type { JsonObject } from '../../normalize.js';
@@ -31,7 +31,7 @@ import {
   assertPhase1EvidenceIsSanitized,
   snapshotPhase1EvidencePreservingVerifiedTokens,
 } from '../../phase-1/evidence.js';
-import type { ProvisionedPhase1Fixture } from '../../phase-1/fixtures.js';
+import { runWithPhase1Fixture, type ProvisionedPhase1Fixture } from '../../phase-1/fixtures.js';
 import type {
   Phase1DifferentialScenario,
   Phase1DifferentialScenarioId,
@@ -72,7 +72,8 @@ export type Phase2BasePreservationRuntimeResult = Readonly<{
   rawPhase1NegativeControl: Readonly<{
     scenarioId: 'discovery.config';
     detected: true;
-    error: 'Phase 1 scenario execution failed';
+    errorName: 'Error';
+    error: 'Phase 1 candidate discovery contains unapproved metadata';
   }>;
   discoveryAppendProofs: readonly Phase2BaseDiscoveryAppendProof[];
   scenarios: readonly Phase2BasePreservationScenario[];
@@ -88,6 +89,10 @@ export type Phase2BasePreservationRuntimeDependencies = Readonly<{
   createReferenceProjector: typeof createReferenceScenarioStateProjector;
   loadContainerGraph: () => Phase1ReferenceContainerGraph;
   runScenario: typeof runPhase1ScenarioForTarget;
+  runRawDiscoveryControl(
+    scenario: Phase1DifferentialScenario,
+    runtime: Phase1TargetRuntime
+  ): Promise<Phase2BasePreservationRuntimeResult['rawPhase1NegativeControl']>;
   assertCandidateArtifact(value: unknown): void;
   projectHttpCompatibility(
     scenarioId: Phase1DifferentialScenarioId,
@@ -101,10 +106,69 @@ export type Phase2BasePreservationRuntimeDependencies = Readonly<{
 const diagnostic = 'Invalid Phase 2 base-preservation runtime';
 const acceptedHarnessCommit = '83d08f0821345d1bdc01491152949cc6f044ecfb';
 const scenarioTimeoutMs = 300_000;
+const commitPattern = /^[0-9a-f]{40}$/u;
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
 };
+
+const assertRawDiscoveryControl = (
+  value: Phase2BasePreservationRuntimeResult['rawPhase1NegativeControl']
+): void => {
+  if (
+    value.scenarioId !== 'discovery.config' ||
+    !value.detected ||
+    value.errorName !== 'Error' ||
+    value.error !== 'Phase 1 candidate discovery contains unapproved metadata' ||
+    Reflect.ownKeys(value).length !== 4
+  ) {
+    return fail();
+  }
+};
+
+const runRawDiscoveryControl = async (
+  scenario: Phase1DifferentialScenario,
+  runtime: Phase1TargetRuntime
+): Promise<Phase2BasePreservationRuntimeResult['rawPhase1NegativeControl']> =>
+  runWithPhase1Fixture(
+    runtime.provisioner,
+    scenario.fixture,
+    async (fixture, signal) => {
+      const protocol = runtime.createProtocolSession({ target: runtime.target, fixture, signal });
+
+      try {
+        await scenario.run(
+          Object.freeze({
+            profile: runtime.profile,
+            target: runtime.target,
+            fixture,
+            signal,
+            protocol,
+            projectFixtureState: async () => runtime.provisioner.projectState(fixture),
+            projectScenarioState: async () => fail(),
+          })
+        );
+      } catch (error: unknown) {
+        if (
+          error instanceof Error &&
+          error.constructor === Error &&
+          error.message === 'Phase 1 candidate discovery contains unapproved metadata'
+        ) {
+          return Object.freeze({
+            scenarioId: 'discovery.config' as const,
+            detected: true as const,
+            errorName: 'Error' as const,
+            error: 'Phase 1 candidate discovery contains unapproved metadata' as const,
+          });
+        }
+
+        return fail();
+      }
+
+      return fail();
+    },
+    { timeoutMs: runtime.timeoutMs ?? scenarioTimeoutMs }
+  );
 
 const defaultDependencies: Phase2BasePreservationRuntimeDependencies = Object.freeze({
   projectProfile: projectPhase1ProfileForImplementation,
@@ -115,6 +179,7 @@ const defaultDependencies: Phase2BasePreservationRuntimeDependencies = Object.fr
   createReferenceProjector: createReferenceScenarioStateProjector,
   loadContainerGraph: loadPhase1ReferenceContainerGraph,
   runScenario: runPhase1ScenarioForTarget,
+  runRawDiscoveryControl,
   assertCandidateArtifact: assertCandidateNativeSurfaceArtifact,
   projectHttpCompatibility: projectPhase1HttpCompatibility,
   compare: compareJson,
@@ -151,7 +216,7 @@ const keyedProjection = (
 
 const provenanceFor = (context: Phase1EvidenceRuntimeContext): Phase1EvidenceProvenance =>
   createPhase1EvidenceProvenance({
-    harnessCommit: acceptedHarnessCommit,
+    harnessCommit: context.authorization.profile.phase1Harness.commit ?? fail(),
     profileSha256: context.authorization.profileSha256,
     schemaSha256: context.authorization.schemaSha256,
     imageDigest: context.oracleImageDigest,
@@ -300,7 +365,7 @@ export const runPhase2BasePreservationRuntime = async (
   try {
     if (
       context.authorization.mode !== 'runtime-candidate' ||
-      context.authorization.profile.phase1Harness.commit !== acceptedHarnessCommit ||
+      !commitPattern.test(context.authorization.profile.phase1Harness.commit ?? '') ||
       sourceClosure.acceptedCommit !== acceptedHarnessCommit ||
       phase2Profile.baseAcceptance.harnessCommit !== acceptedHarnessCommit ||
       context.oracleImageDigest === context.candidateImageDigest
@@ -340,29 +405,20 @@ export const runPhase2BasePreservationRuntime = async (
     if (!discoveryScenario) {
       return fail();
     }
-    let negativeDetected = false;
-
-    try {
-      await dependencies.runScenario(
+    const rawPhase1NegativeControl = await dependencies.runRawDiscoveryControl(
+      discoveryScenario,
+      createCandidateRuntime(
+        context,
+        containers.candidate,
+        containers.projectName,
         discoveryScenario,
-        createCandidateRuntime(
-          context,
-          containers.candidate,
-          containers.projectName,
-          discoveryScenario,
-          phase2Profile,
-          dependencies,
-          false,
-          []
-        )
-      );
-    } catch (error: unknown) {
-      negativeDetected =
-        error instanceof TypeError && error.message === 'Phase 1 scenario execution failed';
-    }
-    if (!negativeDetected) {
-      return fail();
-    }
+        phase2Profile,
+        dependencies,
+        false,
+        []
+      )
+    );
+    assertRawDiscoveryControl(rawPhase1NegativeControl);
     const scenarios: Phase2BasePreservationScenario[] = [];
     const discoverySessions: Phase2BaseDiscoverySession[] = [];
 
@@ -414,11 +470,7 @@ export const runPhase2BasePreservationRuntime = async (
         mode: 'phase-2-base-preservation' as const,
         phase1Provenance: provenanceFor(context),
         sourceClosure,
-        rawPhase1NegativeControl: Object.freeze({
-          scenarioId: 'discovery.config' as const,
-          detected: true as const,
-          error: 'Phase 1 scenario execution failed' as const,
-        }),
+        rawPhase1NegativeControl,
         discoveryAppendProofs: discoverySessions[0]?.proofs() ?? fail(),
         scenarios: Object.freeze(scenarios),
         sanitizerSuccess: true as const,
@@ -439,4 +491,4 @@ export const sortedPhase2BasePreservationScenarioIds = Object.freeze(
   phase1DifferentialScenarios.map(({ id }) => id).toSorted(bytewiseCompare)
 );
 
-/* eslint-enable complexity, max-lines, no-await-in-loop, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition */
+/* eslint-enable complexity, max-lines, no-await-in-loop, max-params, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition */

@@ -1,6 +1,6 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The source-contract assertions reuse one mutable private test root across the fixture lifecycle. */
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -33,25 +33,56 @@ describe('Phase 2 base-preservation live runner', () => {
     expect(source).not.toContain('docker-compose.phase1-runtime-candidate-differential.yml');
   });
 
-  it('runs the raw accepted gate as a rejection control before the separate base CLI', () => {
-    const raw = source.indexOf('raw-phase1-negative-control');
-    const base = source.indexOf('compatibility/phase-2/base-preservation/launcher.mjs');
-
-    expect(raw).toBeGreaterThan(0);
-    expect(base).toBeGreaterThan(raw);
-    expect(source).toContain('raw_status');
-    expect(source).toContain("'Phase 1 run failed.'");
+  it('binds the negative control to the exact live discovery scenario failure', () => {
+    expect(source).not.toContain('raw-phase1-negative-control.stderr');
+    expect(source).not.toContain('raw_status');
+    expect(source).toContain('compatibility/phase-2/base-preservation/launcher.mjs');
+    expect(source).toContain('Phase 1 candidate discovery contains unapproved metadata');
+    expect(source).toContain("errorName !== 'Error'");
     expect(source).toContain(".replaceAll('\\\\${', '${')");
     expect(source).toContain('phase-2-base-preservation.json');
     expect(source).not.toContain('Phase 1 differential gate passed');
   });
 
+  it('prepares the derived profile for the current H head without substituting the accepted head', async () => {
+    const generated = path.join(temporaryRoot, 'derived-runner.sh');
+    const harness = path.join(temporaryRoot, 'transform-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\ntransform_phase1_runner ${JSON.stringify(
+        path.join(repositoryRoot, acceptedPhase1Runner)
+      )} ${JSON.stringify(generated)}\n`,
+      { mode: 0o500 }
+    );
+
+    await executeFile('/usr/bin/bash', [harness]);
+    await executeFile('/usr/bin/bash', ['-n', generated]);
+    const generatedSource = await readFile(generated, 'utf8');
+    const currentHeadArgument = [
+      '--harness-commit "',
+      '$',
+      '{H_HEAD}" --output "',
+      '$',
+      '{REVIEW_PROFILE}"',
+    ].join('');
+
+    expect(generatedSource).toContain(currentHeadArgument);
+    expect(generatedSource).not.toContain(
+      '--harness-commit "83d08f0821345d1bdc01491152949cc6f044ecfb"'
+    );
+    expect(generatedSource).not.toContain('raw-phase1-negative-control');
+  });
+
   it('publishes only after the accepted child runner has completed cleanup', () => {
     const child = source.lastIndexOf('run_transformed_topology "$generated"');
+    const finalization = source.lastIndexOf('finalize_cleanup_evidence "$staging/$ARTIFACT_NAME"');
     const publication = source.lastIndexOf('publish_verified_result "$staging"');
 
     expect(child).toBeGreaterThan(0);
-    expect(publication).toBeGreaterThan(child);
+    expect(finalization).toBeGreaterThan(child);
+    expect(publication).toBeGreaterThan(finalization);
     expect(source).toContain('--no-clobber --no-target-directory');
     expect(source).toContain('aster-phase2-base-preservation-results');
     expect(source).toContain('trap cleanup EXIT');
@@ -84,6 +115,221 @@ describe('Phase 2 base-preservation live runner', () => {
     );
 
     await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+  });
+
+  it('atomically records the exact cleanup outcome once and rejects a second modification', async () => {
+    const directory = path.join(temporaryRoot, 'finalize');
+    const artifact = path.join(directory, 'phase-2-base-preservation.json');
+    const harness = path.join(temporaryRoot, 'finalize-harness.sh');
+    await mkdir(directory, { mode: 0o700 });
+    await writeFile(
+      artifact,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        mode: 'phase-2-base-preservation',
+        sanitizerSuccess: true,
+        rawPhase1NegativeControl: {
+          scenarioId: 'discovery.config',
+          detected: true,
+          errorName: 'Error',
+          error: 'Phase 1 candidate discovery contains unapproved metadata',
+        },
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\nfinalize_cleanup_evidence ${JSON.stringify(
+        artifact
+      )}\nif finalize_cleanup_evidence ${JSON.stringify(artifact)}; then exit 11; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await executeFile('/usr/bin/bash', [harness]);
+    const value = JSON.parse(await readFile(artifact, 'utf8')) as Record<string, unknown>;
+
+    expect(value.cleanup).toEqual({
+      status: 'verified',
+      containersAbsent: true,
+      networksAbsent: true,
+      volumesAbsent: true,
+      runRootAbsent: true,
+      portsReleased: [3311, 3411, 3312, 3412, 3321, 3421, 3322, 3422, 3331, 3431, 3341, 3441],
+    });
+    expect(await readdir(directory)).toEqual(['phase-2-base-preservation.json']);
+  });
+
+  it('fails closed when a post-cleanup engine query fails', async () => {
+    const buildRoot = path.join(temporaryRoot, 'cleanup-build');
+    const runRoot = path.join(
+      buildRoot,
+      'aster-phase1-runtime-candidate-differential',
+      'run.ABC123'
+    );
+    const descriptor = path.join(temporaryRoot, 'cleanup-descriptor.json');
+    const harness = path.join(temporaryRoot, 'cleanup-query-harness.sh');
+    await mkdir(buildRoot, { mode: 0o700 });
+    await writeFile(
+      descriptor,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        projectName: 'aster-phase1-0123456789abcdef',
+        runRoot,
+        ports: [3311, 3411, 3312, 3412, 3321, 3421, 3322, 3422, 3331, 3431, 3341, 3441],
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\nBUILD_ROOT=${JSON.stringify(
+        buildRoot
+      )}\nengine_cli() { return 7; }\nassert_ports_released() { return 0; }\nif verify_cleanup_state ${JSON.stringify(
+        descriptor
+      )}; then exit 11; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+  });
+
+  it('accepts cleanup only after the exact run root, project resources and fixed ports are absent', async () => {
+    const buildRoot = path.join(temporaryRoot, 'verified-build');
+    const runRoot = path.join(
+      buildRoot,
+      'aster-phase1-runtime-candidate-differential',
+      'run.GHI789'
+    );
+    const descriptor = path.join(temporaryRoot, 'verified-descriptor.json');
+    const harness = path.join(temporaryRoot, 'verified-cleanup-harness.sh');
+    await mkdir(buildRoot, { mode: 0o700 });
+    await writeFile(
+      descriptor,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        projectName: 'aster-phase1-0011223344556677',
+        runRoot,
+        ports: [3311, 3411, 3312, 3412, 3321, 3421, 3322, 3422, 3331, 3431, 3341, 3441],
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\nBUILD_ROOT=${JSON.stringify(
+        buildRoot
+      )}\nengine_cli() { return 0; }\nassert_ports_released() { [[ "$*" == '3311 3411 3312 3412 3321 3421 3322 3422 3331 3431 3341 3441' ]]; }\nverify_cleanup_state ${JSON.stringify(
+        descriptor
+      )}\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+  });
+
+  it('rejects a successful child cleanup when a labeled project container remains', async () => {
+    const buildRoot = path.join(temporaryRoot, 'remaining-build');
+    const runRoot = path.join(
+      buildRoot,
+      'aster-phase1-runtime-candidate-differential',
+      'run.DEF456'
+    );
+    const descriptor = path.join(temporaryRoot, 'remaining-descriptor.json');
+    const harness = path.join(temporaryRoot, 'remaining-resource-harness.sh');
+    await mkdir(buildRoot, { mode: 0o700 });
+    await writeFile(
+      descriptor,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        projectName: 'aster-phase1-fedcba9876543210',
+        runRoot,
+        ports: [3311, 3411, 3312, 3412, 3321, 3421, 3322, 3422, 3331, 3431, 3341, 3441],
+      })}\n`,
+      { mode: 0o600 }
+    );
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\nBUILD_ROOT=${JSON.stringify(
+        buildRoot
+      )}\nengine_cli() { if [[ "$1" == ps ]]; then printf '%064d' 0; fi; }\nassert_ports_released() { return 0; }\nif verify_cleanup_state ${JSON.stringify(
+        descriptor
+      )}; then exit 11; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+  });
+
+  it('rejects publication of an artifact without the finalized cleanup proof', async () => {
+    const stagingRoot = path.join(temporaryRoot, 'unfinalized-staging');
+    const resultRoot = path.join(temporaryRoot, 'unfinalized-results');
+    const staging = path.join(stagingRoot, 'result.test');
+    const harness = path.join(temporaryRoot, 'unfinalized-publish-harness.sh');
+    await mkdir(staging, { mode: 0o700, recursive: true });
+    await mkdir(resultRoot, { mode: 0o700 });
+    await writeFile(path.join(staging, 'phase-2-base-preservation.json'), '{}\n', {
+      mode: 0o600,
+    });
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(runnerPath)}\nRESULT_ROOT=${JSON.stringify(
+        resultRoot
+      )}\nSTAGING_ROOT=${JSON.stringify(stagingRoot)}\nNODE_BIN="$(command -v node)"\nif publish_verified_result ${JSON.stringify(
+        staging
+      )} >/dev/null 2>&1; then exit 11; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+  });
+
+  it('removes private staging evidence on outer failure while preserving the status', async () => {
+    const stagingRoot = path.join(temporaryRoot, 'rollback-staging');
+    const resultRoot = path.join(temporaryRoot, 'rollback-results');
+    const staging = path.join(stagingRoot, 'result.test');
+    const harness = path.join(temporaryRoot, 'rollback-harness.sh');
+    await mkdir(staging, { mode: 0o700, recursive: true });
+    await mkdir(resultRoot, { mode: 0o700 });
+    await writeFile(path.join(staging, 'phase-2-base-preservation.json'), '{"private":true}\n', {
+      mode: 0o600,
+    });
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(runnerPath)}\nSTAGING_ROOT=${JSON.stringify(
+        stagingRoot
+      )}\nRESULT_ROOT=${JSON.stringify(resultRoot)}\nSTAGING_DIR=${JSON.stringify(
+        staging
+      )}\nSTAGING_IDENTITY="$(capture_path_identity "$STAGING_DIR")"\nWORK_ROOT=''\ntrap cleanup EXIT\nexit 23\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).rejects.toMatchObject({ code: 23 });
+    await expect(readFile(path.join(staging, 'phase-2-base-preservation.json'))).rejects.toThrow();
+  });
+
+  it('removes per-run staging when cleanup verification fails before staging discovery', async () => {
+    const workRoot = path.join(temporaryRoot, 'verification-failure-work');
+    const staging = path.join(workRoot, 'staging', 'result.test');
+    const artifact = path.join(staging, 'phase-2-base-preservation.json');
+    const harness = path.join(temporaryRoot, 'verification-failure-harness.sh');
+    await mkdir(staging, { mode: 0o700, recursive: true });
+    await writeFile(artifact, '{"private":true}\n', { mode: 0o600 });
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(runnerPath)}\nWORK_ROOT=${JSON.stringify(
+        workRoot
+      )}\nSTAGING_ROOT="$WORK_ROOT/staging"\nSTAGING_DIR=''\nRESULT_DIR=''\ntrap cleanup EXIT\nexit 29\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).rejects.toMatchObject({ code: 29 });
+    await expect(readFile(artifact)).rejects.toThrow();
   });
 });
 

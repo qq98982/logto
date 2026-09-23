@@ -49,13 +49,51 @@ const dependencies = (
     calls.push('profile');
     return profile;
   },
-  runPhase1Cli: async (_args, injected) => {
+  runPhase1Cli: async (_arguments, injected) => {
     calls.push('phase1-authority');
-    await injected.executeDifferential?.(
-      Object.freeze({ mode: 'runtime-candidate' }) as never,
-      {} as never
-    );
-    return 0;
+    const command = Object.freeze({
+      command: 'run-differential' as const,
+      mode: 'runtime-candidate' as const,
+      profilePath: '/private/phase1-profile.json',
+      schemaPath: '/private/phase1-schema.json',
+      controls: Object.freeze({
+        recordOracle: false,
+        observationControls: true,
+        discoveryExtraControl: true,
+        candidateInvariantControls: true,
+      }),
+    });
+    const bundle = Object.freeze({
+      profile: Object.freeze({
+        phase1Harness: Object.freeze({ commit: '2'.repeat(40) }),
+      }),
+      profileSha256: '7'.repeat(64),
+      schemaSha256: '8'.repeat(64),
+    });
+
+    try {
+      const provenance = await injected.verifyRunProvenance?.(command, bundle as never, new Set());
+
+      if (!provenance) {
+        return 1;
+      }
+      await injected.executeDifferential?.(
+        Object.freeze({
+          mode: command.mode,
+          profile: bundle.profile,
+          profileSha256: bundle.profileSha256,
+          schemaSha256: bundle.schemaSha256,
+          provenance,
+          protectedExecution: undefined,
+          controls: command.controls,
+          differentialGate: true,
+        }) as never,
+        command
+      );
+      return 0;
+    } catch {
+      return 1;
+    }
   },
   createContext: () => Object.freeze({ repositoryRoot: '/home/henry/repo/logto' }) as never,
   createSourceClosure: async () => {
@@ -76,7 +114,8 @@ const dependencies = (
       rawPhase1NegativeControl: Object.freeze({
         scenarioId: 'discovery.config',
         detected: true,
-        error: 'Phase 1 scenario execution failed',
+        errorName: 'Error',
+        error: 'Phase 1 candidate discovery contains unapproved metadata',
       }),
       discoveryAppendProofs: Object.freeze([]),
       scenarios: Object.freeze(
@@ -167,13 +206,46 @@ describe('Phase 2 base-preservation CLI', () => {
     ).resolves.toBe(0);
     expect(calls).toEqual([
       'profile',
-      'phase1-authority',
       'harness',
       'closure',
+      'phase1-authority',
       'runtime',
       'recheck',
       'publish',
     ]);
+  });
+
+  it('rejects a prepared Phase 1 profile that does not name the current H harness head', async () => {
+    const calls: string[] = [];
+
+    await expect(
+      runPhase2BasePreservationCli(
+        arguments_,
+        'a'.repeat(64),
+        dependencies(calls, {
+          inspectHarness: async () => {
+            calls.push('harness');
+            return Object.freeze({
+              repositoryRoot: '/home/henry/repo/logto',
+              repositoryDev: '1',
+              repositoryIno: '2',
+              clean: true,
+              public: Object.freeze({
+                repositoryUrl: 'https://github.com/qq98982/logto.git',
+                headCommit: '9'.repeat(40),
+                headTree: '3'.repeat(40),
+                runtimeBundleSha256: '4'.repeat(64),
+              }),
+              runtimeEntryPath:
+                '/home/henry/repo/logto/packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js',
+            });
+          },
+        })
+      )
+    ).resolves.toBe(1);
+    expect(calls).toEqual(['profile', 'harness', 'closure', 'phase1-authority']);
+    expect(calls).not.toContain('runtime');
+    expect(calls).not.toContain('publish');
   });
 
   it('publishes nothing when the runtime or harness recheck fails', async () => {
