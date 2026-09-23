@@ -139,9 +139,9 @@ const wrongBasicSecret = 'W'.repeat(32);
 const wrongPostSecret = 'X'.repeat(32);
 const unknownBasicSecret = 'Y'.repeat(32);
 const unknownPostSecret = 'Z'.repeat(32);
-const readinessAttempts = 12;
+const readinessAttempts = 60;
 const readinessDelayMilliseconds = 500;
-const readinessTimeoutMilliseconds = 5000;
+const readinessTimeoutMilliseconds = 1000;
 
 const fail = (): never => {
   throw new TypeError(diagnostic);

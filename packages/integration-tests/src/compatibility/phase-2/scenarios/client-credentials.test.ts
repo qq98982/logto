@@ -218,17 +218,21 @@ describe('Phase 2 client credentials scenarios', () => {
       'grant_type=client_credentials&resource=https%3A%2F%2Fphase2.example.invalid%2Fapi-primary'
     );
 
+    let exhaustedCalls = 0;
     await expect(
       waitForClientCredentialsFixtureReady(target, fixture.public, {
-        attempts: 2,
         delayMilliseconds: 0,
-        fetch: (async () => new Response(null, { status: 400 })) as typeof fetch,
+        fetch: (async () => {
+          exhaustedCalls += 1;
+          return new Response(null, { status: 400 });
+        }) as typeof fetch,
         sleep: async () => {
           await Promise.resolve();
         },
         timeoutMilliseconds: 100,
       })
     ).rejects.toThrow('Invalid Phase 2 client credentials scenario');
+    expect(exhaustedCalls).toBe(60);
   });
 
   it('has exact bytewise registry equality with the profile and rejects drift', () => {
