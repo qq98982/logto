@@ -314,7 +314,7 @@ inspect_service() {
   metadata="$(docker_cli inspect --format '{{.Id}}|{{.Image}}|{{.Config.Image}}|{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|{{.State.ExitCode}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id")" || return 1
   IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
   image="$(normalize_image_id "$image")" || return 1
-  configured_image="$(normalize_configured_image "$configured_image")" || return 1
+  [[ "$configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ ]] || return 1
   printf '%s|%s|%s|%s|%s|%s|%s|%s' "$id" "$image" "$configured_image" "$project" "$label" "$status" "$exit_code" "$health"
 }
 
@@ -339,7 +339,7 @@ assert_exact_project_services() {
     metadata="$(inspect_service "$role" "$service")" || return 1
     IFS='|' read -r id image configured_image label_project label_service status exit_code health <<<"$metadata"
     [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
-    [[ "$configured_image" =~ ^sha256:[0-9a-f]{64}$ || "$configured_image" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]] || return 1
+    [[ "$configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ ]] || return 1
     [[ "$label_project" == "$project" && "$label_service" == "$service" ]] || return 1
   done
 }
@@ -713,6 +713,7 @@ core_identity() {
   expected_project="$(project_name_for "$role")"
   metadata="$(inspect_service "$role" "$service")" || return 1
   IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
+  configured_image="$(normalize_configured_image "$configured_image")" || return 1
   [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected_image" && "$configured_image" == "$expected_image" && "$project" == "$expected_project" && "$label" == "$service" && "$status" == running && "$exit_code" == 0 && "$health" == healthy ]] || return 1
   printf '%s' "$metadata"
 }
