@@ -32,6 +32,37 @@ fail() {
   return 1
 }
 
+trusted_binary() {
+  local name=$1 candidate resolved owner group mode
+  if [[ "$name" == /* ]]; then
+    candidate=$name
+  else
+    candidate="$(command -v "$name" 2>/dev/null)" || return 1
+  fi
+  [[ -n "$candidate" && ! -L "$candidate" ]] || return 1
+  resolved="$(/usr/bin/realpath -e -- "$candidate" 2>/dev/null)" || return 1
+  [[ "$resolved" == "$candidate" && -f "$resolved" && -x "$resolved" && ! -L "$resolved" ]] || return 1
+  owner="$(/usr/bin/stat -c %u -- "$resolved" 2>/dev/null)" || return 1
+  group="$(/usr/bin/stat -c %g -- "$resolved" 2>/dev/null)" || return 1
+  mode="$(/usr/bin/stat -c %a -- "$resolved" 2>/dev/null)" || return 1
+  [[ "$owner" == 0 || "$owner" == "$(/usr/bin/id -u)" ]] || return 1
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+  ((8#$mode & 8#002)) && return 1
+  if ((8#$mode & 8#020)); then
+    [[ "$owner" == "$(/usr/bin/id -u)" && "$group" == "$(/usr/bin/id -g)" ]] || return 1
+  fi
+  printf '%s' "$resolved"
+}
+
+resolve_trusted_node() {
+  local node version
+  node="$(trusted_binary "${1:-node}")" || return 1
+  version="$(/usr/bin/env -i PATH='/usr/bin:/bin' HOME='/' LC_ALL=C \
+    "$node" --version 2>/dev/null)" || return 1
+  [[ "$version" == 'v22.23.2' ]] || return 1
+  printf '%s' "$node"
+}
+
 require_private_root() {
   local root=$1 resolved identity
   [[ "$root" == /* && "$root" != / && "$root" != */ && "$root" != *//* ]] || return 1
@@ -529,8 +560,8 @@ main() {
   ENV_BIN=/usr/bin/env
   SS_BIN=/usr/bin/ss
   AWK_BIN=/usr/bin/awk
-  NODE_BIN="$(command -v node)"
-  [[ -x "$NODE_BIN" && ! -L "$NODE_BIN" && -x "$DOCKER_BIN" && -x "$TIMEOUT_BIN" && \
+  NODE_BIN="$(resolve_trusted_node node)" || { fail; return 1; }
+  [[ -x "$DOCKER_BIN" && -x "$TIMEOUT_BIN" && \
     -x "$ENV_BIN" && -x "$SS_BIN" && -x "$AWK_BIN" ]] || { fail; return 1; }
   SCRIPT_DIR="$(cd -- "$(/usr/bin/dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
   REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"

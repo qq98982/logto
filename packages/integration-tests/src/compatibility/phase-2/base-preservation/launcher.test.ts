@@ -11,6 +11,8 @@ import {
   basePreservationBridgeSource,
   basePreservationRuntimeEntryPath,
   basePreservationEnvironmentKeys,
+  basePreservationOptionalEnvironmentKeys,
+  basePreservationRequiredEnvironmentKeys,
   createBasePreservationBridgeEntry,
   launchPhase2BasePreservation,
   selectBasePreservationEnvironment,
@@ -18,6 +20,11 @@ import {
 
 const environment = Object.freeze(
   Object.fromEntries(basePreservationEnvironmentKeys.map((key) => [key, `${key}-value`]))
+);
+const socketlessEnvironment = Object.freeze(
+  Object.fromEntries(
+    Object.entries(environment).filter(([key]) => key !== 'ASTER_PHASE1_ENGINE_SOCKET')
+  )
 );
 
 const createBridgeFixture = async (name: string) => {
@@ -55,12 +62,22 @@ describe('Phase 2 base-preservation launcher', () => {
       'TMPDIR',
       'XDG_RUNTIME_DIR',
     ]);
-    const selected = selectBasePreservationEnvironment({
+    const source = {
       ...environment,
       UNRELATED_AMBIENT_VALUE: 'must-not-be-forwarded',
-    });
-    expect(selected).toEqual(environment);
-    expect(Object.hasOwn(selected, 'UNRELATED_AMBIENT_VALUE')).toBe(false);
+    };
+    expect(selectBasePreservationEnvironment(source)).toEqual(environment);
+    expect(
+      Object.hasOwn(selectBasePreservationEnvironment(source), 'UNRELATED_AMBIENT_VALUE')
+    ).toBe(false);
+    expect(basePreservationOptionalEnvironmentKeys).toEqual(['ASTER_PHASE1_ENGINE_SOCKET']);
+    expect(basePreservationRequiredEnvironmentKeys).not.toContain('ASTER_PHASE1_ENGINE_SOCKET');
+    expect(
+      selectBasePreservationEnvironment({
+        ...socketlessEnvironment,
+        UNRELATED_AMBIENT_VALUE: 'must-not-be-forwarded',
+      })
+    ).toEqual(socketlessEnvironment);
   });
 
   it('uses the same fixed shallow entry in the launcher and nested CLI provenance', () => {
@@ -119,6 +136,9 @@ describe('Phase 2 base-preservation launcher', () => {
           for (const key of basePreservationBrowserEnvironmentKeys) {
             expect(childEnvironment[key]).toBe(environment[key]);
           }
+          expect(childEnvironment.ASTER_PHASE1_ENGINE_SOCKET).toBe(
+            environment.ASTER_PHASE1_ENGINE_SOCKET
+          );
           return 0;
         },
       })
@@ -132,6 +152,35 @@ describe('Phase 2 base-preservation launcher', () => {
       'recheck-entry',
       'execute',
     ]);
+  });
+
+  it('accepts a socketless topology and omits the optional socket from the child environment', async () => {
+    await expect(
+      launchPhase2BasePreservation(['run'], socketlessEnvironment, {
+        inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+        build: async () => 0,
+        createEntry: async () => basePreservationRuntimeEntryPath,
+        identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
+        recheckEntry: async () => basePreservationRuntimeEntryPath,
+        execute: async (
+          _entry: string,
+          _args: readonly string[],
+          childEnvironment: Readonly<Record<string, string>>
+        ) => {
+          expect(Object.hasOwn(childEnvironment, 'ASTER_PHASE1_ENGINE_SOCKET')).toBe(false);
+          expect(Object.keys(childEnvironment).toSorted()).toEqual(
+            [
+              ...Object.keys(socketlessEnvironment),
+              'ASTER_PHASE2_HARNESS_HEAD',
+              'ASTER_PHASE2_HARNESS_TREE',
+              'ASTER_PHASE2_RUNTIME_BUNDLE_SHA256',
+              'LC_ALL',
+            ].toSorted()
+          );
+          return 0;
+        },
+      } as never)
+    ).resolves.toBe(0);
   });
 
   it('rejects missing, extra, controlled, or oversized environment and arguments before build', async () => {
@@ -186,6 +235,28 @@ describe('Phase 2 base-preservation launcher', () => {
           'Invalid Phase 2 base-preservation launcher'
         );
       }
+      expect(build).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['', 'line\nbreak', 'x'.repeat(4097)])(
+    'rejects a malformed optional engine socket value',
+    async (socket) => {
+      const build = import.meta.jest.fn();
+      await expect(
+        launchPhase2BasePreservation(
+          ['run'],
+          { ...environment, ASTER_PHASE1_ENGINE_SOCKET: socket },
+          {
+            inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+            build,
+            createEntry: async () => basePreservationRuntimeEntryPath,
+            identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
+            recheckEntry: async () => basePreservationRuntimeEntryPath,
+            execute: async () => 0,
+          } as never
+        )
+      ).rejects.toThrow('Invalid Phase 2 base-preservation launcher');
       expect(build).not.toHaveBeenCalled();
     }
   );

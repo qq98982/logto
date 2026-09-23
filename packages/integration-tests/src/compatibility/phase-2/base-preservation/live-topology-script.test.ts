@@ -1,6 +1,17 @@
 /* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The source-contract and security failure harnesses stay together so the complete live runner contract remains auditable. */
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  chown,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -266,6 +277,63 @@ describe('Phase 2 base-preservation live runner', () => {
     expect(source).not.toMatch(/(?:PASSWORD|SECRET_VAULT_KEK|STATUS_API_KEY).*printf/u);
     expect(source).toContain('>/dev/null 2>&1');
     expect(source).toContain('umask 077');
+  });
+
+  it('accepts only canonical trusted Node executables with the exact closed-environment version', async () => {
+    const directory = path.join(temporaryRoot, 'trusted-node');
+    const valid = path.join(directory, 'node-valid');
+    const groupWritable = path.join(directory, 'node-group-writable');
+    const wrongVersion = path.join(directory, 'node-wrong-version');
+    const worldWritable = path.join(directory, 'node-world-writable');
+    const foreignGroupWritable = path.join(directory, 'node-foreign-group-writable');
+    const linked = path.join(directory, 'node-link');
+    const harness = path.join(temporaryRoot, 'trusted-node-harness.sh');
+    const validSource = "#!/usr/bin/env bash\nprintf '%s\\n' 'v22.23.2'\n";
+    await mkdir(directory, { mode: 0o700 });
+    await Promise.all([
+      writeFile(valid, validSource, { mode: 0o755 }),
+      writeFile(groupWritable, validSource, { mode: 0o775 }),
+      writeFile(wrongVersion, "#!/usr/bin/env bash\nprintf '%s\\n' 'v22.23.1'\n", {
+        mode: 0o755,
+      }),
+      writeFile(worldWritable, validSource, { mode: 0o757 }),
+      writeFile(foreignGroupWritable, validSource, { mode: 0o775 }),
+    ]);
+    await Promise.all([
+      chmod(valid, 0o755),
+      chmod(groupWritable, 0o775),
+      chmod(wrongVersion, 0o755),
+      chmod(worldWritable, 0o757),
+      chmod(foreignGroupWritable, 0o775),
+      symlink(valid, linked),
+    ]);
+    const alternateGroup = process.getgroups?.().find((group) => group !== process.getgid?.());
+    expect(alternateGroup).toBeDefined();
+    await chown(foreignGroupWritable, process.getuid?.() ?? -1, alternateGroup ?? -1);
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\n[[ "$(trusted_binary ${JSON.stringify(valid)})" == ${JSON.stringify(
+        valid
+      )} ]]\n[[ "$(trusted_binary ${JSON.stringify(groupWritable)})" == ${JSON.stringify(
+        groupWritable
+      )} ]]\n[[ "$(trusted_binary /usr/bin/node)" == /usr/bin/node ]]\n[[ "$(resolve_trusted_node ${JSON.stringify(valid)})" == ${JSON.stringify(
+        valid
+      )} ]]\nfor invalid in ${JSON.stringify(linked)} ${JSON.stringify(
+        worldWritable
+      )} ${JSON.stringify(
+        foreignGroupWritable
+      )}; do if trusted_binary "$invalid" >/dev/null 2>&1; then exit 11; fi; done\nif resolve_trusted_node ${JSON.stringify(
+        wrongVersion
+      )} >/dev/null 2>&1; then exit 12; fi\nif resolve_trusted_node /usr/bin/node >/dev/null 2>&1; then exit 13; fi\n`,
+      { mode: 0o500 }
+    );
+
+    await expect(executeFile('/usr/bin/bash', [harness])).resolves.toMatchObject({ stderr: '' });
+    expect(source).toContain('NODE_BIN="$(resolve_trusted_node node)"');
+    expect(source).toContain('[[ "$version" == \'v22.23.2\' ]]');
+    expect(source).toContain("/usr/bin/env -i PATH='/usr/bin:/bin'");
   });
 
   it('rejects publication unless the staging directory has one private fixed artifact', async () => {

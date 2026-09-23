@@ -26,6 +26,10 @@ export const basePreservationBrowserEnvironmentKeys = Object.freeze([
   'XDG_RUNTIME_DIR',
 ]);
 
+export const basePreservationOptionalEnvironmentKeys = Object.freeze([
+  'ASTER_PHASE1_ENGINE_SOCKET',
+]);
+
 export const basePreservationEnvironmentKeys = Object.freeze([
   'PATH',
   ...basePreservationBrowserEnvironmentKeys,
@@ -67,6 +71,12 @@ export const basePreservationEnvironmentKeys = Object.freeze([
   'ASTER_PHASE1_TOPOLOGY_ID',
   'ASTER_PHASE2_CANDIDATE_SOURCE_COMMIT',
 ]);
+
+export const basePreservationRequiredEnvironmentKeys = Object.freeze(
+  basePreservationEnvironmentKeys.filter(
+    (key) => !basePreservationOptionalEnvironmentKeys.includes(key)
+  )
+);
 
 const fail = () => {
   throw new TypeError(failure);
@@ -271,43 +281,44 @@ const defaultDependencies = Object.freeze({
   },
 });
 
-export const selectBasePreservationEnvironment = (source = process.env) =>
-  Object.freeze(
-    Object.fromEntries(
-      basePreservationEnvironmentKeys.map((key) => {
-        const value = source[key];
-        if (
-          typeof value !== 'string' ||
-          value.length === 0 ||
-          Buffer.byteLength(value) > 4096 ||
-          /\p{Cc}/u.test(value)
-        ) {
-          return fail();
-        }
-        return [key, value];
-      })
-    )
-  );
+const validateEnvironmentValue = (value) => {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    Buffer.byteLength(value) > 4096 ||
+    /\p{Cc}/u.test(value)
+  ) {
+    return fail();
+  }
+  return value;
+};
+
+export const selectBasePreservationEnvironment = (source = process.env) => {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) return fail();
+  const entries = basePreservationRequiredEnvironmentKeys.map((key) => [
+    key,
+    validateEnvironmentValue(source[key]),
+  ]);
+  for (const key of basePreservationOptionalEnvironmentKeys) {
+    if (Object.hasOwn(source, key)) {
+      entries.push([key, validateEnvironmentValue(source[key])]);
+    }
+  }
+  return Object.freeze(Object.fromEntries(entries));
+};
 
 const validateEnvironment = (environment) => {
   if (
     typeof environment !== 'object' ||
     environment === null ||
     Array.isArray(environment) ||
-    JSON.stringify(Object.keys(environment).toSorted()) !==
-      JSON.stringify([...basePreservationEnvironmentKeys].toSorted())
+    !basePreservationRequiredEnvironmentKeys.every((key) => Object.hasOwn(environment, key)) ||
+    Object.keys(environment).some((key) => !basePreservationEnvironmentKeys.includes(key))
   ) {
     return fail();
   }
   for (const value of Object.values(environment)) {
-    if (
-      typeof value !== 'string' ||
-      value.length === 0 ||
-      Buffer.byteLength(value) > 4096 ||
-      /\p{Cc}/u.test(value)
-    ) {
-      return fail();
-    }
+    validateEnvironmentValue(value);
   }
   return Object.freeze({ ...environment });
 };
