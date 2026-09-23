@@ -1233,9 +1233,14 @@ NODE
   invariant_sha256="$(sha256_file "$RESULT_STAGING_DIR/phase-2-client-credentials-candidate-invariants.json")"
   [[ "$oracle_sha256" =~ ^[0-9a-f]{64}$ && "$differential_sha256" =~ ^[0-9a-f]{64}$ && "$invariant_sha256" =~ ^[0-9a-f]{64}$ ]] || { failure_stage='result-hashes'; fail; return 1; }
 
-  if ! cleanup_resources 0; then
-    cleanup_resources 0 || { failure_stage='cleanup'; fail; return 1; }
-  fi
+  cleanup_complete=0
+  for _ in 1 2 3; do
+    if cleanup_resources 0; then
+      cleanup_complete=1
+      break
+    fi
+  done
+  [[ "$cleanup_complete" == 1 ]] || { failure_stage='cleanup'; fail; return 1; }
 
   failure_stage='result-publication'
   assert_path_identity "$RESULT_ROOT" "$RESULT_ROOT_IDENTITY" || { fail; return 1; }
