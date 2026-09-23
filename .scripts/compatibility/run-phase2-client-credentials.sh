@@ -1006,8 +1006,8 @@ main() {
   trap 'exit 129' HUP
 
   failure_stage='podman-api'
-  [[ "$($CURL_BIN --silent --show-error --max-time 10 --output /dev/null --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" http://localhost/libpod/_ping)" == 200 ]] || { fail; return 1; }
-  PODMAN_API_VERSION="$($CURL_BIN --fail --silent --show-error --max-time 10 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
+  [[ "$($CURL_BIN --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" http://localhost/libpod/_ping)" == 200 ]] || { fail; return 1; }
+  PODMAN_API_VERSION="$($CURL_BIN --fail --silent --show-error --max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
     let s=""; process.stdin.on("data", c => s += c).on("end", () => {
       const v=JSON.parse(s).Components?.find(c => c.Name === "Podman Engine")?.Details?.APIVersion;
       if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1); process.stdout.write(v);

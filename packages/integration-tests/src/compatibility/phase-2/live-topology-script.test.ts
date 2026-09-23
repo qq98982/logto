@@ -70,6 +70,12 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).toContain('assert_distinct_container_ids');
     expect(source).toContain('\'{{index .Config.Labels "com.docker.compose.service"}}\'');
     expect(source).not.toContain(`{{.Label "com.docker.compose.service"}}`);
+    expect(source).toContain(
+      '--max-time 30 --output /dev/null --write-out \'%{http_code}\' --unix-socket "$ENGINE_SOCKET" http://localhost/libpod/_ping'
+    );
+    expect(source).toContain(
+      '--max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version'
+    );
     expect(source).toContain('topology_identity');
     expect(source).not.toMatch(/compose_up[^\n]*(?:phase0|browser|conformance)/u);
   });
