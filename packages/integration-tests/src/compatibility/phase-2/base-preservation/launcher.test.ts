@@ -1,5 +1,5 @@
 /* eslint-disable max-params, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument -- The launcher test records five-part dependency calls, verifies sorted environment keys, and iterates hostile environment cases. */
-import { mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { computeRuntimeBundleManifest } from '../launcher.mjs';
@@ -26,7 +26,23 @@ const createBridgeFixture = async (name: string) => {
   await writeFile(path.join(nestedDirectory, 'cli.js'), 'export const marker = true;\n', {
     mode: 0o600,
   });
-  return Object.freeze({ root, bridge });
+  const identity = await lstat(root);
+  return Object.freeze({ root, bridge, dev: identity.dev, ino: identity.ino, uid: identity.uid });
+};
+
+const removeBridgeFixture = async (fixture: Awaited<ReturnType<typeof createBridgeFixture>>) => {
+  const current = await lstat(fixture.root);
+  if (
+    !fixture.root.startsWith('/var/tmp/henry-build/') ||
+    current.isSymbolicLink() ||
+    !current.isDirectory() ||
+    current.dev !== fixture.dev ||
+    current.ino !== fixture.ino ||
+    current.uid !== fixture.uid
+  ) {
+    throw new TypeError('Invalid bridge fixture cleanup');
+  }
+  await rm(fixture.root, { recursive: true });
 };
 
 describe('Phase 2 base-preservation launcher', () => {
@@ -127,9 +143,9 @@ describe('Phase 2 base-preservation launcher', () => {
   });
 
   it('creates the exact shallow read-only bridge and gives both shared identity helpers the same graph', async () => {
-    const packageRoot = process.cwd();
+    const fixture = await createBridgeFixture('phase2-base-bridge-identity');
     const nestedEntry = path.join(
-      packageRoot,
+      fixture.root,
       'lib/compatibility/phase-2/base-preservation/cli.js'
     );
     await expect(computeRuntimeBundleManifest(nestedEntry)).rejects.toThrow(
@@ -140,14 +156,12 @@ describe('Phase 2 base-preservation launcher', () => {
     );
 
     try {
-      await expect(createBasePreservationBridgeEntry(packageRoot)).resolves.toBe(
-        basePreservationRuntimeEntryPath
-      );
+      await expect(createBasePreservationBridgeEntry(fixture.root)).resolves.toBe(fixture.bridge);
       const [bytes, state, launcher, provenance] = await Promise.all([
-        readFile(basePreservationRuntimeEntryPath, 'utf8'),
-        stat(basePreservationRuntimeEntryPath),
-        computeRuntimeBundleManifest(basePreservationRuntimeEntryPath),
-        computePhase2RuntimeBundleIdentity(basePreservationRuntimeEntryPath),
+        readFile(fixture.bridge, 'utf8'),
+        stat(fixture.bridge),
+        computeRuntimeBundleManifest(fixture.bridge),
+        computePhase2RuntimeBundleIdentity(fixture.bridge),
       ]);
 
       expect(bytes).toBe(basePreservationBridgeSource);
@@ -157,7 +171,38 @@ describe('Phase 2 base-preservation launcher', () => {
       expect(launcher.moduleCount).toBe(provenance.moduleCount);
       expect(launcher.moduleCount).toBeGreaterThan(1);
     } finally {
-      await unlink(basePreservationRuntimeEntryPath).catch(() => false);
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('never touches or removes a preexisting bridge outside its private fixture root', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-isolated');
+    const unrelated = await createBridgeFixture('phase2-base-bridge-unrelated');
+    const sentinel = 'unrelated-production-bridge-sentinel\n';
+    await writeFile(unrelated.bridge, sentinel, { mode: 0o400 });
+    const before = await lstat(unrelated.bridge);
+
+    try {
+      await createBasePreservationBridgeEntry(fixture.root);
+      await removeBridgeFixture(fixture);
+      const [bytes, after] = await Promise.all([
+        readFile(unrelated.bridge, 'utf8'),
+        lstat(unrelated.bridge),
+      ]);
+      expect(bytes).toBe(sentinel);
+      expect(after.dev).toBe(before.dev);
+      expect(after.ino).toBe(before.ino);
+      expect(after.mode).toBe(before.mode);
+      expect(after.size).toBe(before.size);
+    } finally {
+      if (
+        await lstat(fixture.root)
+          .then(() => true)
+          .catch(() => false)
+      ) {
+        await removeBridgeFixture(fixture);
+      }
+      await removeBridgeFixture(unrelated);
     }
   });
 
@@ -178,8 +223,8 @@ describe('Phase 2 base-preservation launcher', () => {
         'Invalid Phase 2 base-preservation launcher'
       );
     } finally {
-      await rm(preexisting.root, { force: true, recursive: true });
-      await rm(aliased.root, { force: true, recursive: true });
+      await removeBridgeFixture(preexisting);
+      await removeBridgeFixture(aliased);
     }
   });
 
