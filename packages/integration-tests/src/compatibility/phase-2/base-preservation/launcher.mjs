@@ -226,10 +226,7 @@ export const createBasePreservationBridgeEntry = async (root = packageRoot) => {
   await assertBuiltNestedEntry(root);
   const handle = await open(
     bridge,
-    fsConstants.O_WRONLY |
-      fsConstants.O_CREAT |
-      fsConstants.O_EXCL |
-      fsConstants.O_NOFOLLOW,
+    fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
     0o400
   ).catch(fail);
   try {
