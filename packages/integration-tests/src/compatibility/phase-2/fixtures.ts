@@ -408,7 +408,7 @@ const createFetchAdminRequest =
     if (input.body !== undefined) {
       headers.set('content-type', 'application/json');
     }
-    const response = await requestFetch(new URL(`/api/${input.path}`, target.adminUrl), {
+    const response = await requestFetch(new URL(`/api/${input.path}`, target.coreUrl), {
       method: input.method,
       headers,
       redirect: 'manual',

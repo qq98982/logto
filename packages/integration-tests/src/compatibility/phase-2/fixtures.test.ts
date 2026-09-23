@@ -145,6 +145,29 @@ describe('Phase 2 fixture lifecycle', () => {
     ).rejects.toThrow('Phase 2 fixture operation failed');
   });
 
+  it('routes every reference Management request through the data-tenant core URL', async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      requestedUrls.push(String(input));
+      throw new Error('stop after observing the Management origin');
+    }) as typeof fetch;
+    try {
+      const provisioner = createReferencePhase2FixtureProvisioner({
+        target: oracle,
+        foreignTarget: oracleForeign,
+        createAllocationId: () => 'management-origin',
+      });
+      await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestedUrls.length).toBeGreaterThan(0);
+    expect(requestedUrls.every((url) => url.startsWith(oracle.coreUrl))).toBe(true);
+    expect(requestedUrls.some((url) => url.startsWith(oracle.adminUrl))).toBe(false);
+  });
+
   it('reconciles owned reference rows after partial provisioning failure', async () => {
     const admin = createReferenceAdmin();
     let posts = 0;
