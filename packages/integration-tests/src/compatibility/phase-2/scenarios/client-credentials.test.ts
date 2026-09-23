@@ -495,7 +495,7 @@ describe('Phase 2 client credentials scenarios', () => {
     expect(events).toEqual(['default:off', 'abort', 'default:on']);
   });
 
-  it('detects every required field-specific negative control without normalization', () => {
+  it('detects every required field-specific control and only normalizes pinned transport headers', () => {
     const success: any = {
       http: {
         status: 200,
@@ -563,6 +563,32 @@ describe('Phase 2 client credentials scenarios', () => {
       'unexpected-field',
     ]);
     expect(compareClientCredentialsProjections(success, structuredClone(success))).toEqual([]);
+    const oracleTransport = structuredClone(success);
+    oracleTransport.http.headers = {
+      connection: 'keep-alive',
+      'keep-alive': 'timeout=5',
+    };
+    expect(compareClientCredentialsProjections(oracleTransport, structuredClone(success))).toEqual(
+      []
+    );
+    const changedKeepAlive = structuredClone(oracleTransport);
+    changedKeepAlive.http.headers['keep-alive'] = 'timeout=6';
+    expect(
+      compareClientCredentialsProjections(changedKeepAlive, structuredClone(success))
+    ).toContainEqual({
+      path: '/http/headers/keep-alive',
+      expected: 'timeout=6',
+      actual: undefined,
+    });
+    const candidateTransport = structuredClone(success);
+    candidateTransport.http.headers = {
+      connection: 'keep-alive',
+      'keep-alive': 'timeout=5',
+    };
+    expect(compareClientCredentialsProjections(oracleTransport, candidateTransport)).toEqual([
+      { path: '/http/headers/connection', expected: undefined, actual: 'keep-alive' },
+      { path: '/http/headers/keep-alive', expected: undefined, actual: 'timeout=5' },
+    ]);
   });
 
   it('projects the selected Oracle grant order and keeps Candidate discovery exact', () => {

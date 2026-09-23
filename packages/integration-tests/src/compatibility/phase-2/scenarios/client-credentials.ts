@@ -727,10 +727,33 @@ const differences = (
   return Object.freeze([{ path: pointer || '/', expected, actual }]);
 };
 
+const withoutHeader = (
+  headers: Readonly<Record<string, string | number>>,
+  name: string
+): Readonly<Record<string, string | number>> =>
+  Object.freeze(Object.fromEntries(Object.entries(headers).filter(([key]) => key !== name)));
+
+const normalizeOracleTransportHeaders = (
+  oracle: ClientCredentialsProjection
+): ClientCredentialsProjection => {
+  const oracleHeaders = oracle.http.headers;
+  if (oracleHeaders.connection !== 'keep-alive' || oracleHeaders['keep-alive'] !== 'timeout=5') {
+    return oracle;
+  }
+  return Object.freeze({
+    ...oracle,
+    http: Object.freeze({
+      ...oracle.http,
+      headers: withoutHeader(withoutHeader(oracleHeaders, 'connection'), 'keep-alive'),
+    }),
+  });
+};
+
 export const compareClientCredentialsProjections = (
   expected: ClientCredentialsProjection,
   actual: ClientCredentialsProjection
-): readonly ClientCredentialsDifference[] => differences(expected, actual);
+): readonly ClientCredentialsDifference[] =>
+  differences(normalizeOracleTransportHeaders(expected), actual);
 
 const clone = <Value>(value: Value): Value => {
   if (Array.isArray(value)) {
