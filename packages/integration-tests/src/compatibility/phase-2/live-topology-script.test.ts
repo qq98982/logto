@@ -95,6 +95,14 @@ describe('Phase 2 client-credentials live topology runner', () => {
     for (const port of ['3311', '3411', '3312', '3412', '3321', '3421', '3322', '3422']) {
       expect(source).toContain(port);
     }
+    for (const binding of [
+      '3411|http://localhost:3311/oidc',
+      '3412|http://localhost:3312/oidc',
+      '3421|http://localhost:3321/oidc',
+      '3422|http://localhost:3322/oidc',
+    ]) {
+      expect(source).toContain(binding);
+    }
     expect(source).toContain('start_compose_stage');
     expect(source).toContain('start_loopback_proxy');
     expect(source).toContain('published_port');
