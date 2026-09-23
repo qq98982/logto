@@ -832,18 +832,26 @@ export const runClientCredentialsNegativeControls = (
 
 export const assertDiscoveryGrantContract = (
   grantTypes: unknown,
-  expectedAppend: readonly ['client_credentials']
+  expectedAppend: readonly ['client_credentials'],
+  target: TargetConfig['label']
 ): readonly string[] => {
+  const expected = Object.freeze(['authorization_code', 'refresh_token', expectedAppend[0]]);
   if (
     !Array.isArray(grantTypes) ||
     grantTypes.some((value) => typeof value !== 'string') ||
-    grantTypes.length < 2 ||
-    grantTypes.at(-1) !== expectedAppend[0] ||
-    grantTypes.filter((value) => value === 'client_credentials').length !== 1
+    new Set(grantTypes).size !== grantTypes.length
   ) {
     return fail();
   }
-  return Object.freeze((grantTypes as unknown[]).map((entry) => entry as string));
+  const values = grantTypes as string[];
+  const selected = values.filter((value) => expected.includes(value));
+  if (
+    !isDeepStrictEqual(selected, expected) ||
+    (target === 'candidate' && !isDeepStrictEqual(values, expected))
+  ) {
+    return fail();
+  }
+  return expected;
 };
 
 /* eslint-enable max-lines, complexity, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */

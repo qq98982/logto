@@ -401,7 +401,8 @@ const projectDiscovery = async (
   const discovery = await fetchPhase2Discovery(descriptor.target);
   const grantTypes = assertDiscoveryGrantContract(
     discovery.grant_types_supported,
-    profile.discovery.grantTypesSupportedAppend
+    profile.discovery.grantTypesSupportedAppend,
+    descriptor.kind
   );
   if (profile.discovery.stillAbsent.some((field) => Object.hasOwn(discovery, field))) {
     return fail();

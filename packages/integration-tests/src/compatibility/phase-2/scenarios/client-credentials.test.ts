@@ -509,17 +509,47 @@ describe('Phase 2 client credentials scenarios', () => {
     expect(compareClientCredentialsProjections(success, structuredClone(success))).toEqual([]);
   });
 
-  it('requires client_credentials exactly once at the end of discovery grant order', () => {
+  it('projects the selected Oracle grant order and keeps Candidate discovery exact', () => {
+    expect(
+      assertDiscoveryGrantContract(
+        [
+          'implicit',
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+          'urn:ietf:params:oauth:grant-type:token-exchange',
+        ],
+        ['client_credentials'],
+        'oracle'
+      )
+    ).toEqual(['authorization_code', 'refresh_token', 'client_credentials']);
     expect(
       assertDiscoveryGrantContract(
         ['authorization_code', 'refresh_token', 'client_credentials'],
-        ['client_credentials']
+        ['client_credentials'],
+        'candidate'
       )
     ).toEqual(['authorization_code', 'refresh_token', 'client_credentials']);
     expect(() =>
       assertDiscoveryGrantContract(
         ['client_credentials', 'authorization_code', 'refresh_token'],
-        ['client_credentials']
+        ['client_credentials'],
+        'oracle'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(() =>
+      assertDiscoveryGrantContract(
+        ['authorization_code', 'refresh_token', 'client_credentials', 'device_code'],
+        ['client_credentials'],
+        'candidate'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(() =>
+      assertDiscoveryGrantContract(
+        ['authorization_code', 'refresh_token', 'client_credentials', 'client_credentials'],
+        ['client_credentials'],
+        'oracle'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
   });
