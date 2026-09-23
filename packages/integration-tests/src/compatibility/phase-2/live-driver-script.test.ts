@@ -23,6 +23,7 @@ const ids = {
   primaryPostgres: '3'.repeat(64),
   foreignPostgres: '4'.repeat(64),
 };
+const rawImageId = 'a'.repeat(64);
 const imageDigest = `sha256:${'a'.repeat(64)}`;
 const fixture = {
   allocationId: 'phase2-live-driver',
@@ -210,7 +211,7 @@ fi
     *) exit 1 ;;
   esac
   if [[ "$*" == *'.Config.Image'* ]]; then
-    printf '%s|%s|%s|%s|running' "$id" "$service" '${projectName}' '${imageDigest}'
+    printf '%s|%s|%s|%s|running' "$id" "$service" '${projectName}' '${rawImageId}'
   else
     printf '%s|%s|%s|running' "$id" "$service" '${projectName}'
   fi
@@ -421,6 +422,7 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       expect(source).not.toContain('--filter "publish=');
       expect(source).toContain('http://localhost:');
       expect(source).toContain('ps --no-trunc -q');
+      expect(source).toContain('normalize_image_id');
     }
   );
 
