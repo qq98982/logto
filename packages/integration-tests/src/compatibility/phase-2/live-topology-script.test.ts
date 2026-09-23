@@ -68,6 +68,8 @@ describe('Phase 2 client-credentials live topology runner', () => {
     );
     expect(source).toContain('assert_exact_project_services');
     expect(source).toContain('assert_distinct_container_ids');
+    expect(source).toContain('\'{{index .Config.Labels "com.docker.compose.service"}}\'');
+    expect(source).not.toContain(`{{.Label "com.docker.compose.service"}}`);
     expect(source).toContain('topology_identity');
     expect(source).not.toMatch(/compose_up[^\n]*(?:phase0|browser|conformance)/u);
   });

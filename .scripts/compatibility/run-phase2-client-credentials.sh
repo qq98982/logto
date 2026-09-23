@@ -319,12 +319,21 @@ inspect_service() {
 }
 
 assert_exact_project_services() {
-  local role=$1 project expected actual service metadata id image configured_image label_project label_service status exit_code health
+  local role=$1 project expected ids service_name actual service metadata id image configured_image label_project label_service status exit_code health
   shift
   project="$(project_name_for "$role")"
   expected="$(printf '%s\n' "$@" | /usr/bin/sort)"
-  actual="$(docker_cli ps -a --format '{{.Label "com.docker.compose.service"}}' \
-    --filter "label=com.docker.compose.project=${project}" | /usr/bin/sort)"
+  ids="$(docker_cli ps -aq --no-trunc \
+    --filter "label=com.docker.compose.project=${project}")" || return 1
+  actual=''
+  while IFS= read -r id; do
+    [[ "$id" =~ ^[0-9a-f]{64}$ ]] || return 1
+    service_name="$(docker_cli inspect --format \
+      '{{index .Config.Labels "com.docker.compose.service"}}' "$id")" || return 1
+    [[ -n "$service_name" && ! "$service_name" =~ [[:cntrl:]] ]] || return 1
+    actual+="${service_name}"$'\n'
+  done <<<"$ids"
+  actual="$(printf '%s' "$actual" | /usr/bin/sed '/^$/d' | /usr/bin/sort)"
   [[ "$actual" == "$expected" ]] || return 1
   for service in "$@"; do
     metadata="$(inspect_service "$role" "$service")" || return 1
