@@ -52,6 +52,7 @@ import {
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
   runClientCredentialsNegativeControls,
+  waitForClientCredentialsFixtureReady,
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
@@ -470,6 +471,7 @@ const runTargetScenarios = async (
   const jwtAudit = createClientCredentialsJwtAudit();
   const provisioner = provisionerFor(prepared);
   const scenarios = await runWithPhase2Fixture(provisioner, async (fixture) => {
+    await waitForClientCredentialsFixtureReady(descriptor.target, fixture.public);
     const jwks = await fetchPhase2PublicJwks(descriptor.target);
     const results: ClientCredentialsScenarioResult[] = [];
     for (const scenario of createClientCredentialsScenarioRegistry(profile)) {
@@ -585,8 +587,9 @@ const executeCandidateInvariants = async (
   const provisioner = provisionerFor(prepared);
   const invariants: readonly CandidateInvariantControlEvidence[] = await runWithPhase2Fixture(
     provisioner,
-    async (fixture: ProvisionedPhase2Fixture) =>
-      runClientCredentialsCandidateInvariants(input.profile, {
+    async (fixture: ProvisionedPhase2Fixture) => {
+      await waitForClientCredentialsFixtureReady(target.target, fixture.public);
+      return runClientCredentialsCandidateInvariants(input.profile, {
         target: target.target,
         foreignTarget: target.foreignTarget,
         fixture,
@@ -594,7 +597,8 @@ const executeCandidateInvariants = async (
         controlSocket: invariantDriver.controlSocket,
         topology: prepared.topology,
         identityFence: prepared.fence,
-      })
+      });
+    }
   );
   return Object.freeze({ schemaVersion: 1, mode: 'candidate-invariants', invariants });
 };

@@ -16,6 +16,7 @@ import {
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
   runClientCredentialsNegativeControls,
+  waitForClientCredentialsFixtureReady,
   type Phase2ScenarioStateDriver,
 } from './client-credentials.js';
 
@@ -176,6 +177,60 @@ const errorMessage = (error: string) => {
 };
 
 describe('Phase 2 client credentials scenarios', () => {
+  it('waits for the registered-client wrong-secret boundary before running scenarios', async () => {
+    const calls: Array<readonly [URL | RequestInfo, RequestInit | undefined]> = [];
+    const sleeps: number[] = [];
+    const statuses = [503, 400, 401];
+    const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push([input, init]);
+      const status = statuses.shift() ?? 500;
+      return new Response(null, {
+        status,
+        ...(status === 401
+          ? { headers: { 'www-authenticate': 'Basic realm="https://candidate.example/oidc"' } }
+          : {}),
+      });
+    }) as typeof fetch;
+
+    await expect(
+      waitForClientCredentialsFixtureReady(target, fixture.public, {
+        attempts: 3,
+        delayMilliseconds: 7,
+        fetch: requestFetch,
+        sleep: async (milliseconds) => {
+          sleeps.push(milliseconds);
+        },
+        timeoutMilliseconds: 100,
+      })
+    ).resolves.toBeUndefined();
+    expect(calls).toHaveLength(3);
+    expect(sleeps).toEqual([7, 7]);
+    const [input, init] = calls[0]!;
+    expect(String(input)).toBe('https://candidate.example/oidc/token');
+    expect(init?.method).toBe('POST');
+    expect(init?.redirect).toBe('manual');
+    const authorization = new Headers(init?.headers).get('authorization');
+    expect(authorization?.startsWith('Basic ')).toBe(true);
+    expect(
+      Buffer.from(authorization?.slice('Basic '.length) ?? '', 'base64').toString('utf8')
+    ).toBe(`${fixture.public.clients.basic.id}:${'W'.repeat(32)}`);
+    expect(String(init?.body)).toBe(
+      'grant_type=client_credentials&resource=https%3A%2F%2Fphase2.example.invalid%2Fapi-primary'
+    );
+
+    await expect(
+      waitForClientCredentialsFixtureReady(target, fixture.public, {
+        attempts: 2,
+        delayMilliseconds: 0,
+        fetch: (async () => new Response(null, { status: 400 })) as typeof fetch,
+        sleep: async () => {
+          await Promise.resolve();
+        },
+        timeoutMilliseconds: 100,
+      })
+    ).rejects.toThrow('Invalid Phase 2 client credentials scenario');
+  });
+
   it('has exact bytewise registry equality with the profile and rejects drift', () => {
     expect(createClientCredentialsScenarioRegistry(profile).map(({ id }) => id)).toEqual(
       profile.differentialScenarios

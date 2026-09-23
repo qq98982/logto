@@ -1,4 +1,5 @@
-/* eslint-disable max-lines, complexity, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- Twenty oracle-locked requests, raw-form controls, exact outcome contracts, and field-specific comparator controls intentionally live together as one closed registry. */
+/* eslint-disable max-lines, complexity, no-await-in-loop, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return -- Twenty oracle-locked requests, raw-form controls, exact outcome contracts, bounded readiness polling, and field-specific comparator controls intentionally live together as one closed registry. */
+import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import type { JSONWebKeySet } from 'jose';
@@ -138,6 +139,9 @@ const wrongBasicSecret = 'W'.repeat(32);
 const wrongPostSecret = 'X'.repeat(32);
 const unknownBasicSecret = 'Y'.repeat(32);
 const unknownPostSecret = 'Z'.repeat(32);
+const readinessAttempts = 12;
+const readinessDelayMilliseconds = 500;
+const readinessTimeoutMilliseconds = 5000;
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -145,6 +149,72 @@ const fail = (): never => {
 
 const scenarioId = (name: ScenarioName): Phase2DifferentialScenarioId =>
   `client-credentials.${name}`;
+
+export const waitForClientCredentialsFixtureReady = async (
+  target: TargetConfig,
+  fixture: ProvisionedPhase2Fixture['public'],
+  options: Readonly<{
+    fetch?: typeof fetch;
+    attempts?: number;
+    delayMilliseconds?: number;
+    sleep?: (milliseconds: number) => Promise<void>;
+    timeoutMilliseconds?: number;
+  }> = {}
+): Promise<void> => {
+  const requestFetch = options.fetch ?? fetch;
+  const attempts = options.attempts ?? readinessAttempts;
+  const delayMilliseconds = options.delayMilliseconds ?? readinessDelayMilliseconds;
+  const sleep = options.sleep ?? (async (milliseconds: number) => delay(milliseconds));
+  const timeoutMilliseconds = options.timeoutMilliseconds ?? readinessTimeoutMilliseconds;
+  if (
+    !Number.isSafeInteger(attempts) ||
+    attempts <= 0 ||
+    attempts > 120 ||
+    !Number.isSafeInteger(delayMilliseconds) ||
+    delayMilliseconds < 0 ||
+    delayMilliseconds > 5000 ||
+    !Number.isSafeInteger(timeoutMilliseconds) ||
+    timeoutMilliseconds <= 0 ||
+    timeoutMilliseconds > 10_000
+  ) {
+    return fail();
+  }
+  const authorization = `Basic ${Buffer.from(
+    `${fixture.clients.basic.id}:${wrongBasicSecret}`
+  ).toString('base64')}`;
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    resource: fixture.resources.primary.indicator,
+  });
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await requestFetch(new URL('/oidc/token', target.coreUrl), {
+        method: 'POST',
+        headers: {
+          authorization,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeoutMilliseconds),
+      });
+      const ready =
+        response.status === 401 &&
+        !response.redirected &&
+        response.headers.get('www-authenticate')?.startsWith('Basic ') === true;
+      await response.body?.cancel();
+      if (ready) {
+        return;
+      }
+    } catch {
+      // A bounded retry handles the fixture-to-runtime cache visibility window.
+    }
+    if (attempt + 1 < attempts) {
+      await sleep(delayMilliseconds);
+    }
+  }
+  return fail();
+};
 
 const errorBody = (error: string, errorDescription: string) => ({
   error,
@@ -865,4 +935,4 @@ export const assertDiscoveryAbsentFieldsContract = (
   return Object.freeze([...expectedAbsent]);
 };
 
-/* eslint-enable max-lines, complexity, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
+/* eslint-enable max-lines, complexity, no-await-in-loop, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
