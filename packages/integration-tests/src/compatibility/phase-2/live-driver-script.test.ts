@@ -550,6 +550,11 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       expect(await readFile(harness.calls, 'utf8')).toContain(
         `--set=client_id=${expectedClientId}`
       );
+      if (scenarioId === 'client-credentials.unassociated-organization') {
+        const calls = await readFile(harness.calls, 'utf8');
+        expect(calls).toContain(`--set=organization_id=${fixture.organization.id}`);
+        expect(calls).toContain('--set=request_target=organization');
+      }
       const { handle } = JSON.parse(begun.stdout) as { handle: string };
       const aborted = await invoke(
         harness.state,

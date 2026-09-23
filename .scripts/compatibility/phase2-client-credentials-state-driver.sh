@@ -303,7 +303,7 @@ case "$scenario_id" in
   client-credentials.default-resource) resource=''; request_target=default ;;
   client-credentials.missing-target) resource=''; request_target=none ;;
   client-credentials.unknown-resource) resource='https://phase2.example.invalid/unknown' ;;
-  client-credentials.organization-empty-scope|client-credentials.organization-scope)
+  client-credentials.organization-empty-scope|client-credentials.organization-scope|client-credentials.unassociated-organization)
     resource=''; organization=$organization_id; request_target=organization ;;
   client-credentials.organization-resource-scope)
     organization=$organization_id; request_target='resource-organization' ;;
