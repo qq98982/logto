@@ -25,7 +25,7 @@ declare global {
     button: string;
     success: (captchaVerifyParam: string) => void;
     fail: (result: unknown) => void;
-    getInstance: (instance: AliyunCaptchaInstance) => void;
+    getInstance: (instance: AliyunCaptchaInstance | undefined) => void;
     slideStyle: { width: number; height: number };
     language: 'cn';
     timeout: number;

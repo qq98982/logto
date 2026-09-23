@@ -163,7 +163,13 @@ export const useAliyunCaptcha = (
         },
         getInstance: (instance) => {
           if (initializationId !== initializationIdRef.current) {
-            instance.destroyCaptcha();
+            instance?.destroyCaptcha();
+            return;
+          }
+
+          if (!instance) {
+            isInitializingRef.current = false;
+            rejectAttempt(initializationId, CaptchaExecutionErrorCode.SdkInitializationFailed);
             return;
           }
 

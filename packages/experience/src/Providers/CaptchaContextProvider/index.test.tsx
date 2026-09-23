@@ -21,6 +21,7 @@ import PageContextProvider from '../PageContextProvider';
 
 import CaptchaContextProvider from '.';
 import CaptchaContext, { type CaptchaContextType } from './CaptchaContext';
+import { CaptchaExecutionErrorCode } from './aliyun-captcha';
 import {
   aliyunCaptchaButtonId,
   aliyunCaptchaElementId,
@@ -619,6 +620,77 @@ describe('CaptchaContextProvider Alibaba CAPTCHA', () => {
       getLatestOptions(initAliyunCaptcha).success('retry-token');
     });
     await expect(second).resolves.toBe('retry-token');
+  });
+
+  it('ignores a stale missing instance after verification failure and succeeds on retry', async () => {
+    const { initAliyunCaptcha } = installAliyunSdk(false);
+    const rendered = renderSendHook(UserFlow.SignIn);
+    const payload = {
+      identifier: SignInIdentifier.Phone,
+      value: '+8613800138000',
+    } as const;
+    const firstSubmission = rendered.result.current.onSubmit(payload);
+
+    await waitFor(() => {
+      expect(mockedInitInteraction).toHaveBeenCalledTimes(1);
+    });
+    const firstOptions = getLatestOptions(initAliyunCaptcha);
+    act(() => {
+      firstOptions.fail({
+        VerifyCode: 'F001',
+        VerifyResult: false,
+        message: 'private provider detail',
+      });
+      expect(() => {
+        firstOptions.getInstance(undefined);
+      }).not.toThrow();
+    });
+
+    await expect(firstSubmission).resolves.toBeUndefined();
+    expect(mockedSendVerificationCode).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain('F001');
+    expect(document.body.textContent).not.toContain('private provider detail');
+
+    const secondSubmission = rendered.result.current.onSubmit(payload);
+    await waitFor(() => {
+      expect(initAliyunCaptcha).toHaveBeenCalledTimes(2);
+    });
+    const secondOptions = getLatestOptions(initAliyunCaptcha);
+    const instance = createAliyunInstance();
+    act(() => {
+      secondOptions.getInstance(instance);
+    });
+    expect(instance.startTracelessVerification).toHaveBeenCalledTimes(1);
+    act(() => {
+      secondOptions.success('retry-after-f001-token');
+    });
+
+    await expect(secondSubmission).resolves.toBeUndefined();
+    expect(mockedSendVerificationCode).toHaveBeenCalledTimes(1);
+    expect(mockedSendVerificationCode).toHaveBeenCalledWith(
+      InteractionEvent.SignIn,
+      {
+        type: SignInIdentifier.Phone,
+        value: payload.value,
+      },
+      'retry-after-f001-token'
+    );
+  });
+
+  it('rejects an active attempt when the SDK returns no instance', async () => {
+    const { initAliyunCaptcha } = installAliyunSdk(false);
+    renderProvider();
+    const promise = captchaApi.executeCaptcha(SignInIdentifier.Phone);
+
+    act(() => {
+      getLatestOptions(initAliyunCaptcha).getInstance(undefined);
+    });
+
+    await expect(promise).rejects.toMatchObject({
+      code: CaptchaExecutionErrorCode.SdkInitializationFailed,
+    });
+    expect(mockedInitInteraction).not.toHaveBeenCalled();
+    expect(mockedSendVerificationCode).not.toHaveBeenCalled();
   });
 
   it('does not apply the initialization timeout after an instance is ready', async () => {
