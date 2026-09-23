@@ -247,7 +247,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('RESULT_STAGING_IDENTITY');
     expect(source).toContain('remove_owned_result_directory');
     expect(source).toContain('verify_published_result_directory');
-    expect(source).toContain('for _ in 1 2 3; do');
+    expect(source).toContain('for _ in 1 2 3 4; do');
     expect(source).toContain('[[ "$cleanup_complete" == 1 ]]');
     expect(source).toContain('--no-clobber --no-target-directory');
     const cleanup = source.lastIndexOf('cleanup_resources 0');
@@ -508,7 +508,7 @@ CANDIDATE_PROJECT_STARTED=0
 ORACLE_PROJECT_STARTED=0
 late_failures=0
 remove_state_handle_root() {
-  if [[ "$late_failures" -lt 2 ]]; then late_failures=$((late_failures + 1)); return 1; fi
+  if [[ "$late_failures" -lt 3 ]]; then late_failures=$((late_failures + 1)); return 1; fi
   return 0
 }
 assert_ports_released() { return 0; }
@@ -521,7 +521,10 @@ second=$?
 [[ "$second" == 1 && "$TOPOLOGY_CLEANED" == 0 && ! -e "$RUN_DIR" ]]
 cleanup_resources 0
 third=$?
-[[ "$third" == 0 && "$TOPOLOGY_CLEANED" == 1 && ! -e "$RUN_DIR" ]]
+[[ "$third" == 1 && "$TOPOLOGY_CLEANED" == 0 && ! -e "$RUN_DIR" ]]
+cleanup_resources 0
+fourth=$?
+[[ "$fourth" == 0 && "$TOPOLOGY_CLEANED" == 1 && ! -e "$RUN_DIR" ]]
 `;
     await writeFile(harnessPath, harness, { mode: 0o500 });
 

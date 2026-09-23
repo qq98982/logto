@@ -1234,7 +1234,7 @@ NODE
   [[ "$oracle_sha256" =~ ^[0-9a-f]{64}$ && "$differential_sha256" =~ ^[0-9a-f]{64}$ && "$invariant_sha256" =~ ^[0-9a-f]{64}$ ]] || { failure_stage='result-hashes'; fail; return 1; }
 
   cleanup_complete=0
-  for _ in 1 2 3; do
+  for _ in 1 2 3 4; do
     if cleanup_resources 0; then
       cleanup_complete=1
       break
