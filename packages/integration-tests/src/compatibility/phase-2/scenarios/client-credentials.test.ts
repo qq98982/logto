@@ -10,6 +10,7 @@ import {
 } from '../projections/client-credentials.js';
 
 import {
+  assertDiscoveryAbsentFieldsContract,
   assertDiscoveryGrantContract,
   clientCredentialsScenarioIds,
   compareClientCredentialsProjections,
@@ -550,6 +551,30 @@ describe('Phase 2 client credentials scenarios', () => {
         ['authorization_code', 'refresh_token', 'client_credentials', 'client_credentials'],
         ['client_credentials'],
         'oracle'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
+  });
+
+  it('normalizes Oracle-only discovery fields and rejects them on Candidate', () => {
+    const expectedAbsent = ['introspection_endpoint', 'revocation_endpoint'] as const;
+    expect(
+      assertDiscoveryAbsentFieldsContract(
+        {
+          introspection_endpoint: 'https://oracle.example/oidc/token/introspection',
+          revocation_endpoint: 'https://oracle.example/oidc/token/revocation',
+        },
+        expectedAbsent,
+        'oracle'
+      )
+    ).toEqual(expectedAbsent);
+    expect(assertDiscoveryAbsentFieldsContract({}, expectedAbsent, 'candidate')).toEqual(
+      expectedAbsent
+    );
+    expect(() =>
+      assertDiscoveryAbsentFieldsContract(
+        { introspection_endpoint: 'https://candidate.example/oidc/token/introspection' },
+        expectedAbsent,
+        'candidate'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
   });

@@ -47,6 +47,7 @@ import {
   type VerifiedPhase2Target,
 } from './runtime.js';
 import {
+  assertDiscoveryAbsentFieldsContract,
   assertDiscoveryGrantContract,
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
@@ -404,12 +405,13 @@ const projectDiscovery = async (
     profile.discovery.grantTypesSupportedAppend,
     descriptor.kind
   );
-  if (profile.discovery.stillAbsent.some((field) => Object.hasOwn(discovery, field))) {
-    return fail();
-  }
   return Object.freeze({
     grantTypesSupported: grantTypes,
-    stillAbsent: Object.freeze([...profile.discovery.stillAbsent]),
+    stillAbsent: assertDiscoveryAbsentFieldsContract(
+      discovery,
+      profile.discovery.stillAbsent,
+      descriptor.kind
+    ),
   });
 };
 

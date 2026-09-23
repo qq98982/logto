@@ -854,4 +854,15 @@ export const assertDiscoveryGrantContract = (
   return expected;
 };
 
+export const assertDiscoveryAbsentFieldsContract = (
+  discovery: Readonly<Record<string, unknown>>,
+  expectedAbsent: readonly string[],
+  target: TargetConfig['label']
+): readonly string[] => {
+  if (target === 'candidate' && expectedAbsent.some((field) => Object.hasOwn(discovery, field))) {
+    return fail();
+  }
+  return Object.freeze([...expectedAbsent]);
+};
+
 /* eslint-enable max-lines, complexity, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */
