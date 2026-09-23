@@ -112,6 +112,9 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).toContain('start_compose_stage');
     expect(source).toContain('start_loopback_proxy');
     expect(source).toContain('published_port');
+    expect(source).toContain('port_state');
+    expect(source).toContain('port_is_released');
+    expect(source).toMatch(/sport = :\$\{port\}/u);
     expect(source).toContain('port_is_listened_by_pid');
     expect(source).toContain('http_ready');
     expect(source).toContain(
@@ -247,13 +250,83 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('RESULT_STAGING_IDENTITY');
     expect(source).toContain('remove_owned_result_directory');
     expect(source).toContain('verify_published_result_directory');
-    expect(source).toContain('for _ in 1 2 3 4; do');
+    expect(source).toContain('for _ in 1 2; do');
     expect(source).toContain('[[ "$cleanup_complete" == 1 ]]');
     expect(source).toContain('--no-clobber --no-target-directory');
     const cleanup = source.lastIndexOf('cleanup_resources 0');
     const publish = source.lastIndexOf('--no-clobber --no-target-directory');
     expect(cleanup).toBeGreaterThan(0);
     expect(publish).toBeGreaterThan(cleanup);
+  });
+
+  it('accepts cleanup when every fixed port is already released', async () => {
+    const harnessPath = path.join(temporaryRoot, 'released-ports-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+port_state() { printf released; }
+assert_ports_released 3311 3411 3312 3412 3321 3421 3322 3422
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
+  it('fails closed when the port release query fails', async () => {
+    const harnessPath = path.join(temporaryRoot, 'port-query-failure-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+SS_BIN=/bin/false
+AWK_BIN=/usr/bin/awk
+if assert_ports_released 3311; then exit 11; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
+  it('fails closed when the port query returns malformed output', async () => {
+    const fakeSsPath = path.join(temporaryRoot, 'malformed-ss.sh');
+    const harnessPath = path.join(temporaryRoot, 'malformed-port-query-harness.sh');
+    await writeFile(
+      fakeSsPath,
+      "#!/usr/bin/env bash\nprintf 'BROKEN zero zero nowhere nowhere\\n'\n",
+      {
+        mode: 0o500,
+      }
+    );
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+SS_BIN=${JSON.stringify(fakeSsPath)}
+AWK_BIN=/usr/bin/awk
+if assert_ports_released 3311; then exit 11; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
+  it('treats wildcard listeners on a fixed port as occupied', async () => {
+    const fakeSsPath = path.join(temporaryRoot, 'wildcard-listener-ss.sh');
+    const harnessPath = path.join(temporaryRoot, 'wildcard-listener-harness.sh');
+    await writeFile(
+      fakeSsPath,
+      "#!/usr/bin/env bash\nprintf 'LISTEN 0 128 0.0.0.0:3311 0.0.0.0:*\\n'\n",
+      { mode: 0o500 }
+    );
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+SS_BIN=${JSON.stringify(fakeSsPath)}
+AWK_BIN=/usr/bin/awk
+[[ "$(port_state 3311)" == listening ]]
+if port_is_released 3311; then exit 11; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
   });
 
   it('uses reverse cleanup on failure and preserves the original failure status', async () => {
@@ -491,7 +564,7 @@ if cleanup_project candidate; then exit 11; fi
     await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
   });
 
-  it('converges after a late cleanup failure removed the run root', async () => {
+  it('converges on the bounded retry after a late cleanup failure removed the run root', async () => {
     const runRoot = path.join(temporaryRoot, 'late-cleanup-run');
     const harnessPath = path.join(temporaryRoot, 'late-cleanup-retry-harness.sh');
     await mkdir(runRoot, { mode: 0o700 });
@@ -508,7 +581,7 @@ CANDIDATE_PROJECT_STARTED=0
 ORACLE_PROJECT_STARTED=0
 late_failures=0
 remove_state_handle_root() {
-  if [[ "$late_failures" -lt 3 ]]; then late_failures=$((late_failures + 1)); return 1; fi
+  if [[ "$late_failures" == 0 ]]; then late_failures=1; return 1; fi
   return 0
 }
 assert_ports_released() { return 0; }
@@ -518,13 +591,7 @@ first=$?
 [[ "$first" == 1 && ! -e "$RUN_DIR" ]]
 cleanup_resources 0
 second=$?
-[[ "$second" == 1 && "$TOPOLOGY_CLEANED" == 0 && ! -e "$RUN_DIR" ]]
-cleanup_resources 0
-third=$?
-[[ "$third" == 1 && "$TOPOLOGY_CLEANED" == 0 && ! -e "$RUN_DIR" ]]
-cleanup_resources 0
-fourth=$?
-[[ "$fourth" == 0 && "$TOPOLOGY_CLEANED" == 1 && ! -e "$RUN_DIR" ]]
+[[ "$second" == 0 && "$TOPOLOGY_CLEANED" == 1 && ! -e "$RUN_DIR" ]]
 `;
     await writeFile(harnessPath, harness, { mode: 0o500 });
 

@@ -166,13 +166,52 @@ normalize_configured_image() {
   fi
 }
 
-port_is_listening() {
-  # The awk program intentionally uses the literal fourth field.
+port_state() {
+  local port=$1 listeners state
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || return 1
+  ((10#$port <= 65535)) || return 1
+  listeners="$("$SS_BIN" -H -ltn "sport = :${port}")" || return 1
+  if [[ -z "$listeners" ]]; then
+    printf released
+    return 0
+  fi
+  # The awk program intentionally validates and uses the five ss fields.
   # shellcheck disable=SC2016
-  "$SS_BIN" -H -ltn | "$AWK_BIN" -v expected="127.0.0.1:$1" '
-    $4 == expected { found=1 }
-    END { exit found ? 0 : 1 }
-  '
+  state="$(printf '%s\n' "$listeners" | "$AWK_BIN" -v expected_port="$port" '
+    {
+      if (NF != 5 || $1 != "LISTEN" || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ ||
+          $4 !~ /:/ || $5 !~ /:/) {
+        invalid=1
+        next
+      }
+      local_address=$4
+      local_port=$4
+      peer_address=$5
+      peer_port=$5
+      sub(/:[^:]*$/, "", local_address)
+      sub(/^.*:/, "", local_port)
+      sub(/:[^:]*$/, "", peer_address)
+      sub(/^.*:/, "", peer_port)
+      if (local_address == "" || local_port != expected_port ||
+          peer_address == "" || peer_port != "*") {
+        invalid=1
+        next
+      }
+      found=1
+    }
+    END {
+      if (invalid || !found) exit 1
+      print "listening"
+    }
+  ')" || return 1
+  [[ "$state" == listening || "$state" == released ]] || return 1
+  printf '%s' "$state"
+}
+
+port_is_released() {
+  local state
+  state="$(port_state "$1")" || return 1
+  [[ "$state" == released ]]
 }
 
 port_is_listened_by_pid() {
@@ -384,7 +423,7 @@ published_port() {
 
 start_loopback_proxy() {
   local role=$1 service=$2 target_port=$3 host_port=$4 published token pid pgid attempt observed
-  port_is_listening "$host_port" && return 1
+  port_is_released "$host_port" || return 1
   published="$(published_port "$role" "$service" "$target_port")" || return 1
   token="$(random_hex 32)" || return 1
   ASTER_PHASE2_PROCESS_TOKEN="$token" "$ENV_BIN" -i PATH='/usr/bin:/bin' \
@@ -550,14 +589,22 @@ remove_state_handle_root() {
 }
 
 assert_ports_released() {
-  local port attempt
+  local port attempt state released
   for port in "$@"; do
-    for ((attempt=0; attempt<100; attempt++)); do
-      port_is_listening "$port" || break
-      /usr/bin/sleep 0.05
+    released=0
+    for ((attempt=0; attempt<=100; attempt++)); do
+      state="$(port_state "$port")" || return 1
+      if [[ "$state" == released ]]; then
+        released=1
+        break
+      fi
+      if ((attempt < 100)); then
+        /usr/bin/sleep 0.05
+      fi
     done
-    port_is_listening "$port" && return 1
+    [[ "$released" == 1 ]] || return 1
   done
+  return 0
 }
 
 remove_run_root() {
@@ -1129,7 +1176,7 @@ NODE
   compose_candidate config --quiet >/dev/null 2>&1 || { fail; return 1; }
 
   for port in "${PORTS[@]}"; do
-    port_is_listening "$port" && { failure_stage="port-${port}"; fail; return 1; }
+    port_is_released "$port" || { failure_stage="port-${port}"; fail; return 1; }
   done
 
   ORACLE_PROJECT_STARTED=1
@@ -1234,7 +1281,7 @@ NODE
   [[ "$oracle_sha256" =~ ^[0-9a-f]{64}$ && "$differential_sha256" =~ ^[0-9a-f]{64}$ && "$invariant_sha256" =~ ^[0-9a-f]{64}$ ]] || { failure_stage='result-hashes'; fail; return 1; }
 
   cleanup_complete=0
-  for _ in 1 2 3 4; do
+  for _ in 1 2; do
     if cleanup_resources 0; then
       cleanup_complete=1
       break
