@@ -1152,15 +1152,15 @@ NODE
     start_loopback_proxy "$proxy_role" "$proxy_service" "$proxy_target" "$proxy_host" || { failure_stage="proxy-${proxy_host}"; fail; return 1; }
   done
 
-  failure_stage='http-readiness'
-  http_ready 3311 'http://localhost:3311/oidc' || { fail; return 1; }
-  http_ready 3411 'http://localhost:3411/oidc' || { fail; return 1; }
-  http_ready 3312 'http://localhost:3312/oidc' || { fail; return 1; }
-  http_ready 3412 'http://localhost:3412/oidc' || { fail; return 1; }
-  http_ready 3321 'http://localhost:3321/oidc' || { fail; return 1; }
-  http_ready 3421 'http://localhost:3421/oidc' || { fail; return 1; }
-  http_ready 3322 'http://localhost:3322/oidc' || { fail; return 1; }
-  http_ready 3422 'http://localhost:3422/oidc' || { fail; return 1; }
+  for readiness in \
+    '3311|http://localhost:3311/oidc' '3411|http://localhost:3411/oidc' \
+    '3312|http://localhost:3312/oidc' '3412|http://localhost:3412/oidc' \
+    '3321|http://localhost:3321/oidc' '3421|http://localhost:3421/oidc' \
+    '3322|http://localhost:3322/oidc' '3422|http://localhost:3422/oidc'; do
+    IFS='|' read -r readiness_port readiness_issuer <<<"$readiness"
+    failure_stage="http-readiness-${readiness_port}"
+    http_ready "$readiness_port" "$readiness_issuer" || { fail; return 1; }
+  done
   wait_for_fixture_socket || { failure_stage='fixture-socket'; fail; return 1; }
 
   oracle_primary_metadata="$(inspect_service oracle oracle-primary-core)"
