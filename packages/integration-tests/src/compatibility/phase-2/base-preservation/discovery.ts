@@ -36,6 +36,7 @@ export type Phase2BaseDiscoveryAppendProof = Readonly<{
   baseDocumentSha256: string;
   rawGrantTypes: readonly string[];
   baseGrantTypes: readonly string[];
+  endpointFieldsAppend: readonly string[];
 }>;
 
 export type Phase2BaseDiscoverySession = Readonly<{
@@ -49,6 +50,7 @@ export type Phase2BaseDiscoverySessionInput = Readonly<{
   session: Phase1ProtocolSession;
   acceptedGrantTypes: readonly string[];
   appendGrantType: 'client_credentials';
+  endpointFieldsAppend: readonly ['introspection_endpoint', 'revocation_endpoint'];
   stillAbsent: readonly string[];
   paths: Readonly<{ openid: string; oauth: string; jwks: string }>;
 }>;
@@ -203,6 +205,10 @@ export const createPhase2BaseDiscoverySession = (
     input.target.label !== 'candidate' ||
     input.scenarioId !== 'discovery.config' ||
     input.appendGrantType !== 'client_credentials' ||
+    !isDeepStrictEqual(input.endpointFieldsAppend, [
+      'introspection_endpoint',
+      'revocation_endpoint',
+    ]) ||
     input.acceptedGrantTypes.length === 0 ||
     new Set(input.acceptedGrantTypes).size !== input.acceptedGrantTypes.length ||
     input.stillAbsent.length === 0 ||
@@ -254,11 +260,18 @@ export const createPhase2BaseDiscoverySession = (
     const rawDocument = assertRawResponse(response);
     const grants = exactStringArray(rawDocument.grant_types_supported);
     const expected = [...input.acceptedGrantTypes, input.appendGrantType];
+    const { issuer } = rawDocument;
 
     if (
       grants.length !== expected.length ||
       grants.some((value, index) => value !== expected[index]) ||
       new Set(grants).size !== grants.length ||
+      typeof issuer !== 'string' ||
+      input.endpointFieldsAppend.some(
+        (field) =>
+          rawDocument[field] !==
+          `${issuer}/token/${field === 'introspection_endpoint' ? 'introspection' : 'revocation'}`
+      ) ||
       input.stillAbsent.some((field) => Object.hasOwn(rawDocument, field))
     ) {
       return fail();
@@ -270,8 +283,10 @@ export const createPhase2BaseDiscoverySession = (
       return fail();
     }
     rawDocuments.set(kind, rawDocument);
-    const baseDocument = structuredClone(rawDocument);
-
+    const { introspection_endpoint, revocation_endpoint, ...baseDocument } = rawDocument;
+    if (introspection_endpoint === undefined || revocation_endpoint === undefined) {
+      return fail();
+    }
     baseDocument.grant_types_supported = [...input.acceptedGrantTypes];
     const baseBody = JSON.stringify(baseDocument);
     const proof = Object.freeze({
@@ -281,6 +296,7 @@ export const createPhase2BaseDiscoverySession = (
       baseDocumentSha256: sha256(baseBody),
       rawGrantTypes: Object.freeze([...grants]),
       baseGrantTypes: Object.freeze([...input.acceptedGrantTypes]),
+      endpointFieldsAppend: Object.freeze([...input.endpointFieldsAppend]),
     });
     proofs.set(kind, proof);
 

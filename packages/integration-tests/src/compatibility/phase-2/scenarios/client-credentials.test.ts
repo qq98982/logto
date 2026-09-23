@@ -11,6 +11,7 @@ import {
 
 import {
   assertDiscoveryAbsentFieldsContract,
+  assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
   clientCredentialsScenarioIds,
   compareClientCredentialsProjections,
@@ -78,12 +79,8 @@ const profile: Phase2ProfileRegistries = Object.freeze({
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    stillAbsent: Object.freeze([
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'device_authorization_endpoint',
-      'registration_endpoint',
-    ] as const),
+    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });
 
@@ -640,13 +637,13 @@ describe('Phase 2 client credentials scenarios', () => {
     ).toThrow('Invalid Phase 2 client credentials scenario');
   });
 
-  it('normalizes Oracle-only discovery fields and rejects them on Candidate', () => {
-    const expectedAbsent = ['introspection_endpoint', 'revocation_endpoint'] as const;
+  it('normalizes Oracle-only unimplemented discovery fields and rejects them on Candidate', () => {
+    const expectedAbsent = ['device_authorization_endpoint', 'registration_endpoint'] as const;
     expect(
       assertDiscoveryAbsentFieldsContract(
         {
-          introspection_endpoint: 'https://oracle.example/oidc/token/introspection',
-          revocation_endpoint: 'https://oracle.example/oidc/token/revocation',
+          device_authorization_endpoint: 'https://oracle.example/oidc/device/auth',
+          registration_endpoint: 'https://oracle.example/oidc/register',
         },
         expectedAbsent,
         'oracle'
@@ -657,11 +654,31 @@ describe('Phase 2 client credentials scenarios', () => {
     );
     expect(() =>
       assertDiscoveryAbsentFieldsContract(
-        { introspection_endpoint: 'https://candidate.example/oidc/token/introspection' },
+        { device_authorization_endpoint: 'https://candidate.example/oidc/device/auth' },
         expectedAbsent,
         'candidate'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
+  });
+
+  it('requires the published status endpoints to belong to this issuer', () => {
+    const fields = ['introspection_endpoint', 'revocation_endpoint'] as const;
+    const document = {
+      introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
+      revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
+    };
+    expect(
+      assertDiscoveryEndpointFieldsContract(document, fields, 'https://candidate.example/oidc')
+    ).toEqual(fields);
+    for (const invalid of [
+      { ...document, introspection_endpoint: undefined },
+      { ...document, revocation_endpoint: 'https://foreign.example/oidc/token/revocation' },
+      { ...document, introspection_endpoint: document.revocation_endpoint },
+    ]) {
+      expect(() =>
+        assertDiscoveryEndpointFieldsContract(invalid, fields, 'https://candidate.example/oidc')
+      ).toThrow('Invalid Phase 2 client credentials scenario');
+    }
   });
 
   it('rejects credential-bearing response headers instead of normalizing them away', async () => {

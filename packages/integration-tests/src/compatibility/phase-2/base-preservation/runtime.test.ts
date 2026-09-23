@@ -3,7 +3,7 @@ import type {
   Phase1TargetStepEvidence,
 } from '../../phase-1/scenario-runtime.js';
 import { phase1DifferentialScenarios } from '../../phase-1/scenarios/index.js';
-/* eslint-disable max-lines, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The 22-scenario fake runtime intentionally tracks mutable projection state, destructive-control ordering, call order, and no-op validation ports. */
+/* eslint-disable unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The 22-scenario fake runtime intentionally tracks mutable projection state, destructive-control ordering, call order, and no-op validation ports. */
 import { SymbolTable } from '../../symbol-table.js';
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
 
@@ -19,12 +19,8 @@ const phase2Profile: Phase2ProfileRegistries = Object.freeze({
   candidateInvariantScenarios: Object.freeze([]) as never,
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    stillAbsent: Object.freeze([
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'device_authorization_endpoint',
-      'registration_endpoint',
-    ] as const),
+    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });
 
@@ -69,6 +65,8 @@ const targetGraph = Object.freeze({
 
 const rawDiscovery = Object.freeze({
   issuer: 'http://localhost:3321/oidc',
+  introspection_endpoint: 'http://localhost:3321/oidc/token/introspection',
+  revocation_endpoint: 'http://localhost:3321/oidc/token/revocation',
   grant_types_supported: Object.freeze([
     'authorization_code',
     'refresh_token',
@@ -422,4 +420,4 @@ describe('Phase 2 base-preservation runtime', () => {
   });
 });
 
-/* eslint-enable max-lines, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */

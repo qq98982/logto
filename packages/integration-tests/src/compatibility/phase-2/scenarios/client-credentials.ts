@@ -958,4 +958,18 @@ export const assertDiscoveryAbsentFieldsContract = (
   return Object.freeze([...expectedAbsent]);
 };
 
+export const assertDiscoveryEndpointFieldsContract = (
+  discovery: Readonly<Record<string, unknown>>,
+  fields: readonly ['introspection_endpoint', 'revocation_endpoint'],
+  issuer: string
+): readonly ['introspection_endpoint', 'revocation_endpoint'] => {
+  if (
+    discovery[fields[0]] !== `${issuer}/token/introspection` ||
+    discovery[fields[1]] !== `${issuer}/token/revocation`
+  ) {
+    return fail();
+  }
+  return fields;
+};
+
 /* eslint-enable max-lines, complexity, no-await-in-loop, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */

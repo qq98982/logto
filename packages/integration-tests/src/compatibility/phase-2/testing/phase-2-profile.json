@@ -9,7 +9,7 @@
     "harnessCommit": "83d08f0821345d1bdc01491152949cc6f044ecfb",
     "profileSha256": "5212b72090d1c9ab1956c07da652629af1312a9784f8a513028e5e297801fcf7"
   },
-  "units": ["client-credentials-foundation"],
+  "units": ["client-credentials-foundation", "token-introspection-revocation"],
   "grantTypes": ["client_credentials"],
   "differentialScenarios": [
     "client-credentials.basic-explicit-resource",
@@ -41,9 +41,8 @@
   ],
   "discovery": {
     "grantTypesSupportedAppend": ["client_credentials"],
+    "endpointFieldsAppend": ["introspection_endpoint", "revocation_endpoint"],
     "stillAbsent": [
-      "introspection_endpoint",
-      "revocation_endpoint",
       "device_authorization_endpoint",
       "registration_endpoint"
     ]

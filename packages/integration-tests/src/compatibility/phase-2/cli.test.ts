@@ -55,12 +55,8 @@ const profile: Phase2ProfileRegistries = Object.freeze({
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    stillAbsent: Object.freeze([
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'device_authorization_endpoint',
-      'registration_endpoint',
-    ] as const),
+    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });
 

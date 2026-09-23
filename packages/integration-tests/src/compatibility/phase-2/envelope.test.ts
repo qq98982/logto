@@ -7,7 +7,11 @@ const profile: Phase2ProfileRegistries = {
   ...phase2ExpectedProfileAuthority,
   differentialScenarios: [],
   candidateInvariantScenarios: [],
-  discovery: { grantTypesSupportedAppend: ['client_credentials'], stillAbsent: [] },
+  discovery: {
+    grantTypesSupportedAppend: ['client_credentials'],
+    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+    stillAbsent: [],
+  },
 };
 const harness: Phase2SourceIdentity = {
   repositoryRoot: '/private/repo',

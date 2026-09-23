@@ -337,6 +337,7 @@ const createCandidateRuntime = (
         session: binding.session,
         acceptedGrantTypes: profile.oidc.grants,
         appendGrantType: phase2Profile.discovery.grantTypesSupportedAppend[0],
+        endpointFieldsAppend: phase2Profile.discovery.endpointFieldsAppend,
         stillAbsent: phase2Profile.discovery.stillAbsent,
         paths: Object.freeze({
           openid: profile.oidc.discoveryPath.slice(1),

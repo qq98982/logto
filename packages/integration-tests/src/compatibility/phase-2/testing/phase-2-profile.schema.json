@@ -41,7 +41,7 @@
     "units": {
       "type": "array",
       "uniqueItems": true,
-      "const": ["client-credentials-foundation"]
+      "const": ["client-credentials-foundation", "token-introspection-revocation"]
     },
     "grantTypes": {
       "type": "array",
@@ -89,19 +89,22 @@
     "discovery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grantTypesSupportedAppend", "stillAbsent"],
+      "required": ["grantTypesSupportedAppend", "endpointFieldsAppend", "stillAbsent"],
       "properties": {
         "grantTypesSupportedAppend": {
           "type": "array",
           "uniqueItems": true,
           "const": ["client_credentials"]
         },
+        "endpointFieldsAppend": {
+          "type": "array",
+          "uniqueItems": true,
+          "const": ["introspection_endpoint", "revocation_endpoint"]
+        },
         "stillAbsent": {
           "type": "array",
           "uniqueItems": true,
           "const": [
-            "introspection_endpoint",
-            "revocation_endpoint",
             "device_authorization_endpoint",
             "registration_endpoint"
           ],

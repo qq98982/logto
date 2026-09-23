@@ -40,6 +40,8 @@ const baseDocument = Object.freeze({
 const rawDocument = (overrides: Readonly<Record<string, unknown>> = {}) => ({
   ...baseDocument,
   grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
+  introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
+  revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
   ...overrides,
 });
 
@@ -96,12 +98,8 @@ const createWrapped = (
     session: createSession(documents),
     acceptedGrantTypes: Object.freeze(['authorization_code', 'refresh_token']),
     appendGrantType: 'client_credentials',
-    stillAbsent: Object.freeze([
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'device_authorization_endpoint',
-      'registration_endpoint',
-    ]),
+    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint']),
     paths: Object.freeze({
       openid: 'oidc/.well-known/openid-configuration',
       oauth: 'oidc/.well-known/oauth-authorization-server',
@@ -157,6 +155,7 @@ describe('Phase 2 base-preservation discovery adapter', () => {
         operation: 'discovery-openid',
         rawGrantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
         baseGrantTypes: ['authorization_code', 'refresh_token'],
+        endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
       }),
       expect.objectContaining({
         operation: 'discovery-oauth-authorization-server',
@@ -189,18 +188,43 @@ describe('Phase 2 base-preservation discovery adapter', () => {
     ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
   });
 
-  it.each([
-    'introspection_endpoint',
-    'revocation_endpoint',
-    'device_authorization_endpoint',
-    'registration_endpoint',
-  ])('rejects the still-absent %s field', async (field) => {
-    const wrapped = createWrapped({
-      'discovery-openid:oidc/.well-known/openid-configuration': response(
-        rawDocument({ [field]: `https://candidate.example/${field}` })
-      ),
-    });
+  it.each(['device_authorization_endpoint', 'registration_endpoint'])(
+    'rejects the still-absent %s field',
+    async (field) => {
+      const wrapped = createWrapped({
+        'discovery-openid:oidc/.well-known/openid-configuration': response(
+          rawDocument({ [field]: `https://candidate.example/${field}` })
+        ),
+      });
 
+      await expect(
+        wrapped.session.publicOidc.request(
+          'discovery-openid',
+          'oidc/.well-known/openid-configuration'
+        )
+      ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
+    }
+  );
+
+  it.each([
+    ['missing introspection', { introspection_endpoint: undefined }],
+    ['missing revocation', { revocation_endpoint: undefined }],
+    [
+      'swapped endpoints',
+      {
+        introspection_endpoint: 'https://candidate.example/oidc/token/revocation',
+        revocation_endpoint: 'https://candidate.example/oidc/token/introspection',
+      },
+    ],
+    [
+      'wrong issuer',
+      { introspection_endpoint: 'https://foreign.example/oidc/token/introspection' },
+    ],
+    ['malformed endpoint', { revocation_endpoint: null }],
+  ])('rejects %s before stripping the approved endpoints', async (_name, overrides) => {
+    const wrapped = createWrapped({
+      'discovery-openid:oidc/.well-known/openid-configuration': response(rawDocument(overrides)),
+    });
     await expect(
       wrapped.session.publicOidc.request(
         'discovery-openid',

@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '65a7f58a9ac12b08c662a0410fca9d9f29a32d69f9f59a0dfa9e4859e9043001';
-const expectedSchemaSha256 = '6aab5f1e6fa5a30203443ba827e44d0a2e6709cbf35b81f974bb42f3f548e97a';
+const expectedProfileSha256 = 'bfa11488256eece65164bc225dbcb0b05144d5b59672468a1d4b0fa1ab3b7491';
+const expectedSchemaSha256 = '7bb9fa6afd2d2b113ac7a6464e1bfccda942fee475c2b8e25a859d75ee4fd384';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -54,11 +54,10 @@ const candidateInvariantIds = [
   'client-credentials.user-authority-unchanged',
 ] as const;
 const stillAbsentDiscoveryFields = [
-  'introspection_endpoint',
-  'revocation_endpoint',
   'device_authorization_endpoint',
   'registration_endpoint',
 ] as const;
+const endpointFieldsAppend = ['introspection_endpoint', 'revocation_endpoint'] as const;
 
 export type Phase2DifferentialScenarioId = (typeof differentialScenarioIds)[number];
 export type Phase2CandidateInvariantId = (typeof candidateInvariantIds)[number];
@@ -77,6 +76,7 @@ export type Phase2ProfileRegistries = Readonly<{
   candidateInvariantScenarios: readonly Phase2CandidateInvariantId[];
   discovery: Readonly<{
     grantTypesSupportedAppend: readonly ['client_credentials'];
+    endpointFieldsAppend: typeof endpointFieldsAppend;
     stillAbsent: readonly Phase2StillAbsentDiscoveryField[];
   }>;
 }>;
@@ -240,6 +240,7 @@ export const loadPhase2Profile = async ({
       grantTypesSupportedAppend: exactArray(discoveryRecord.grantTypesSupportedAppend, [
         'client_credentials',
       ] as const),
+      endpointFieldsAppend: exactArray(discoveryRecord.endpointFieldsAppend, endpointFieldsAppend),
       stillAbsent: exactArray(discoveryRecord.stillAbsent, stillAbsentDiscoveryFields),
     },
   };

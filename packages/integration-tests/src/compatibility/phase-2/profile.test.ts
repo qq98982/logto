@@ -53,12 +53,8 @@ describe('Phase 2 profile loader', () => {
     ]);
     expect(registries.discovery).toEqual({
       grantTypesSupportedAppend: ['client_credentials'],
-      stillAbsent: [
-        'introspection_endpoint',
-        'revocation_endpoint',
-        'device_authorization_endpoint',
-        'registration_endpoint',
-      ],
+      endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+      stillAbsent: ['device_authorization_endpoint', 'registration_endpoint'],
     });
     expect(Object.keys(registries).toSorted()).toEqual([
       'baseAcceptance',
@@ -69,10 +65,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '65a7f58a9ac12b08c662a0410fca9d9f29a32d69f9f59a0dfa9e4859e9043001'
+      'bfa11488256eece65164bc225dbcb0b05144d5b59672468a1d4b0fa1ab3b7491'
     );
     expect(registries.schemaSha256).toBe(
-      '6aab5f1e6fa5a30203443ba827e44d0a2e6709cbf35b81f974bb42f3f548e97a'
+      '7bb9fa6afd2d2b113ac7a6464e1bfccda942fee475c2b8e25a859d75ee4fd384'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'
@@ -82,6 +78,7 @@ describe('Phase 2 profile loader', () => {
     expect(Object.isFrozen(registries.candidateInvariantScenarios)).toBe(true);
     expect(Object.isFrozen(registries.discovery)).toBe(true);
     expect(Object.isFrozen(registries.discovery.grantTypesSupportedAppend)).toBe(true);
+    expect(Object.isFrozen(registries.discovery.endpointFieldsAppend)).toBe(true);
     expect(Object.isFrozen(registries.discovery.stillAbsent)).toBe(true);
   });
 

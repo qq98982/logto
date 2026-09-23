@@ -48,6 +48,7 @@ import {
 } from './runtime.js';
 import {
   assertDiscoveryAbsentFieldsContract,
+  assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
@@ -128,6 +129,7 @@ type TargetScenarioEvidence = Readonly<{
   scenarios: readonly ClientCredentialsScenarioResult[];
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
+    endpointFieldsAppend: readonly ['introspection_endpoint', 'revocation_endpoint'];
     stillAbsent: readonly string[];
   }>;
   controls: readonly ClientCredentialsControlResult[];
@@ -408,6 +410,11 @@ const projectDiscovery = async (
   );
   return Object.freeze({
     grantTypesSupported: grantTypes,
+    endpointFieldsAppend: assertDiscoveryEndpointFieldsContract(
+      discovery,
+      profile.discovery.endpointFieldsAppend,
+      new URL('oidc', descriptor.target.coreUrl).toString()
+    ),
     stillAbsent: assertDiscoveryAbsentFieldsContract(
       discovery,
       profile.discovery.stillAbsent,
