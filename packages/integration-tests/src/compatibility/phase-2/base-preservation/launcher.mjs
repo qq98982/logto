@@ -19,8 +19,16 @@ export const basePreservationBridgeSource =
   "export { runPhase2CliMain } from './base-preservation/cli.js';\n";
 const bridgeBytes = Buffer.from(basePreservationBridgeSource, 'utf8');
 
+export const basePreservationBrowserEnvironmentKeys = Object.freeze([
+  'HOME',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'TMPDIR',
+  'XDG_RUNTIME_DIR',
+]);
+
 export const basePreservationEnvironmentKeys = Object.freeze([
   'PATH',
+  ...basePreservationBrowserEnvironmentKeys,
   'ASTER_FIXTURE_SOCKET',
   'ASTER_PHASE1_BUILD_ROOT',
   'ASTER_PHASE1_CANDIDATE_ADMIN_COOKIE_KEY_SET_SHA256',

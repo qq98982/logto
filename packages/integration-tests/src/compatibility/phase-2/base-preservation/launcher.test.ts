@@ -7,11 +7,13 @@ import { computePhase2RuntimeBundleIdentity } from '../provenance.js';
 
 import { phase2BasePreservationRuntimeEntryPath } from './cli.js';
 import {
+  basePreservationBrowserEnvironmentKeys,
   basePreservationBridgeSource,
   basePreservationRuntimeEntryPath,
   basePreservationEnvironmentKeys,
   createBasePreservationBridgeEntry,
   launchPhase2BasePreservation,
+  selectBasePreservationEnvironment,
 } from './launcher.mjs';
 
 const environment = Object.freeze(
@@ -46,6 +48,21 @@ const removeBridgeFixture = async (fixture: Awaited<ReturnType<typeof createBrid
 };
 
 describe('Phase 2 base-preservation launcher', () => {
+  it('selects and forwards exactly the four inherited Phase 1 browser runtime values', () => {
+    expect(basePreservationBrowserEnvironmentKeys).toEqual([
+      'HOME',
+      'PLAYWRIGHT_BROWSERS_PATH',
+      'TMPDIR',
+      'XDG_RUNTIME_DIR',
+    ]);
+    const selected = selectBasePreservationEnvironment({
+      ...environment,
+      UNRELATED_AMBIENT_VALUE: 'must-not-be-forwarded',
+    });
+    expect(selected).toEqual(environment);
+    expect(Object.hasOwn(selected, 'UNRELATED_AMBIENT_VALUE')).toBe(false);
+  });
+
   it('uses the same fixed shallow entry in the launcher and nested CLI provenance', () => {
     expect(phase2BasePreservationRuntimeEntryPath).toBe(basePreservationRuntimeEntryPath);
   });
@@ -99,6 +116,9 @@ describe('Phase 2 base-preservation launcher', () => {
               'LC_ALL',
             ].toSorted()
           );
+          for (const key of basePreservationBrowserEnvironmentKeys) {
+            expect(childEnvironment[key]).toBe(environment[key]);
+          }
           return 0;
         },
       })
@@ -141,6 +161,34 @@ describe('Phase 2 base-preservation launcher', () => {
     );
     expect(build).not.toHaveBeenCalled();
   });
+
+  it.each(basePreservationBrowserEnvironmentKeys)(
+    'fails closed for every invalid %s browser runtime value',
+    async (key) => {
+      const build = import.meta.jest.fn();
+      const dependencies = {
+        inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+        build,
+        createEntry: async () => basePreservationRuntimeEntryPath,
+        identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
+        recheckEntry: async () => basePreservationRuntimeEntryPath,
+        execute: async () => 0,
+      } as never;
+      const invalidValues = [
+        Object.fromEntries(Object.entries(environment).filter(([name]) => name !== key)),
+        { ...environment, [key]: '' },
+        { ...environment, [key]: 'line\nbreak' },
+        { ...environment, [key]: 'x'.repeat(4097) },
+      ];
+
+      for (const invalid of invalidValues) {
+        await expect(launchPhase2BasePreservation(['run'], invalid, dependencies)).rejects.toThrow(
+          'Invalid Phase 2 base-preservation launcher'
+        );
+      }
+      expect(build).not.toHaveBeenCalled();
+    }
+  );
 
   it('creates the exact shallow read-only bridge and gives both shared identity helpers the same graph', async () => {
     const fixture = await createBridgeFixture('phase2-base-bridge-identity');
