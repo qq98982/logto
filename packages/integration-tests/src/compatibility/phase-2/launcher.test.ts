@@ -11,6 +11,7 @@ import {
   createRuntimeHookImport,
   executeVerifiedPhase2Entry,
   launchPhase2,
+  launchPhase2Batch,
 } from './launcher.mjs';
 import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 
@@ -74,6 +75,66 @@ describe('Phase 2 tracked launcher', () => {
     expect(calls).toEqual(['inspect', 'build', 'inspect', 'identity', 'execute']);
   });
 
+  it('builds one verified bundle for a batch and issues a distinct capability per command', async () => {
+    const calls: string[] = [];
+    const capabilities = new Set<string>();
+    const head = '4'.repeat(40);
+    const tree = '5'.repeat(40);
+    const digest = '6'.repeat(64);
+    const manifest = {
+      sha256: digest,
+      moduleCount: 1,
+      entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+      libraryRootUrl: 'file:///private/lib/',
+      modules: { 'file:///private/lib/compatibility/phase-2/cli.js': digest },
+    };
+    const commands = Object.freeze([
+      Object.freeze(['oracle']),
+      Object.freeze(['differential']),
+      Object.freeze(['candidate-invariants']),
+    ]);
+
+    await expect(
+      launchPhase2Batch(commands, {
+        inspect: async () => {
+          calls.push('inspect');
+          return { head, tree };
+        },
+        build: async () => {
+          calls.push('build');
+        },
+        identity: async () => {
+          calls.push('identity');
+          return manifest;
+        },
+        execute: async (
+          _entry: string,
+          args: readonly string[],
+          environment: Record<string, string>,
+          receivedManifest: typeof manifest,
+          capability: string
+        ) => {
+          calls.push(`execute:${args[0]}`);
+          expect(environment.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256).toBe(digest);
+          expect(receivedManifest).toBe(manifest);
+          expect(capability).toMatch(/^[0-9a-f]{64}$/u);
+          capabilities.add(capability);
+          return 0;
+        },
+      })
+    ).resolves.toBe(0);
+    expect(calls).toEqual([
+      'inspect',
+      'build',
+      'inspect',
+      'identity',
+      'execute:oracle',
+      'execute:differential',
+      'execute:candidate-invariants',
+    ]);
+    expect(capabilities.size).toBe(3);
+  });
+
   it('rejects a HEAD substitution across the clean rebuild boundary', async () => {
     let inspection = 0;
     let executions = 0;
@@ -82,7 +143,7 @@ describe('Phase 2 tracked launcher', () => {
       return 0 as const;
     };
     await expect(
-      launchPhase2([], {
+      launchPhase2(['oracle'], {
         inspect: async () => {
           inspection += 1;
           return {

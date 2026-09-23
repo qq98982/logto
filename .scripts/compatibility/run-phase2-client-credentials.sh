@@ -920,8 +920,9 @@ main() {
   PODMAN_GENERATOR="$REPO_ROOT/.scripts/compatibility/phase1-podman-differential-topology.mjs"
   STATE_DRIVER_SOURCE="$REPO_ROOT/.scripts/compatibility/phase2-client-credentials-state-driver.sh"
   INVARIANT_DRIVER_SOURCE="$REPO_ROOT/.scripts/compatibility/phase2-client-credentials-invariant-driver.sh"
-  readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE
-  [[ -f "$SOURCE_COMPOSE" && -f "$PODMAN_GENERATOR" && -f "$STATE_DRIVER_SOURCE" && -f "$INVARIANT_DRIVER_SOURCE" ]] || { failure_stage='tracked-inputs'; fail; return 1; }
+  LAUNCHER_SOURCE="$REPO_ROOT/packages/integration-tests/src/compatibility/phase-2/launcher.mjs"
+  readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE LAUNCHER_SOURCE
+  [[ -f "$SOURCE_COMPOSE" && -f "$PODMAN_GENERATOR" && -f "$STATE_DRIVER_SOURCE" && -f "$INVARIANT_DRIVER_SOURCE" && -f "$LAUNCHER_SOURCE" ]] || { failure_stage='tracked-inputs'; fail; return 1; }
 
   [[ -n "${ASTER_PHASE2_ASTER_ROOT+x}" && -n "${ASTER_PHASE2_ORACLE_IMAGE+x}" && -n "${ASTER_PHASE2_CANDIDATE_IMAGE+x}" && -n "${ASTER_PHASE2_ENGINE_SOCKET+x}" ]] || { failure_stage='required-environment'; fail; return 1; }
   [[ "$ASTER_PHASE2_ORACLE_IMAGE" == "$ORACLE_IMAGE_PIN" ]] || { failure_stage='oracle-pin'; fail; return 1; }
@@ -1191,26 +1192,29 @@ NODE
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-before'; fail; return 1; }
 
   launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
-  failure_stage='oracle-evidence'
+  failure_stage='evidence-batch'
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
-    "$PNPM_BIN" --dir "$REPO_ROOT" --filter @logto/integration-tests compatibility:phase2 -- oracle \
-    --profile "$PROFILE_SOURCE" --schema "$SCHEMA_SOURCE" --target "$ORACLE_DESCRIPTOR" \
-    --output "$ORACLE_EVIDENCE" --temp-root "$EVIDENCE_DIR" >/dev/null 2>&1 || { fail; return 1; }
-  assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-oracle'; fail; return 1; }
+    "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
+    "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
+    "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>&1 || { fail; return 1; }
+import { pathToFileURL } from 'node:url';
 
-  failure_stage='differential-evidence'
-  "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
-    "$PNPM_BIN" --dir "$REPO_ROOT" --filter @logto/integration-tests compatibility:phase2 -- differential \
-    --profile "$PROFILE_SOURCE" --schema "$SCHEMA_SOURCE" --oracle-target "$ORACLE_DESCRIPTOR" \
-    --candidate-target "$CANDIDATE_DESCRIPTOR" --output "$DIFFERENTIAL_EVIDENCE" \
-    --temp-root "$EVIDENCE_DIR" >/dev/null 2>&1 || { fail; return 1; }
-  assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-differential'; fail; return 1; }
-
-  failure_stage='candidate-invariant-evidence'
-  "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
-    "$PNPM_BIN" --dir "$REPO_ROOT" --filter @logto/integration-tests compatibility:phase2 -- candidate-invariants \
-    --profile "$PROFILE_SOURCE" --schema "$SCHEMA_SOURCE" --target "$CANDIDATE_DESCRIPTOR" \
-    --output "$INVARIANT_EVIDENCE" --temp-root "$EVIDENCE_DIR" >/dev/null 2>&1 || { fail; return 1; }
+const [launcherPath, profile, schema, oracleTarget, candidateTarget,
+  oracleOutput, differentialOutput, invariantOutput, temporaryRoot] = process.argv.slice(2);
+const { launchPhase2Batch } = await import(pathToFileURL(launcherPath).href);
+const commands = Object.freeze([
+  Object.freeze(['oracle', '--profile', profile, '--schema', schema, '--target', oracleTarget,
+    '--output', oracleOutput, '--temp-root', temporaryRoot]),
+  Object.freeze(['differential', '--profile', profile, '--schema', schema,
+    '--oracle-target', oracleTarget, '--candidate-target', candidateTarget,
+    '--output', differentialOutput, '--temp-root', temporaryRoot]),
+  Object.freeze(['candidate-invariants', '--profile', profile, '--schema', schema,
+    '--target', candidateTarget, '--output', invariantOutput, '--temp-root', temporaryRoot]),
+]);
+const code = await launchPhase2Batch(commands);
+if (code !== 0) process.exitCode = 1;
+NODE
+  assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-evidence'; fail; return 1; }
 
   failure_stage='evidence-validation'
   assert_source_identity_unchanged || { fail; return 1; }

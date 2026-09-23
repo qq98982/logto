@@ -193,10 +193,14 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).not.toContain('/dev/shm');
   });
 
-  it('runs the tracked launcher in all three modes with fixed output names', () => {
-    expect(source.match(/compatibility:phase2/gmu)).toHaveLength(3);
+  it('builds one tracked runtime bundle and runs all three modes with fixed output names', () => {
+    expect(source).toContain('packages/integration-tests/src/compatibility/phase-2/launcher.mjs');
+    expect(source.match(/launchPhase2Batch/gmu)).toHaveLength(2);
+    expect(source).toContain("failure_stage='evidence-batch'");
+    expect(source).toContain("failure_stage='runtime-fence-after-evidence'");
+    expect(source).not.toContain('compatibility:phase2 --');
     for (const command of ['oracle', 'differential', 'candidate-invariants']) {
-      expect(source).toContain(`compatibility:phase2 -- ${command}`);
+      expect(source).toContain(`Object.freeze(['${command}'`);
     }
     for (const artifact of [
       'phase-2-client-credentials-oracle.json',

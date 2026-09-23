@@ -403,7 +403,7 @@ const defaultDependencies = Object.freeze({
   },
 });
 
-export const launchPhase2 = async (arguments_, dependencies = defaultDependencies) => {
+const preparePhase2Runtime = async (dependencies) => {
   const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const repositoryRoot = path.resolve(packageRoot, '../..');
   const entryPath = path.join(packageRoot, 'lib/compatibility/phase-2/cli.js');
@@ -414,20 +414,57 @@ export const launchPhase2 = async (arguments_, dependencies = defaultDependencie
     return fail();
   }
   const runtime = await dependencies.identity(entryPath);
-  const capability = randomBytes(32).toString('hex');
-  const environment = {
+  const environment = Object.freeze({
     ASTER_PHASE2_HARNESS_HEAD: before.head,
     ASTER_PHASE2_HARNESS_TREE: before.tree,
     ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
-  };
-  const code = await dependencies.execute(entryPath, arguments_, environment, runtime, capability);
-  if (code !== 0) {
+  });
+  return Object.freeze({ entryPath, environment, runtime });
+};
+
+const validateBatchCommands = (commands) => {
+  if (!Array.isArray(commands) || commands.length === 0 || commands.length > 8) {
     return fail();
   }
-  return code;
+  return Object.freeze(
+    commands.map((command) => {
+      if (
+        !Array.isArray(command) ||
+        command.length === 0 ||
+        command.some(
+          (value) =>
+            typeof value !== 'string' || /\p{Cc}/u.test(value) || Buffer.byteLength(value) > 4096
+        )
+      ) {
+        return fail();
+      }
+      return Object.freeze([...command]);
+    })
+  );
 };
+
+export const launchPhase2Batch = async (commands, dependencies = defaultDependencies) => {
+  const validated = validateBatchCommands(commands);
+  const { entryPath, environment, runtime } = await preparePhase2Runtime(dependencies);
+  const capabilities = new Set();
+  for (const command of validated) {
+    let capability;
+    do {
+      capability = randomBytes(32).toString('hex');
+    } while (capabilities.has(capability));
+    capabilities.add(capability);
+    const code = await dependencies.execute(entryPath, command, environment, runtime, capability);
+    if (code !== 0) {
+      return fail();
+    }
+  }
+  return 0;
+};
+
+export const launchPhase2 = async (arguments_, dependencies = defaultDependencies) =>
+  launchPhase2Batch([arguments_], dependencies);
 
 if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   try {
