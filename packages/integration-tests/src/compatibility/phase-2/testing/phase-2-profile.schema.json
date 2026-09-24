@@ -87,7 +87,12 @@
         "token-status.no-auth-rejected",
         "token-status.owner-access-revoked",
         "token-status.owner-access-inactive",
-        "token-status.owner-refresh-inactive"
+        "token-status.owner-refresh-inactive",
+        "token-status.missing-token-rejected",
+        "token-status.duplicate-token-rejected",
+        "token-status.dotted-unknown-inactive",
+        "token-status.unknown-extension-inactive",
+        "token-status.no-auth-precedes-missing-token"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

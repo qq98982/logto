@@ -171,6 +171,35 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
     json(null, 200, true),
     json({ active: false }),
     json({ active: false }),
+    json(
+      {
+        code: 'oidc.invalid_request',
+        message: 'Request is invalid.',
+        error: 'invalid_request',
+        error_description: "missing required parameter 'token'",
+      },
+      400
+    ),
+    json(
+      {
+        code: 'oidc.invalid_request',
+        message: 'Request is invalid.',
+        error: 'invalid_request',
+        error_description: "'token' parameter must not be provided twice",
+      },
+      400
+    ),
+    json({ active: false }),
+    json({ active: false }),
+    json(
+      {
+        code: 'oidc.invalid_request',
+        message: 'Request is invalid.',
+        error: 'invalid_request',
+        error_description: 'no client authentication mechanism provided',
+      },
+      400
+    ),
   ];
   let next = 0;
   const requests: string[] = [];
@@ -182,7 +211,7 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   }) as typeof fetch;
   const results = await runTokenStatusScenarios(profile, target, fixture, requestFetch);
   expect(results.map(({ id }) => id)).toEqual(tokenStatusScenarioIds);
-  expect(requests).toHaveLength(37);
+  expect(requests).toHaveLength(42);
   expect(results[4]?.projection.status).toBe(400);
   expect(results[5]?.projection.status).toBe(400);
   expect(results[6]?.projection.body?.active).toBe(true);
@@ -203,6 +232,17 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   });
   expect(results[14]?.projection.body).toEqual({ active: false });
   expect(results[15]?.projection.body).toEqual({ active: false });
+  expect(results[16]?.projection.body).toMatchObject({
+    error_description: "missing required parameter 'token'",
+  });
+  expect(results[17]?.projection.body).toMatchObject({
+    error_description: "'token' parameter must not be provided twice",
+  });
+  expect(results[18]?.projection.body).toEqual({ active: false });
+  expect(results[19]?.projection.body).toEqual({ active: false });
+  expect(results[20]?.projection.body).toMatchObject({
+    error_description: 'no client authentication mechanism provided',
+  });
   expect(JSON.stringify(results)).not.toMatch(
     /sentinel-access-credential|sentinel-initial-credential|sentinel-successor-credential|sentinel-second-access|sentinel-second-refresh|private-code/u
   );

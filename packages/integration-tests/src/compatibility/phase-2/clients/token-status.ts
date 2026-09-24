@@ -21,6 +21,7 @@ export type TokenStatusRequest = Readonly<{
   kind: TokenStatusKind;
   token: string;
   hint?: string;
+  wire?: 'ordinary' | 'missing-token' | 'duplicate-token' | 'unknown-extension';
   proof: TokenStatusProof;
   subjectId: string;
   ownerClientId: string;
@@ -98,6 +99,10 @@ export const observeTokenStatus = async (
     Object.getPrototypeOf(request) !== Object.prototype ||
     !['introspection', 'revocation'].includes(request.kind) ||
     typeof requestFetch !== 'function' ||
+    (request.wire !== undefined &&
+      !['ordinary', 'missing-token', 'duplicate-token', 'unknown-extension'].includes(
+        request.wire
+      )) ||
     (request.hint !== undefined &&
       (typeof request.hint !== 'string' || Buffer.byteLength(request.hint) > 256))
   ) {
@@ -113,7 +118,16 @@ export const observeTokenStatus = async (
     return fail();
   }
   const headers = new Headers({ 'content-type': 'application/x-www-form-urlencoded' });
-  const form = new URLSearchParams({ token });
+  const form = new URLSearchParams();
+  if (request.wire !== 'missing-token') {
+    form.append('token', token);
+  }
+  if (request.wire === 'duplicate-token') {
+    form.append('token', token);
+  }
+  if (request.wire === 'unknown-extension') {
+    form.append('x_aster_probe', 'ignored');
+  }
   if (request.hint !== undefined) {
     form.set('token_type_hint', request.hint);
   }

@@ -1,5 +1,10 @@
+/* eslint-disable max-lines -- The closed status registry and its ordered grant lifecycle are reviewed together. */
 import type { TargetConfig } from '../../model.js';
-import { observeTokenStatus, type TokenStatusProof } from '../clients/token-status.js';
+import {
+  observeTokenStatus,
+  type TokenStatusProof,
+  type TokenStatusRequest,
+} from '../clients/token-status.js';
 import { exchangePublicRefresh, issuePublicUserTokens } from '../clients/user-token-issuance.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2DifferentialScenarioId, Phase2ProfileRegistries } from '../profile.js';
@@ -22,6 +27,11 @@ export const tokenStatusScenarioIds = Object.freeze([
   'token-status.owner-access-revoked',
   'token-status.owner-access-inactive',
   'token-status.owner-refresh-inactive',
+  'token-status.missing-token-rejected',
+  'token-status.duplicate-token-rejected',
+  'token-status.dotted-unknown-inactive',
+  'token-status.unknown-extension-inactive',
+  'token-status.no-auth-precedes-missing-token',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type TokenStatusScenarioResult = Readonly<{
@@ -44,9 +54,12 @@ type ObservationPlan = Readonly<{
     | 'inactive'
     | 'revoked'
     | 'missing-authentication'
+    | 'missing-token'
+    | 'duplicate-token'
     | 'unsupported-introspection'
     | 'unsupported-revocation';
   hint?: string;
+  wire?: TokenStatusRequest['wire'];
   grant?: 'unchanged' | 'revoked';
 }>;
 
@@ -81,6 +94,20 @@ const matchesContract = (
         projection.status === 400 &&
         projection.body?.error === 'invalid_request' &&
         projection.body.error_description === 'no client authentication mechanism provided'
+      );
+    }
+    case 'missing-token': {
+      return (
+        projection.status === 400 &&
+        projection.body?.error === 'invalid_request' &&
+        projection.body.error_description === "missing required parameter 'token'"
+      );
+    }
+    case 'duplicate-token': {
+      return (
+        projection.status === 400 &&
+        projection.body?.error === 'invalid_request' &&
+        projection.body.error_description === "'token' parameter must not be provided twice"
       );
     }
     case 'unsupported-introspection':
@@ -121,6 +148,7 @@ export const runTokenStatusScenarios = async (
           kind: plan.kind ?? 'introspection',
           token: plan.token,
           ...(plan.hint === undefined ? {} : { hint: plan.hint }),
+          ...(plan.wire === undefined ? {} : { wire: plan.wire }),
           proof: plan.proof,
           subjectId: status.user.id,
           ownerClientId: status.client.id,
@@ -269,5 +297,47 @@ export const runTokenStatusScenarios = async (
       grant: 'revoked',
     }),
   ];
-  return Object.freeze([...publicResults, ...lifecycleResults, ...ownerRevocationResults]);
+  const formResults = [
+    await observe({
+      id: tokenStatusScenarioIds[16],
+      token: 'not-sent-token',
+      proof: publicProof,
+      expected: 'missing-token',
+      wire: 'missing-token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[17],
+      token: second.access,
+      proof: publicProof,
+      expected: 'duplicate-token',
+      wire: 'duplicate-token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[18],
+      token: 'phase2.unknown.token',
+      proof: publicProof,
+      expected: 'inactive',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[19],
+      token: second.access,
+      proof: publicProof,
+      expected: 'inactive',
+      wire: 'unknown-extension',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[20],
+      token: 'not-sent-token',
+      proof: { method: 'none' },
+      expected: 'missing-authentication',
+      wire: 'missing-token',
+    }),
+  ];
+  return Object.freeze([
+    ...publicResults,
+    ...lifecycleResults,
+    ...ownerRevocationResults,
+    ...formResults,
+  ]);
 };
+/* eslint-enable max-lines */

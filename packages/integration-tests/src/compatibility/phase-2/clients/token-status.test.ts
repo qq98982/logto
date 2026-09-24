@@ -117,6 +117,43 @@ describe('Phase 2 token-status HTTP client', () => {
     ).rejects.toThrow();
   });
 
+  it('sends exact missing, duplicate and unknown-extension forms without publishing the bearer', async () => {
+    const invalid = (description: string) => ({
+      code: 'oidc.invalid_request',
+      message: 'Request is invalid.',
+      error: 'invalid_request',
+      error_description: description,
+    });
+    const missing = await observeTokenStatus(
+      { ...request, wire: 'missing-token' },
+      async (_url, init) => {
+        expect((init?.body as URLSearchParams).getAll('token')).toEqual([]);
+        return response(invalid("missing required parameter 'token'"), 400);
+      }
+    );
+    expect(missing.body).toMatchObject({ error_description: "missing required parameter 'token'" });
+    const duplicate = await observeTokenStatus(
+      { ...request, wire: 'duplicate-token' },
+      async (_url, init) => {
+        expect((init?.body as URLSearchParams).getAll('token')).toEqual([
+          request.token,
+          request.token,
+        ]);
+        return response(invalid("'token' parameter must not be provided twice"), 400);
+      }
+    );
+    expect(duplicate.status).toBe(400);
+    const extension = await observeTokenStatus(
+      { ...request, wire: 'unknown-extension' },
+      async (_url, init) => {
+        expect((init?.body as URLSearchParams).get('x_aster_probe')).toBe('ignored');
+        return response({ active: false });
+      }
+    );
+    expect(extension.body).toEqual({ active: false });
+    expect(JSON.stringify([missing, duplicate, extension])).not.toContain(request.token);
+  });
+
   it('rejects a non-root target before sending credentials', async () => {
     let calls = 0;
     const fetcher: typeof fetch = async () => {

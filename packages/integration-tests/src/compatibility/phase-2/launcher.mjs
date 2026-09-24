@@ -49,6 +49,11 @@ const closedStatusScenarioIds = new Set([
   'owner-access-revoked',
   'owner-access-inactive',
   'owner-refresh-inactive',
+  'missing-token-rejected',
+  'duplicate-token-rejected',
+  'dotted-unknown-inactive',
+  'unknown-extension-inactive',
+  'no-auth-precedes-missing-token',
 ]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
@@ -65,7 +70,7 @@ export const diagnosticForPhase2Child = (stderr) => {
   if (statusMatch && closedStatusScenarioIds.has(statusMatch[2])) {
     return stderr;
   }
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-5])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-5])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|20)-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|20)-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
     /^Phase 2 client credentials command failed \(differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
