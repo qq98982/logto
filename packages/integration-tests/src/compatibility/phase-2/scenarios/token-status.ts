@@ -1,5 +1,5 @@
 import type { TargetConfig } from '../../model.js';
-import { observeTokenStatus } from '../clients/token-status.js';
+import { observeTokenStatus, type TokenStatusProof } from '../clients/token-status.js';
 import { issuePublicUserTokens } from '../clients/user-token-issuance.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2DifferentialScenarioId, Phase2ProfileRegistries } from '../profile.js';
@@ -7,6 +7,11 @@ import type { TokenStatusProjection } from '../projections/token-status.js';
 
 export const tokenStatusScenarioIds = Object.freeze([
   'token-status.public-access-active',
+  'token-status.public-refresh-active',
+  'token-status.access-wrong-hint-active',
+  'token-status.refresh-no-hint-active',
+  'token-status.foreign-basic-inactive',
+  'token-status.foreign-post-inactive',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type TokenStatusScenarioResult = Readonly<{
@@ -18,40 +23,112 @@ const fail = (): never => {
   throw new TypeError('Invalid Phase 2 token status scenario');
 };
 
+type ObservationPlan = Readonly<{
+  id: TokenStatusScenarioResult['id'];
+  token: string;
+  proof: TokenStatusProof;
+  expectedActive: boolean;
+  tokenType?: 'Bearer';
+  hint?: string;
+}>;
+
 export const runTokenStatusScenarios = async (
   profile: Phase2ProfileRegistries,
   target: TargetConfig,
   fixture: ProvisionedPhase2Fixture,
   requestFetch: typeof fetch = fetch
 ): Promise<readonly TokenStatusScenarioResult[]> => {
+  const tail = profile.differentialScenarios.slice(-tokenStatusScenarioIds.length);
   if (
-    profile.differentialScenarios.length !==
-      profile.differentialScenarios.indexOf(tokenStatusScenarioIds[0]) + 1 ||
-    profile.differentialScenarios.at(-1) !== tokenStatusScenarioIds[0]
+    tail.length !== tokenStatusScenarioIds.length ||
+    tail.some((id, index) => id !== tokenStatusScenarioIds[index])
   ) {
     return fail();
   }
   const status = fixture.status ?? fail();
   const tokens = await issuePublicUserTokens(target, fixture, requestFetch);
-  const projection = await observeTokenStatus(
-    {
-      target,
-      kind: 'introspection',
+  const publicProof = Object.freeze({ method: 'public' as const, clientId: status.client.id });
+  const observe = async (plan: ObservationPlan): Promise<TokenStatusScenarioResult> => {
+    try {
+      const projection = await observeTokenStatus(
+        {
+          target,
+          kind: 'introspection',
+          token: plan.token,
+          ...(plan.hint === undefined ? {} : { hint: plan.hint }),
+          proof: plan.proof,
+          subjectId: status.user.id,
+          ownerClientId: status.client.id,
+          grant: 'unchanged',
+        },
+        requestFetch
+      );
+      if (
+        projection.status !== 200 ||
+        projection.body?.active !== plan.expectedActive ||
+        (plan.expectedActive && projection.body.token_type !== plan.tokenType)
+      ) {
+        return fail();
+      }
+      return Object.freeze({ id: plan.id, projection });
+    } catch {
+      throw new Error('Phase 2 scenario failed: ' + target.label + '/' + plan.id);
+    }
+  };
+  const publicResults = [
+    await observe({
+      id: tokenStatusScenarioIds[0],
       token: tokens.access,
+      proof: publicProof,
+      expectedActive: true,
+      tokenType: 'Bearer',
       hint: 'access_token',
-      proof: { method: 'public', clientId: status.client.id },
-      subjectId: status.user.id,
-      ownerClientId: status.client.id,
-      grant: 'unchanged',
-    },
-    requestFetch
-  );
-  if (
-    projection.status !== 200 ||
-    projection.body?.active !== true ||
-    projection.body.token_type !== 'Bearer'
-  ) {
-    return fail();
-  }
-  return Object.freeze([{ id: tokenStatusScenarioIds[0], projection }]);
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[1],
+      token: tokens.refresh,
+      proof: publicProof,
+      expectedActive: true,
+      hint: 'refresh_token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[2],
+      token: tokens.access,
+      proof: publicProof,
+      expectedActive: true,
+      tokenType: 'Bearer',
+      hint: 'refresh_token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[3],
+      token: tokens.refresh,
+      proof: publicProof,
+      expectedActive: true,
+    }),
+  ];
+  const foreignResults = await fixture.withSecretLease(async (lease) => [
+    await observe({
+      id: tokenStatusScenarioIds[4],
+      token: tokens.access,
+      proof: {
+        method: 'basic',
+        clientId: fixture.public.clients.basic.id,
+        clientSecret: lease.getClientSecret('basic'),
+      },
+      expectedActive: false,
+      hint: 'access_token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[5],
+      token: tokens.access,
+      proof: {
+        method: 'post',
+        clientId: fixture.public.clients.post.id,
+        clientSecret: lease.getClientSecret('post'),
+      },
+      expectedActive: false,
+      hint: 'access_token',
+    }),
+  ]);
+  return Object.freeze([...publicResults, ...foreignResults]);
 };

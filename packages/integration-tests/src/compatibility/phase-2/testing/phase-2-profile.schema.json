@@ -72,7 +72,12 @@
         "client-credentials.duplicate-scope-name",
         "client-credentials.malformed-scope-whitespace",
         "client-credentials.unsupported-parameter",
-        "token-status.public-access-active"
+        "token-status.public-access-active",
+        "token-status.public-refresh-active",
+        "token-status.access-wrong-hint-active",
+        "token-status.refresh-no-hint-active",
+        "token-status.foreign-basic-inactive",
+        "token-status.foreign-post-inactive"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

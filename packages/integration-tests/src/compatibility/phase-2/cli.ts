@@ -61,6 +61,7 @@ import {
 } from './scenarios/client-credentials.js';
 import {
   runTokenStatusScenarios,
+  tokenStatusScenarioIds,
   type TokenStatusScenarioResult,
 } from './scenarios/token-status.js';
 
@@ -144,14 +145,14 @@ type TargetScenarioEvidence = Readonly<{
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+)$/u;
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
-  value === 'token-status.public-access-active';
+  (tokenStatusScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -515,6 +516,9 @@ const runTargetScenarios = async (
     try {
       statusScenarios = await runTokenStatusScenarios(profile, descriptor.target, fixture);
     } catch (error: unknown) {
+      if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
+        throw error;
+      }
       const step =
         error instanceof Error
           ? /^Invalid Phase 2 public user token issuance \((admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh))\)$/u.exec(

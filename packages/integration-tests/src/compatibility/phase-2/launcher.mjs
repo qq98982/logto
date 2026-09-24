@@ -32,6 +32,14 @@ const closedScenarioIds = new Set([
   'malformed-scope-whitespace',
   'unsupported-parameter',
 ]);
+const closedStatusScenarioIds = new Set([
+  'public-access-active',
+  'public-refresh-active',
+  'access-wrong-hint-active',
+  'refresh-no-hint-active',
+  'foreign-basic-inactive',
+  'foreign-post-inactive',
+]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
@@ -40,11 +48,11 @@ export const diagnosticForPhase2Child = (stderr) => {
   if (match && closedScenarioIds.has(match[2])) {
     return stderr;
   }
-  if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)\/token-status\.public-access-active\)\.\n$/u.test(
+  const statusMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/token-status\.([a-z-]+)\)\.\n$/u.exec(
       stderr
-    )
-  ) {
+    );
+  if (statusMatch && closedStatusScenarioIds.has(statusMatch[2])) {
     return stderr;
   }
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
