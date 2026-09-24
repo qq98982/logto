@@ -147,7 +147,7 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|10)-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -636,7 +636,8 @@ const executeDifferential = async (
             )
           : fail();
     if (found.length > 0) {
-      if (oracleScenario.id === 'token-status.public-access-active') {
+      const statusIndex = (tokenStatusScenarioIds as readonly string[]).indexOf(oracleScenario.id);
+      if (statusIndex >= 0) {
         const first =
           found.find(
             (path) =>
@@ -662,7 +663,10 @@ const executeDifferential = async (
           )
         ) {
           throw new Error(
-            'Phase 2 stage failed: candidate-status-comparison-' + first.slice(1).replace('/', '-')
+            'Phase 2 stage failed: candidate-status-case-' +
+              statusIndex +
+              '-' +
+              first.slice(1).replace('/', '-')
           );
         }
       }
