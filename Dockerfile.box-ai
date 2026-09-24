@@ -30,6 +30,7 @@ RUN pnpm --filter @logto/connector-wechat-web test \
   && pnpm --filter @logto/core build:test \
   && pnpm --filter @logto/core test:only \
     account.identities \
+    captcha-validator \
     koa-connector-error-handler \
     --runInBand
 
@@ -159,6 +160,9 @@ RUN set -eu; \
   test -n "${core_artifact}"; \
   test -s /etc/logto/packages/schemas/lib/index.js; \
   node --input-type=module -e "const schemas = await import('/etc/logto/packages/schemas/lib/index.js'); if (schemas.CaptchaPolicyScope?.PhoneVerificationCode !== 'PhoneVerificationCode') process.exit(1);"; \
+  aliyun_captcha_probe='/etc/logto/packages/core/build/runtime-probes/aliyun-captcha.js'; \
+  test -s "${aliyun_captcha_probe}"; \
+  node "${aliyun_captcha_probe}"; \
   test -s /etc/logto/packages/toolkit/connector-kit/lib/types/error.js; \
   test -s /etc/logto/packages/toolkit/connector-kit/lib/types/error.d.ts; \
   grep -Fq 'WeChatUnionIdRequired' /etc/logto/packages/toolkit/connector-kit/lib/types/error.js; \

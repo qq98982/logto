@@ -11,6 +11,8 @@ import { z } from 'zod';
 
 import { type LogEntry } from '#src/middleware/koa-audit-log.js';
 
+import { loadAliyunCaptchaRuntime } from './aliyun-captcha-sdk.js';
+
 function isRecaptchaEnterprise(
   config: CaptchaProvider['config']
 ): config is RecaptchaEnterpriseConfig {
@@ -42,26 +44,27 @@ const aliyunCaptchaConnectTimeout = 2000;
 const aliyunCaptchaReadTimeout = 3000;
 
 const verifyAliyunCaptchaWithSdk: VerifyAliyunCaptcha = async (config, captchaToken) => {
-  const [captchaSdk, { $OpenApiUtil }, $dara] = await Promise.all([
-    import('@alicloud/captcha20230305'),
-    import('@alicloud/openapi-core'),
-    import('@darabonba/typescript'),
-  ]);
-  const AliyunCaptchaClient = captchaSdk.default.default;
-  const client = new AliyunCaptchaClient(
-    new $OpenApiUtil.Config({
+  const {
+    CaptchaClient,
+    OpenApiConfig,
+    RetryOptions,
+    RuntimeOptions,
+    VerifyIntelligentCaptchaRequest,
+  } = await loadAliyunCaptchaRuntime();
+  const client = new CaptchaClient(
+    new OpenApiConfig({
       accessKeyId: config.accessKeyId,
       accessKeySecret: config.accessKeySecret,
       endpoint: 'captcha.cn-shanghai.aliyuncs.com',
       regionId: 'cn-shanghai',
-      retryOptions: new $dara.RetryOptions({ retryable: false }),
+      retryOptions: new RetryOptions({ retryable: false }),
     })
   );
-  const request = new captchaSdk.VerifyIntelligentCaptchaRequest({
+  const request = new VerifyIntelligentCaptchaRequest({
     captchaVerifyParam: captchaToken,
     sceneId: config.sceneId,
   });
-  const runtime = new $dara.RuntimeOptions({
+  const runtime = new RuntimeOptions({
     connectTimeout: aliyunCaptchaConnectTimeout,
     readTimeout: aliyunCaptchaReadTimeout,
   });

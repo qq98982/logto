@@ -17,15 +17,19 @@ const MockRuntimeOptions = jest.fn((values: Record<string, unknown>) => values);
 const MockCaptchaClient = jest.fn(() => ({ verifyIntelligentCaptchaWithOptions }));
 
 jest.unstable_mockModule('@alicloud/captcha20230305', () => ({
-  default: { default: MockCaptchaClient },
-  VerifyIntelligentCaptchaRequest: MockRequest,
+  default: {
+    default: MockCaptchaClient,
+    VerifyIntelligentCaptchaRequest: MockRequest,
+  },
 }));
 jest.unstable_mockModule('@alicloud/openapi-core', () => ({
-  $OpenApiUtil: { Config: MockConfig },
+  default: { $OpenApiUtil: { Config: MockConfig } },
 }));
 jest.unstable_mockModule('@darabonba/typescript', () => ({
-  RetryOptions: MockRetryOptions,
-  RuntimeOptions: MockRuntimeOptions,
+  default: {
+    RetryOptions: MockRetryOptions,
+    RuntimeOptions: MockRuntimeOptions,
+  },
 }));
 
 const { CaptchaValidator } = await import('./captcha-validator.js');
