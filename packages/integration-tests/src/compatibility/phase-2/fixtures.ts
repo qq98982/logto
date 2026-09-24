@@ -960,7 +960,10 @@ export const createReferencePhase2FixtureProvisioner = (
           request,
           'POST',
           `applications/${encodeURIComponent(statusClientId)}/user-consent-scopes`,
-          { userScopes: ['profile'], resourceScopes: [statusScopeId] },
+          {
+            userScopes: ['profile', 'email', 'address', 'phone'],
+            resourceScopes: [statusScopeId],
+          },
           [201],
           'status'
         );

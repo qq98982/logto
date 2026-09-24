@@ -150,6 +150,16 @@ describe('Phase 2 fixture lifecycle', () => {
       resource: { indicator: 'https://api.example.com' },
     });
     expect(Object.keys(fixture.public)).not.toContain('status');
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'applications/application-3/user-consent-scopes',
+        body: {
+          userScopes: ['profile', 'email', 'address', 'phone'],
+          resourceScopes: ['scope-4'],
+        },
+      })
+    );
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
