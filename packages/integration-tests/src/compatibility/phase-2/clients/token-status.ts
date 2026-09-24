@@ -24,6 +24,7 @@ export type TokenStatusRequest = Readonly<{
   proof: TokenStatusProof;
   subjectId: string;
   ownerClientId: string;
+  resourceScopeName: string;
   grant: 'unchanged' | 'revoked';
 }>;
 
@@ -106,6 +107,7 @@ export const observeTokenStatus = async (
   const token = text(request.token, 8192);
   const subjectId = text(request.subjectId);
   const ownerClientId = text(request.ownerClientId);
+  const resourceScopeName = text(request.resourceScopeName);
   const { proof } = request;
   if (nodeTypes.isProxy(proof) || !['basic', 'post', 'public', 'none'].includes(proof.method)) {
     return fail();
@@ -169,6 +171,7 @@ export const observeTokenStatus = async (
     body: parsed,
     subjectId,
     clientId: ownerClientId,
+    resourceScopeName,
     grant: request.grant,
   });
 };

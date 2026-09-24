@@ -35,6 +35,7 @@ const input = (
   headers: headers(kind, status),
   subjectId: 'subject-1',
   clientId: 'client-1',
+  resourceScopeName: target.label === 'oracle' ? 'read:profile' : 'read:profile_a_0123456789abcdef',
   grant: 'unchanged' as const,
 });
 
@@ -56,6 +57,30 @@ describe('token status black-box projection', () => {
     expect(compareTokenStatus(left, right)).toEqual([]);
     expect(JSON.stringify(left)).not.toMatch(/subject-1|client-1|localhost|iat":1000/u);
     expect(left.body).toMatchObject({ active: true, exp: { afterIssuedAtSeconds: 3600 } });
+  });
+
+  it('normalizes only the exact fixture-owned resource scope name', () => {
+    const left = projectTokenStatus(
+      input(oracle, 'introspection', {
+        ...active(oracle),
+        scope: 'openid offline_access profile read:profile',
+      })
+    );
+    const right = projectTokenStatus(
+      input(candidate, 'introspection', {
+        ...active(candidate),
+        scope: 'openid offline_access profile read:profile_a_0123456789abcdef',
+      })
+    );
+    expect(left.body?.scope).toBe('openid offline_access profile <resource-scope>');
+    expect(compareTokenStatus(left, right)).toEqual([]);
+    const wrong = projectTokenStatus(
+      input(candidate, 'introspection', {
+        ...active(candidate),
+        scope: 'openid offline_access profile read:profile_a_ffffffffffffffff',
+      })
+    );
+    expect(compareTokenStatus(left, wrong)).toContain('/body/scope');
   });
 
   it('retains status, scope, token kind and grant effects as material differences', () => {

@@ -16,6 +16,7 @@ const request: TokenStatusRequest = {
   proof: { method: 'basic', clientId: 'owner-id', clientSecret: 'private-secret' },
   subjectId: 'subject-id',
   ownerClientId: 'owner-id',
+  resourceScopeName: 'read:profile',
   grant: 'unchanged',
 };
 

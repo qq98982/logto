@@ -22,6 +22,7 @@ type StatusInput = Readonly<{
   body: unknown;
   subjectId: string;
   clientId: string;
+  resourceScopeName: string;
   grant: 'unchanged' | 'revoked';
 }>;
 
@@ -76,6 +77,9 @@ const comparedResponseHeaders = new Set([
 ]);
 
 export const projectTokenStatus = (input: StatusInput): TokenStatusProjection => {
+  if (!/^read:profile(?:_a_[0-9a-f]{16})?$/u.test(input.resourceScopeName)) {
+    return fail();
+  }
   const headers = record(input.headers);
   const selected: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
@@ -148,6 +152,13 @@ export const projectTokenStatus = (input: StatusInput): TokenStatusProjection =>
         ) {
           return fail();
         }
+        const scopes = scope.split(' ');
+        if (
+          scopes.some((name) => name.length === 0) ||
+          scopes.filter((name) => name === input.resourceScopeName).length > 1
+        ) {
+          return fail();
+        }
         body = Object.freeze({
           active: true,
           sub: '<subject>',
@@ -155,7 +166,9 @@ export const projectTokenStatus = (input: StatusInput): TokenStatusProjection =>
           exp: Object.freeze({ afterIssuedAtSeconds: (exp as number) - (iat as number) }),
           iat: '<issued-at>',
           iss: normalizedIssuer(input.target, iss),
-          scope,
+          scope: scopes
+            .map((name) => (name === input.resourceScopeName ? '<resource-scope>' : name))
+            .join(' '),
           ...(tokenType === undefined ? {} : { token_type: tokenType }),
         });
       } else {

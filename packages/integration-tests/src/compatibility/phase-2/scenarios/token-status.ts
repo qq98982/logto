@@ -111,6 +111,7 @@ export const runTokenStatusScenarios = async (
           proof: plan.proof,
           subjectId: status.user.id,
           ownerClientId: status.client.id,
+          resourceScopeName: status.resource.scopeName,
           grant: plan.grant ?? 'unchanged',
         },
         requestFetch
