@@ -1,4 +1,6 @@
 /* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- The fake Management API and coordinator journal intentionally model mutable partial-apply and rollback state. */
+import { createHash } from 'node:crypto';
+
 import type { TargetConfig } from '../model.js';
 import type {
   CommandRunnerRequest,
@@ -147,7 +149,7 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'application-3', redirectUri: 'http://localhost:3001/demo-app' },
-      resource: { indicator: 'https://api.example.com' },
+      resource: { indicator: 'https://api.example.com', scopeName: 'read:profile' },
     });
     expect(Object.keys(fixture.public)).not.toContain('status');
     expect(admin.calls).toContainEqual(
@@ -362,10 +364,15 @@ describe('Phase 2 fixture lifecycle', () => {
       basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
       post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
     });
+    const suffix = createHash('sha256').update('candidate-fixture').digest('hex').slice(0, 16);
     expect(fixture.status).toMatchObject({
       user: { id: 'zdata-user', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'phase1-browser', redirectUri: 'http://localhost:3001/demo-app' },
-      resource: { id: 'phase1-api', indicator: 'https://api.example.com' },
+      resource: {
+        id: 'phase1-api',
+        indicator: `https://api.example.com/?aster_fixture=${suffix}`,
+        scopeName: `read:profile_a_${suffix}`,
+      },
     });
     await fixture.withSecretLease(async (lease) => {
       expect(lease.getSubjectPassword?.()).toBe('c'.repeat(32));

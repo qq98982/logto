@@ -41,7 +41,7 @@ export type Phase2FixturePublic = Readonly<{
 export type Phase2StatusPublic = Readonly<{
   user: Readonly<{ id: string; username: string }>;
   client: Readonly<{ id: string; redirectUri: string }>;
-  resource: Readonly<{ id: string; indicator: string }>;
+  resource: Readonly<{ id: string; indicator: string; scopeName: string }>;
 }>;
 
 export type Phase2FixtureSecretLease = {
@@ -496,8 +496,17 @@ const referencePublicFixture = (
     boundary: Object.freeze({ primary: 'provisioned', foreign: 'unchanged' }),
   });
 
+const allocationSuffix = (allocationId: string): string =>
+  createHash('sha256').update(allocationId).digest('hex').slice(0, 16);
+
 const statusUsername = (allocationId: string): string =>
-  `phase1_user_a_${createHash('sha256').update(allocationId).digest('hex').slice(0, 16)}`;
+  `phase1_user_a_${allocationSuffix(allocationId)}`;
+
+const candidateStatusIndicator = (allocationId: string): string => {
+  const url = new URL(statusIndicator);
+  url.searchParams.set('aster_fixture', allocationSuffix(allocationId));
+  return url.toString();
+};
 
 const candidatePublicFixture = (allocationId: string): Phase2FixturePublic =>
   referencePublicFixture(allocationId, {
@@ -1006,7 +1015,11 @@ export const createReferencePhase2FixtureProvisioner = (
         const fixture = createFixture(publicFixture, state.secrets, state, {
           user: Object.freeze({ id: statusUserId, username }),
           client: Object.freeze({ id: statusClientId, redirectUri: statusRedirectUri }),
-          resource: Object.freeze({ id: statusResourceId, indicator: statusIndicator }),
+          resource: Object.freeze({
+            id: statusResourceId,
+            indicator: statusIndicator,
+            scopeName: 'read:profile',
+          }),
         });
         states.set(fixture as object, state);
         return fixture;
@@ -1340,7 +1353,11 @@ export const createCandidatePhase2FixtureProvisioner = (
         const fixture = createFixture(publicFixture, secrets, state, {
           user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
           client: Object.freeze({ id: 'phase1-browser', redirectUri: statusRedirectUri }),
-          resource: Object.freeze({ id: 'phase1-api', indicator: statusIndicator }),
+          resource: Object.freeze({
+            id: 'phase1-api',
+            indicator: candidateStatusIndicator(allocationId),
+            scopeName: `read:profile_a_${allocationSuffix(allocationId)}`,
+          }),
         });
         states.set(fixture as object, state);
         return fixture;

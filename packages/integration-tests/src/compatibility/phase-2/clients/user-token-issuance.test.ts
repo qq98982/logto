@@ -14,7 +14,7 @@ const fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'> = {
   status: {
     user: { id: 'user', username: 'status-user' },
     client: { id: 'public-client', redirectUri: 'https://client.example/callback' },
-    resource: { id: 'resource', indicator: 'https://api.example.com' },
+    resource: { id: 'resource', indicator: 'https://api.example.com', scopeName: 'read:profile' },
   },
   withSecretLease: async <Result>(
     use: (lease: Phase2FixtureSecretLease) => Promise<Result>
