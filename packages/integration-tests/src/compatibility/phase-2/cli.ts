@@ -146,7 +146,7 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body|grant))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -612,6 +612,12 @@ const executeDifferential = async (
             )
           : fail();
     if (found.length > 0) {
+      if (oracleScenario.id === 'token-status.public-access-active') {
+        const first = found[0];
+        if (typeof first === 'string' && /^\/(kind|status|headers|body|grant)$/u.test(first)) {
+          throw new Error('Phase 2 stage failed: candidate-status-comparison-' + first.slice(1));
+        }
+      }
       throw new Error('Phase 2 stage failed: candidate-comparison');
     }
     return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
