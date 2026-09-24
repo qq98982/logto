@@ -144,11 +144,12 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
       expect(() => JSON.stringify(lease)).toThrow('Phase 2 fixture operation failed');
     });
-    expect(fixture.public.status).toMatchObject({
+    expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'application-3', redirectUri: 'http://localhost:3001/demo-app' },
       resource: { indicator: 'https://api.example.com' },
     });
+    expect(Object.keys(fixture.public)).not.toContain('status');
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
@@ -351,7 +352,7 @@ describe('Phase 2 fixture lifecycle', () => {
       basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
       post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
     });
-    expect(fixture.public.status).toMatchObject({
+    expect(fixture.status).toMatchObject({
       user: { id: 'zdata-user', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'phase1-browser', redirectUri: 'http://localhost:3001/demo-app' },
       resource: { id: 'phase1-api', indicator: 'https://api.example.com' },

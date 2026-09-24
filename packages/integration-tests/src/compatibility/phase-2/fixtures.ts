@@ -32,15 +32,16 @@ export type Phase2FixturePublic = Readonly<{
     write: Readonly<{ id: string; name: 'write' }>;
     unassigned: Readonly<{ id: string; name: 'unassigned' }>;
   }>;
-  status?: Readonly<{
-    user: Readonly<{ id: string; username: string }>;
-    client: Readonly<{ id: string; redirectUri: string }>;
-    resource: Readonly<{ id: string; indicator: string }>;
-  }>;
   boundary: Readonly<{
     primary: 'provisioned';
     foreign: 'unchanged';
   }>;
+}>;
+
+export type Phase2StatusPublic = Readonly<{
+  user: Readonly<{ id: string; username: string }>;
+  client: Readonly<{ id: string; redirectUri: string }>;
+  resource: Readonly<{ id: string; indicator: string }>;
 }>;
 
 export type Phase2FixtureSecretLease = {
@@ -51,6 +52,7 @@ export type Phase2FixtureSecretLease = {
 
 export type ProvisionedPhase2Fixture = {
   readonly public: Phase2FixturePublic;
+  readonly status?: Phase2StatusPublic;
   withSecretLease<Result>(
     use: (lease: Phase2FixtureSecretLease) => Promise<Result>
   ): Promise<Result>;
@@ -329,11 +331,13 @@ const assertPairwiseTargets = (primary: TargetConfig, foreign: TargetConfig): vo
 const createFixture = (
   publicFixture: Phase2FixturePublic,
   secrets: Readonly<{ basic: string; post: string; subjectPassword: string }>,
-  state: FixtureState
+  state: FixtureState,
+  status: Phase2StatusPublic
 ): ProvisionedPhase2Fixture => {
   let leaseActive = false;
   const fixture = Object.freeze({
     public: publicFixture,
+    status,
     withSecretLease: async <Result>(
       use: (lease: Phase2FixtureSecretLease) => Promise<Result>
     ): Promise<Result> => {
@@ -471,10 +475,6 @@ const referencePublicFixture = (
     writeId: string;
     unassignedId: string;
     organizationId: string;
-    statusUserId: string;
-    statusClientId: string;
-    statusResourceId: string;
-    statusUsername: string;
   }>
 ): Phase2FixturePublic =>
   Object.freeze({
@@ -493,11 +493,6 @@ const referencePublicFixture = (
       write: Object.freeze({ id: values.writeId, name: 'write' }),
       unassigned: Object.freeze({ id: values.unassignedId, name: 'unassigned' }),
     }),
-    status: Object.freeze({
-      user: Object.freeze({ id: values.statusUserId, username: values.statusUsername }),
-      client: Object.freeze({ id: values.statusClientId, redirectUri: statusRedirectUri }),
-      resource: Object.freeze({ id: values.statusResourceId, indicator: statusIndicator }),
-    }),
     boundary: Object.freeze({ primary: 'provisioned', foreign: 'unchanged' }),
   });
 
@@ -514,10 +509,6 @@ const candidatePublicFixture = (allocationId: string): Phase2FixturePublic =>
     writeId: 'write-scope',
     unassignedId: 'unassigned-scope',
     organizationId: 'phase2-org',
-    statusUserId: 'zdata-user',
-    statusClientId: 'phase1-browser',
-    statusResourceId: 'phase1-api',
-    statusUsername: statusUsername(allocationId),
   });
 
 const referenceOwnedDefinitions = (allocationId: string) => {
@@ -1008,12 +999,12 @@ export const createReferencePhase2FixtureProvisioner = (
           writeId: write.id,
           unassignedId: unassigned.id,
           organizationId,
-          statusUserId,
-          statusClientId,
-          statusResourceId,
-          statusUsername: username,
         });
-        const fixture = createFixture(publicFixture, state.secrets, state);
+        const fixture = createFixture(publicFixture, state.secrets, state, {
+          user: Object.freeze({ id: statusUserId, username }),
+          client: Object.freeze({ id: statusClientId, redirectUri: statusRedirectUri }),
+          resource: Object.freeze({ id: statusResourceId, indicator: statusIndicator }),
+        });
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {
@@ -1343,7 +1334,11 @@ export const createCandidatePhase2FixtureProvisioner = (
         }
         state.coordinatorPublic = validateCoordinatorPublic(own(result, 'public'), allocationId);
         const publicFixture = candidatePublicFixture(allocationId);
-        const fixture = createFixture(publicFixture, secrets, state);
+        const fixture = createFixture(publicFixture, secrets, state, {
+          user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
+          client: Object.freeze({ id: 'phase1-browser', redirectUri: statusRedirectUri }),
+          resource: Object.freeze({ id: 'phase1-api', indicator: statusIndicator }),
+        });
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {
