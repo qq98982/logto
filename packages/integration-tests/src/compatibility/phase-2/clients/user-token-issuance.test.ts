@@ -109,7 +109,7 @@ describe('Phase 2 public user token issuance transport', () => {
       response: response(200, { redirectTo: 'https://foreign.example/steal' }),
     });
     await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
-      'Invalid Phase 2 public user token issuance'
+      'Invalid Phase 2 public user token issuance (bridge)'
     );
     expect(transport.requests).toHaveLength(5);
   });
@@ -120,7 +120,7 @@ describe('Phase 2 public user token issuance transport', () => {
       response: response(200, { access_token: 'private-access', token_type: 'Bearer' }),
     });
     await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
-      'Invalid Phase 2 public user token issuance'
+      'Invalid Phase 2 public user token issuance (token)'
     );
   });
 });

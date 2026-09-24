@@ -117,6 +117,7 @@ export const issuePublicUserTokens = async (
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   requestFetch: typeof fetch = fetch
 ): Promise<IssuedPublicUserTokens> => {
+  let stage = 'admission';
   try {
     const target = validateTargetConfig(targetInput);
     const status = fixture.status ?? fail();
@@ -161,7 +162,9 @@ export const issuePublicUserTokens = async (
       code_challenge: challenge,
       code_challenge_method: 'S256',
     }).toString();
+    stage = 'authorization';
     await discard(await requireStatus(await send(authorization, 'GET'), 303));
+    stage = 'bootstrap';
     await fixture.withSecretLease(async (lease) => {
       const password = bounded(lease.getSubjectPassword?.() ?? fail(), 256);
       await discard(
@@ -170,6 +173,7 @@ export const issuePublicUserTokens = async (
           204
         )
       );
+      stage = 'verification';
       const verification = await jsonBody(
         await requireStatus(
           await send(endpoint('/api/experience/verification/password'), 'POST', {
@@ -180,6 +184,7 @@ export const issuePublicUserTokens = async (
         )
       );
       const verificationId = bounded(verification.verificationId, 4096);
+      stage = 'identification';
       await discard(
         await requireStatus(
           await send(endpoint('/api/experience/identification'), 'POST', { verificationId }),
@@ -187,20 +192,25 @@ export const issuePublicUserTokens = async (
         )
       );
     });
+    stage = 'submit';
     const submitted = await jsonBody(
       await requireStatus(await send(endpoint('/api/experience/submit'), 'POST'), 200)
     );
+    stage = 'bridge';
     const bridge = await requireStatus(
       await send(localRedirect(submitted.redirectTo, origin), 'GET'),
       303
     );
     await bridge.body?.cancel();
+    stage = 'consent-read';
     await discard(
       await requireStatus(await send(endpoint('/api/interaction/consent'), 'GET'), 200)
     );
+    stage = 'consent-write';
     const consent = await jsonBody(
       await requireStatus(await send(endpoint('/api/interaction/consent'), 'POST', {}), 200)
     );
+    stage = 'resume';
     const resumed = await requireStatus(
       await send(localRedirect(consent.redirectTo, origin), 'GET'),
       303
@@ -211,6 +221,7 @@ export const issuePublicUserTokens = async (
       return fail();
     }
     const code = bounded(location.searchParams.get('code'), 4096);
+    stage = 'token';
     const issued = await jsonBody(
       await requireStatus(
         await send(
@@ -237,7 +248,7 @@ export const issuePublicUserTokens = async (
     }
     return Object.freeze({ access, refresh, toJSON: (): never => fail() });
   } catch {
-    return fail();
+    throw new TypeError(diagnostic + ' (' + stage + ')');
   }
 };
 /* eslint-enable complexity, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

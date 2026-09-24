@@ -484,6 +484,23 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('reports a bounded public status stage without printing its private exception', async () => {
+    const calls: string[] = [];
+    const output = path.join(root, 'phase-2-client-credentials-oracle.json');
+    const code = await runPhase2CliMain(oracleArguments(output), undefined, {
+      ...dependencies(calls),
+      executeOracle: async () => {
+        throw new Error('Phase 2 stage failed: oracle-status-verification: private credential');
+      },
+    });
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-status-verification).'
+    );
+    expect(calls.join(' ')).not.toContain('private credential');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('identifies a fixed fixture failure stage without printing its private exception', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');
     const calls: string[] = [];

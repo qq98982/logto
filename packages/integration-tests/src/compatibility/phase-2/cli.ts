@@ -146,7 +146,7 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison)(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token|introspection))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -514,14 +514,23 @@ const runTargetScenarios = async (
     let statusScenarios: readonly TokenStatusScenarioResult[];
     try {
       statusScenarios = await runTokenStatusScenarios(profile, descriptor.target, fixture);
-    } catch {
+    } catch (error: unknown) {
+      const step =
+        error instanceof Error
+          ? /^Invalid Phase 2 public user token issuance \((admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token)\)$/u.exec(
+              error.message
+            )?.[1]
+          : undefined;
       throw new Error(
-        'Phase 2 scenario failed: ' + descriptor.kind + '/token-status.public-access-active'
+        'Phase 2 stage failed: ' + descriptor.kind + '-status-' + (step ?? 'introspection')
       );
     }
     return Object.freeze([...results, ...statusScenarios]);
   }).catch((error: unknown) => {
-    if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
+    if (
+      error instanceof Error &&
+      (scenarioFailurePattern.test(error.message) || stageFailurePattern.test(error.message))
+    ) {
       throw error;
     }
     throw new Error(`Phase 2 stage failed: ${descriptor.kind}-fixture`);

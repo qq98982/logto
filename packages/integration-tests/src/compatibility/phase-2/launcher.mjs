@@ -47,7 +47,7 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison)\)\.\n$/u.test(
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token|introspection))\)\.\n$/u.test(
     stderr
   ) ||
     /^Phase 2 client credentials command failed \(differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
