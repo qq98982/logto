@@ -198,11 +198,16 @@ export const issuePublicUserTokens = async (
     const submitted = await jsonBody(
       await requireStatus(await send(endpoint('/api/experience/submit'), 'POST'), 200)
     );
-    stage = 'bridge';
-    const bridge = await requireStatus(
-      await send(localRedirect(submitted.redirectTo, origin), 'GET'),
-      303
-    );
+    stage = 'bridge-url';
+    const bridgeUrl = localRedirect(submitted.redirectTo, origin);
+    stage = 'bridge-send';
+    const bridgeResponse = await send(bridgeUrl, 'GET');
+    stage =
+      'bridge-http-' +
+      ([200, 302, 303, 400, 404].includes(bridgeResponse.status)
+        ? String(bridgeResponse.status)
+        : 'other');
+    const bridge = await requireStatus(bridgeResponse, 303);
     await bridge.body?.cancel();
     stage = 'consent-read';
     await discard(

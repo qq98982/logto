@@ -139,7 +139,7 @@ describe('Phase 2 public user token issuance transport', () => {
       response: response(200, { redirectTo: 'https://foreign.example/steal' }),
     });
     await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
-      'Invalid Phase 2 public user token issuance (bridge)'
+      'Invalid Phase 2 public user token issuance (bridge-url)'
     );
     expect(transport.requests).toHaveLength(5);
   });
@@ -151,6 +151,16 @@ describe('Phase 2 public user token issuance transport', () => {
     });
     await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
       'Invalid Phase 2 public user token issuance (token-refresh)'
+    );
+  });
+
+  it('classifies only a fixed bridge HTTP status without reflecting its body', async () => {
+    const transport = flow({
+      step: 5,
+      response: response(200, { private: 'do-not-reflect' }),
+    });
+    await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
+      'Invalid Phase 2 public user token issuance (bridge-http-200)'
     );
   });
 });
