@@ -140,6 +140,8 @@ const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+)$/u;
+const stageFailurePattern =
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison)(?::.*)?$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
@@ -502,6 +504,11 @@ const runTargetScenarios = async (
       }
     }
     return Object.freeze(results);
+  }).catch((error: unknown) => {
+    if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
+      throw error;
+    }
+    throw new Error(`Phase 2 stage failed: ${descriptor.kind}-fixture`);
   });
   const success = scenarios.find(
     ({ id }) => id === 'client-credentials.organization-resource-scope'
@@ -512,12 +519,19 @@ const runTargetScenarios = async (
   if (!success || !authenticationError) {
     return fail();
   }
-  const discovery = await projectDiscovery(descriptor, profile);
-  const controls = runClientCredentialsNegativeControls({
-    success,
-    authenticationError,
-    discoveryGrantTypes: discovery.grantTypesSupported,
+  const discovery = await projectDiscovery(descriptor, profile).catch(() => {
+    throw new Error(`Phase 2 stage failed: ${descriptor.kind}-discovery`);
   });
+  let controls: readonly ClientCredentialsControlResult[];
+  try {
+    controls = runClientCredentialsNegativeControls({
+      success,
+      authenticationError,
+      discoveryGrantTypes: discovery.grantTypesSupported,
+    });
+  } catch {
+    throw new Error(`Phase 2 stage failed: ${descriptor.kind}-controls`);
+  }
   const evidence = Object.freeze({
     target: descriptor.kind,
     scenarios,
@@ -568,7 +582,7 @@ const executeDifferential = async (
       candidateScenario.projection
     );
     if (found.length > 0) {
-      return fail();
+      throw new Error('Phase 2 stage failed: candidate-comparison');
     }
     return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
   });
@@ -797,13 +811,16 @@ export const runPhase2CliMain = async (
     return 0;
   } catch (error: unknown) {
     const match = error instanceof Error ? scenarioFailurePattern.exec(error.message) : null;
+    const stage = error instanceof Error ? stageFailurePattern.exec(error.message) : null;
     await safeWrite(
       dependencies.stderr,
       error instanceof TypeError && error.message === invalidArguments.trim()
         ? invalidArguments
         : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
-          : runFailure
+          : stage?.[1] && stage[2]
+            ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
+            : runFailure
     );
     return 1;
   }

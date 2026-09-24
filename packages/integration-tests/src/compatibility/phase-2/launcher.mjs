@@ -36,7 +36,12 @@ export const diagnosticForPhase2Child = (stderr) => {
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
       stderr
     );
-  return match && closedScenarioIds.has(match[2]) ? stderr : diagnostic;
+  if (match && closedScenarioIds.has(match[2])) return stderr;
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison)\)\.\n$/u.test(
+    stderr
+  )
+    ? stderr
+    : diagnostic;
 };
 const maximumModuleBytes = 16 * 1024 * 1024;
 const maximumModules = 512;

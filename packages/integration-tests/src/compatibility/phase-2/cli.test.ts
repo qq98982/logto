@@ -484,6 +484,41 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('identifies a fixed fixture failure stage without printing its private exception', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-target',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw new Error('Phase 2 stage failed: candidate-fixture: private credential value');
+        },
+      }
+    );
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate-fixture).'
+    );
+    expect(calls.join(' ')).not.toContain('private credential value');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('does not publish when owned session-root removal fails', async () => {
     const output = path.join(root, 'phase-2-client-credentials-oracle.json');
     const calls: string[] = [];

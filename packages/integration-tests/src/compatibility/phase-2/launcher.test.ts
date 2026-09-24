@@ -37,6 +37,12 @@ describe('Phase 2 tracked launcher', () => {
         'Phase 2 client credentials command failed (candidate/client-credentials.injected-secret).\n'
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
+      diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-fixture).\n')
+    ).toBe('Phase 2 client credentials command failed (candidate-fixture).\n');
+    expect(
+      diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-private).\n')
+    ).toBe('Phase 2 client credentials launcher failed.\n');
   });
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
