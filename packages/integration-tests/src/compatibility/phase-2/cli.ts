@@ -146,7 +146,7 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -581,6 +581,26 @@ const executeOracle = async (
   return Object.freeze({ schemaVersion: 1, mode: 'oracle', target });
 };
 
+const statusScopeClass = (value: unknown): 'short' | 'full' | 'resource' | 'offline' | 'other' => {
+  switch (value) {
+    case 'openid profile': {
+      return 'short';
+    }
+    case 'openid profile email address phone': {
+      return 'full';
+    }
+    case 'openid profile email address phone read:profile': {
+      return 'resource';
+    }
+    case 'openid offline_access profile email address phone': {
+      return 'offline';
+    }
+    default: {
+      return 'other';
+    }
+  }
+};
+
 const executeDifferential = async (
   input: Readonly<{
     profile: Phase2ProfileRegistries;
@@ -619,6 +639,18 @@ const executeDifferential = async (
               typeof path === 'string' &&
               /^\/body\/(sub|client_id|exp|iat|iss|scope|token_type)$/u.test(path)
           ) ?? found[0];
+        if (
+          first === '/body/scope' &&
+          'kind' in oracleScenario.projection &&
+          'kind' in candidateScenario.projection
+        ) {
+          throw new Error(
+            'Phase 2 stage failed: candidate-status-scope-' +
+              statusScopeClass(oracleScenario.projection.body?.scope) +
+              '-' +
+              statusScopeClass(candidateScenario.projection.body?.scope)
+          );
+        }
         if (
           typeof first === 'string' &&
           /^\/(kind|status|headers|body(?:\/(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)$/u.test(
