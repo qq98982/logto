@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- Negative controls deliberately forge forbidden public provenance fields. */
+import type { JsonValue } from '../normalize.js';
+
 import { createPhase2EvidenceEnvelope, type Phase2TargetProvenance } from './envelope.js';
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from './profile.js';
 import type { Phase2SourceIdentity } from './provenance.js';
+import { assertDiscoveryEndpointFieldsContract } from './scenarios/client-credentials.js';
 
 const profile: Phase2ProfileRegistries = {
   ...phase2ExpectedProfileAuthority,
@@ -45,6 +48,33 @@ const target = (kind: 'oracle' | 'candidate'): Phase2TargetProvenance => ({
 });
 
 describe('Phase 2 public provenance envelope', () => {
+  it('publishes both targets after projecting discovery from one closed profile', () => {
+    const endpointFields = profile.discovery.endpointFieldsAppend;
+    const projected = (issuer: string) =>
+      assertDiscoveryEndpointFieldsContract(
+        {
+          introspection_endpoint: `${issuer}/token/introspection`,
+          revocation_endpoint: `${issuer}/token/revocation`,
+        },
+        endpointFields,
+        issuer
+      );
+    const value = createPhase2EvidenceEnvelope({
+      mode: 'differential',
+      profile,
+      harness,
+      oracle: target('oracle'),
+      candidate: target('candidate'),
+      payload: {
+        oracle: { discovery: { endpointFieldsAppend: projected('https://oracle.example/oidc') } },
+        candidate: {
+          discovery: { endpointFieldsAppend: projected('https://candidate.example/oidc') },
+        },
+      } as unknown as JsonValue,
+    });
+    expect(value.sanitizerSuccess).toBe(true);
+  });
+
   it('publishes only semantic provenance and enforces mode bindings', () => {
     const value = createPhase2EvidenceEnvelope({
       mode: 'differential',
