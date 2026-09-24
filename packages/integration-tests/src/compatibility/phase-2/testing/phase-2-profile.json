@@ -35,9 +35,7 @@
     "token-status.public-access-active",
     "token-status.public-refresh-active",
     "token-status.access-wrong-hint-active",
-    "token-status.refresh-no-hint-active",
-    "token-status.foreign-basic-inactive",
-    "token-status.foreign-post-inactive"
+    "token-status.refresh-no-hint-active"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",

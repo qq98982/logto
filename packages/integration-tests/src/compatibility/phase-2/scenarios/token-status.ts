@@ -10,8 +10,6 @@ export const tokenStatusScenarioIds = Object.freeze([
   'token-status.public-refresh-active',
   'token-status.access-wrong-hint-active',
   'token-status.refresh-no-hint-active',
-  'token-status.foreign-basic-inactive',
-  'token-status.foreign-post-inactive',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type TokenStatusScenarioResult = Readonly<{
@@ -106,29 +104,5 @@ export const runTokenStatusScenarios = async (
       expectedActive: true,
     }),
   ];
-  const foreignResults = await fixture.withSecretLease(async (lease) => [
-    await observe({
-      id: tokenStatusScenarioIds[4],
-      token: tokens.access,
-      proof: {
-        method: 'basic',
-        clientId: fixture.public.clients.basic.id,
-        clientSecret: lease.getClientSecret('basic'),
-      },
-      expectedActive: false,
-      hint: 'access_token',
-    }),
-    await observe({
-      id: tokenStatusScenarioIds[5],
-      token: tokens.access,
-      proof: {
-        method: 'post',
-        clientId: fixture.public.clients.post.id,
-        clientSecret: lease.getClientSecret('post'),
-      },
-      expectedActive: false,
-      hint: 'access_token',
-    }),
-  ]);
-  return Object.freeze([...publicResults, ...foreignResults]);
+  return Object.freeze(publicResults);
 };

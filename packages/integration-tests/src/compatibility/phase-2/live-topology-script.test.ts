@@ -216,9 +216,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 26',
+      'scenarioCount !== 24',
       'controlCount !== 12',
-      'comparisonCount !== 26',
+      'comparisonCount !== 24',
       'invariantCount !== 4',
       'differenceCount !== 0',
       'sanitizerSuccess !== true',

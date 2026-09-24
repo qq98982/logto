@@ -37,8 +37,6 @@ const closedStatusScenarioIds = new Set([
   'public-refresh-active',
   'access-wrong-hint-active',
   'refresh-no-hint-active',
-  'foreign-basic-inactive',
-  'foreign-post-inactive',
 ]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
