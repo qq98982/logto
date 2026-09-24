@@ -43,9 +43,9 @@ describe('Phase 2 profile loader', () => {
       schemaPath: canonicalSchemaPath,
     });
 
-    expect(registries.differentialScenarios).toHaveLength(24);
+    expect(registries.differentialScenarios).toHaveLength(31);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
-    expect(registries.differentialScenarios[23]).toBe('token-status.refresh-no-hint-active');
+    expect(registries.differentialScenarios[30]).toBe('token-status.original-access-inactive');
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
       'client-credentials.cross-tenant-authority-rejected',
@@ -67,10 +67,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      'c1fb2c81308844a0575c1a80057cffc5af0eafe460b9c34bb5af6d53be46e7e5'
+      '6b11f00a7ded06547c2ceea3754b7517e3890ed605738d1dea2b8d94b0ed230d'
     );
     expect(registries.schemaSha256).toBe(
-      '47e4ab2cbee860e4dac83d1a52072ccfcd2559837d6c1f08a7216e67f40453a8'
+      '54b1419cb4bc71183f36a023079e31bc62d8325998fb8f2df2ef760d8732af05'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

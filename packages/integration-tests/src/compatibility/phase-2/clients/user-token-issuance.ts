@@ -255,4 +255,45 @@ export const issuePublicUserTokens = async (
     throw new TypeError(diagnostic + ' (' + stage + ')');
   }
 };
+
+export const exchangePublicRefresh = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status'>,
+  refreshToken: string,
+  options: Readonly<{ resource: boolean; fetch?: typeof fetch }>
+): Promise<IssuedPublicUserTokens> => {
+  try {
+    const target = validateTargetConfig(targetInput);
+    const status = fixture.status ?? fail();
+    const requestFetch = options.fetch ?? fetch;
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: bounded(refreshToken),
+      client_id: status.client.id,
+      ...(options.resource ? { resource: status.resource.indicator } : {}),
+    });
+    const response = await requireStatus(
+      await requestFetch(new URL('/oidc/token', target.coreUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
+      }),
+      200
+    );
+    const issued = await jsonBody(response);
+    if (issued.token_type !== 'Bearer') {
+      return fail();
+    }
+    const access = bounded(issued.access_token);
+    const refresh = bounded(issued.refresh_token);
+    if (access === refresh || (options.resource && access.split('.').length !== 3)) {
+      return fail();
+    }
+    return Object.freeze({ access, refresh, toJSON: (): never => fail() });
+  } catch {
+    return fail();
+  }
+};
 /* eslint-enable complexity, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

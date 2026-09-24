@@ -900,14 +900,14 @@ checkTopology(invariants.provenance.candidate, 'candidate', candidateCommit, can
 const oracleScenarios = oracle.payload?.target?.scenarios;
 const scenarioCount = oracleScenarios?.length;
 const controlCount = oracle.payload?.target?.controls?.length;
-if (scenarioCount !== 24 || controlCount !== 12 ||
+if (scenarioCount !== 31 || controlCount !== 12 ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
-  if (side?.scenarios?.length !== 24 || side?.controls?.length !== 12 ||
+  if (side?.scenarios?.length !== 31 || side?.controls?.length !== 12 ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 }
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 24 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
+if (comparisonCount !== 31 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
 if (invariantCount !== 4 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
     invariants.payload.invariants.some(({positiveControl, negativeControl}) =>

@@ -2,7 +2,7 @@
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
-import { issuePublicUserTokens } from './user-token-issuance.js';
+import { exchangePublicRefresh, issuePublicUserTokens } from './user-token-issuance.js';
 
 const target: TargetConfig = {
   label: 'candidate',
@@ -65,6 +65,34 @@ const flow = (
 };
 
 describe('Phase 2 public user token issuance transport', () => {
+  it('rotates a public refresh credential for the fixture resource without exposing it', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      requests.push({ url: String(input), init: init ?? {} });
+      return response(200, {
+        access_token: 'header.payload.signature',
+        refresh_token: 'private-rotated-refresh',
+        token_type: 'Bearer',
+      });
+    }) as typeof fetch;
+    const tokens = await exchangePublicRefresh(target, fixture, 'private-original-refresh', {
+      resource: true,
+      fetch: requestFetch,
+    });
+    expect(tokens.access).toBe('header.payload.signature');
+    expect(tokens.refresh).toBe('private-rotated-refresh');
+    expect(() => JSON.stringify(tokens)).toThrow('Invalid Phase 2 public user token issuance');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe('https://candidate.example/oidc/token');
+    expect(Object.fromEntries(new URLSearchParams(String(requests[0]?.init.body)))).toEqual({
+      grant_type: 'refresh_token',
+      refresh_token: 'private-original-refresh',
+      client_id: 'public-client',
+      resource: 'https://api.example.com',
+    });
+    expect(new Headers(requests[0]?.init.headers).has('authorization')).toBe(false);
+  });
+
   it('issues opaque access and refresh through password, consent and public PKCE', async () => {
     const transport = flow();
     const tokens = await issuePublicUserTokens(target, fixture, transport.fetch);

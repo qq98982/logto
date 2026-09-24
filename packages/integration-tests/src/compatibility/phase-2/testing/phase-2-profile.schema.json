@@ -75,7 +75,14 @@
         "token-status.public-access-active",
         "token-status.public-refresh-active",
         "token-status.access-wrong-hint-active",
-        "token-status.refresh-no-hint-active"
+        "token-status.refresh-no-hint-active",
+        "token-status.resource-jwt-introspection-rejected",
+        "token-status.resource-jwt-revocation-rejected",
+        "token-status.consumed-refresh-active",
+        "token-status.rotated-refresh-active",
+        "token-status.consumed-refresh-revoked",
+        "token-status.rotated-refresh-inactive",
+        "token-status.original-access-inactive"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

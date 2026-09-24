@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'c1fb2c81308844a0575c1a80057cffc5af0eafe460b9c34bb5af6d53be46e7e5';
-const expectedSchemaSha256 = '47e4ab2cbee860e4dac83d1a52072ccfcd2559837d6c1f08a7216e67f40453a8';
+const expectedProfileSha256 = '6b11f00a7ded06547c2ceea3754b7517e3890ed605738d1dea2b8d94b0ed230d';
+const expectedSchemaSha256 = '54b1419cb4bc71183f36a023079e31bc62d8325998fb8f2df2ef760d8732af05';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -50,6 +50,13 @@ const differentialScenarioIds = [
   'token-status.public-refresh-active',
   'token-status.access-wrong-hint-active',
   'token-status.refresh-no-hint-active',
+  'token-status.resource-jwt-introspection-rejected',
+  'token-status.resource-jwt-revocation-rejected',
+  'token-status.consumed-refresh-active',
+  'token-status.rotated-refresh-active',
+  'token-status.consumed-refresh-revoked',
+  'token-status.rotated-refresh-inactive',
+  'token-status.original-access-inactive',
 ] as const;
 const candidateInvariantIds = [
   'client-credentials.cross-tenant-authority-rejected',

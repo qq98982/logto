@@ -37,6 +37,13 @@ const closedStatusScenarioIds = new Set([
   'public-refresh-active',
   'access-wrong-hint-active',
   'refresh-no-hint-active',
+  'resource-jwt-introspection-rejected',
+  'resource-jwt-revocation-rejected',
+  'consumed-refresh-active',
+  'rotated-refresh-active',
+  'consumed-refresh-revoked',
+  'rotated-refresh-inactive',
+  'original-access-inactive',
 ]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
