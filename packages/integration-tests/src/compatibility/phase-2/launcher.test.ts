@@ -94,8 +94,10 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (oracle/token-status.public-access-active).\n'
     );
     expect(
-      diagnosticForPhase2Child('Phase 2 client credentials command failed (oracle-status-token).\n')
-    ).toBe('Phase 2 client credentials command failed (oracle-status-token).\n');
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (oracle-status-token-http).\n'
+      )
+    ).toBe('Phase 2 client credentials command failed (oracle-status-token-http).\n');
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (differential-private).\n'

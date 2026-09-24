@@ -221,27 +221,30 @@ export const issuePublicUserTokens = async (
       return fail();
     }
     const code = bounded(location.searchParams.get('code'), 4096);
-    stage = 'token';
-    const issued = await jsonBody(
-      await requireStatus(
-        await send(
-          endpoint('/oidc/token'),
-          'POST',
-          new URLSearchParams({
-            grant_type: 'authorization_code',
-            code,
-            code_verifier: verifier,
-            redirect_uri: status.client.redirectUri,
-            client_id: status.client.id,
-          })
-        ),
-        200
-      )
+    stage = 'token-http';
+    const tokenResponse = await requireStatus(
+      await send(
+        endpoint('/oidc/token'),
+        'POST',
+        new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          code_verifier: verifier,
+          redirect_uri: status.client.redirectUri,
+          client_id: status.client.id,
+        })
+      ),
+      200
     );
+    stage = 'token-body';
+    const issued = await jsonBody(tokenResponse);
+    stage = 'token-type';
     if (issued.token_type !== 'Bearer') {
       return fail();
     }
+    stage = 'token-access';
     const access = bounded(issued.access_token);
+    stage = 'token-refresh';
     const refresh = bounded(issued.refresh_token);
     if (access === refresh) {
       return fail();

@@ -146,7 +146,7 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token|introspection))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -517,7 +517,7 @@ const runTargetScenarios = async (
     } catch (error: unknown) {
       const step =
         error instanceof Error
-          ? /^Invalid Phase 2 public user token issuance \((admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token)\)$/u.exec(
+          ? /^Invalid Phase 2 public user token issuance \((admission|authorization|bootstrap|verification|identification|submit|bridge|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh))\)$/u.exec(
               error.message
             )?.[1]
           : undefined;

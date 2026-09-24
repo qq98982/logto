@@ -120,7 +120,7 @@ describe('Phase 2 public user token issuance transport', () => {
       response: response(200, { access_token: 'private-access', token_type: 'Bearer' }),
     });
     await expect(issuePublicUserTokens(target, fixture, transport.fetch)).rejects.toThrow(
-      'Invalid Phase 2 public user token issuance (token)'
+      'Invalid Phase 2 public user token issuance (token-refresh)'
     );
   });
 });
