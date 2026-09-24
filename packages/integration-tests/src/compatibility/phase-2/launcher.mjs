@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const diagnostic = 'Phase 2 client credentials launcher failed.\n';
+const batchFailureModes = new Set(['oracle', 'differential', 'candidate-invariants']);
 const closedScenarioIds = new Set([
   'basic-explicit-resource',
   'post-explicit-resource',
@@ -46,6 +47,10 @@ export const diagnosticForPhase2Child = (stderr) => {
     ? stderr
     : diagnostic;
 };
+export const diagnosticForPhase2Batch = (error) =>
+  error instanceof Error && batchFailureModes.has(error.message)
+    ? `Phase 2 client credentials batch failed (${error.message}).\n`
+    : diagnostic;
 const maximumModuleBytes = 16 * 1024 * 1024;
 const maximumModules = 512;
 const commitPattern = /^[0-9a-f]{40}$/u;
@@ -498,7 +503,7 @@ export const launchPhase2Batch = async (commands, dependencies = defaultDependen
     capabilities.add(capability);
     const code = await dependencies.execute(entryPath, command, environment, runtime, capability);
     if (code !== 0) {
-      return fail();
+      throw new Error(batchFailureModes.has(command[0]) ? command[0] : 'unknown');
     }
   }
   return 0;

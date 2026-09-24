@@ -11,6 +11,7 @@ import {
   createRuntimeHookImport,
   executeVerifiedPhase2Entry,
   diagnosticForPhase2Child,
+  diagnosticForPhase2Batch,
   launchPhase2,
   launchPhase2Batch,
 } from './launcher.mjs';
@@ -19,6 +20,41 @@ import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 const executeFile = promisify(execFile);
 
 describe('Phase 2 tracked launcher', () => {
+  it('identifies only closed batch failure modes', async () => {
+    expect(diagnosticForPhase2Batch(new Error('differential'))).toBe(
+      'Phase 2 client credentials batch failed (differential).\n'
+    );
+    expect(diagnosticForPhase2Batch(new Error('differential\nsecret'))).toBe(
+      'Phase 2 client credentials launcher failed.\n'
+    );
+    expect(diagnosticForPhase2Batch(new TypeError('Invalid Phase 2 launcher'))).toBe(
+      'Phase 2 client credentials launcher failed.\n'
+    );
+    const head = '1'.repeat(40);
+    const tree = '2'.repeat(40);
+    const sha256 = '3'.repeat(64);
+    const calls: string[] = [];
+    await expect(
+      launchPhase2Batch([['oracle'], ['differential']], {
+        inspect: async () => ({ head, tree }),
+        build: async () => {
+          calls.push('build');
+        },
+        identity: async () => ({
+          sha256,
+          moduleCount: 1,
+          entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+          libraryRootUrl: 'file:///private/lib/',
+          modules: { 'file:///private/lib/compatibility/phase-2/cli.js': sha256 },
+        }),
+        execute: async (_entry: string, command: readonly string[]) => {
+          calls.push(command[0] ?? 'unknown');
+          return command[0] === 'differential' ? 1 : 0;
+        },
+      })
+    ).rejects.toThrow('differential');
+    expect(calls).toEqual(['build', 'oracle', 'differential']);
+  });
   it('forwards only closed scenario failure identifiers from the child', () => {
     expect(
       diagnosticForPhase2Child(

@@ -1248,7 +1248,7 @@ import { pathToFileURL } from 'node:url';
 
 const [launcherPath, profile, schema, oracleTarget, candidateTarget,
   oracleOutput, differentialOutput, invariantOutput, temporaryRoot] = process.argv.slice(2);
-const { launchPhase2Batch } = await import(pathToFileURL(launcherPath).href);
+const { launchPhase2Batch, diagnosticForPhase2Batch } = await import(pathToFileURL(launcherPath).href);
 const commands = Object.freeze([
   Object.freeze(['oracle', '--profile', profile, '--schema', schema, '--target', oracleTarget,
     '--output', oracleOutput, '--temp-root', temporaryRoot]),
@@ -1258,11 +1258,19 @@ const commands = Object.freeze([
   Object.freeze(['candidate-invariants', '--profile', profile, '--schema', schema,
     '--target', candidateTarget, '--output', invariantOutput, '--temp-root', temporaryRoot]),
 ]);
-const code = await launchPhase2Batch(commands);
-if (code !== 0) process.exitCode = 1;
+try {
+  const code = await launchPhase2Batch(commands);
+  if (code !== 0) process.exitCode = 1;
+} catch (error) {
+  process.stderr.write(diagnosticForPhase2Batch(error));
+  process.exitCode = 1;
+}
 NODE
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    fi
+    if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
     fi
     fail; return 1;
   }
