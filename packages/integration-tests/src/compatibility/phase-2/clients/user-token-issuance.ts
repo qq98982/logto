@@ -160,6 +160,7 @@ export const issuePublicUserTokens = async (
       response_type: 'code',
       prompt: 'login consent',
       scope: 'openid offline_access profile email address phone',
+      resource: status.resource.indicator,
       code_challenge: challenge,
       code_challenge_method: 'S256',
     }).toString();

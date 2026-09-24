@@ -117,6 +117,7 @@ describe('Phase 2 public user token issuance transport', () => {
       'openid offline_access profile email address phone'
     );
     expect(transport.requests[0]?.url.searchParams.get('prompt')).toBe('login consent');
+    expect(transport.requests[0]?.url.searchParams.get('resource')).toBe('https://api.example.com');
     const verification = transport.requests[2];
     expect(new Headers(verification?.init.headers).get('cookie')).toBe(
       'aster-session=private-cookie'
