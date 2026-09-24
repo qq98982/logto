@@ -114,7 +114,7 @@ describe('Phase 2 public user token issuance transport', () => {
     ]);
     expect(transport.requests[0]?.url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
-      'openid offline_access profile email address phone'
+      'openid offline_access profile email address phone read:profile'
     );
     expect(transport.requests[0]?.url.searchParams.get('prompt')).toBe('login consent');
     expect(transport.requests[0]?.url.searchParams.get('resource')).toBe('https://api.example.com');
