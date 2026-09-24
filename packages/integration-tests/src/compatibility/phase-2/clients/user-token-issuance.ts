@@ -204,7 +204,7 @@ export const issuePublicUserTokens = async (
     const bridgeResponse = await send(bridgeUrl, 'GET');
     stage =
       'bridge-http-' +
-      ([200, 302, 303, 400, 404].includes(bridgeResponse.status)
+      (/^[1-5][0-9]{2}$/u.test(String(bridgeResponse.status))
         ? String(bridgeResponse.status)
         : 'other');
     const bridge = await requireStatus(bridgeResponse, 303);

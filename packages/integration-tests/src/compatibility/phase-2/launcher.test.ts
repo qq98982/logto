@@ -117,6 +117,16 @@ describe('Phase 2 tracked launcher', () => {
     ).toBe('Phase 2 client credentials command failed (candidate-status-bridge-http-200).\n');
     expect(
       diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate-status-bridge-http-503).\n'
+      )
+    ).toBe('Phase 2 client credentials command failed (candidate-status-bridge-http-503).\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate-status-bridge-http-private).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
+      diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (candidate-status-comparison-body).\n'
       )
     ).toBe('Phase 2 client credentials command failed (candidate-status-comparison-body).\n');
