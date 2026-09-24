@@ -67,6 +67,14 @@ const createReferenceAdmin = () => {
       if (/^applications\/[^/]+\/secrets$/u.test(input.path)) {
         return [{ value: 'ReferenceSecretValue000000000001' }];
       }
+      if (input.path === 'sign-in-exp') {
+        return {
+          signInMode: 'SignInAndRegister',
+          signUp: { identifiers: [], password: false, verify: false },
+          signIn: { methods: [] },
+          mfa: { factors: [], policy: 'PromptAtSignInAndSignUp' },
+        };
+      }
       return entityRows.get(input.path) ?? [];
     }
     if (input.method === 'DELETE' || input.method === 'PATCH') {
@@ -91,15 +99,17 @@ const createReferenceAdmin = () => {
       ? 'scope'
       : input.path === 'applications'
         ? 'application'
-        : input.path === 'resources'
-          ? 'resource'
-          : input.path === 'roles'
-            ? 'role'
-            : input.path === 'organizations'
-              ? 'organization'
-              : input.path === 'organization-scopes'
-                ? 'organization-scope'
-                : 'organization-role';
+        : input.path === 'users'
+          ? 'user'
+          : input.path === 'resources'
+            ? 'resource'
+            : input.path === 'roles'
+              ? 'role'
+              : input.path === 'organizations'
+                ? 'organization'
+                : input.path === 'organization-scopes'
+                  ? 'organization-scope'
+                  : 'organization-role';
     return { id: nextId(prefix) };
   };
   return { calls, entityRows, request };
@@ -131,12 +141,25 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(fixture.public.boundary).toEqual({ primary: 'provisioned', foreign: 'unchanged' });
     await fixture.withSecretLease(async (lease) => {
       expect(lease.getClientSecret('basic')).toBe('ReferenceSecretValue000000000001');
+      expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
       expect(() => JSON.stringify(lease)).toThrow('Phase 2 fixture operation failed');
+    });
+    expect(fixture.public.status).toMatchObject({
+      user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
+      client: { id: 'application-3', redirectUri: 'http://localhost:3001/demo-app' },
+      resource: { indicator: 'https://api.example.com' },
     });
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
     expect(deletes.slice(0, 5)).toEqual([
+      'applications/application-3',
+      'roles/role-2',
+      'resources/resource-3/scopes/scope-4',
+      'resources/resource-3',
+      'users/user-1',
+    ]);
+    expect(deletes.slice(5, 10)).toEqual([
       'organizations/organization-1/applications/application-1/roles/organization-role-3',
       'organizations/organization-1/applications/application-1',
       'organization-roles/organization-role-3',
@@ -145,6 +168,18 @@ describe('Phase 2 fixture lifecycle', () => {
     ]);
     expect(deletes).toContain('applications/application-1');
     expect(deletes).toContain('applications/application-2');
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'PATCH',
+        path: 'sign-in-exp',
+        body: {
+          signInMode: 'SignInAndRegister',
+          signUp: { identifiers: [], password: false, verify: false },
+          signIn: { methods: [] },
+          mfa: { factors: [], policy: 'PromptAtSignInAndSignUp' },
+        },
+      })
+    );
     expect(JSON.stringify(fixture.public)).not.toContain('ReferenceSecretValue');
     await expect(
       fixture.withSecretLease(async (lease) => lease.getClientSecret('basic'))
@@ -316,6 +351,15 @@ describe('Phase 2 fixture lifecycle', () => {
       basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
       post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
     });
+    expect(fixture.public.status).toMatchObject({
+      user: { id: 'zdata-user', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
+      client: { id: 'phase1-browser', redirectUri: 'http://localhost:3001/demo-app' },
+      resource: { id: 'phase1-api', indicator: 'https://api.example.com' },
+    });
+    await fixture.withSecretLease(async (lease) => {
+      expect(lease.getSubjectPassword?.()).toBe('c'.repeat(32));
+    });
+    expect(JSON.stringify(fixture.public)).not.toContain('c'.repeat(32));
     expect(await provisioner.projectState(fixture)).toEqual({ allocations: [] });
     await provisioner.cleanup(fixture);
 

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, complexity, max-params, no-await-in-loop, no-restricted-syntax, no-constant-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition -- This boundary owns two real fixture protocols, reverse compensation, reconciliation, secret leases, and hostile command/API results. */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../config.js';
@@ -32,6 +32,11 @@ export type Phase2FixturePublic = Readonly<{
     write: Readonly<{ id: string; name: 'write' }>;
     unassigned: Readonly<{ id: string; name: 'unassigned' }>;
   }>;
+  status?: Readonly<{
+    user: Readonly<{ id: string; username: string }>;
+    client: Readonly<{ id: string; redirectUri: string }>;
+    resource: Readonly<{ id: string; indicator: string }>;
+  }>;
   boundary: Readonly<{
     primary: 'provisioned';
     foreign: 'unchanged';
@@ -40,6 +45,7 @@ export type Phase2FixturePublic = Readonly<{
 
 export type Phase2FixtureSecretLease = {
   getClientSecret(logicalClient: 'basic' | 'post'): string;
+  getSubjectPassword?(): string;
   toJSON(): never;
 };
 
@@ -88,10 +94,11 @@ type CandidateProvisionerOptions = Readonly<{
 
 type FixtureState = {
   allocationId: string;
-  secrets: Readonly<{ basic: string; post: string }>;
+  secrets: Readonly<{ basic: string; post: string; subjectPassword: string }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
   previousDefaultResourceId?: string;
+  previousSignInExperience?: unknown;
   revoked: boolean;
   cleanup?: Promise<void>;
 };
@@ -111,6 +118,8 @@ const safeAllocationPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u;
 const markerPrefix = 'phase2-client-credentials-';
 const primaryIndicator = 'https://phase2.example.invalid/api-primary';
 const defaultIndicator = 'https://phase2.example.invalid/api-default';
+const statusIndicator = 'https://api.example.com';
+const statusRedirectUri = 'http://localhost:3001/demo-app';
 const logicalClientIds = Object.freeze({ basic: 'phase2-m2m-basic', post: 'phase2-m2m-post' });
 const requestTimeoutMs = 10_000;
 
@@ -319,7 +328,7 @@ const assertPairwiseTargets = (primary: TargetConfig, foreign: TargetConfig): vo
 
 const createFixture = (
   publicFixture: Phase2FixturePublic,
-  secrets: Readonly<{ basic: string; post: string }>,
+  secrets: Readonly<{ basic: string; post: string; subjectPassword: string }>,
   state: FixtureState
 ): ProvisionedPhase2Fixture => {
   let leaseActive = false;
@@ -338,6 +347,12 @@ const createFixture = (
             return fail();
           }
           return secrets[logicalClient];
+        },
+        getSubjectPassword: () => {
+          if (!leaseActive || state.revoked) {
+            return fail();
+          }
+          return secrets.subjectPassword;
         },
         toJSON: (): never => fail(),
       });
@@ -456,6 +471,10 @@ const referencePublicFixture = (
     writeId: string;
     unassignedId: string;
     organizationId: string;
+    statusUserId: string;
+    statusClientId: string;
+    statusResourceId: string;
+    statusUsername: string;
   }>
 ): Phase2FixturePublic =>
   Object.freeze({
@@ -474,8 +493,16 @@ const referencePublicFixture = (
       write: Object.freeze({ id: values.writeId, name: 'write' }),
       unassigned: Object.freeze({ id: values.unassignedId, name: 'unassigned' }),
     }),
+    status: Object.freeze({
+      user: Object.freeze({ id: values.statusUserId, username: values.statusUsername }),
+      client: Object.freeze({ id: values.statusClientId, redirectUri: statusRedirectUri }),
+      resource: Object.freeze({ id: values.statusResourceId, indicator: statusIndicator }),
+    }),
     boundary: Object.freeze({ primary: 'provisioned', foreign: 'unchanged' }),
   });
+
+const statusUsername = (allocationId: string): string =>
+  `phase1_user_a_${createHash('sha256').update(allocationId).digest('hex').slice(0, 16)}`;
 
 const candidatePublicFixture = (allocationId: string): Phase2FixturePublic =>
   referencePublicFixture(allocationId, {
@@ -487,6 +514,10 @@ const candidatePublicFixture = (allocationId: string): Phase2FixturePublic =>
     writeId: 'write-scope',
     unassignedId: 'unassigned-scope',
     organizationId: 'phase2-org',
+    statusUserId: 'zdata-user',
+    statusClientId: 'phase1-browser',
+    statusResourceId: 'phase1-api',
+    statusUsername: statusUsername(allocationId),
   });
 
 const referenceOwnedDefinitions = (allocationId: string) => {
@@ -500,7 +531,12 @@ const referenceOwnedDefinitions = (allocationId: string) => {
       path: 'applications',
       owns: (row: Record<string, unknown>) =>
         own(row, 'name') === `Phase 2 ${marker} basic client` ||
-        own(row, 'name') === `Phase 2 ${marker} post client`,
+        own(row, 'name') === `Phase 2 ${marker} post client` ||
+        own(row, 'name') === `Phase 2 ${marker} status client`,
+    }),
+    Object.freeze({
+      path: 'users',
+      owns: (row: Record<string, unknown>) => own(row, 'username') === statusUsername(allocationId),
     }),
     Object.freeze({
       path: 'organization-roles',
@@ -513,13 +549,16 @@ const referenceOwnedDefinitions = (allocationId: string) => {
     }),
     Object.freeze({
       path: 'roles',
-      owns: (row: Record<string, unknown>) => own(row, 'name') === `${marker}-resource-role`,
+      owns: (row: Record<string, unknown>) =>
+        own(row, 'name') === `${marker}-resource-role` ||
+        own(row, 'name') === `${marker}-status-role`,
     }),
     Object.freeze({
       path: 'resources',
       owns: (row: Record<string, unknown>) =>
         own(row, 'name') === `Phase 2 ${marker} primary resource` ||
-        own(row, 'name') === `Phase 2 ${marker} default resource`,
+        own(row, 'name') === `Phase 2 ${marker} default resource` ||
+        own(row, 'name') === `Phase 2 ${marker} status resource`,
     }),
   ]);
 };
@@ -631,6 +670,15 @@ export const createReferencePhase2FixtureProvisioner = (
           failures.push(error);
         }
       }
+      if (state.previousSignInExperience) {
+        try {
+          await referenceCall(request, 'PATCH', 'sign-in-exp', state.previousSignInExperience, [
+            200,
+          ]);
+        } catch (error: unknown) {
+          failures.push(error);
+        }
+      }
       try {
         await assertReferenceCleanup(request, state.allocationId, state.previousDefaultResourceId);
       } catch (error: unknown) {
@@ -652,10 +700,11 @@ export const createReferencePhase2FixtureProvisioner = (
     provision: async (): Promise<ProvisionedPhase2Fixture> => {
       const allocationId = safeAllocationId(createAllocationId());
       const marker = `${markerPrefix}${allocationId}`;
+      const subjectPassword = `${randomBytes(20).toString('base64url')}A1!`;
       const state: FixtureState & { journal: ReferenceCleanup[] } = {
         allocationId,
-        secrets: Object.freeze({ basic: '', post: '' }),
-        sensitiveValues: Object.freeze([]),
+        secrets: Object.freeze({ basic: '', post: '', subjectPassword }),
+        sensitiveValues: Object.freeze([subjectPassword]),
         revoked: false,
         journal: [],
       };
@@ -746,8 +795,12 @@ export const createReferencePhase2FixtureProvisioner = (
 
         const basic = await createApplication('basic');
         const post = await createApplication('post');
-        state.secrets = Object.freeze({ basic: basic.secret, post: post.secret });
-        state.sensitiveValues = Object.freeze([basic.secret, post.secret]);
+        state.secrets = Object.freeze({
+          basic: basic.secret,
+          post: post.secret,
+          subjectPassword,
+        });
+        state.sensitiveValues = Object.freeze([basic.secret, post.secret, subjectPassword]);
         const primary = await createResource('primary', primaryIndicator);
         const defaultResource = await createResource('default', defaultIndicator);
         const read = await createScope(primary, 'read');
@@ -845,6 +898,100 @@ export const createReferencePhase2FixtureProvisioner = (
           [201],
           'created'
         );
+        const username = statusUsername(allocationId);
+        const user = exactRecord(
+          await referenceCall(request, 'POST', 'users', {
+            username,
+            password: subjectPassword,
+            name: `Phase 2 ${marker} status user`,
+          })
+        );
+        const statusUserId = safeId(own(user, 'id'));
+        add('status-user', `users/${encodeURIComponent(statusUserId)}`);
+        const statusResource = exactRecord(
+          await referenceCall(request, 'POST', 'resources', {
+            name: `Phase 2 ${marker} status resource`,
+            indicator: statusIndicator,
+          })
+        );
+        const statusResourceId = safeId(own(statusResource, 'id'));
+        add('status-resource', `resources/${encodeURIComponent(statusResourceId)}`);
+        const statusScope = exactRecord(
+          await referenceCall(
+            request,
+            'POST',
+            `resources/${encodeURIComponent(statusResourceId)}/scopes`,
+            {
+              name: 'read:profile',
+              description: `Phase 2 ${marker} status scope`,
+            }
+          )
+        );
+        const statusScopeId = safeId(own(statusScope, 'id'));
+        add(
+          'status-scope',
+          `resources/${encodeURIComponent(statusResourceId)}/scopes/${encodeURIComponent(statusScopeId)}`
+        );
+        const statusRole = exactRecord(
+          await referenceCall(request, 'POST', 'roles', {
+            name: `${marker}-status-role`,
+            description: `Phase 2 ${marker} status authority`,
+            type: 'User',
+            isDefault: false,
+            scopeIds: [statusScopeId],
+          })
+        );
+        const statusRoleId = safeId(own(statusRole, 'id'));
+        add('status-role', `roles/${encodeURIComponent(statusRoleId)}`);
+        await referenceCall(
+          request,
+          'POST',
+          `roles/${encodeURIComponent(statusRoleId)}/users`,
+          { userIds: [statusUserId] },
+          [201],
+          'status'
+        );
+        const statusClient = exactRecord(
+          await referenceCall(request, 'POST', 'applications', {
+            name: `Phase 2 ${marker} status client`,
+            type: 'SPA',
+            isThirdParty: true,
+            oidcClientMetadata: {
+              redirectUris: [statusRedirectUri],
+              postLogoutRedirectUris: [],
+            },
+            customClientMetadata: {},
+          })
+        );
+        const statusClientId = safeId(own(statusClient, 'id'));
+        add('status-client', `applications/${encodeURIComponent(statusClientId)}`);
+        await referenceCall(
+          request,
+          'POST',
+          `applications/${encodeURIComponent(statusClientId)}/user-consent-scopes`,
+          { userScopes: ['profile'], resourceScopes: [statusScopeId] },
+          [201],
+          'status'
+        );
+        const signInExperience = exactRecord(
+          await referenceCall(request, 'GET', 'sign-in-exp', undefined, [200])
+        );
+        state.previousSignInExperience = signInExperience;
+        await referenceCall(request, 'PATCH', 'sign-in-exp', {
+          signInMode: 'SignInAndRegister',
+          signUp: { identifiers: [], password: false, verify: false },
+          signIn: {
+            methods: [
+              {
+                identifier: 'username',
+                password: true,
+                verificationCode: false,
+                isPasswordPrimary: false,
+              },
+            ],
+          },
+          mfa: { factors: [], policy: 'PromptAtSignInAndSignUp' },
+        });
         await referenceCall(
           request,
           'PATCH',
@@ -861,6 +1008,10 @@ export const createReferencePhase2FixtureProvisioner = (
           writeId: write.id,
           unassignedId: unassigned.id,
           organizationId,
+          statusUserId,
+          statusClientId,
+          statusResourceId,
+          statusUsername: username,
         });
         const fixture = createFixture(publicFixture, state.secrets, state);
         states.set(fixture as object, state);
@@ -1115,11 +1266,14 @@ export const createCandidatePhase2FixtureProvisioner = (
   return Object.freeze({
     provision: async (): Promise<ProvisionedPhase2Fixture> => {
       const allocationId = safeAllocationId(createAllocationId());
-      const secrets = Object.freeze({
-        basic: createSecret(),
-        post: createSecret(),
-      });
+      const basic = createSecret();
+      const post = createSecret();
       const subjectPassword = createSecret();
+      const secrets = Object.freeze({
+        basic,
+        post,
+        subjectPassword,
+      });
       if (
         secrets.basic === secrets.post ||
         subjectPassword === secrets.basic ||
