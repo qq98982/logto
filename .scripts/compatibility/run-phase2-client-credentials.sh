@@ -1243,7 +1243,7 @@ NODE
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
-    "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>&1 || { fail; return 1; }
+    "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-batch.stderr" || {
 import { pathToFileURL } from 'node:url';
 
 const [launcherPath, profile, schema, oracleTarget, candidateTarget,
@@ -1261,6 +1261,11 @@ const commands = Object.freeze([
 const code = await launchPhase2Batch(commands);
 if (code !== 0) process.exitCode = 1;
 NODE
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)/client-credentials\.[a-z-]+\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/client-credentials\.[a-z-]+\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    fi
+    fail; return 1;
+  }
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-evidence'; fail; return 1; }
 
   failure_stage='evidence-validation'

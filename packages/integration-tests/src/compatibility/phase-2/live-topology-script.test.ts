@@ -243,6 +243,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('scan_evidence_for_private_values');
     expect(source).toContain('remove_state_handle_root');
     expect(source).toContain('assert_state_handle_root_clean');
+    expect(source).toContain('2>"$RUN_DIR/evidence-batch.stderr"');
+    expect(source).toContain('^Phase 2 client credentials command failed ');
+    expect(source).not.toContain('cat "$RUN_DIR/evidence-batch.stderr"');
   });
 
   it('publishes results only after successful topology cleanup', () => {
