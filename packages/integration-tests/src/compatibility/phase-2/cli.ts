@@ -50,6 +50,7 @@ import {
   assertDiscoveryAbsentFieldsContract,
   assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
+  clientCredentialsScenarioIds,
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
   runClientCredentialsNegativeControls,
@@ -137,6 +138,10 @@ type TargetScenarioEvidence = Readonly<{
 
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
+const scenarioFailurePattern =
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+)$/u;
+const profileScenarioIdIsClosed = (value: string): boolean =>
+  (clientCredentialsScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -482,15 +487,19 @@ const runTargetScenarios = async (
     const jwks = await fetchPhase2PublicJwks(descriptor.target);
     const results: ClientCredentialsScenarioResult[] = [];
     for (const scenario of createClientCredentialsScenarioRegistry(profile)) {
-      results.push(
-        await scenario.run({
-          target: descriptor.target,
-          fixture,
-          jwks,
-          state,
-          jwtAudit,
-        })
-      );
+      try {
+        results.push(
+          await scenario.run({
+            target: descriptor.target,
+            fixture,
+            jwks,
+            state,
+            jwtAudit,
+          })
+        );
+      } catch {
+        throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}`);
+      }
     }
     return Object.freeze(results);
   });
@@ -787,11 +796,14 @@ export const runPhase2CliMain = async (
     await runPhase2Cli(arguments_, dependencies, runtimeCapability);
     return 0;
   } catch (error: unknown) {
+    const match = error instanceof Error ? scenarioFailurePattern.exec(error.message) : null;
     await safeWrite(
       dependencies.stderr,
       error instanceof TypeError && error.message === invalidArguments.trim()
         ? invalidArguments
-        : runFailure
+        : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
+          ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
+          : runFailure
     );
     return 1;
   }

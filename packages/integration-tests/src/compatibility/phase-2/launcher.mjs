@@ -9,6 +9,35 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const diagnostic = 'Phase 2 client credentials launcher failed.\n';
+const closedScenarioIds = new Set([
+  'basic-explicit-resource',
+  'post-explicit-resource',
+  'default-resource',
+  'resource-no-scope',
+  'resource-partial-scope',
+  'organization-empty-scope',
+  'organization-scope',
+  'organization-resource-scope',
+  'unknown-client-basic',
+  'unknown-client-post',
+  'wrong-secret-basic',
+  'wrong-secret-post',
+  'mixed-authentication',
+  'missing-target',
+  'unknown-resource',
+  'unassociated-organization',
+  'duplicate-resource',
+  'duplicate-scope-name',
+  'malformed-scope-whitespace',
+  'unsupported-parameter',
+]);
+export const diagnosticForPhase2Child = (stderr) => {
+  const match =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  return match && closedScenarioIds.has(match[2]) ? stderr : diagnostic;
+};
 const maximumModuleBytes = 16 * 1024 * 1024;
 const maximumModules = 512;
 const commitPattern = /^[0-9a-f]{40}$/u;
@@ -396,6 +425,10 @@ const defaultDependencies = Object.freeze({
       capability
     );
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
+      if (!result.timedOut && result.code === 1 && result.signal === null) {
+        const failure = diagnosticForPhase2Child(result.stderr);
+        if (failure !== diagnostic) process.stderr.write(failure);
+      }
       return 1;
     }
     process.stdout.write(result.stdout);

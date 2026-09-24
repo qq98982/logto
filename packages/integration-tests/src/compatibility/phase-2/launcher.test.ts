@@ -10,6 +10,7 @@ import {
   createRuntimeBootstrap,
   createRuntimeHookImport,
   executeVerifiedPhase2Entry,
+  diagnosticForPhase2Child,
   launchPhase2,
   launchPhase2Batch,
 } from './launcher.mjs';
@@ -18,6 +19,25 @@ import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 const executeFile = promisify(execFile);
 
 describe('Phase 2 tracked launcher', () => {
+  it('forwards only closed scenario failure identifiers from the child', () => {
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).\n'
+      )
+    ).toBe(
+      'Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).\n'
+    );
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).\nprivate-key'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/client-credentials.injected-secret).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+  });
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(
