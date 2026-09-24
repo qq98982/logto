@@ -1261,8 +1261,8 @@ const commands = Object.freeze([
 const code = await launchPhase2Batch(commands);
 if (code !== 0) process.exitCode = 1;
 NODE
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
     fi
     fail; return 1;
   }

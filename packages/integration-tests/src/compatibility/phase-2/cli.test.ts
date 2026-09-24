@@ -519,6 +519,45 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('preserves the execution stage when differential cleanup also fails', async () => {
+    const calls: string[] = [];
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-target',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw new Error('private execution credential');
+        },
+        removeSessionRoot: async () => {
+          throw new Error('private cleanup credential');
+        },
+      }
+    );
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (differential-execution).'
+    );
+    expect(calls.join(' ')).not.toContain('private execution credential');
+    expect(calls.join(' ')).not.toContain('private cleanup credential');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('does not publish when owned session-root removal fails', async () => {
     const output = path.join(root, 'phase-2-client-credentials-oracle.json');
     const calls: string[] = [];

@@ -41,6 +41,16 @@ describe('Phase 2 tracked launcher', () => {
       diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-fixture).\n')
     ).toBe('Phase 2 client credentials command failed (candidate-fixture).\n');
     expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (differential-cleanup).\n'
+      )
+    ).toBe('Phase 2 client credentials command failed (differential-cleanup).\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (differential-private).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
       diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-private).\n')
     ).toBe('Phase 2 client credentials launcher failed.\n');
   });

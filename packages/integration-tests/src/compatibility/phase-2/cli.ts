@@ -142,6 +142,7 @@ const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+)$/u;
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison)(?::.*)?$/u;
+const commandFailurePattern = /^Phase 2 command stage failed: differential-execution$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
@@ -736,12 +737,23 @@ export const runPhase2Cli = async (
           dependencies.prepareTarget(oracleCapability, sessionRoot, 'oracle'),
           dependencies.prepareTarget(candidateCapability, sessionRoot, 'candidate'),
         ]);
-        const payload = await dependencies.executeDifferential({
-          profile,
-          oracle: preparedOracle,
-          candidate: preparedCandidate,
-          sessionRoot,
-        });
+        const payload = await dependencies
+          .executeDifferential({
+            profile,
+            oracle: preparedOracle,
+            candidate: preparedCandidate,
+            sessionRoot,
+          })
+          .catch((error: unknown) => {
+            if (
+              error instanceof Error &&
+              (scenarioFailurePattern.test(error.message) ||
+                stageFailurePattern.test(error.message))
+            ) {
+              throw error;
+            }
+            throw new Error('Phase 2 command stage failed: differential-execution');
+          });
         await Promise.all([
           preparedOracle.fence.assertStable(),
           preparedCandidate.fence.assertStable(),
@@ -810,8 +822,11 @@ export const runPhase2CliMain = async (
     await runPhase2Cli(arguments_, dependencies, runtimeCapability);
     return 0;
   } catch (error: unknown) {
-    const match = error instanceof Error ? scenarioFailurePattern.exec(error.message) : null;
-    const stage = error instanceof Error ? stageFailurePattern.exec(error.message) : null;
+    const original = error instanceof AggregateError ? (error.errors[0] as unknown) : error;
+    const match = original instanceof Error ? scenarioFailurePattern.exec(original.message) : null;
+    const stage = original instanceof Error ? stageFailurePattern.exec(original.message) : null;
+    const commandStage =
+      original instanceof Error ? commandFailurePattern.exec(original.message) : null;
     await safeWrite(
       dependencies.stderr,
       error instanceof TypeError && error.message === invalidArguments.trim()
@@ -820,7 +835,11 @@ export const runPhase2CliMain = async (
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
           : stage?.[1] && stage[2]
             ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-            : runFailure
+            : commandStage
+              ? 'Phase 2 client credentials command failed (differential-execution).\n'
+              : error instanceof AggregateError
+                ? 'Phase 2 client credentials command failed (differential-cleanup).\n'
+                : runFailure
     );
     return 1;
   }
