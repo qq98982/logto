@@ -88,6 +88,7 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
       'openid offline_access profile'
     );
+    expect(transport.requests[0]?.url.searchParams.get('prompt')).toBe('login consent');
     const verification = transport.requests[2];
     expect(new Headers(verification?.init.headers).get('cookie')).toBe(
       'aster-session=private-cookie'

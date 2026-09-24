@@ -158,6 +158,7 @@ export const issuePublicUserTokens = async (
       client_id: status.client.id,
       redirect_uri: status.client.redirectUri,
       response_type: 'code',
+      prompt: 'login consent',
       scope: 'openid offline_access profile',
       code_challenge: challenge,
       code_challenge_method: 'S256',
