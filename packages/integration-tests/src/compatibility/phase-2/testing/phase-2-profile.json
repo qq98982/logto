@@ -42,7 +42,12 @@
     "token-status.rotated-refresh-active",
     "token-status.consumed-refresh-revoked",
     "token-status.rotated-refresh-inactive",
-    "token-status.original-access-inactive"
+    "token-status.original-access-inactive",
+    "token-status.unknown-token-inactive",
+    "token-status.no-auth-rejected",
+    "token-status.owner-access-revoked",
+    "token-status.owner-access-inactive",
+    "token-status.owner-refresh-inactive"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",

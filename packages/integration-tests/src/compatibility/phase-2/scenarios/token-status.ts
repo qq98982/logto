@@ -17,6 +17,11 @@ export const tokenStatusScenarioIds = Object.freeze([
   'token-status.consumed-refresh-revoked',
   'token-status.rotated-refresh-inactive',
   'token-status.original-access-inactive',
+  'token-status.unknown-token-inactive',
+  'token-status.no-auth-rejected',
+  'token-status.owner-access-revoked',
+  'token-status.owner-access-inactive',
+  'token-status.owner-refresh-inactive',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type TokenStatusScenarioResult = Readonly<{
@@ -38,6 +43,7 @@ type ObservationPlan = Readonly<{
     | 'refresh-active'
     | 'inactive'
     | 'revoked'
+    | 'missing-authentication'
     | 'unsupported-introspection'
     | 'unsupported-revocation';
   hint?: string;
@@ -69,6 +75,13 @@ const matchesContract = (
     }
     case 'revoked': {
       return projection.status === 200 && projection.body === null;
+    }
+    case 'missing-authentication': {
+      return (
+        projection.status === 400 &&
+        projection.body?.error === 'invalid_request' &&
+        projection.body.error_description === 'no client authentication mechanism provided'
+      );
     }
     case 'unsupported-introspection':
     case 'unsupported-revocation': {
@@ -214,5 +227,47 @@ export const runTokenStatusScenarios = async (
       grant: 'revoked',
     }),
   ];
-  return Object.freeze([...publicResults, ...lifecycleResults]);
+  const second = await issuePublicUserTokens(target, fixture, requestFetch);
+  const ownerRevocationResults = [
+    await observe({
+      id: tokenStatusScenarioIds[11],
+      token: 'phase2-unknown-opaque',
+      proof: publicProof,
+      expected: 'inactive',
+      hint: 'access_token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[12],
+      token: second.access,
+      proof: { method: 'none' },
+      expected: 'missing-authentication',
+      hint: 'access_token',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[13],
+      token: second.access,
+      proof: publicProof,
+      kind: 'revocation',
+      expected: 'revoked',
+      hint: 'access_token',
+      grant: 'revoked',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[14],
+      token: second.access,
+      proof: publicProof,
+      expected: 'inactive',
+      hint: 'access_token',
+      grant: 'revoked',
+    }),
+    await observe({
+      id: tokenStatusScenarioIds[15],
+      token: second.refresh,
+      proof: publicProof,
+      expected: 'inactive',
+      hint: 'refresh_token',
+      grant: 'revoked',
+    }),
+  ];
+  return Object.freeze([...publicResults, ...lifecycleResults, ...ownerRevocationResults]);
 };

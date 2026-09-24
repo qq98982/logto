@@ -138,6 +138,39 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
     json(null, 200, true),
     json({ active: false }),
     json({ active: false }),
+    new Response(null, {
+      status: 303,
+      headers: { 'set-cookie': 'aster-session=private-cookie-2; Path=/' },
+    }),
+    new Response(null, { status: 204 }),
+    json({ verificationId: 'private-verification-2' }),
+    new Response(null, { status: 204 }),
+    json({ redirectTo: 'https://candidate.example/oidc/bridge' }),
+    new Response(null, { status: 303 }),
+    json({}),
+    json({ redirectTo: 'https://candidate.example/oidc/resume' }),
+    new Response(null, {
+      status: 303,
+      headers: { location: 'https://client.example/callback?code=private-code-2' },
+    }),
+    json({
+      access_token: 'sentinel-second-access',
+      refresh_token: 'sentinel-second-refresh',
+      token_type: 'Bearer',
+    }),
+    json({ active: false }),
+    json(
+      {
+        code: 'oidc.invalid_request',
+        message: 'Request is invalid.',
+        error: 'invalid_request',
+        error_description: 'no client authentication mechanism provided',
+      },
+      400
+    ),
+    json(null, 200, true),
+    json({ active: false }),
+    json({ active: false }),
   ];
   let next = 0;
   const requests: string[] = [];
@@ -149,7 +182,7 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   }) as typeof fetch;
   const results = await runTokenStatusScenarios(profile, target, fixture, requestFetch);
   expect(results.map(({ id }) => id)).toEqual(tokenStatusScenarioIds);
-  expect(requests).toHaveLength(22);
+  expect(requests).toHaveLength(37);
   expect(results[4]?.projection.status).toBe(400);
   expect(results[5]?.projection.status).toBe(400);
   expect(results[6]?.projection.body?.active).toBe(true);
@@ -161,8 +194,17 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   });
   expect(results[9]?.projection.body).toEqual({ active: false });
   expect(results[10]?.projection.body).toEqual({ active: false });
+  expect(results[11]?.projection.body).toEqual({ active: false });
+  expect(results[12]?.projection.status).toBe(400);
+  expect(results[13]?.projection).toMatchObject({
+    kind: 'revocation',
+    body: null,
+    grant: 'revoked',
+  });
+  expect(results[14]?.projection.body).toEqual({ active: false });
+  expect(results[15]?.projection.body).toEqual({ active: false });
   expect(JSON.stringify(results)).not.toMatch(
-    /sentinel-access-credential|sentinel-initial-credential|sentinel-successor-credential|private-code/u
+    /sentinel-access-credential|sentinel-initial-credential|sentinel-successor-credential|sentinel-second-access|sentinel-second-refresh|private-code/u
   );
 });
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
