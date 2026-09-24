@@ -40,6 +40,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   if (match && closedScenarioIds.has(match[2])) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/token-status\.public-access-active\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison)\)\.\n$/u.test(
     stderr
   ) ||

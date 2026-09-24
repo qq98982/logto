@@ -900,14 +900,14 @@ checkTopology(invariants.provenance.candidate, 'candidate', candidateCommit, can
 const oracleScenarios = oracle.payload?.target?.scenarios;
 const scenarioCount = oracleScenarios?.length;
 const controlCount = oracle.payload?.target?.controls?.length;
-if (scenarioCount !== 20 || controlCount !== 12 ||
+if (scenarioCount !== 21 || controlCount !== 12 ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
-  if (side?.scenarios?.length !== 20 || side?.controls?.length !== 12 ||
+  if (side?.scenarios?.length !== 21 || side?.controls?.length !== 12 ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 }
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 20 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
+if (comparisonCount !== 21 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
 if (invariantCount !== 4 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
     invariants.payload.invariants.some(({positiveControl, negativeControl}) =>
@@ -1266,8 +1266,8 @@ try {
   process.exitCode = 1;
 }
 NODE
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.public-access-active)|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.public-access-active)|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2

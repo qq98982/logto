@@ -44,9 +44,10 @@ export const clientCredentialsScenarioIds = Object.freeze([
   'client-credentials.unsupported-parameter',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
-type ScenarioName = Phase2DifferentialScenarioId extends `client-credentials.${infer Name}`
-  ? Name
-  : never;
+type ScenarioName =
+  (typeof clientCredentialsScenarioIds)[number] extends `client-credentials.${infer Name}`
+    ? Name
+    : never;
 
 export type Phase2ScenarioStateObservation = Readonly<{
   response: SanitizedTokenObservation;
@@ -658,8 +659,8 @@ export const createClientCredentialsScenarioRegistry = (
   profile: Phase2ProfileRegistries
 ): readonly ClientCredentialsScenario[] => {
   if (
-    profile.differentialScenarios.length !== clientCredentialsScenarioIds.length ||
-    profile.differentialScenarios.some((id, index) => id !== clientCredentialsScenarioIds[index])
+    profile.differentialScenarios.length < clientCredentialsScenarioIds.length ||
+    clientCredentialsScenarioIds.some((id, index) => profile.differentialScenarios[index] !== id)
   ) {
     return fail();
   }

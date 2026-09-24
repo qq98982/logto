@@ -30,6 +30,7 @@ import {
   assertClientCredentialsEvidenceIsSanitized,
   createClientCredentialsJwtAudit,
 } from './projections/client-credentials.js';
+import { compareTokenStatus } from './projections/token-status.js';
 import {
   inspectLaunchedPhase2HarnessSource,
   recheckCleanPhase2HarnessSource,
@@ -58,6 +59,10 @@ import {
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
+import {
+  runTokenStatusScenarios,
+  type TokenStatusScenarioResult,
+} from './scenarios/token-status.js';
 
 export type Phase2CliCommand =
   | Readonly<{
@@ -127,7 +132,7 @@ export type Phase2CliDependencies = Readonly<{
 
 type TargetScenarioEvidence = Readonly<{
   target: 'oracle' | 'candidate';
-  scenarios: readonly ClientCredentialsScenarioResult[];
+  scenarios: ReadonlyArray<ClientCredentialsScenarioResult | TokenStatusScenarioResult>;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
     endpointFieldsAppend: readonly ['introspection_endpoint', 'revocation_endpoint'];
@@ -139,13 +144,14 @@ type TargetScenarioEvidence = Readonly<{
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+)$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.public-access-active)$/u;
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison)(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
-  (clientCredentialsScenarioIds as readonly string[]).includes(value);
+  (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
+  value === 'token-status.public-access-active';
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -505,7 +511,15 @@ const runTargetScenarios = async (
         throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}`);
       }
     }
-    return Object.freeze(results);
+    let statusScenarios: readonly TokenStatusScenarioResult[];
+    try {
+      statusScenarios = await runTokenStatusScenarios(profile, descriptor.target, fixture);
+    } catch {
+      throw new Error(
+        'Phase 2 scenario failed: ' + descriptor.kind + '/token-status.public-access-active'
+      );
+    }
+    return Object.freeze([...results, ...statusScenarios]);
   }).catch((error: unknown) => {
     if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
       throw error;
@@ -518,7 +532,7 @@ const runTargetScenarios = async (
   const authenticationError = scenarios.find(
     ({ id }) => id === 'client-credentials.wrong-secret-basic'
   )?.projection;
-  if (!success || !authenticationError) {
+  if (!success || !authenticationError || 'kind' in success || 'kind' in authenticationError) {
     return fail();
   }
   const discovery = await projectDiscovery(descriptor, profile).catch(() => {
@@ -579,10 +593,15 @@ const executeDifferential = async (
     if (!candidateScenario || candidateScenario.id !== oracleScenario.id) {
       return fail();
     }
-    const found = compareClientCredentialsProjections(
-      oracleScenario.projection,
-      candidateScenario.projection
-    );
+    const found =
+      'kind' in oracleScenario.projection && 'kind' in candidateScenario.projection
+        ? compareTokenStatus(oracleScenario.projection, candidateScenario.projection)
+        : !('kind' in oracleScenario.projection) && !('kind' in candidateScenario.projection)
+          ? compareClientCredentialsProjections(
+              oracleScenario.projection,
+              candidateScenario.projection
+            )
+          : fail();
     if (found.length > 0) {
       throw new Error('Phase 2 stage failed: candidate-comparison');
     }
