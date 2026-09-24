@@ -37,11 +37,13 @@ export const diagnosticForPhase2Child = (stderr) => {
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
       stderr
     );
-  if (match && closedScenarioIds.has(match[2])) return stderr;
+  if (match && closedScenarioIds.has(match[2])) {
+    return stderr;
+  }
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison)\)\.\n$/u.test(
     stderr
   ) ||
-    /^Phase 2 client credentials command failed \(differential-(execution|cleanup)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \(differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
       stderr
     )
     ? stderr
@@ -440,7 +442,9 @@ const defaultDependencies = Object.freeze({
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
       if (!result.timedOut && result.code === 1 && result.signal === null) {
         const failure = diagnosticForPhase2Child(result.stderr);
-        if (failure !== diagnostic) process.stderr.write(failure);
+        if (failure !== diagnostic) {
+          process.stderr.write(failure);
+        }
       }
       return 1;
     }

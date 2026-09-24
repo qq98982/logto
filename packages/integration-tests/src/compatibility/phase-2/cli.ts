@@ -142,7 +142,8 @@ const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+)$/u;
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison)(?::.*)?$/u;
-const commandFailurePattern = /^Phase 2 command stage failed: differential-execution$/u;
+const commandFailurePattern =
+  /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
@@ -713,30 +714,38 @@ export const runPhase2Cli = async (
         const [oracleTargetPath, candidateTargetPath] = await Promise.all([
           validateInputFile(command.oracleTargetPath),
           validateInputFile(command.candidateTargetPath),
-        ]);
+        ]).catch(() => {
+          throw new Error('Phase 2 command stage failed: differential-target-path');
+        });
         if (oracleTargetPath === candidateTargetPath) {
           return fail();
         }
         const [oracle, candidate] = await Promise.all([
           dependencies.readTarget(oracleTargetPath),
           dependencies.readTarget(candidateTargetPath),
-        ]);
+        ]).catch(() => {
+          throw new Error('Phase 2 command stage failed: differential-target-read');
+        });
         if (
           oracle.projectName === candidate.projectName ||
           [oracle.primaryContainerId, oracle.foreignContainerId].some((id) =>
             [candidate.primaryContainerId, candidate.foreignContainerId].includes(id)
           )
         ) {
-          return fail();
+          throw new Error('Phase 2 command stage failed: differential-target-pair');
         }
         const [oracleCapability, candidateCapability] = await Promise.all([
           dependencies.verifyTarget(oracle),
           dependencies.verifyTarget(candidate),
-        ]);
+        ]).catch(() => {
+          throw new Error('Phase 2 command stage failed: differential-target-verify');
+        });
         const [preparedOracle, preparedCandidate] = await Promise.all([
           dependencies.prepareTarget(oracleCapability, sessionRoot, 'oracle'),
           dependencies.prepareTarget(candidateCapability, sessionRoot, 'candidate'),
-        ]);
+        ]).catch(() => {
+          throw new Error('Phase 2 command stage failed: differential-target-prepare');
+        });
         const payload = await dependencies
           .executeDifferential({
             profile,
@@ -757,7 +766,9 @@ export const runPhase2Cli = async (
         await Promise.all([
           preparedOracle.fence.assertStable(),
           preparedCandidate.fence.assertStable(),
-        ]);
+        ]).catch(() => {
+          throw new Error('Phase 2 command stage failed: differential-harness');
+        });
         return {
           payload,
           oracle: publicTargetProvenance(oracleCapability),
@@ -784,17 +795,31 @@ export const runPhase2Cli = async (
         ? { payload, oracle: publicTargetProvenance(capability) }
         : { payload, candidate: publicTargetProvenance(capability) };
     })();
-    await dependencies.recheckHarness(harness);
-    evidence = createPhase2EvidenceEnvelope({
-      mode: command.mode,
-      profile,
-      harness,
-      payload: execution.payload as JsonValue,
-      ...('oracle' in execution && execution.oracle ? { oracle: execution.oracle } : {}),
-      ...('candidate' in execution && execution.candidate
-        ? { candidate: execution.candidate }
-        : {}),
-    });
+    try {
+      await dependencies.recheckHarness(harness);
+    } catch (error: unknown) {
+      if (command.mode === 'differential') {
+        throw new Error('Phase 2 command stage failed: differential-harness');
+      }
+      throw error;
+    }
+    try {
+      evidence = createPhase2EvidenceEnvelope({
+        mode: command.mode,
+        profile,
+        harness,
+        payload: execution.payload as JsonValue,
+        ...('oracle' in execution && execution.oracle ? { oracle: execution.oracle } : {}),
+        ...('candidate' in execution && execution.candidate
+          ? { candidate: execution.candidate }
+          : {}),
+      });
+    } catch (error: unknown) {
+      if (command.mode === 'differential') {
+        throw new Error('Phase 2 command stage failed: differential-evidence');
+      }
+      throw error;
+    }
   } catch (error: unknown) {
     executionError = error;
   }
@@ -809,7 +834,14 @@ export const runPhase2Cli = async (
   if (executionError !== undefined) {
     throw executionError instanceof Error ? executionError : new Error(runFailure.trim());
   }
-  await dependencies.publish(outputPath, evidence as unknown as JsonValue);
+  try {
+    await dependencies.publish(outputPath, evidence as unknown as JsonValue);
+  } catch (error: unknown) {
+    if (command.mode === 'differential') {
+      throw new Error('Phase 2 command stage failed: differential-publish');
+    }
+    throw error;
+  }
   await safeWrite(dependencies.stdout, successMessages[command.mode]);
 };
 
@@ -835,8 +867,8 @@ export const runPhase2CliMain = async (
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
           : stage?.[1] && stage[2]
             ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-            : commandStage
-              ? 'Phase 2 client credentials command failed (differential-execution).\n'
+            : commandStage?.[1]
+              ? `Phase 2 client credentials command failed (differential-${commandStage[1]}).\n`
               : error instanceof AggregateError
                 ? 'Phase 2 client credentials command failed (differential-cleanup).\n'
                 : runFailure

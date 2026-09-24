@@ -1266,8 +1266,8 @@ try {
   process.exitCode = 1;
 }
 NODE
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(execution|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/client-credentials\.[a-z-]+|-(fixture|discovery|controls|comparison))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
