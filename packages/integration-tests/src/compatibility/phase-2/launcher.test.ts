@@ -105,6 +105,11 @@ describe('Phase 2 tracked launcher', () => {
     ).toBe('Phase 2 client credentials command failed (candidate-status-comparison-body).\n');
     expect(
       diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate-status-comparison-body-scope).\n'
+      )
+    ).toBe('Phase 2 client credentials command failed (candidate-status-comparison-body-scope).\n');
+    expect(
+      diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (differential-private).\n'
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');

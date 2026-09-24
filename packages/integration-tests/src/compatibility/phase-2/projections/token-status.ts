@@ -194,10 +194,20 @@ export const projectTokenStatus = (input: StatusInput): TokenStatusProjection =>
 export const compareTokenStatus = (
   oracle: TokenStatusProjection,
   candidate: TokenStatusProjection
-): readonly string[] =>
-  Object.freeze(
-    (['kind', 'status', 'headers', 'body', 'grant'] as const)
-      .filter((key) => !isDeepStrictEqual(oracle[key], candidate[key]))
-      .map((key) => `/${key}`)
-  );
+): readonly string[] => {
+  const differences = (['kind', 'status', 'headers', 'body', 'grant'] as const)
+    .filter((key) => !isDeepStrictEqual(oracle[key], candidate[key]))
+    .map((key) => `/${key}`);
+  const bodyDifferences =
+    oracle.body?.active === true && candidate.body?.active === true
+      ? (['sub', 'client_id', 'exp', 'iat', 'iss', 'scope', 'token_type'] as const)
+          .filter(
+            (key) =>
+              Object.hasOwn(oracle.body ?? {}, key) !== Object.hasOwn(candidate.body ?? {}, key) ||
+              !isDeepStrictEqual(oracle.body?.[key], candidate.body?.[key])
+          )
+          .map((key) => `/body/${key}`)
+      : [];
+  return Object.freeze([...differences, ...bodyDifferences]);
+};
 /* eslint-enable complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */

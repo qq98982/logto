@@ -73,7 +73,9 @@ describe('token status black-box projection', () => {
       })
     );
     expect(compareTokenStatus(left, refresh)).toContain('/body');
+    expect(compareTokenStatus(left, refresh)).toContain('/body/token_type');
     expect(compareTokenStatus(left, changed)).toContain('/body');
+    expect(compareTokenStatus(left, changed)).toContain('/body/scope');
     expect(compareTokenStatus(left, { ...left, grant: 'revoked' })).toEqual(['/grant']);
     expect(compareTokenStatus(left, { ...left, status: 401 })).toEqual(['/status']);
     expect(
