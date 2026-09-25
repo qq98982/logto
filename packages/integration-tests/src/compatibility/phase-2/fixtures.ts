@@ -819,7 +819,7 @@ export const createReferencePhase2FixtureProvisioner = (
           await referenceCall(request, 'POST', 'applications', {
             name: `Phase 2 ${marker} confidential status client`,
             type: 'Traditional',
-            isThirdParty: false,
+            isThirdParty: true,
             oidcClientMetadata: {
               redirectUris: [statusRedirectUri],
               postLogoutRedirectUris: [],
