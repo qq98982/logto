@@ -2,7 +2,11 @@
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
-import { exchangePublicRefresh, issuePublicUserTokens } from './user-token-issuance.js';
+import {
+  exchangePublicRefresh,
+  issueConfidentialUserTokens,
+  issuePublicUserTokens,
+} from './user-token-issuance.js';
 
 const target: TargetConfig = {
   label: 'candidate',
@@ -136,6 +140,27 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(form.get('code')).toBe('private-code');
     expect(form.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(form.get('client_secret')).toBeNull();
+  });
+
+  it('issues confidential user tokens with PKCE and Basic proof kept out of the form', async () => {
+    const transport = flow();
+    const tokens = await issueConfidentialUserTokens(target, fixture, transport.fetch);
+    expect(tokens.access).toBe('private-access');
+    expect(tokens.refresh).toBe('private-refresh');
+    expect(transport.requests[0]?.url.searchParams.get('client_id')).toBe('confidential-client');
+    const tokenRequest = transport.requests[9];
+    const form = new URLSearchParams(String(tokenRequest?.init.body));
+    expect(Object.fromEntries(form)).toMatchObject({
+      grant_type: 'authorization_code',
+      code: 'private-code',
+      redirect_uri: 'https://client.example/callback',
+    });
+    expect(form.has('client_id')).toBe(false);
+    expect(form.has('client_secret')).toBe(false);
+    expect(new Headers(tokenRequest?.init.headers).get('authorization')).toBe(
+      `Basic ${Buffer.from('confidential-client:private-status-client-secret').toString('base64')}`
+    );
+    expect(() => JSON.stringify(tokens)).toThrow('Invalid Phase 2 public user token issuance');
   });
 
   it('rejects a foreign redirect before sending a credential to that origin', async () => {

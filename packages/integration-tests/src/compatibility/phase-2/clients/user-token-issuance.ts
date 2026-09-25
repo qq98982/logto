@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This bounded transport keeps cookies, password, verifier and issued credentials inside one private flow. */
+/* eslint-disable complexity, max-lines, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This bounded transport keeps cookies, password, verifier and issued credentials inside one private flow. */
 import { createHash, randomBytes } from 'node:crypto';
 
 import { validateTargetConfig } from '../../config.js';
@@ -112,15 +112,17 @@ const localRedirect = (value: unknown, origin: URL): URL => {
   return destination;
 };
 
-export const issuePublicUserTokens = async (
+const issueUserTokens = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  clientKind: 'public' | 'confidential',
   requestFetch: typeof fetch = fetch
 ): Promise<IssuedPublicUserTokens> => {
   let stage = 'admission';
   try {
     const target = validateTargetConfig(targetInput);
     const status = fixture.status ?? fail();
+    const client = clientKind === 'confidential' ? status.confidentialClient : status.client;
     const origin = new URL(target.coreUrl);
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -129,7 +131,8 @@ export const issuePublicUserTokens = async (
     const send = async (
       url: URL,
       method: 'GET' | 'POST' | 'PUT',
-      body?: Readonly<Record<string, unknown>> | URLSearchParams
+      body?: Readonly<Record<string, unknown>> | URLSearchParams,
+      authorization?: string
     ): Promise<Response> => {
       const headers = new Headers();
       if (cookies.size > 0) {
@@ -140,6 +143,9 @@ export const issuePublicUserTokens = async (
           'content-type',
           body instanceof URLSearchParams ? 'application/x-www-form-urlencoded' : 'application/json'
         );
+      }
+      if (authorization !== undefined) {
+        headers.set('authorization', authorization);
       }
       const response = await requestFetch(url, {
         method,
@@ -155,8 +161,8 @@ export const issuePublicUserTokens = async (
     };
     const authorization = endpoint('/oidc/auth');
     authorization.search = new URLSearchParams({
-      client_id: status.client.id,
-      redirect_uri: status.client.redirectUri,
+      client_id: client.id,
+      redirect_uri: client.redirectUri,
       response_type: 'code',
       prompt: 'login consent',
       scope: 'openid offline_access profile email address phone ' + status.resource.scopeName,
@@ -224,25 +230,36 @@ export const issuePublicUserTokens = async (
     );
     const location = new URL(bounded(resumed.headers.get('location')));
     await resumed.body?.cancel();
-    if (location.origin + location.pathname !== status.client.redirectUri) {
+    if (location.origin + location.pathname !== client.redirectUri) {
       return fail();
     }
     const code = bounded(location.searchParams.get('code'), 4096);
     stage = 'token-http';
-    const tokenResponse = await requireStatus(
-      await send(
-        endpoint('/oidc/token'),
-        'POST',
-        new URLSearchParams({
-          grant_type: 'authorization_code',
-          code,
-          code_verifier: verifier,
-          redirect_uri: status.client.redirectUri,
-          client_id: status.client.id,
-        })
-      ),
-      200
-    );
+    const exchangeCode = async (authorization?: string): Promise<Response> =>
+      requireStatus(
+        await send(
+          endpoint('/oidc/token'),
+          'POST',
+          new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            code_verifier: verifier,
+            redirect_uri: client.redirectUri,
+            ...(clientKind === 'public' ? { client_id: client.id } : {}),
+          }),
+          authorization
+        ),
+        200
+      );
+    const tokenResponse =
+      clientKind === 'public'
+        ? await exchangeCode()
+        : await fixture.withSecretLease(async (lease) => {
+            const secret = bounded(lease.getStatusClientSecret(), 256);
+            return exchangeCode(
+              `Basic ${Buffer.from(`${client.id}:${secret}`).toString('base64')}`
+            );
+          });
     stage = 'token-body';
     const issued = await jsonBody(tokenResponse);
     stage = 'token-type';
@@ -261,6 +278,19 @@ export const issuePublicUserTokens = async (
     throw new TypeError(diagnostic + ' (' + stage + ')');
   }
 };
+
+export const issuePublicUserTokens = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserTokens> => issueUserTokens(targetInput, fixture, 'public', requestFetch);
+
+export const issueConfidentialUserTokens = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserTokens> =>
+  issueUserTokens(targetInput, fixture, 'confidential', requestFetch);
 
 export const exchangePublicRefresh = async (
   targetInput: TargetConfig,
@@ -302,4 +332,4 @@ export const exchangePublicRefresh = async (
     return fail();
   }
 };
-/* eslint-enable complexity, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
