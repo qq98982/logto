@@ -5,7 +5,11 @@ import {
   type TokenStatusProof,
   type TokenStatusRequest,
 } from '../clients/token-status.js';
-import { exchangePublicRefresh, issuePublicUserTokens } from '../clients/user-token-issuance.js';
+import {
+  exchangePublicRefresh,
+  issueConfidentialUserTokens,
+  issuePublicUserTokens,
+} from '../clients/user-token-issuance.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2DifferentialScenarioId, Phase2ProfileRegistries } from '../profile.js';
 import type { TokenStatusProjection } from '../projections/token-status.js';
@@ -32,6 +36,12 @@ export const tokenStatusScenarioIds = Object.freeze([
   'token-status.dotted-unknown-inactive',
   'token-status.unknown-extension-inactive',
   'token-status.no-auth-precedes-missing-token',
+  'token-status.confidential-basic-access-active',
+  'token-status.confidential-post-access-active',
+  'token-status.confidential-wrong-secret-rejected',
+  'token-status.confidential-public-cross-client-inactive',
+  'token-status.confidential-public-cross-client-revoked',
+  'token-status.confidential-owner-after-cross-client-active',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type TokenStatusScenarioResult = Readonly<{
@@ -56,10 +66,12 @@ type ObservationPlan = Readonly<{
     | 'missing-authentication'
     | 'missing-token'
     | 'duplicate-token'
+    | 'invalid-client'
     | 'unsupported-introspection'
     | 'unsupported-revocation';
   hint?: string;
   wire?: TokenStatusRequest['wire'];
+  ownerClientId?: string;
   grant?: 'unchanged' | 'revoked';
 }>;
 
@@ -110,6 +122,13 @@ const matchesContract = (
         projection.body.error_description === "'token' parameter must not be provided twice"
       );
     }
+    case 'invalid-client': {
+      return (
+        projection.status === 401 &&
+        projection.body?.error === 'invalid_client' &&
+        projection.body.error_description === 'client authentication failed'
+      );
+    }
     case 'unsupported-introspection':
     case 'unsupported-revocation': {
       return (
@@ -151,7 +170,7 @@ export const runTokenStatusScenarios = async (
           ...(plan.wire === undefined ? {} : { wire: plan.wire }),
           proof: plan.proof,
           subjectId: status.user.id,
-          ownerClientId: status.client.id,
+          ownerClientId: plan.ownerClientId ?? status.client.id,
           resourceScopeName: status.resource.scopeName,
           grant: plan.grant ?? 'unchanged',
         },
@@ -333,11 +352,70 @@ export const runTokenStatusScenarios = async (
       wire: 'missing-token',
     }),
   ];
+  const confidentialTokens = await issueConfidentialUserTokens(target, fixture, requestFetch);
+  const confidentialResults = await fixture.withSecretLease(async (lease) => {
+    const clientId = status.confidentialClient.id;
+    const clientSecret = lease.getStatusClientSecret();
+    const basicProof = Object.freeze({ method: 'basic' as const, clientId, clientSecret });
+    const postProof = Object.freeze({ method: 'post' as const, clientId, clientSecret });
+    return Object.freeze([
+      await observe({
+        id: tokenStatusScenarioIds[21],
+        token: confidentialTokens.access,
+        proof: basicProof,
+        expected: 'access-active',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+      await observe({
+        id: tokenStatusScenarioIds[22],
+        token: confidentialTokens.access,
+        proof: postProof,
+        expected: 'access-active',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+      await observe({
+        id: tokenStatusScenarioIds[23],
+        token: confidentialTokens.access,
+        proof: { method: 'basic', clientId, clientSecret: `${clientSecret}-wrong` },
+        expected: 'invalid-client',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+      await observe({
+        id: tokenStatusScenarioIds[24],
+        token: confidentialTokens.access,
+        proof: publicProof,
+        expected: 'inactive',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+      await observe({
+        id: tokenStatusScenarioIds[25],
+        token: confidentialTokens.access,
+        proof: publicProof,
+        kind: 'revocation',
+        expected: 'revoked',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+      await observe({
+        id: tokenStatusScenarioIds[26],
+        token: confidentialTokens.access,
+        proof: basicProof,
+        expected: 'access-active',
+        hint: 'access_token',
+        ownerClientId: clientId,
+      }),
+    ]);
+  });
   return Object.freeze([
     ...publicResults,
     ...lifecycleResults,
     ...ownerRevocationResults,
     ...formResults,
+    ...confidentialResults,
   ]);
 };
 /* eslint-enable max-lines */

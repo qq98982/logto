@@ -79,11 +79,11 @@ const json = (body: unknown, status = 200, revocation = false): Response =>
       ...(revocation ? {} : { 'cache-control': 'no-store' }),
     },
   });
-const active = (tokenType?: 'Bearer') =>
+const active = (tokenType?: 'Bearer', clientId = 'public-client') =>
   json({
     active: true,
     sub: 'user',
-    client_id: 'public-client',
+    client_id: clientId,
     exp: 4600,
     iat: 1000,
     iss: 'https://candidate.example/oidc',
@@ -205,6 +205,49 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
       },
       400
     ),
+    new Response(null, {
+      status: 303,
+      headers: { 'set-cookie': 'aster-session=private-cookie-3; Path=/' },
+    }),
+    new Response(null, { status: 204 }),
+    json({ verificationId: 'private-verification-3' }),
+    new Response(null, { status: 204 }),
+    json({ redirectTo: 'https://candidate.example/oidc/bridge' }),
+    new Response(null, { status: 303 }),
+    json({}),
+    json({ redirectTo: 'https://candidate.example/oidc/resume' }),
+    new Response(null, {
+      status: 303,
+      headers: { location: 'https://client.example/callback?code=private-code-3' },
+    }),
+    json({
+      access_token: 'sentinel-confidential-access',
+      refresh_token: 'sentinel-confidential-refresh',
+      token_type: 'Bearer',
+    }),
+    active('Bearer', 'confidential-client'),
+    active('Bearer', 'confidential-client'),
+    new Response(
+      JSON.stringify({
+        code: 'oidc.invalid_client',
+        message: 'An OIDC error occurred: oidc.invalid_client.',
+        error: 'invalid_client',
+        error_description: 'client authentication failed',
+      }),
+      {
+        status: 401,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'access-control-allow-origin': '*',
+          'www-authenticate':
+            'Basic realm="https://candidate.example/oidc", error="invalid_client", error_description="client authentication failed"',
+        },
+      }
+    ),
+    json({ active: false }),
+    json(null, 200, true),
+    active('Bearer', 'confidential-client'),
   ];
   let next = 0;
   const requests: string[] = [];
@@ -216,7 +259,15 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   }) as typeof fetch;
   const results = await runTokenStatusScenarios(profile, target, fixture, requestFetch);
   expect(results.map(({ id }) => id)).toEqual(tokenStatusScenarioIds);
-  expect(requests).toHaveLength(42);
+  expect(tokenStatusScenarioIds.slice(-6)).toEqual([
+    'token-status.confidential-basic-access-active',
+    'token-status.confidential-post-access-active',
+    'token-status.confidential-wrong-secret-rejected',
+    'token-status.confidential-public-cross-client-inactive',
+    'token-status.confidential-public-cross-client-revoked',
+    'token-status.confidential-owner-after-cross-client-active',
+  ]);
+  expect(requests).toHaveLength(58);
   expect(results[4]?.projection.status).toBe(400);
   expect(results[5]?.projection.status).toBe(400);
   expect(results[6]?.projection.body?.active).toBe(true);
@@ -248,8 +299,21 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
   expect(results[20]?.projection.body).toMatchObject({
     error_description: 'no client authentication mechanism provided',
   });
+  expect(results[21]?.projection.body).toMatchObject({
+    active: true,
+    client_id: '<client>',
+    token_type: 'Bearer',
+  });
+  expect(results[22]?.projection.body).toMatchObject({ active: true, token_type: 'Bearer' });
+  expect(results[23]?.projection).toMatchObject({
+    status: 401,
+    body: { error: 'invalid_client', error_description: 'client authentication failed' },
+  });
+  expect(results[24]?.projection.body).toEqual({ active: false });
+  expect(results[25]?.projection).toMatchObject({ body: null, grant: 'unchanged' });
+  expect(results[26]?.projection.body).toMatchObject({ active: true, token_type: 'Bearer' });
   expect(JSON.stringify(results)).not.toMatch(
-    /sentinel-access-credential|sentinel-initial-credential|sentinel-successor-credential|sentinel-second-access|sentinel-second-refresh|private-code/u
+    /sentinel-access-credential|sentinel-initial-credential|sentinel-successor-credential|sentinel-second-access|sentinel-second-refresh|sentinel-confidential-access|sentinel-confidential-refresh|private-code/u
   );
 });
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

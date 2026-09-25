@@ -92,7 +92,13 @@
         "token-status.duplicate-token-rejected",
         "token-status.dotted-unknown-inactive",
         "token-status.unknown-extension-inactive",
-        "token-status.no-auth-precedes-missing-token"
+        "token-status.no-auth-precedes-missing-token",
+    "token-status.confidential-basic-access-active",
+    "token-status.confidential-post-access-active",
+    "token-status.confidential-wrong-secret-rejected",
+    "token-status.confidential-public-cross-client-inactive",
+    "token-status.confidential-public-cross-client-revoked",
+    "token-status.confidential-owner-after-cross-client-active"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'c574529ffeb72e711001bf4cf216a7c0cb7cd25bda556d976f0dd6c402ffdb0c';
-const expectedSchemaSha256 = 'cfd4772f7c40a114522aeaad90016da2706fc99c20b8e8cd2b62d9e420268503';
+const expectedProfileSha256 = 'bf370442ed17edae57703f7a11282a2595051c3725ae26e9be4a96cd9473d5f5';
+const expectedSchemaSha256 = '12f6324a872903f13f3b239fe6e3f7d312cd2cd08301d056c9e52435457aa7b2';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -67,6 +67,12 @@ const differentialScenarioIds = [
   'token-status.dotted-unknown-inactive',
   'token-status.unknown-extension-inactive',
   'token-status.no-auth-precedes-missing-token',
+  'token-status.confidential-basic-access-active',
+  'token-status.confidential-post-access-active',
+  'token-status.confidential-wrong-secret-rejected',
+  'token-status.confidential-public-cross-client-inactive',
+  'token-status.confidential-public-cross-client-revoked',
+  'token-status.confidential-owner-after-cross-client-active',
 ] as const;
 const candidateInvariantIds = [
   'client-credentials.cross-tenant-authority-rejected',
