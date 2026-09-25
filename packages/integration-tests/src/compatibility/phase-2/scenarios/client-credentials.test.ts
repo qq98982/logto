@@ -61,6 +61,7 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
           client === 'basic'
             ? 'CandidateBasicSecret000000000001'
             : 'CandidatePostSecret0000000000002',
+        getStatusClientSecret: () => 'CandidateStatusSecret00000000001',
         toJSON: (): never => {
           throw new Error('secret lease');
         },

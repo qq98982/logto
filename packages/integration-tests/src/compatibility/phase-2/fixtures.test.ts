@@ -118,9 +118,13 @@ const createReferenceAdmin = () => {
 };
 
 describe('Phase 2 fixture lifecycle', () => {
-  it('freezes the exact two-client, two-resource, organization contract', () => {
+  it('freezes the exact machine and confidential status client contract', () => {
     expect(phase2FixtureContract).toEqual({
       clients: { basic: 'phase2-m2m-basic', post: 'phase2-m2m-post' },
+      statusClient: {
+        id: 'phase2-status',
+        redirectUri: 'http://localhost:3001/demo-app',
+      },
       resources: {
         primary: 'https://phase2.example.invalid/api-primary',
         default: 'https://phase2.example.invalid/api-default',
@@ -143,19 +147,24 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(fixture.public.boundary).toEqual({ primary: 'provisioned', foreign: 'unchanged' });
     await fixture.withSecretLease(async (lease) => {
       expect(lease.getClientSecret('basic')).toBe('ReferenceSecretValue000000000001');
+      expect(lease.getStatusClientSecret()).toBe('ReferenceSecretValue000000000001');
       expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
       expect(() => JSON.stringify(lease)).toThrow('Phase 2 fixture operation failed');
     });
     expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
-      client: { id: 'application-3', redirectUri: 'http://localhost:3001/demo-app' },
+      client: { id: 'application-4', redirectUri: 'http://localhost:3001/demo-app' },
+      confidentialClient: {
+        id: 'application-3',
+        redirectUri: 'http://localhost:3001/demo-app',
+      },
       resource: { indicator: 'https://api.example.com', scopeName: 'read:profile' },
     });
     expect(Object.keys(fixture.public)).not.toContain('status');
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'POST',
-        path: 'applications/application-3/user-consent-scopes',
+        path: 'applications/application-4/user-consent-scopes',
         body: {
           userScopes: ['profile', 'email', 'address', 'phone'],
           resourceScopes: ['scope-4'],
@@ -166,7 +175,7 @@ describe('Phase 2 fixture lifecycle', () => {
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
     expect(deletes.slice(0, 5)).toEqual([
-      'applications/application-3',
+      'applications/application-4',
       'roles/role-2',
       'resources/resource-3/scopes/scope-4',
       'resources/resource-3',
@@ -181,6 +190,7 @@ describe('Phase 2 fixture lifecycle', () => {
     ]);
     expect(deletes).toContain('applications/application-1');
     expect(deletes).toContain('applications/application-2');
+    expect(deletes).toContain('applications/application-3');
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'PATCH',
@@ -340,7 +350,7 @@ describe('Phase 2 fixture lifecycle', () => {
         ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
         : rejectedCommandResult();
     };
-    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -368,6 +378,10 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(fixture.status).toMatchObject({
       user: { id: 'zdata-user', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'phase1-browser', redirectUri: 'http://localhost:3001/demo-app' },
+      confidentialClient: {
+        id: 'phase2-status',
+        redirectUri: 'http://localhost:3001/demo-app',
+      },
       resource: {
         id: 'phase1-api',
         indicator: `https://api.example.com/?aster_fixture=${suffix}`,
@@ -375,7 +389,8 @@ describe('Phase 2 fixture lifecycle', () => {
       },
     });
     await fixture.withSecretLease(async (lease) => {
-      expect(lease.getSubjectPassword?.()).toBe('c'.repeat(32));
+      expect(lease.getStatusClientSecret()).toBe('c'.repeat(32));
+      expect(lease.getSubjectPassword?.()).toBe('d'.repeat(32));
     });
     expect(JSON.stringify(fixture.public)).not.toContain('c'.repeat(32));
     expect(await provisioner.projectState(fixture)).toEqual({ allocations: [] });
@@ -403,6 +418,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 organizations: [],
               },
             ],
+            statusClient: {
+              clientId: 'phase2-status',
+              redirectUri: 'http://localhost:3001/demo-app',
+              authenticationMethod: 'client_secret_basic',
+              userConsentScopes: ['profile', 'email', 'address', 'phone'],
+              resourceScopeIds: ['phase1-read-profile'],
+            },
             defaultResourceId: 'phase2-resource',
           },
         },
@@ -496,7 +518,7 @@ describe('Phase 2 fixture lifecycle', () => {
         })
       );
     };
-    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -528,7 +550,7 @@ describe('Phase 2 fixture lifecycle', () => {
   });
 
   it('rejects coordinator output that leaks the private subject password', async () => {
-    const planted = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+    const planted = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
     let cleanupCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
@@ -549,7 +571,7 @@ describe('Phase 2 fixture lifecycle', () => {
           JSON.stringify({
             schemaVersion: 1,
             operation: 'provision',
-            public: { leaked: 'c'.repeat(32) },
+            public: { leaked: 'd'.repeat(32) },
           })
         );
       },
@@ -618,7 +640,7 @@ describe('Phase 2 fixture lifecycle', () => {
           (seed: any) => seed.value
         )
       ).size
-    ).toBe(3);
+    ).toBe(4);
     expect(JSON.stringify(fixtureValue.public)).not.toContain(
       provisionDescriptor.seeds.clientSecrets[0].value
     );
@@ -652,7 +674,7 @@ describe('Phase 2 fixture lifecycle', () => {
       environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
       createAllocationId: () => 'noop-candidate',
       createSecret: (() => {
-        const values = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32)];
+        const values = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
         return () => values.shift() ?? 'unexpected';
       })(),
       runner: async (request) => {

@@ -14,6 +14,10 @@ const fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'> = {
   status: {
     user: { id: 'user', username: 'status-user' },
     client: { id: 'public-client', redirectUri: 'https://client.example/callback' },
+    confidentialClient: {
+      id: 'confidential-client',
+      redirectUri: 'https://client.example/callback',
+    },
     resource: { id: 'resource', indicator: 'https://api.example.com', scopeName: 'read:profile' },
   },
   withSecretLease: async <Result>(
@@ -21,6 +25,7 @@ const fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'> = {
   ): Promise<Result> =>
     use({
       getClientSecret: () => 'unused-private-client-secret',
+      getStatusClientSecret: () => 'private-status-client-secret',
       getSubjectPassword: () => 'private-password',
       toJSON: (): never => {
         throw new Error('secret lease');

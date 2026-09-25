@@ -41,11 +41,13 @@ export type Phase2FixturePublic = Readonly<{
 export type Phase2StatusPublic = Readonly<{
   user: Readonly<{ id: string; username: string }>;
   client: Readonly<{ id: string; redirectUri: string }>;
+  confidentialClient: Readonly<{ id: string; redirectUri: string }>;
   resource: Readonly<{ id: string; indicator: string; scopeName: string }>;
 }>;
 
 export type Phase2FixtureSecretLease = {
   getClientSecret(logicalClient: 'basic' | 'post'): string;
+  getStatusClientSecret(): string;
   getSubjectPassword?(): string;
   toJSON(): never;
 };
@@ -96,7 +98,12 @@ type CandidateProvisionerOptions = Readonly<{
 
 type FixtureState = {
   allocationId: string;
-  secrets: Readonly<{ basic: string; post: string; subjectPassword: string }>;
+  secrets: Readonly<{
+    basic: string;
+    post: string;
+    statusConfidential: string;
+    subjectPassword: string;
+  }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
   previousDefaultResourceId?: string;
@@ -122,6 +129,7 @@ const primaryIndicator = 'https://phase2.example.invalid/api-primary';
 const defaultIndicator = 'https://phase2.example.invalid/api-default';
 const statusIndicator = 'https://api.example.com';
 const statusRedirectUri = 'http://localhost:3001/demo-app';
+const statusConfidentialClientId = 'phase2-status';
 const logicalClientIds = Object.freeze({ basic: 'phase2-m2m-basic', post: 'phase2-m2m-post' });
 const requestTimeoutMs = 10_000;
 
@@ -330,7 +338,7 @@ const assertPairwiseTargets = (primary: TargetConfig, foreign: TargetConfig): vo
 
 const createFixture = (
   publicFixture: Phase2FixturePublic,
-  secrets: Readonly<{ basic: string; post: string; subjectPassword: string }>,
+  secrets: FixtureState['secrets'],
   state: FixtureState,
   status: Phase2StatusPublic
 ): ProvisionedPhase2Fixture => {
@@ -351,6 +359,12 @@ const createFixture = (
             return fail();
           }
           return secrets[logicalClient];
+        },
+        getStatusClientSecret: () => {
+          if (!leaseActive || state.revoked) {
+            return fail();
+          }
+          return secrets.statusConfidential;
         },
         getSubjectPassword: () => {
           if (!leaseActive || state.revoked) {
@@ -532,6 +546,7 @@ const referenceOwnedDefinitions = (allocationId: string) => {
       owns: (row: Record<string, unknown>) =>
         own(row, 'name') === `Phase 2 ${marker} basic client` ||
         own(row, 'name') === `Phase 2 ${marker} post client` ||
+        own(row, 'name') === `Phase 2 ${marker} confidential status client` ||
         own(row, 'name') === `Phase 2 ${marker} status client`,
     }),
     Object.freeze({
@@ -703,7 +718,12 @@ export const createReferencePhase2FixtureProvisioner = (
       const subjectPassword = `${randomBytes(20).toString('base64url')}A1!`;
       const state: FixtureState & { journal: ReferenceCleanup[] } = {
         allocationId,
-        secrets: Object.freeze({ basic: '', post: '', subjectPassword }),
+        secrets: Object.freeze({
+          basic: '',
+          post: '',
+          statusConfidential: '',
+          subjectPassword,
+        }),
         sensitiveValues: Object.freeze([subjectPassword]),
         revoked: false,
         journal: [],
@@ -795,12 +815,55 @@ export const createReferencePhase2FixtureProvisioner = (
 
         const basic = await createApplication('basic');
         const post = await createApplication('post');
+        const statusConfidentialApplication = exactRecord(
+          await referenceCall(request, 'POST', 'applications', {
+            name: `Phase 2 ${marker} confidential status client`,
+            type: 'Traditional',
+            isThirdParty: true,
+            oidcClientMetadata: {
+              redirectUris: [statusRedirectUri],
+              postLogoutRedirectUris: [],
+            },
+            customClientMetadata: { alwaysIssueRefreshToken: true },
+          })
+        );
+        const referenceStatusConfidentialClientId = safeId(
+          own(statusConfidentialApplication, 'id')
+        );
+        add(
+          'status-confidential-client',
+          `applications/${encodeURIComponent(referenceStatusConfidentialClientId)}`
+        );
+        const statusConfidentialSecrets = await referenceCall(
+          request,
+          'GET',
+          `applications/${encodeURIComponent(referenceStatusConfidentialClientId)}/secrets`,
+          undefined,
+          [200],
+          'array'
+        );
+        if (!Array.isArray(statusConfidentialSecrets) || statusConfidentialSecrets.length !== 1) {
+          return fail();
+        }
+        const statusConfidentialSecret = own(exactRecord(statusConfidentialSecrets[0]), 'value');
+        if (
+          typeof statusConfidentialSecret !== 'string' ||
+          !/^[A-Za-z0-9]{32}$/u.test(statusConfidentialSecret)
+        ) {
+          return fail();
+        }
         state.secrets = Object.freeze({
           basic: basic.secret,
           post: post.secret,
+          statusConfidential: statusConfidentialSecret,
           subjectPassword,
         });
-        state.sensitiveValues = Object.freeze([basic.secret, post.secret, subjectPassword]);
+        state.sensitiveValues = Object.freeze([
+          basic.secret,
+          post.secret,
+          statusConfidentialSecret,
+          subjectPassword,
+        ]);
         const primary = await createResource('primary', primaryIndicator);
         const defaultResource = await createResource('default', defaultIndicator);
         const read = await createScope(primary, 'read');
@@ -951,6 +1014,17 @@ export const createReferencePhase2FixtureProvisioner = (
           [201],
           'status'
         );
+        await referenceCall(
+          request,
+          'POST',
+          `applications/${encodeURIComponent(referenceStatusConfidentialClientId)}/user-consent-scopes`,
+          {
+            userScopes: ['profile', 'email', 'address', 'phone'],
+            resourceScopes: [statusScopeId],
+          },
+          [201],
+          'status'
+        );
         const statusClient = exactRecord(
           await referenceCall(request, 'POST', 'applications', {
             name: `Phase 2 ${marker} status client`,
@@ -1015,6 +1089,10 @@ export const createReferencePhase2FixtureProvisioner = (
         const fixture = createFixture(publicFixture, state.secrets, state, {
           user: Object.freeze({ id: statusUserId, username }),
           client: Object.freeze({ id: statusClientId, redirectUri: statusRedirectUri }),
+          confidentialClient: Object.freeze({
+            id: referenceStatusConfidentialClientId,
+            redirectUri: statusRedirectUri,
+          }),
           resource: Object.freeze({
             id: statusResourceId,
             indicator: statusIndicator,
@@ -1275,18 +1353,24 @@ export const createCandidatePhase2FixtureProvisioner = (
       const allocationId = safeAllocationId(createAllocationId());
       const basic = createSecret();
       const post = createSecret();
+      const statusConfidential = createSecret();
       const subjectPassword = createSecret();
       const secrets = Object.freeze({
         basic,
         post,
+        statusConfidential,
         subjectPassword,
       });
       if (
         secrets.basic === secrets.post ||
+        statusConfidential === secrets.basic ||
+        statusConfidential === secrets.post ||
         subjectPassword === secrets.basic ||
         subjectPassword === secrets.post ||
+        subjectPassword === statusConfidential ||
         !/^[a-z0-9]{32}$/u.test(secrets.basic) ||
         !/^[a-z0-9]{32}$/u.test(secrets.post) ||
+        !/^[a-z0-9]{32}$/u.test(statusConfidential) ||
         !/^[a-z0-9]{32}$/u.test(subjectPassword)
       ) {
         return fail();
@@ -1294,7 +1378,12 @@ export const createCandidatePhase2FixtureProvisioner = (
       const state: FixtureState = {
         allocationId,
         secrets,
-        sensitiveValues: Object.freeze([secrets.basic, secrets.post, subjectPassword]),
+        sensitiveValues: Object.freeze([
+          secrets.basic,
+          secrets.post,
+          statusConfidential,
+          subjectPassword,
+        ]),
         revoked: false,
       };
       const phase2 = Object.freeze({
@@ -1319,6 +1408,13 @@ export const createCandidatePhase2FixtureProvisioner = (
           }),
         ]),
         defaultResourceId: 'phase2-resource',
+        statusClient: Object.freeze({
+          clientId: statusConfidentialClientId,
+          redirectUri: statusRedirectUri,
+          authenticationMethod: 'client_secret_basic',
+          userConsentScopes: Object.freeze(['profile', 'email', 'address', 'phone']),
+          resourceScopeIds: Object.freeze(['phase1-read-profile']),
+        }),
       });
       const descriptor = Object.freeze({
         schemaVersion: 1,
@@ -1335,6 +1431,7 @@ export const createCandidatePhase2FixtureProvisioner = (
           clientSecrets: Object.freeze([
             Object.freeze({ logicalId: logicalClientIds.basic, value: secrets.basic }),
             Object.freeze({ logicalId: logicalClientIds.post, value: secrets.post }),
+            Object.freeze({ logicalId: statusConfidentialClientId, value: statusConfidential }),
           ]),
         }),
       });
@@ -1353,6 +1450,10 @@ export const createCandidatePhase2FixtureProvisioner = (
         const fixture = createFixture(publicFixture, secrets, state, {
           user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
           client: Object.freeze({ id: 'phase1-browser', redirectUri: statusRedirectUri }),
+          confidentialClient: Object.freeze({
+            id: statusConfidentialClientId,
+            redirectUri: statusRedirectUri,
+          }),
           resource: Object.freeze({
             id: 'phase1-api',
             indicator: candidateStatusIndicator(allocationId),
@@ -1432,6 +1533,7 @@ export const runWithPhase2Fixture = async <Result>(
 
 export const phase2FixtureContract = Object.freeze({
   clients: logicalClientIds,
+  statusClient: Object.freeze({ id: statusConfidentialClientId, redirectUri: statusRedirectUri }),
   resources: Object.freeze({ primary: primaryIndicator, default: defaultIndicator }),
   organization: Object.freeze({ id: 'phase2-org', scope: 'organization:read' }),
   scopes: Object.freeze(['read', 'write', 'unassigned']),

@@ -33,6 +33,10 @@ const fixture: ProvisionedPhase2Fixture = {
   status: {
     user: { id: 'user', username: 'status-user' },
     client: { id: 'public-client', redirectUri: 'https://client.example/callback' },
+    confidentialClient: {
+      id: 'confidential-client',
+      redirectUri: 'https://client.example/callback',
+    },
     resource: { id: 'resource', indicator: 'https://api.example.com', scopeName: 'read:profile' },
   },
   withSecretLease: async <Result>(
@@ -40,6 +44,7 @@ const fixture: ProvisionedPhase2Fixture = {
   ): Promise<Result> =>
     use({
       getClientSecret: () => 'unused-secret',
+      getStatusClientSecret: () => 'private-status-client-secret',
       getSubjectPassword: () => 'private-password',
       toJSON: (): never => {
         throw new Error('secret lease');

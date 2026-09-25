@@ -102,6 +102,7 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
   ): Promise<Result> =>
     use({
       getClientSecret: () => 'A'.repeat(32),
+      getStatusClientSecret: () => 'C'.repeat(32),
       toJSON: (): never => {
         throw new Error('lease');
       },
