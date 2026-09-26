@@ -159,6 +159,54 @@ describe('logout session client', () => {
       /private-(?:bearer|password|verification|session|account|client)/u
     );
   });
+
+  it('uses the pinned oracle verification header only for the oracle target', async () => {
+    const requests: RequestInit[] = [];
+    const session = {
+      payload: {
+        exp: 2000,
+        iat: 1000,
+        uid: 'session',
+        kind: 'Session',
+        loginTs: 1000,
+        accountId: 'account',
+        authorizations: {},
+      },
+      clientId: null,
+      accountId: 'account',
+      expiresAt: 2_000_000,
+      isCurrent: true,
+    };
+    const responses = [
+      new Response(
+        JSON.stringify({ verificationRecordId: 'verification', expiresAt: '2026-09-27T00:10:00Z' }),
+        { status: 201, headers: { 'content-type': 'application/json' } }
+      ),
+      new Response(JSON.stringify({ sessions: [session] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify({ sessions: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ];
+    const requestFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(init ?? {});
+      return responses.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+    }) as typeof fetch;
+
+    await observeAccountSessionWorkflow(
+      { target: { ...target, label: 'oracle' }, bearer: 'bearer', password: 'password' },
+      requestFetch
+    );
+
+    expect(new Headers(requests[1]?.headers).get('logto-verification-record-id')).toBe(
+      'verification'
+    );
+    expect(new Headers(requests[1]?.headers).has('aster-verification-id')).toBe(false);
+  });
 });
 
 /* eslint-enable @silverhand/fp/no-mutating-methods */

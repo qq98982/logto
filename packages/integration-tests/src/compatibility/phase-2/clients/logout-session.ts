@@ -167,7 +167,13 @@ export const observeAccountSessionWorkflow = async (
         method,
         headers: {
           authorization: `Bearer ${input.bearer}`,
-          ...(verification ? { 'aster-verification-id': verification } : {}),
+          ...(verification
+            ? {
+                [input.target.label === 'oracle'
+                  ? 'logto-verification-record-id'
+                  : 'aster-verification-id']: verification,
+              }
+            : {}),
           ...(body ? { 'content-type': 'application/json' } : {}),
         },
         ...(body ? { body } : {}),
