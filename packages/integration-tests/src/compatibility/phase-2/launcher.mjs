@@ -61,6 +61,17 @@ const closedStatusScenarioIds = new Set([
   'confidential-public-cross-client-revoked',
   'confidential-owner-after-cross-client-active',
 ]);
+const closedLogoutSessionScenarioIds = new Set([
+  'anonymous-get',
+  'anonymous-post',
+  'anonymous-confirmed',
+  'duplicate-client',
+  'unknown-client',
+  'unauthoritative-redirect',
+  'unregistered-redirect',
+  'success-page',
+]);
+const closedAccountSessionScenarioIds = new Set(['missing-verification', 'wrong-password']);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
@@ -76,7 +87,17 @@ export const diagnosticForPhase2Child = (stderr) => {
   if (statusMatch && closedStatusScenarioIds.has(statusMatch[2])) {
     return stderr;
   }
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
+  const logoutMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/logout\.([a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (logoutMatch && closedLogoutSessionScenarioIds.has(logoutMatch[2])) return stderr;
+  const accountMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/account-sessions\.([a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) return stderr;
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
     /^Phase 2 client credentials command failed \(differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(

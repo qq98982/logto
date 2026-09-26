@@ -12,7 +12,8 @@ const profile: Phase2ProfileRegistries = {
   candidateInvariantScenarios: [],
   discovery: {
     grantTypesSupportedAppend: ['client_credentials'],
-    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
+    scopesSupportedAppend: ['urn:aster:scope:sessions'],
     stillAbsent: [],
   },
 };
@@ -55,6 +56,7 @@ describe('Phase 2 public provenance envelope', () => {
         {
           introspection_endpoint: `${issuer}/token/introspection`,
           revocation_endpoint: `${issuer}/token/revocation`,
+          end_session_endpoint: `${issuer}/session/end`,
         },
         endpointFields,
         issuer

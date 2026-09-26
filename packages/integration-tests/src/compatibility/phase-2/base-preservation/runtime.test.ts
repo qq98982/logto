@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- The complete base-preservation lifecycle fixture remains one ordered verification contract. */
 import type {
   Phase1TargetRuntime,
   Phase1TargetStepEvidence,
@@ -19,7 +20,12 @@ const phase2Profile: Phase2ProfileRegistries = Object.freeze({
   candidateInvariantScenarios: Object.freeze([]) as never,
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    endpointFieldsAppend: Object.freeze([
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ] as const),
+    scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
     stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });
@@ -67,6 +73,8 @@ const rawDiscovery = Object.freeze({
   issuer: 'http://localhost:3321/oidc',
   introspection_endpoint: 'http://localhost:3321/oidc/token/introspection',
   revocation_endpoint: 'http://localhost:3321/oidc/token/revocation',
+  end_session_endpoint: 'http://localhost:3321/oidc/session/end',
+  scopes_supported: Object.freeze(['openid', 'urn:aster:scope:sessions']),
   grant_types_supported: Object.freeze([
     'authorization_code',
     'refresh_token',
@@ -421,3 +429,4 @@ describe('Phase 2 base-preservation runtime', () => {
 });
 
 /* eslint-enable unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines */

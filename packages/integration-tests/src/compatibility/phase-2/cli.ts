@@ -30,6 +30,7 @@ import {
   assertClientCredentialsEvidenceIsSanitized,
   createClientCredentialsJwtAudit,
 } from './projections/client-credentials.js';
+import { compareLogoutSessionProjections } from './projections/logout-session.js';
 import { compareTokenStatus } from './projections/token-status.js';
 import {
   inspectLaunchedPhase2HarnessSource,
@@ -51,6 +52,7 @@ import {
   assertDiscoveryAbsentFieldsContract,
   assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
+  assertDiscoveryScopeAppendContract,
   clientCredentialsScenarioIds,
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
@@ -59,6 +61,11 @@ import {
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
+import {
+  logoutSessionScenarioIds,
+  runLogoutSessionScenarios,
+  type LogoutSessionScenarioResult,
+} from './scenarios/logout-session.js';
 import {
   runTokenStatusScenarios,
   tokenStatusScenarioIds,
@@ -133,10 +140,17 @@ export type Phase2CliDependencies = Readonly<{
 
 type TargetScenarioEvidence = Readonly<{
   target: 'oracle' | 'candidate';
-  scenarios: ReadonlyArray<ClientCredentialsScenarioResult | TokenStatusScenarioResult>;
+  scenarios: ReadonlyArray<
+    ClientCredentialsScenarioResult | TokenStatusScenarioResult | LogoutSessionScenarioResult
+  >;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
-    endpointFieldsAppend: readonly ['introspection_endpoint', 'revocation_endpoint'];
+    endpointFieldsAppend: readonly [
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ];
+    scopesSupportedAppend: readonly ['urn:aster:scope:sessions'];
     stillAbsent: readonly string[];
   }>;
   controls: readonly ClientCredentialsControlResult[];
@@ -145,14 +159,15 @@ type TargetScenarioEvidence = Readonly<{
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+)$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
-  (tokenStatusScenarioIds as readonly string[]).includes(value);
+  (tokenStatusScenarioIds as readonly string[]).includes(value) ||
+  (logoutSessionScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -431,6 +446,11 @@ const projectDiscovery = async (
       profile.discovery.endpointFieldsAppend,
       new URL('oidc', descriptor.target.coreUrl).toString()
     ),
+    scopesSupportedAppend: assertDiscoveryScopeAppendContract(
+      discovery.scopes_supported,
+      profile.discovery.scopesSupportedAppend,
+      descriptor.kind
+    ),
     stillAbsent: assertDiscoveryAbsentFieldsContract(
       discovery,
       profile.discovery.stillAbsent,
@@ -529,7 +549,16 @@ const runTargetScenarios = async (
         'Phase 2 stage failed: ' + descriptor.kind + '-status-' + (step ?? 'introspection')
       );
     }
-    return Object.freeze([...results, ...statusScenarios]);
+    let logoutSessionScenarios: readonly LogoutSessionScenarioResult[];
+    try {
+      logoutSessionScenarios = await runLogoutSessionScenarios(profile, descriptor.target, fixture);
+    } catch (error: unknown) {
+      if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
+        throw error;
+      }
+      throw new Error(`Phase 2 stage failed: ${descriptor.kind}-logout-session`);
+    }
+    return Object.freeze([...results, ...statusScenarios, ...logoutSessionScenarios]);
   }).catch((error: unknown) => {
     if (
       error instanceof Error &&
@@ -554,8 +583,8 @@ const runTargetScenarios = async (
   let controls: readonly ClientCredentialsControlResult[];
   try {
     controls = runClientCredentialsNegativeControls({
-      success,
-      authenticationError,
+      success: success as ClientCredentialsScenarioResult['projection'],
+      authenticationError: authenticationError as ClientCredentialsScenarioResult['projection'],
       discoveryGrantTypes: discovery.grantTypesSupported,
     });
   } catch {
@@ -626,13 +655,25 @@ const executeDifferential = async (
     if (!candidateScenario || candidateScenario.id !== oracleScenario.id) {
       return fail();
     }
-    const found =
-      'kind' in oracleScenario.projection && 'kind' in candidateScenario.projection
+    const isTokenStatus = (tokenStatusScenarioIds as readonly string[]).includes(oracleScenario.id);
+    const isLogoutSession = (logoutSessionScenarioIds as readonly string[]).includes(
+      oracleScenario.id
+    );
+    const found = isLogoutSession
+      ? compareLogoutSessionProjections(
+          oracleScenario.projection as LogoutSessionScenarioResult['projection'],
+          candidateScenario.projection as LogoutSessionScenarioResult['projection']
+        )
+      : isTokenStatus &&
+          'kind' in oracleScenario.projection &&
+          'kind' in candidateScenario.projection
         ? compareTokenStatus(oracleScenario.projection, candidateScenario.projection)
-        : !('kind' in oracleScenario.projection) && !('kind' in candidateScenario.projection)
+        : !isTokenStatus &&
+            !('kind' in oracleScenario.projection) &&
+            !('kind' in candidateScenario.projection)
           ? compareClientCredentialsProjections(
-              oracleScenario.projection,
-              candidateScenario.projection
+              oracleScenario.projection as ClientCredentialsScenarioResult['projection'],
+              candidateScenario.projection as ClientCredentialsScenarioResult['projection']
             )
           : fail();
     if (found.length > 0) {

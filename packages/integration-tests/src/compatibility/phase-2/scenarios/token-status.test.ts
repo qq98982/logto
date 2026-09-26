@@ -62,7 +62,8 @@ const profile: Phase2ProfileRegistries = {
   ],
   discovery: {
     grantTypesSupportedAppend: ['client_credentials'],
-    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
+    scopesSupportedAppend: ['urn:aster:scope:sessions'],
     stillAbsent: ['device_authorization_endpoint', 'registration_endpoint'],
   },
 };

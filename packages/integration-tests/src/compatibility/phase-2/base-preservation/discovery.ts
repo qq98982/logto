@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition -- The closed adapter validates hostile descriptors and control characters, narrows unknown JSON through explicit assertions, and keeps literal contract checks visible. */
+/* eslint-disable max-lines, complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition -- The closed adapter validates hostile descriptors and control characters, narrows unknown JSON through explicit assertions, and keeps literal contract checks visible. */
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
@@ -50,7 +50,12 @@ export type Phase2BaseDiscoverySessionInput = Readonly<{
   session: Phase1ProtocolSession;
   acceptedGrantTypes: readonly string[];
   appendGrantType: 'client_credentials';
-  endpointFieldsAppend: readonly ['introspection_endpoint', 'revocation_endpoint'];
+  endpointFieldsAppend: readonly [
+    'introspection_endpoint',
+    'revocation_endpoint',
+    'end_session_endpoint',
+  ];
+  scopesSupportedAppend: readonly ['urn:aster:scope:sessions'];
   stillAbsent: readonly string[];
   paths: Readonly<{ openid: string; oauth: string; jwks: string }>;
 }>;
@@ -208,7 +213,9 @@ export const createPhase2BaseDiscoverySession = (
     !isDeepStrictEqual(input.endpointFieldsAppend, [
       'introspection_endpoint',
       'revocation_endpoint',
+      'end_session_endpoint',
     ]) ||
+    !isDeepStrictEqual(input.scopesSupportedAppend, ['urn:aster:scope:sessions']) ||
     input.acceptedGrantTypes.length === 0 ||
     new Set(input.acceptedGrantTypes).size !== input.acceptedGrantTypes.length ||
     input.stillAbsent.length === 0 ||
@@ -259,6 +266,7 @@ export const createPhase2BaseDiscoverySession = (
     }
     const rawDocument = assertRawResponse(response);
     const grants = exactStringArray(rawDocument.grant_types_supported);
+    const scopes = exactStringArray(rawDocument.scopes_supported);
     const expected = [...input.acceptedGrantTypes, input.appendGrantType];
     const { issuer } = rawDocument;
 
@@ -267,11 +275,10 @@ export const createPhase2BaseDiscoverySession = (
       grants.some((value, index) => value !== expected[index]) ||
       new Set(grants).size !== grants.length ||
       typeof issuer !== 'string' ||
-      input.endpointFieldsAppend.some(
-        (field) =>
-          rawDocument[field] !==
-          `${issuer}/token/${field === 'introspection_endpoint' ? 'introspection' : 'revocation'}`
-      ) ||
+      rawDocument.introspection_endpoint !== `${issuer}/token/introspection` ||
+      rawDocument.revocation_endpoint !== `${issuer}/token/revocation` ||
+      rawDocument.end_session_endpoint !== `${issuer}/session/end` ||
+      scopes.filter((scope) => scope === input.scopesSupportedAppend[0]).length !== 1 ||
       input.stillAbsent.some((field) => Object.hasOwn(rawDocument, field))
     ) {
       return fail();
@@ -283,11 +290,19 @@ export const createPhase2BaseDiscoverySession = (
       return fail();
     }
     rawDocuments.set(kind, rawDocument);
-    const { introspection_endpoint, revocation_endpoint, ...baseDocument } = rawDocument;
-    if (introspection_endpoint === undefined || revocation_endpoint === undefined) {
+    const { introspection_endpoint, revocation_endpoint, end_session_endpoint, ...baseDocument } =
+      rawDocument;
+    if (
+      introspection_endpoint === undefined ||
+      revocation_endpoint === undefined ||
+      end_session_endpoint === undefined
+    ) {
       return fail();
     }
     baseDocument.grant_types_supported = [...input.acceptedGrantTypes];
+    baseDocument.scopes_supported = scopes.filter(
+      (scope) => scope !== input.scopesSupportedAppend[0]
+    );
     const baseBody = JSON.stringify(baseDocument);
     const proof = Object.freeze({
       operation: operation as DiscoveryOperation,
@@ -328,4 +343,4 @@ export const createPhase2BaseDiscoverySession = (
   });
 };
 
-/* eslint-enable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition */
+/* eslint-enable max-lines, complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition */

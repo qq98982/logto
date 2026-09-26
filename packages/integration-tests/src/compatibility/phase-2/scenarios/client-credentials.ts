@@ -961,16 +961,32 @@ export const assertDiscoveryAbsentFieldsContract = (
 
 export const assertDiscoveryEndpointFieldsContract = (
   discovery: Readonly<Record<string, unknown>>,
-  fields: readonly ['introspection_endpoint', 'revocation_endpoint'],
+  fields: readonly ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
   issuer: string
-): readonly ['introspection_endpoint', 'revocation_endpoint'] => {
+): readonly ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'] => {
   if (
     discovery[fields[0]] !== `${issuer}/token/introspection` ||
-    discovery[fields[1]] !== `${issuer}/token/revocation`
+    discovery[fields[1]] !== `${issuer}/token/revocation` ||
+    discovery[fields[2]] !== `${issuer}/session/end`
   ) {
     return fail();
   }
-  return Object.freeze([fields[0], fields[1]] as const);
+  return Object.freeze([fields[0], fields[1], fields[2]] as const);
+};
+
+export const assertDiscoveryScopeAppendContract = (
+  scopes: unknown,
+  expectedAppend: readonly ['urn:aster:scope:sessions'],
+  target: TargetConfig['label']
+): readonly ['urn:aster:scope:sessions'] => {
+  if (!Array.isArray(scopes) || scopes.some((value) => typeof value !== 'string')) {
+    return fail();
+  }
+  const native = target === 'oracle' ? 'urn:logto:scope:sessions' : expectedAppend[0];
+  if (scopes.filter((scope) => scope === native).length !== 1) {
+    return fail();
+  }
+  return expectedAppend;
 };
 
 /* eslint-enable max-lines, complexity, no-await-in-loop, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */

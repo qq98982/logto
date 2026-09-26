@@ -149,8 +149,10 @@ export const runTokenStatusScenarios = async (
   fixture: ProvisionedPhase2Fixture,
   requestFetch: typeof fetch = fetch
 ): Promise<readonly TokenStatusScenarioResult[]> => {
-  const tail = profile.differentialScenarios.slice(-tokenStatusScenarioIds.length);
+  const start = profile.differentialScenarios.indexOf(tokenStatusScenarioIds[0]);
+  const tail = profile.differentialScenarios.slice(start, start + tokenStatusScenarioIds.length);
   if (
+    start < 0 ||
     tail.length !== tokenStatusScenarioIds.length ||
     tail.some((id, index) => id !== tokenStatusScenarioIds[index])
   ) {

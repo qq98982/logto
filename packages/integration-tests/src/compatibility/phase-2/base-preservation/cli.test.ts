@@ -33,7 +33,12 @@ const profile: Phase2ProfileRegistries = Object.freeze({
   candidateInvariantScenarios: Object.freeze([]) as never,
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    endpointFieldsAppend: Object.freeze([
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ] as const),
+    scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
     stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });

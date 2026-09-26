@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'bf370442ed17edae57703f7a11282a2595051c3725ae26e9be4a96cd9473d5f5';
-const expectedSchemaSha256 = '12f6324a872903f13f3b239fe6e3f7d312cd2cd08301d056c9e52435457aa7b2';
+const expectedProfileSha256 = '5292faa8be896cc7b7c924c0794c9f421be15a705090e10808aba96da854e5f3';
+const expectedSchemaSha256 = 'd11b3ecc4f32e620889db194f37023aebae68f574a4107157d152f366618b9f3';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -73,6 +73,16 @@ const differentialScenarioIds = [
   'token-status.confidential-public-cross-client-inactive',
   'token-status.confidential-public-cross-client-revoked',
   'token-status.confidential-owner-after-cross-client-active',
+  'logout.anonymous-get',
+  'logout.anonymous-post',
+  'logout.anonymous-confirmed',
+  'logout.duplicate-client',
+  'logout.unknown-client',
+  'logout.unauthoritative-redirect',
+  'logout.unregistered-redirect',
+  'logout.success-page',
+  'account-sessions.missing-verification',
+  'account-sessions.wrong-password',
 ] as const;
 const candidateInvariantIds = [
   'client-credentials.cross-tenant-authority-rejected',
@@ -84,7 +94,12 @@ const stillAbsentDiscoveryFields = [
   'device_authorization_endpoint',
   'registration_endpoint',
 ] as const;
-const endpointFieldsAppend = ['introspection_endpoint', 'revocation_endpoint'] as const;
+const endpointFieldsAppend = [
+  'introspection_endpoint',
+  'revocation_endpoint',
+  'end_session_endpoint',
+] as const;
+const scopesSupportedAppend = ['urn:aster:scope:sessions'] as const;
 
 export type Phase2DifferentialScenarioId = (typeof differentialScenarioIds)[number];
 export type Phase2CandidateInvariantId = (typeof candidateInvariantIds)[number];
@@ -104,6 +119,7 @@ export type Phase2ProfileRegistries = Readonly<{
   discovery: Readonly<{
     grantTypesSupportedAppend: readonly ['client_credentials'];
     endpointFieldsAppend: typeof endpointFieldsAppend;
+    scopesSupportedAppend: typeof scopesSupportedAppend;
     stillAbsent: readonly Phase2StillAbsentDiscoveryField[];
   }>;
 }>;
@@ -268,6 +284,10 @@ export const loadPhase2Profile = async ({
         'client_credentials',
       ] as const),
       endpointFieldsAppend: exactArray(discoveryRecord.endpointFieldsAppend, endpointFieldsAppend),
+      scopesSupportedAppend: exactArray(
+        discoveryRecord.scopesSupportedAppend,
+        scopesSupportedAppend
+      ),
       stillAbsent: exactArray(discoveryRecord.stillAbsent, stillAbsentDiscoveryFields),
     },
   };

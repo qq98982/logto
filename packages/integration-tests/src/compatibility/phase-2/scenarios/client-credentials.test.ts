@@ -80,7 +80,12 @@ const profile: Phase2ProfileRegistries = Object.freeze({
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
-    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    endpointFieldsAppend: Object.freeze([
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ] as const),
+    scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
     stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
   }),
 });
@@ -663,10 +668,15 @@ describe('Phase 2 client credentials scenarios', () => {
   });
 
   it('requires the published status endpoints to belong to this issuer', () => {
-    const fields = ['introspection_endpoint', 'revocation_endpoint'] as const;
+    const fields = [
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ] as const;
     const document = {
       introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
       revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
+      end_session_endpoint: 'https://candidate.example/oidc/session/end',
     };
     expect(
       assertDiscoveryEndpointFieldsContract(document, fields, 'https://candidate.example/oidc')
@@ -675,6 +685,7 @@ describe('Phase 2 client credentials scenarios', () => {
       { ...document, introspection_endpoint: undefined },
       { ...document, revocation_endpoint: 'https://foreign.example/oidc/token/revocation' },
       { ...document, introspection_endpoint: document.revocation_endpoint },
+      { ...document, end_session_endpoint: 'https://foreign.example/oidc/session/end' },
     ]) {
       expect(() =>
         assertDiscoveryEndpointFieldsContract(invalid, fields, 'https://candidate.example/oidc')

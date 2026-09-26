@@ -43,11 +43,12 @@ describe('Phase 2 profile loader', () => {
       schemaPath: canonicalSchemaPath,
     });
 
-    expect(registries.differentialScenarios).toHaveLength(47);
+    expect(registries.differentialScenarios).toHaveLength(57);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
     );
+    expect(registries.differentialScenarios[56]).toBe('account-sessions.wrong-password');
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
       'client-credentials.cross-tenant-authority-rejected',
@@ -57,7 +58,12 @@ describe('Phase 2 profile loader', () => {
     ]);
     expect(registries.discovery).toEqual({
       grantTypesSupportedAppend: ['client_credentials'],
-      endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+      endpointFieldsAppend: [
+        'introspection_endpoint',
+        'revocation_endpoint',
+        'end_session_endpoint',
+      ],
+      scopesSupportedAppend: ['urn:aster:scope:sessions'],
       stillAbsent: ['device_authorization_endpoint', 'registration_endpoint'],
     });
     expect(Object.keys(registries).toSorted()).toEqual([
@@ -69,10 +75,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      'bf370442ed17edae57703f7a11282a2595051c3725ae26e9be4a96cd9473d5f5'
+      '5292faa8be896cc7b7c924c0794c9f421be15a705090e10808aba96da854e5f3'
     );
     expect(registries.schemaSha256).toBe(
-      '12f6324a872903f13f3b239fe6e3f7d312cd2cd08301d056c9e52435457aa7b2'
+      'd11b3ecc4f32e620889db194f37023aebae68f574a4107157d152f366618b9f3'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'
@@ -83,6 +89,7 @@ describe('Phase 2 profile loader', () => {
     expect(Object.isFrozen(registries.discovery)).toBe(true);
     expect(Object.isFrozen(registries.discovery.grantTypesSupportedAppend)).toBe(true);
     expect(Object.isFrozen(registries.discovery.endpointFieldsAppend)).toBe(true);
+    expect(Object.isFrozen(registries.discovery.scopesSupportedAppend)).toBe(true);
     expect(Object.isFrozen(registries.discovery.stillAbsent)).toBe(true);
   });
 

@@ -9,7 +9,11 @@
     "harnessCommit": "83d08f0821345d1bdc01491152949cc6f044ecfb",
     "profileSha256": "5212b72090d1c9ab1956c07da652629af1312a9784f8a513028e5e297801fcf7"
   },
-  "units": ["client-credentials-foundation", "token-introspection-revocation"],
+  "units": [
+    "client-credentials-foundation",
+    "token-introspection-revocation",
+    "logout-session-management"
+  ],
   "grantTypes": ["client_credentials"],
   "differentialScenarios": [
     "client-credentials.basic-explicit-resource",
@@ -58,7 +62,17 @@
     "token-status.confidential-wrong-secret-rejected",
     "token-status.confidential-public-cross-client-inactive",
     "token-status.confidential-public-cross-client-revoked",
-    "token-status.confidential-owner-after-cross-client-active"
+    "token-status.confidential-owner-after-cross-client-active",
+    "logout.anonymous-get",
+    "logout.anonymous-post",
+    "logout.anonymous-confirmed",
+    "logout.duplicate-client",
+    "logout.unknown-client",
+    "logout.unauthoritative-redirect",
+    "logout.unregistered-redirect",
+    "logout.success-page",
+    "account-sessions.missing-verification",
+    "account-sessions.wrong-password"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",
@@ -68,7 +82,12 @@
   ],
   "discovery": {
     "grantTypesSupportedAppend": ["client_credentials"],
-    "endpointFieldsAppend": ["introspection_endpoint", "revocation_endpoint"],
+    "endpointFieldsAppend": [
+      "introspection_endpoint",
+      "revocation_endpoint",
+      "end_session_endpoint"
+    ],
+    "scopesSupportedAppend": ["urn:aster:scope:sessions"],
     "stillAbsent": [
       "device_authorization_endpoint",
       "registration_endpoint"

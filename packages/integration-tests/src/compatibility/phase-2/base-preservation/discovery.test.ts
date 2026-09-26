@@ -40,8 +40,10 @@ const baseDocument = Object.freeze({
 const rawDocument = (overrides: Readonly<Record<string, unknown>> = {}) => ({
   ...baseDocument,
   grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
+  scopes_supported: ['openid', 'offline_access', 'profile', 'email', 'urn:aster:scope:sessions'],
   introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
   revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
+  end_session_endpoint: 'https://candidate.example/oidc/session/end',
   ...overrides,
 });
 
@@ -98,7 +100,12 @@ const createWrapped = (
     session: createSession(documents),
     acceptedGrantTypes: Object.freeze(['authorization_code', 'refresh_token']),
     appendGrantType: 'client_credentials',
-    endpointFieldsAppend: Object.freeze(['introspection_endpoint', 'revocation_endpoint'] as const),
+    endpointFieldsAppend: Object.freeze([
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+    ] as const),
+    scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
     stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint']),
     paths: Object.freeze({
       openid: 'oidc/.well-known/openid-configuration',
@@ -155,7 +162,11 @@ describe('Phase 2 base-preservation discovery adapter', () => {
         operation: 'discovery-openid',
         rawGrantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
         baseGrantTypes: ['authorization_code', 'refresh_token'],
-        endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint'],
+        endpointFieldsAppend: [
+          'introspection_endpoint',
+          'revocation_endpoint',
+          'end_session_endpoint',
+        ],
       }),
       expect.objectContaining({
         operation: 'discovery-oauth-authorization-server',

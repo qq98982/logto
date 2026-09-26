@@ -41,7 +41,11 @@
     "units": {
       "type": "array",
       "uniqueItems": true,
-      "const": ["client-credentials-foundation", "token-introspection-revocation"]
+      "const": [
+        "client-credentials-foundation",
+        "token-introspection-revocation",
+        "logout-session-management"
+      ]
     },
     "grantTypes": {
       "type": "array",
@@ -98,7 +102,17 @@
     "token-status.confidential-wrong-secret-rejected",
     "token-status.confidential-public-cross-client-inactive",
     "token-status.confidential-public-cross-client-revoked",
-    "token-status.confidential-owner-after-cross-client-active"
+    "token-status.confidential-owner-after-cross-client-active",
+        "logout.anonymous-get",
+        "logout.anonymous-post",
+        "logout.anonymous-confirmed",
+        "logout.duplicate-client",
+        "logout.unknown-client",
+        "logout.unauthoritative-redirect",
+        "logout.unregistered-redirect",
+        "logout.success-page",
+        "account-sessions.missing-verification",
+        "account-sessions.wrong-password"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },
@@ -116,7 +130,12 @@
     "discovery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grantTypesSupportedAppend", "endpointFieldsAppend", "stillAbsent"],
+      "required": [
+        "grantTypesSupportedAppend",
+        "endpointFieldsAppend",
+        "scopesSupportedAppend",
+        "stillAbsent"
+      ],
       "properties": {
         "grantTypesSupportedAppend": {
           "type": "array",
@@ -126,7 +145,16 @@
         "endpointFieldsAppend": {
           "type": "array",
           "uniqueItems": true,
-          "const": ["introspection_endpoint", "revocation_endpoint"]
+          "const": [
+            "introspection_endpoint",
+            "revocation_endpoint",
+            "end_session_endpoint"
+          ]
+        },
+        "scopesSupportedAppend": {
+          "type": "array",
+          "uniqueItems": true,
+          "const": ["urn:aster:scope:sessions"]
         },
         "stillAbsent": {
           "type": "array",
