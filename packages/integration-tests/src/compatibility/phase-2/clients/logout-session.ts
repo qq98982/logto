@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation -- The private cookie jar is intentionally updated only inside bounded browser flows. */
+/* eslint-disable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The private cookie jar and workflow stage are intentionally updated only inside bounded browser flows. */
 import type { TargetConfig } from '../../model.js';
 import type { LogoutSessionProjection } from '../projections/logout-session.js';
 import { projectLogoutSessionResponse } from '../projections/logout-session.js';
@@ -155,96 +155,108 @@ export const observeAccountSessionWorkflow = async (
   input: Readonly<{ target: TargetConfig; bearer: string; password: string }>,
   requestFetch: typeof fetch = fetch
 ): Promise<AccountSessionWorkflowObservation> => {
-  const sendAccount = async (
-    path: string,
-    method: 'GET' | 'POST' | 'DELETE',
-    verification?: string,
-    body?: string
-  ): Promise<Readonly<{ response: Response; text: string }>> => {
-    const response = await requestFetch(new URL(path, input.target.coreUrl), {
-      method,
-      headers: {
-        authorization: `Bearer ${input.bearer}`,
-        ...(verification ? { 'aster-verification-id': verification } : {}),
-        ...(body ? { 'content-type': 'application/json' } : {}),
-      },
-      ...(body ? { body } : {}),
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10_000),
-    });
-    return Object.freeze({ response, text: await readText(response) });
-  };
+  let stage: 'verification' | 'list' | 'delete' | 'list-after-delete' = 'verification';
+  try {
+    const sendAccount = async (
+      path: string,
+      method: 'GET' | 'POST' | 'DELETE',
+      verification?: string,
+      body?: string
+    ): Promise<Readonly<{ response: Response; text: string }>> => {
+      const response = await requestFetch(new URL(path, input.target.coreUrl), {
+        method,
+        headers: {
+          authorization: `Bearer ${input.bearer}`,
+          ...(verification ? { 'aster-verification-id': verification } : {}),
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body } : {}),
+        redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
+      });
+      return Object.freeze({ response, text: await readText(response) });
+    };
 
-  const verified = await sendAccount(
-    '/api/verifications/password',
-    'POST',
-    undefined,
-    JSON.stringify({ password: input.password })
-  );
-  if (verified.response.status !== 201) {
-    return fail();
-  }
-  const verifiedBody = recordJson(verified.text);
-  const verification = verifiedBody.verificationRecordId;
-  if (typeof verification !== 'string' || verification.length === 0 || verification.length > 4096) {
-    return fail();
-  }
-  const verificationProjection = projectLogoutSessionResponse(
-    input.target.coreUrl,
-    verified.response,
-    verified.text
-  );
-
-  const listed = await sendAccount('/api/my-account/sessions', 'GET', verification);
-  if (listed.response.status !== 200) {
-    return fail();
-  }
-  const listedBody = recordJson(listed.text);
-  if (!Array.isArray(listedBody.sessions)) {
-    return fail();
-  }
-  const current = listedBody.sessions
-    .map((session) => recordJsonValue(session))
-    .find((session) => session.isCurrent === true);
-  const payload = current && recordJsonValue(current.payload);
-  const sessionId = payload?.uid;
-  if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 128) {
-    return fail();
-  }
-  const sessionsProjection = projectLogoutSessionResponse(
-    input.target.coreUrl,
-    listed.response,
-    listed.text
-  );
-
-  const deleted = await sendAccount(
-    `/api/my-account/sessions/${encodeURIComponent(sessionId)}`,
-    'DELETE',
-    verification
-  );
-  if (deleted.response.status !== 204) {
-    return fail();
-  }
-  const deletionProjection = projectLogoutSessionResponse(
-    input.target.coreUrl,
-    deleted.response,
-    deleted.text
-  );
-
-  const after = await sendAccount('/api/my-account/sessions', 'GET', verification);
-  if (after.response.status !== 200) {
-    return fail();
-  }
-  return Object.freeze({
-    verification: verificationProjection,
-    sessions: sessionsProjection,
-    deletion: deletionProjection,
-    sessionsAfterDeletion: projectLogoutSessionResponse(
+    const verified = await sendAccount(
+      '/api/verifications/password',
+      'POST',
+      undefined,
+      JSON.stringify({ password: input.password })
+    );
+    if (verified.response.status !== 201) {
+      return fail();
+    }
+    const verifiedBody = recordJson(verified.text);
+    const verification = verifiedBody.verificationRecordId;
+    if (
+      typeof verification !== 'string' ||
+      verification.length === 0 ||
+      verification.length > 4096
+    ) {
+      return fail();
+    }
+    const verificationProjection = projectLogoutSessionResponse(
       input.target.coreUrl,
-      after.response,
-      after.text
-    ),
-  });
+      verified.response,
+      verified.text
+    );
+
+    stage = 'list';
+    const listed = await sendAccount('/api/my-account/sessions', 'GET', verification);
+    if (listed.response.status !== 200) {
+      return fail();
+    }
+    const listedBody = recordJson(listed.text);
+    if (!Array.isArray(listedBody.sessions)) {
+      return fail();
+    }
+    const current = listedBody.sessions
+      .map((session) => recordJsonValue(session))
+      .find((session) => session.isCurrent === true);
+    const payload = current && recordJsonValue(current.payload);
+    const sessionId = payload?.uid;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 128) {
+      return fail();
+    }
+    const sessionsProjection = projectLogoutSessionResponse(
+      input.target.coreUrl,
+      listed.response,
+      listed.text
+    );
+
+    stage = 'delete';
+    const deleted = await sendAccount(
+      `/api/my-account/sessions/${encodeURIComponent(sessionId)}`,
+      'DELETE',
+      verification
+    );
+    if (deleted.response.status !== 204) {
+      return fail();
+    }
+    const deletionProjection = projectLogoutSessionResponse(
+      input.target.coreUrl,
+      deleted.response,
+      deleted.text
+    );
+
+    stage = 'list-after-delete';
+    const after = await sendAccount('/api/my-account/sessions', 'GET', verification);
+    if (after.response.status !== 200) {
+      return fail();
+    }
+    return Object.freeze({
+      verification: verificationProjection,
+      sessions: sessionsProjection,
+      deletion: deletionProjection,
+      sessionsAfterDeletion: projectLogoutSessionResponse(
+        input.target.coreUrl,
+        after.response,
+        after.text
+      ),
+    });
+  } catch {
+    throw new TypeError(`Invalid Phase 2 Account session workflow (${stage})`);
+  }
 };
 
 const recordJson = (text: string): Record<string, unknown> => {
@@ -291,4 +303,4 @@ export const observeAccountSessionBoundary = async (
   return projectLogoutSessionResponse(input.target.coreUrl, response, await readText(response));
 };
 
-/* eslint-enable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-mutation */
+/* eslint-enable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

@@ -155,8 +155,16 @@ export const runLogoutSessionScenarios = async (
   const completeWorkflow = await observeAccountSessionWorkflow(
     { target, bearer: accountSession.access, password },
     requestFetch
-  ).catch(() => {
-    throw new Error(`Phase 2 scenario failed: ${target.label}/${logoutSessionScenarioIds[12]}`);
+  ).catch((error: unknown) => {
+    const stage =
+      error instanceof Error
+        ? /^Invalid Phase 2 Account session workflow \((verification|list|delete|list-after-delete)\)$/u.exec(
+            error.message
+          )?.[1]
+        : undefined;
+    const index =
+      stage === 'list' ? 13 : stage === 'delete' ? 14 : stage === 'list-after-delete' ? 15 : 12;
+    throw new Error(`Phase 2 scenario failed: ${target.label}/${logoutSessionScenarioIds[index]}`);
   });
   results.push(
     Object.freeze({ id: logoutSessionScenarioIds[12], projection: completeWorkflow.verification }),
