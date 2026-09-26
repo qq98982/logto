@@ -111,6 +111,19 @@ describe('token status black-box projection', () => {
     ).toEqual(['/headers']);
   });
 
+  it('allows only one second of rotated-token lifetime jitter', () => {
+    const left = projectTokenStatus(input(oracle, 'introspection', active(oracle)));
+    const oneSecond = projectTokenStatus(
+      input(candidate, 'introspection', { ...active(candidate), exp: 4599 })
+    );
+    const twoSeconds = projectTokenStatus(
+      input(candidate, 'introspection', { ...active(candidate), exp: 4598 })
+    );
+
+    expect(compareTokenStatus(left, oneSecond)).toEqual([]);
+    expect(compareTokenStatus(left, twoSeconds)).toEqual(['/body', '/body/exp']);
+  });
+
   it('projects inactive, empty revocation and explicit unsupported-token errors', () => {
     const inactive = projectTokenStatus(input(oracle, 'introspection', { active: false }));
     const revoked = projectTokenStatus(input(oracle, 'revocation', null));

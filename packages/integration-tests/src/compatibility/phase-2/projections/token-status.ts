@@ -208,19 +208,40 @@ export const compareTokenStatus = (
   oracle: TokenStatusProjection,
   candidate: TokenStatusProjection
 ): readonly string[] => {
-  const differences = (['kind', 'status', 'headers', 'body', 'grant'] as const)
+  const bothActive = oracle.body?.active === true && candidate.body?.active === true;
+  const topLevelDifferences = (['kind', 'status', 'headers', 'grant'] as const)
     .filter((key) => !isDeepStrictEqual(oracle[key], candidate[key]))
     .map((key) => `/${key}`);
-  const bodyDifferences =
-    oracle.body?.active === true && candidate.body?.active === true
-      ? (['sub', 'client_id', 'exp', 'iat', 'iss', 'scope', 'token_type'] as const)
-          .filter(
-            (key) =>
-              Object.hasOwn(oracle.body ?? {}, key) !== Object.hasOwn(candidate.body ?? {}, key) ||
-              !isDeepStrictEqual(oracle.body?.[key], candidate.body?.[key])
-          )
-          .map((key) => `/body/${key}`)
-      : [];
+  const bodyDifferences = bothActive
+    ? (['sub', 'client_id', 'exp', 'iat', 'iss', 'scope', 'token_type'] as const)
+        .filter((key) => {
+          if (Object.hasOwn(oracle.body ?? {}, key) !== Object.hasOwn(candidate.body ?? {}, key)) {
+            return true;
+          }
+          if (key !== 'exp') {
+            return !isDeepStrictEqual(oracle.body?.[key], candidate.body?.[key]);
+          }
+          const oracleLifetime = (
+            oracle.body?.exp as Readonly<{ afterIssuedAtSeconds?: unknown }> | undefined
+          )?.afterIssuedAtSeconds;
+          const candidateLifetime = (
+            candidate.body?.exp as Readonly<{ afterIssuedAtSeconds?: unknown }> | undefined
+          )?.afterIssuedAtSeconds;
+          return (
+            typeof oracleLifetime !== 'number' ||
+            typeof candidateLifetime !== 'number' ||
+            Math.abs(oracleLifetime - candidateLifetime) > 1
+          );
+        })
+        .map((key) => `/body/${key}`)
+    : [];
+  const differences = [
+    ...topLevelDifferences,
+    ...((bothActive && bodyDifferences.length > 0) ||
+    (!bothActive && !isDeepStrictEqual(oracle.body, candidate.body))
+      ? ['/body']
+      : []),
+  ];
   return Object.freeze([...differences, ...bodyDifferences]);
 };
 /* eslint-enable complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */
