@@ -41,11 +41,21 @@ export const runLogoutSessionScenarios = async (
   if (!clientId) {
     throw new TypeError('Invalid Phase 2 logout session fixture');
   }
+  const observe = async (
+    id: LogoutSessionScenarioResult['id'],
+    operation: () => Promise<LogoutSessionProjection>
+  ): Promise<LogoutSessionScenarioResult> => {
+    try {
+      return Object.freeze({ id, projection: await operation() });
+    } catch {
+      throw new Error(`Phase 2 scenario failed: ${target.label}/${id}`);
+    }
+  };
   const run = async (
     id: LogoutSessionScenarioResult['id'],
     input: Parameters<typeof observeLogoutSession>[0]
   ): Promise<LogoutSessionScenarioResult> =>
-    Object.freeze({ id, projection: await observeLogoutSession(input, requestFetch) });
+    observe(id, async () => observeLogoutSession(input, requestFetch));
   const results: LogoutSessionScenarioResult[] = [
     await run(logoutSessionScenarioIds[0], {
       target,
@@ -106,13 +116,9 @@ export const runLogoutSessionScenarios = async (
     [logoutSessionScenarioIds[9], 'wrong-password'],
   ] as const) {
     results.push(
-      Object.freeze({
-        id,
-        projection: await observeAccountSessionBoundary(
-          { target, kind, bearer: tokens.access },
-          requestFetch
-        ),
-      })
+      await observe(id, async () =>
+        observeAccountSessionBoundary({ target, kind, bearer: tokens.access }, requestFetch)
+      )
     );
   }
   return Object.freeze(results);
