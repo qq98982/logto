@@ -299,6 +299,18 @@ describe('Phase 2 client credentials projection', () => {
     }).toThrow('Invalid Phase 2 client credentials projection');
   });
 
+  it('allows aggregate cookie counts while rejecting cookie values', () => {
+    expect(() => {
+      assertClientCredentialsEvidenceIsSanitized({
+        setCookieCount: 2,
+        clearedCookieCount: 1,
+      });
+    }).not.toThrow();
+    expect(() => {
+      assertClientCredentialsEvidenceIsSanitized({ 'set-cookie': 'session=private' });
+    }).toThrow('Invalid Phase 2 client credentials projection');
+  });
+
   it('rejects duplicate JTI values and issued-at values outside the request window', () => {
     const audit = createClientCredentialsJwtAudit();
     const first = response(candidate);
