@@ -14,7 +14,7 @@ describe('logout session client', () => {
     const calls: Array<readonly [RequestInfo | URL, RequestInit | undefined]> = [];
     const responses = [
       new Response(
-        '<title>Sign Out</title><body onload="form.submit()"><form method="post" action="/oidc/session/end/confirm"><input name="xsrf" value="private-xsrf"><input name="logout" value="yes"></form></body>',
+        '<title>Submitting Callback</title><body onload="form.submit()"><form method="post" action="https://candidate.example/oidc/session/end/confirm"><input name="xsrf" value="private-xsrf"><input name="logout" value="yes"></form></body>',
         {
           status: 200,
           headers: {
@@ -49,6 +49,25 @@ describe('logout session client', () => {
     const confirmation = calls[1]?.[1];
     expect(String(confirmation?.body)).toContain('xsrf=private-xsrf');
     expect(new Headers(confirmation?.headers).get('cookie')).toContain('_session=private-cookie');
+  });
+
+  it('rejects an external confirmation action without sending the XSRF value', async () => {
+    const calls: string[] = [];
+    const requestFetch = (async () => {
+      calls.push('request');
+      return new Response(
+        '<form method="post" action="https://attacker.example/collect"><input name="xsrf" value="private-xsrf"></form>',
+        { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }
+      );
+    }) as typeof fetch;
+
+    await expect(
+      observeLogoutSession(
+        { target, method: 'GET', path: '/oidc/session/end', confirm: true },
+        requestFetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 logout session observation');
+    expect(calls).toHaveLength(1);
   });
 
   it('projects Account authorization errors without returning bearer input', async () => {

@@ -90,15 +90,26 @@ export const observeLogoutSession = async (
     return fail();
   }
   const xsrf = /name=["']xsrf["'][^>]*value=["']([^"']+)["']/iu.exec(first.body)?.[1];
-  const action = /<form\b[^>]*action=["']([^"']+)["']/iu.exec(first.body)?.[1];
-  if (!xsrf || !action?.startsWith('/')) {
+  const actionValue = /<form\b[^>]*action=["']([^"']+)["']/iu.exec(first.body)?.[1];
+  if (!xsrf || !actionValue) {
+    return fail();
+  }
+  const action = (() => {
+    try {
+      return new URL(actionValue, input.target.coreUrl);
+    } catch {
+      return fail();
+    }
+  })();
+  const target = new URL(input.target.coreUrl);
+  if (action.origin !== target.origin || action.hash !== '') {
     return fail();
   }
   const confirmed = await send(
     {
       target: input.target,
       method: 'POST',
-      path: action,
+      path: `${action.pathname}${action.search}`,
       form: [
         ['xsrf', xsrf],
         ['logout', 'yes'],
