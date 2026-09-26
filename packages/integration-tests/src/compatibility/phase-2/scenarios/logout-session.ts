@@ -1,7 +1,11 @@
 /* eslint-disable no-await-in-loop, @silverhand/fp/no-mutating-methods -- Ordered logout and Account observations share one fixture token lifecycle. */
 import type { TargetConfig } from '../../model.js';
-import { observeAccountSessionBoundary, observeLogoutSession } from '../clients/logout-session.js';
-import { issuePublicUserTokens } from '../clients/user-token-issuance.js';
+import {
+  observeAccountSessionBoundary,
+  observeAccountSessionWorkflow,
+  observeLogoutSession,
+} from '../clients/logout-session.js';
+import { issuePublicUserSession, issuePublicUserTokens } from '../clients/user-token-issuance.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2DifferentialScenarioId, Phase2ProfileRegistries } from '../profile.js';
 import type { LogoutSessionProjection } from '../projections/logout-session.js';
@@ -17,6 +21,12 @@ export const logoutSessionScenarioIds = Object.freeze([
   'logout.success-page',
   'account-sessions.missing-verification',
   'account-sessions.wrong-password',
+  'logout.authenticated-get',
+  'logout.authenticated-confirmed',
+  'account-sessions.password-verification',
+  'account-sessions.list-current',
+  'account-sessions.delete-current',
+  'account-sessions.list-zero-current',
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type LogoutSessionScenarioResult = Readonly<{
@@ -121,6 +131,42 @@ export const runLogoutSessionScenarios = async (
       )
     );
   }
+  const logoutSession = await issuePublicUserSession(target, fixture, requestFetch);
+  results.push(
+    await run(logoutSessionScenarioIds[10], {
+      target,
+      method: 'GET',
+      path: '/oidc/session/end',
+      initialCookieHeader: logoutSession.getCookieHeader(),
+    }),
+    await run(logoutSessionScenarioIds[11], {
+      target,
+      method: 'GET',
+      path: '/oidc/session/end',
+      confirm: true,
+      initialCookieHeader: logoutSession.getCookieHeader(),
+    })
+  );
+  const accountSession = await issuePublicUserSession(target, fixture, requestFetch);
+  const password = await fixture.withSecretLease(async (lease) => lease.getSubjectPassword?.());
+  if (!password) {
+    throw new TypeError('Invalid Phase 2 logout session fixture');
+  }
+  const completeWorkflow = await observeAccountSessionWorkflow(
+    { target, bearer: accountSession.access, password },
+    requestFetch
+  ).catch(() => {
+    throw new Error(`Phase 2 scenario failed: ${target.label}/${logoutSessionScenarioIds[12]}`);
+  });
+  results.push(
+    Object.freeze({ id: logoutSessionScenarioIds[12], projection: completeWorkflow.verification }),
+    Object.freeze({ id: logoutSessionScenarioIds[13], projection: completeWorkflow.sessions }),
+    Object.freeze({ id: logoutSessionScenarioIds[14], projection: completeWorkflow.deletion }),
+    Object.freeze({
+      id: logoutSessionScenarioIds[15],
+      projection: completeWorkflow.sessionsAfterDeletion,
+    })
+  );
   return Object.freeze(results);
 };
 

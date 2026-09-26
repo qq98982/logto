@@ -47,4 +47,50 @@ describe('logout session projection', () => {
       '/status',
     ]);
   });
+
+  it('projects verification and session summaries without durable identifiers', () => {
+    const verification = projectLogoutSessionResponse(
+      'https://candidate.example/',
+      response('', { status: 201, headers: { 'content-type': 'application/json' } }),
+      JSON.stringify({
+        verificationRecordId: 'private-verification',
+        expiresAt: '2026-09-27T00:10:00.000Z',
+      })
+    );
+    const sessions = projectLogoutSessionResponse(
+      'https://candidate.example/',
+      response('', { status: 200, headers: { 'content-type': 'application/json' } }),
+      JSON.stringify({
+        sessions: [
+          {
+            payload: {
+              exp: 2000,
+              iat: 1000,
+              uid: 'private-session',
+              kind: 'Session',
+              loginTs: 1000,
+              accountId: 'private-account',
+              authorizations: { 'private-client': { grantId: 'private-grant' } },
+            },
+            clientId: 'private-client',
+            accountId: 'private-account',
+            expiresAt: 2_000_000,
+            isCurrent: true,
+          },
+        ],
+      })
+    );
+
+    expect(verification.body).toEqual({ kind: 'verification', expiresAt: true });
+    expect(sessions.body).toEqual({
+      kind: 'sessions',
+      sessionCount: 1,
+      currentCount: 1,
+      clientCount: 1,
+      clientCounts: [1],
+    });
+    expect(JSON.stringify({ verification, sessions })).not.toMatch(
+      /private-(?:verification|session|account|client|grant)/u
+    );
+  });
 });

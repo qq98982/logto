@@ -24,6 +24,14 @@ export type LogoutSessionProjection = Readonly<{
         description: string | null;
         code: string | null;
       }>
+    | Readonly<{ kind: 'verification'; expiresAt: true }>
+    | Readonly<{
+        kind: 'sessions';
+        sessionCount: number;
+        currentCount: number;
+        clientCount: number;
+        clientCounts: readonly number[];
+      }>
     | Readonly<{ kind: 'empty' }>;
 }>;
 
@@ -36,6 +44,53 @@ const mediaType = (value: string | null): string | null =>
 
 const errorText = (value: unknown): string | null =>
   typeof value === 'string' && value.length <= 2048 && !/\p{Cc}/u.test(value) ? value : null;
+
+const record = (value: unknown): Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail();
+  }
+  return value as Record<string, unknown>;
+};
+
+const projectSessions = (value: unknown): LogoutSessionProjection['body'] => {
+  const source = record(value);
+  if (!Array.isArray(source.sessions) || Object.keys(source).length !== 1) {
+    return fail();
+  }
+  const entries = source.sessions.map((entry) => {
+    const session = record(entry);
+    const payload = record(session.payload);
+    const authorities = record(payload.authorizations);
+    if (
+      typeof session.isCurrent !== 'boolean' ||
+      (session.clientId !== null && typeof session.clientId !== 'string') ||
+      typeof session.accountId !== 'string' ||
+      typeof session.expiresAt !== 'number' ||
+      typeof payload.uid !== 'string' ||
+      typeof payload.accountId !== 'string' ||
+      payload.kind !== 'Session' ||
+      !Number.isSafeInteger(payload.exp) ||
+      !Number.isSafeInteger(payload.iat) ||
+      !Number.isSafeInteger(payload.loginTs)
+    ) {
+      return fail();
+    }
+    return Object.freeze({
+      current: session.isCurrent,
+      client: typeof session.clientId === 'string',
+      clients: Object.keys(authorities).length,
+    });
+  });
+  return Object.freeze({
+    kind: 'sessions' as const,
+    sessionCount: entries.length,
+    currentCount: entries.filter(({ current }) => current).length,
+    clientCount: entries.filter(({ client }) => client).length,
+    clientCounts: Object.freeze(
+      entries.map(({ clients }) => clients).sort((left, right) => left - right)
+    ),
+  });
+};
 
 export const projectLogoutSessionResponse = (
   targetOrigin: string,
@@ -85,13 +140,25 @@ export const projectLogoutSessionResponse = (
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       return fail();
     }
-    const record = value as Record<string, unknown>;
-    body = Object.freeze({
-      kind: 'error' as const,
-      error: errorText(record.error),
-      description: errorText(record.error_description),
-      code: errorText(record.code),
-    });
+    const source = record(value);
+    if (
+      response.status === 201 &&
+      typeof source.verificationRecordId === 'string' &&
+      source.verificationRecordId.length > 0 &&
+      typeof source.expiresAt === 'string' &&
+      source.expiresAt.length > 0
+    ) {
+      body = Object.freeze({ kind: 'verification' as const, expiresAt: true as const });
+    } else if (response.status === 200 && Object.hasOwn(source, 'sessions')) {
+      body = projectSessions(source);
+    } else {
+      body = Object.freeze({
+        kind: 'error' as const,
+        error: errorText(source.error),
+        description: errorText(source.error_description),
+        code: errorText(source.code),
+      });
+    }
   }
   return Object.freeze({
     status: response.status,

@@ -72,7 +72,13 @@
     "logout.unregistered-redirect",
     "logout.success-page",
     "account-sessions.missing-verification",
-    "account-sessions.wrong-password"
+    "account-sessions.wrong-password",
+    "logout.authenticated-get",
+    "logout.authenticated-confirmed",
+    "account-sessions.password-verification",
+    "account-sessions.list-current",
+    "account-sessions.delete-current",
+    "account-sessions.list-zero-current"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",

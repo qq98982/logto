@@ -70,8 +70,17 @@ const closedLogoutSessionScenarioIds = new Set([
   'unauthoritative-redirect',
   'unregistered-redirect',
   'success-page',
+  'authenticated-get',
+  'authenticated-confirmed',
 ]);
-const closedAccountSessionScenarioIds = new Set(['missing-verification', 'wrong-password']);
+const closedAccountSessionScenarioIds = new Set([
+  'missing-verification',
+  'wrong-password',
+  'password-verification',
+  'list-current',
+  'delete-current',
+  'list-zero-current',
+]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(

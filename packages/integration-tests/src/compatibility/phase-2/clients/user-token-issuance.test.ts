@@ -5,6 +5,7 @@ import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixt
 import {
   exchangePublicRefresh,
   issueConfidentialUserTokens,
+  issuePublicUserSession,
   issuePublicUserTokens,
 } from './user-token-issuance.js';
 
@@ -60,6 +61,7 @@ const flow = (
     response(200, {
       access_token: 'private-access',
       refresh_token: 'private-refresh',
+      id_token: 'private-id-token',
       token_type: 'Bearer',
     }),
   ];
@@ -161,6 +163,19 @@ describe('Phase 2 public user token issuance transport', () => {
       `Basic ${Buffer.from('confidential-client:private-status-client-secret').toString('base64')}`
     );
     expect(() => JSON.stringify(tokens)).toThrow('Invalid Phase 2 public user token issuance');
+  });
+
+  it('retains a private browser session while requesting the native sessions scope', async () => {
+    const transport = flow();
+    const session = await issuePublicUserSession(target, fixture, transport.fetch);
+
+    expect(session.access).toBe('private-access');
+    expect(session.getIdToken()).toBe('private-id-token');
+    expect(session.getCookieHeader()).toBe('aster-session=private-cookie');
+    expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile email address phone read:profile urn:aster:scope:sessions'
+    );
+    expect(() => JSON.stringify(session)).toThrow('Invalid Phase 2 public user token issuance');
   });
 
   it('rejects a foreign redirect before sending a credential to that origin', async () => {

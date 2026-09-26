@@ -1,7 +1,11 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods -- The local fetch double records two ordered calls and consumes a fixed response queue. */
 import type { TargetConfig } from '../../model.js';
 
-import { observeAccountSessionBoundary, observeLogoutSession } from './logout-session.js';
+import {
+  observeAccountSessionBoundary,
+  observeAccountSessionWorkflow,
+  observeLogoutSession,
+} from './logout-session.js';
 
 const target: TargetConfig = Object.freeze({
   label: 'candidate',
@@ -93,6 +97,67 @@ describe('logout session client', () => {
       code: 'verification_record.permission_denied',
     });
     expect(JSON.stringify(projection)).not.toContain('private-bearer');
+  });
+
+  it('keeps verification and session identifiers inside one Account workflow', async () => {
+    const requests: Array<readonly [string, RequestInit | undefined]> = [];
+    const session = {
+      payload: {
+        exp: 2000,
+        iat: 1000,
+        uid: 'private-session',
+        kind: 'Session',
+        loginTs: 1000,
+        accountId: 'private-account',
+        authorizations: { 'private-client': {} },
+      },
+      clientId: 'private-client',
+      accountId: 'private-account',
+      expiresAt: 2_000_000,
+      isCurrent: true,
+    };
+    const responses = [
+      new Response(
+        JSON.stringify({
+          verificationRecordId: 'private-verification',
+          expiresAt: '2026-09-27T00:10:00.000Z',
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } }
+      ),
+      new Response(JSON.stringify({ sessions: [session] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify({ sessions: [{ ...session, isCurrent: false }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ];
+    const requestFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push([String(input), init]);
+      return responses.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+    }) as typeof fetch;
+
+    const result = await observeAccountSessionWorkflow(
+      { target, bearer: 'private-bearer', password: 'private-password' },
+      requestFetch
+    );
+
+    expect(result.verification.body.kind).toBe('verification');
+    expect(result.sessions.body).toMatchObject({ kind: 'sessions', currentCount: 1 });
+    expect(result.deletion.status).toBe(204);
+    expect(result.sessionsAfterDeletion.body).toMatchObject({
+      kind: 'sessions',
+      currentCount: 0,
+    });
+    expect(requests[2]?.[0]).toContain('/api/my-account/sessions/private-session');
+    expect(new Headers(requests[1]?.[1]?.headers).get('aster-verification-id')).toBe(
+      'private-verification'
+    );
+    expect(JSON.stringify(result)).not.toMatch(
+      /private-(?:bearer|password|verification|session|account|client)/u
+    );
   });
 });
 

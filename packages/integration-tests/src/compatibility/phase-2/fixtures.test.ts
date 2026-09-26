@@ -169,7 +169,7 @@ describe('Phase 2 fixture lifecycle', () => {
         method: 'POST',
         path: 'applications/application-4/user-consent-scopes',
         body: {
-          userScopes: ['profile', 'email', 'address', 'phone'],
+          userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
           resourceScopes: ['scope-4'],
         },
       })
@@ -439,7 +439,13 @@ describe('Phase 2 fixture lifecycle', () => {
               clientId: 'phase2-status',
               redirectUri: 'http://localhost:3001/demo-app',
               authenticationMethod: 'client_secret_basic',
-              userConsentScopes: ['profile', 'email', 'address', 'phone'],
+              userConsentScopes: [
+                'profile',
+                'email',
+                'address',
+                'phone',
+                'urn:aster:scope:sessions',
+              ],
               resourceScopeIds: ['phase1-read-profile'],
             },
             defaultResourceId: 'phase2-resource',

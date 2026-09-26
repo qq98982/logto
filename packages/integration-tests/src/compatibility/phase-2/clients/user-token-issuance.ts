@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This bounded transport keeps cookies, password, verifier and issued credentials inside one private flow. */
+/* eslint-disable complexity, max-lines, max-params, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This bounded transport keeps cookies, password, verifier and issued credentials inside one private flow. */
 import { createHash, randomBytes } from 'node:crypto';
 
 import { validateTargetConfig } from '../../config.js';
@@ -10,6 +10,12 @@ export type IssuedPublicUserTokens = Readonly<{
   refresh: string;
   toJSON(): never;
 }>;
+
+export type IssuedPublicUserSession = IssuedPublicUserTokens &
+  Readonly<{
+    getIdToken(): string;
+    getCookieHeader(): string;
+  }>;
 
 const diagnostic = 'Invalid Phase 2 public user token issuance';
 const fail = (): never => {
@@ -104,6 +110,9 @@ const mergeCookies = (jar: Map<string, string>, response: Response): void => {
   }
 };
 
+const cookieHeader = (jar: Map<string, string>): string =>
+  [...jar].map(([name, value]) => `${name}=${value}`).join('; ');
+
 const localRedirect = (value: unknown, origin: URL): URL => {
   const destination = new URL(bounded(value), origin);
   if (destination.origin !== origin.origin || destination.username || destination.password) {
@@ -116,8 +125,9 @@ const issueUserTokens = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   clientKind: 'public' | 'confidential',
+  captureBrowserSession: boolean,
   requestFetch: typeof fetch = fetch
-): Promise<IssuedPublicUserTokens> => {
+): Promise<IssuedPublicUserTokens | IssuedPublicUserSession> => {
   let stage = 'admission';
   try {
     const target = validateTargetConfig(targetInput);
@@ -136,7 +146,7 @@ const issueUserTokens = async (
     ): Promise<Response> => {
       const headers = new Headers();
       if (cookies.size > 0) {
-        headers.set('cookie', [...cookies].map(([name, value]) => name + '=' + value).join('; '));
+        headers.set('cookie', cookieHeader(cookies));
       }
       if (body !== undefined) {
         headers.set(
@@ -165,7 +175,12 @@ const issueUserTokens = async (
       redirect_uri: client.redirectUri,
       response_type: 'code',
       prompt: 'login consent',
-      scope: 'openid offline_access profile email address phone ' + status.resource.scopeName,
+      scope:
+        'openid offline_access profile email address phone ' +
+        status.resource.scopeName +
+        (captureBrowserSession
+          ? ` ${target.label === 'oracle' ? 'urn:logto:scope:sessions' : 'urn:aster:scope:sessions'}`
+          : ''),
       resource: status.resource.indicator,
       code_challenge: challenge,
       code_challenge_method: 'S256',
@@ -273,6 +288,17 @@ const issueUserTokens = async (
     if (access === refresh) {
       return fail();
     }
+    if (captureBrowserSession) {
+      const idToken = bounded(issued.id_token);
+      const browserCookies = bounded(cookieHeader(cookies), 8192);
+      return Object.freeze({
+        access,
+        refresh,
+        getIdToken: () => idToken,
+        getCookieHeader: () => browserCookies,
+        toJSON: (): never => fail(),
+      });
+    }
     return Object.freeze({ access, refresh, toJSON: (): never => fail() });
   } catch {
     throw new TypeError(diagnostic + ' (' + stage + ')');
@@ -283,14 +309,40 @@ export const issuePublicUserTokens = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   requestFetch: typeof fetch = fetch
-): Promise<IssuedPublicUserTokens> => issueUserTokens(targetInput, fixture, 'public', requestFetch);
+): Promise<IssuedPublicUserTokens> =>
+  issueUserTokens(
+    targetInput,
+    fixture,
+    'public',
+    false,
+    requestFetch
+  ) as Promise<IssuedPublicUserTokens>;
+
+export const issuePublicUserSession = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserSession> =>
+  issueUserTokens(
+    targetInput,
+    fixture,
+    'public',
+    true,
+    requestFetch
+  ) as Promise<IssuedPublicUserSession>;
 
 export const issueConfidentialUserTokens = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   requestFetch: typeof fetch = fetch
 ): Promise<IssuedPublicUserTokens> =>
-  issueUserTokens(targetInput, fixture, 'confidential', requestFetch);
+  issueUserTokens(
+    targetInput,
+    fixture,
+    'confidential',
+    false,
+    requestFetch
+  ) as Promise<IssuedPublicUserTokens>;
 
 export const exchangePublicRefresh = async (
   targetInput: TargetConfig,
@@ -332,4 +384,4 @@ export const exchangePublicRefresh = async (
     return fail();
   }
 };
-/* eslint-enable complexity, max-lines, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, max-params, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

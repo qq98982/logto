@@ -233,7 +233,13 @@ const frozenCandidateFixtures = Object.freeze({
           postLogoutRedirectUris: Object.freeze([]),
         }),
         customClientMetadata: Object.freeze({}),
-        userConsentScopes: Object.freeze(['profile', 'email', 'address', 'phone']),
+        userConsentScopes: Object.freeze([
+          'profile',
+          'email',
+          'address',
+          'phone',
+          'urn:aster:scope:sessions',
+        ]),
         resourceConsentScopes: Object.freeze(['phase1-read-profile']),
       }),
     ]),
@@ -1029,7 +1035,7 @@ export const createReferencePhase2FixtureProvisioner = (
           'POST',
           `applications/${encodeURIComponent(referenceStatusConfidentialClientId)}/user-consent-scopes`,
           {
-            userScopes: ['profile', 'email', 'address', 'phone'],
+            userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
             resourceScopes: [statusScopeId],
           },
           [201],
@@ -1081,7 +1087,7 @@ export const createReferencePhase2FixtureProvisioner = (
           'POST',
           `applications/${encodeURIComponent(statusClientId)}/user-consent-scopes`,
           {
-            userScopes: ['profile', 'email', 'address', 'phone'],
+            userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
             resourceScopes: [statusScopeId],
           },
           [201],
@@ -1449,7 +1455,13 @@ export const createCandidatePhase2FixtureProvisioner = (
           clientId: statusConfidentialClientId,
           redirectUri: statusRedirectUri,
           authenticationMethod: 'client_secret_basic',
-          userConsentScopes: Object.freeze(['profile', 'email', 'address', 'phone']),
+          userConsentScopes: Object.freeze([
+            'profile',
+            'email',
+            'address',
+            'phone',
+            'urn:aster:scope:sessions',
+          ]),
           resourceScopeIds: Object.freeze(['phase1-read-profile']),
         }),
       });

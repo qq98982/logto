@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '5292faa8be896cc7b7c924c0794c9f421be15a705090e10808aba96da854e5f3';
-const expectedSchemaSha256 = 'd11b3ecc4f32e620889db194f37023aebae68f574a4107157d152f366618b9f3';
+const expectedProfileSha256 = 'd1533e1df2c662ae62264deef1d52833aefe51cb4cfecf5c292a18d2239c4059';
+const expectedSchemaSha256 = '66de718eef734697fe5b9351e37a4db33a81d3495224f773176a694bced9f033';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -83,6 +83,12 @@ const differentialScenarioIds = [
   'logout.success-page',
   'account-sessions.missing-verification',
   'account-sessions.wrong-password',
+  'logout.authenticated-get',
+  'logout.authenticated-confirmed',
+  'account-sessions.password-verification',
+  'account-sessions.list-current',
+  'account-sessions.delete-current',
+  'account-sessions.list-zero-current',
 ] as const;
 const candidateInvariantIds = [
   'client-credentials.cross-tenant-authority-rejected',
