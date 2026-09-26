@@ -216,9 +216,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 47',
+      'scenarioCount !== 57',
       'controlCount !== 12',
-      'comparisonCount !== 47',
+      'comparisonCount !== 57',
       'invariantCount !== 4',
       'differenceCount !== 0',
       'sanitizerSuccess !== true',
@@ -230,6 +230,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ]) {
       expect(source).toContain(marker);
     }
+    expect(source).toContain('logout\\.[a-z-]+|account-sessions\\.[a-z-]+');
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {
