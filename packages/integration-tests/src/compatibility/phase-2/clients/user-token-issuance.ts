@@ -322,7 +322,7 @@ export const issuePublicUserTokens = async (
     requestFetch
   ) as Promise<IssuedPublicUserTokens>;
 
-export const issuePublicUserSession = async (
+export const issueConfidentialUserSession = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   requestFetch: typeof fetch = fetch
@@ -330,7 +330,7 @@ export const issuePublicUserSession = async (
   issueUserTokens(
     targetInput,
     fixture,
-    'public',
+    'confidential',
     true,
     requestFetch
   ) as Promise<IssuedPublicUserSession>;

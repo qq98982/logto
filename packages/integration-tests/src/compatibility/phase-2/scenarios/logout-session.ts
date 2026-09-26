@@ -5,7 +5,10 @@ import {
   observeAccountSessionWorkflow,
   observeLogoutSession,
 } from '../clients/logout-session.js';
-import { issuePublicUserSession, issuePublicUserTokens } from '../clients/user-token-issuance.js';
+import {
+  issueConfidentialUserSession,
+  issuePublicUserTokens,
+} from '../clients/user-token-issuance.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2DifferentialScenarioId, Phase2ProfileRegistries } from '../profile.js';
 import type { LogoutSessionProjection } from '../projections/logout-session.js';
@@ -131,7 +134,7 @@ export const runLogoutSessionScenarios = async (
       )
     );
   }
-  const logoutSession = await issuePublicUserSession(target, fixture, requestFetch);
+  const logoutSession = await issueConfidentialUserSession(target, fixture, requestFetch);
   results.push(
     await run(logoutSessionScenarioIds[10], {
       target,
@@ -147,7 +150,7 @@ export const runLogoutSessionScenarios = async (
       initialCookieHeader: logoutSession.getCookieHeader(),
     })
   );
-  const accountSession = await issuePublicUserSession(target, fixture, requestFetch);
+  const accountSession = await issueConfidentialUserSession(target, fixture, requestFetch);
   const password = await fixture.withSecretLease(async (lease) => lease.getSubjectPassword?.());
   if (!password) {
     throw new TypeError('Invalid Phase 2 logout session fixture');
