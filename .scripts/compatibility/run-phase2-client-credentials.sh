@@ -909,7 +909,7 @@ for (const side of [differential.payload?.oracle, differential.payload?.candidat
 const comparisonCount = differential.payload?.comparisons?.length;
 if (comparisonCount !== 63 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
-if (invariantCount !== 4 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
+if (invariantCount !== 5 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
     invariants.payload.invariants.some(({positiveControl, negativeControl}) =>
       positiveControl?.detected !== true || negativeControl?.detected !== true || typeof negativeControl?.pointer !== 'string')) fail();
 

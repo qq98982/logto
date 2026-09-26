@@ -59,6 +59,7 @@ const profile: Phase2ProfileRegistries = {
     'client-credentials.request-role-write-rejected',
     'client-credentials.signing-failure-rolls-back',
     'client-credentials.user-authority-unchanged',
+    'logout-session.verification-storage-closed',
   ],
   discovery: {
     grantTypesSupportedAppend: ['client_credentials'],

@@ -57,6 +57,7 @@ describe('Phase 2 profile loader', () => {
       'client-credentials.request-role-write-rejected',
       'client-credentials.signing-failure-rolls-back',
       'client-credentials.user-authority-unchanged',
+      'logout-session.verification-storage-closed',
     ]);
     expect(registries.discovery).toEqual({
       grantTypesSupportedAppend: ['client_credentials'],
@@ -77,10 +78,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      'd1533e1df2c662ae62264deef1d52833aefe51cb4cfecf5c292a18d2239c4059'
+      'd1e0038645f8f84a8f5323e9e56f6787ae3f278e792a480800196a82f8e7f5e2'
     );
     expect(registries.schemaSha256).toBe(
-      '66de718eef734697fe5b9351e37a4db33a81d3495224f773176a694bced9f033'
+      'ae1a72a1c2abebac7d1cc769b4ff69a288e99ba9393f7f632ac7e45576af1c10'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

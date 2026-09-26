@@ -145,7 +145,7 @@ afterAll(async () => {
 });
 
 describe('Phase 2 candidate invariant driver', () => {
-  it('runs the exact four real-driver contracts and emits sanitized positive/negative controls', async () => {
+  it('runs the exact five real-driver contracts and emits sanitized positive/negative controls', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
@@ -184,14 +184,15 @@ describe('Phase 2 candidate invariant driver', () => {
     });
 
     expect(evidence.map(({ id }) => id)).toEqual(clientCredentialsCandidateInvariantIds);
-    expect(fencedCalls).toBe(4);
+    expect(fencedCalls).toBe(5);
     expect(evidence.map(({ negativeControl }) => negativeControl.pointer)).toEqual([
       '/foreignCredential',
       '/insert',
       '/tokenPublished',
       '/users',
+      '/clearMaterial',
     ]);
-    expect(requests).toHaveLength(4);
+    expect(requests).toHaveLength(5);
     for (const request of requests) {
       expect(request.command).toBe(driverPath);
       expect(request.args).toEqual([]);

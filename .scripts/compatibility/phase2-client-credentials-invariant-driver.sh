@@ -142,7 +142,8 @@ try:
     if value["schemaVersion"] != 1 or value["kind"] != "phase2-client-credentials-candidate-invariant-request": raise ValueError()
     if value["invariantId"] not in {
       "client-credentials.cross-tenant-authority-rejected","client-credentials.request-role-write-rejected",
-      "client-credentials.signing-failure-rolls-back","client-credentials.user-authority-unchanged"}: raise ValueError()
+      "client-credentials.signing-failure-rolls-back","client-credentials.user-authority-unchanged",
+      "logout-session.verification-storage-closed"}: raise ValueError()
     exact(value["target"],["primary","foreign"])
     endpoint(value["target"]["primary"],"http://localhost:3321/","http://localhost:3421/")
     endpoint(value["target"]["foreign"],"http://localhost:3322/","http://localhost:3422/")
@@ -423,6 +424,51 @@ SQL
       .[0].signing.oidcIdTokenLastSignedAt==.[1].signing.oidcIdTokenLastSignedAt and
       .[1].signing.generalLastSignedAt > .[0].signing.generalLastSignedAt')" == true ]] || die
     projection='{"invariant":"user-authority-unchanged","successfulMachineGrant":true,"users":"unchanged","sessions":"unchanged","grants":"unchanged","authorizationCodes":"unchanged","interactions":"unchanged"}'
+    terminal "$projection"
+    ;;
+  logout-session.verification-storage-closed)
+    verification_catalog="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SET LOCAL statement_timeout='20s';
+SELECT jsonb_build_object(
+  'forcedRls',(
+    SELECT relation.relforcerowsecurity
+    FROM pg_catalog.pg_class AS relation
+    JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='aster_tenant'
+      AND relation.relname='account_verification_records'
+  ),
+  'columns',(
+    SELECT jsonb_agg(attribute.attname ORDER BY attribute.attnum)
+    FROM pg_catalog.pg_attribute AS attribute
+    JOIN pg_catalog.pg_class AS relation ON relation.oid=attribute.attrelid
+    JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='aster_tenant'
+      AND relation.relname='account_verification_records'
+      AND attribute.attnum > 0
+      AND NOT attribute.attisdropped
+  ),
+  'privileges',(
+    SELECT jsonb_agg(grant_row.privilege_type ORDER BY grant_row.privilege_type)
+    FROM information_schema.role_table_grants AS grant_row
+    WHERE grant_row.table_schema='aster_tenant'
+      AND grant_row.table_name='account_verification_records'
+      AND grant_row.grantee='aster_request'
+  ),
+  'recordCount',(
+    SELECT count(*) FROM aster_tenant.account_verification_records
+    WHERE tenant_id='default'
+  )
+);
+SQL
+    )" || die
+    printf '%s' "$verification_catalog" | "$JQ_BIN" -e '
+      . == {
+        forcedRls:true,
+        columns:["tenant_id","verification_digest","account_id","verification_method","issued_at","expires_at"],
+        privileges:["INSERT","SELECT"],
+        recordCount:0
+      }' >/dev/null 2>&1 || die
+    projection='{"invariant":"verification-storage-closed","forcedRls":true,"clearMaterial":"absent","requestPrivileges":"insert-select","records":"empty"}'
     terminal "$projection"
     ;;
   *) die ;;

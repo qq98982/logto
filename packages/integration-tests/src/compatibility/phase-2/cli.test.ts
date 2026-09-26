@@ -52,6 +52,7 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'client-credentials.request-role-write-rejected',
     'client-credentials.signing-failure-rolls-back',
     'client-credentials.user-authority-unchanged',
+    'logout-session.verification-storage-closed',
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),

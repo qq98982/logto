@@ -254,6 +254,10 @@ if [[ "$1" == exec ]]; then
     : >'${hangReached}'
     /usr/bin/sleep 30
   fi
+  if [[ "$input" == *'relforcerowsecurity'* && "$input" == *'account_verification_records'* ]]; then
+    printf '%s' '{"forcedRls":true,"columns":["tenant_id","verification_digest","account_id","verification_method","issued_at","expires_at"],"privileges":["INSERT","SELECT"],"recordCount":0}'
+    exit 0
+  fi
   general=10
   [[ -f '${usage}' ]] && general=20
   users=u
@@ -1211,13 +1215,14 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
   });
 
-  it('executes all four invariant probes, restores faults, and keeps secrets out of argv', async () => {
+  it('executes all five invariant probes, restores faults, and keeps secrets out of argv', async () => {
     const harness = await createHarness();
     const expected = new Map<string, string>([
       ['client-credentials.cross-tenant-authority-rejected', 'cross-tenant-authority-rejected'],
       ['client-credentials.request-role-write-rejected', 'request-role-write-rejected'],
       ['client-credentials.signing-failure-rolls-back', 'signing-failure-rolls-back'],
       ['client-credentials.user-authority-unchanged', 'user-authority-unchanged'],
+      ['logout-session.verification-storage-closed', 'verification-storage-closed'],
     ]);
 
     for (const [id, projectionName] of expected) {

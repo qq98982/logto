@@ -22,6 +22,7 @@ export const clientCredentialsCandidateInvariantIds = Object.freeze([
   'client-credentials.request-role-write-rejected',
   'client-credentials.signing-failure-rolls-back',
   'client-credentials.user-authority-unchanged',
+  'logout-session.verification-storage-closed',
 ] as const satisfies readonly Phase2CandidateInvariantId[]);
 
 export type ClientCredentialsCandidateInvariantProjection =
@@ -56,6 +57,13 @@ export type ClientCredentialsCandidateInvariantProjection =
       grants: 'unchanged';
       authorizationCodes: 'unchanged';
       interactions: 'unchanged';
+    }>
+  | Readonly<{
+      invariant: 'verification-storage-closed';
+      forcedRls: true;
+      clearMaterial: 'absent';
+      requestPrivileges: 'insert-select';
+      records: 'empty';
     }>;
 
 export type CandidateInvariantControlEvidence = Readonly<{
@@ -172,6 +180,13 @@ const expectedProjections: Readonly<
     authorizationCodes: 'unchanged',
     interactions: 'unchanged',
   }),
+  'logout-session.verification-storage-closed': Object.freeze({
+    invariant: 'verification-storage-closed',
+    forcedRls: true,
+    clearMaterial: 'absent',
+    requestPrivileges: 'insert-select',
+    records: 'empty',
+  }),
 });
 
 const negativePointers: Readonly<Record<Phase2CandidateInvariantId, string>> = Object.freeze({
@@ -179,6 +194,7 @@ const negativePointers: Readonly<Record<Phase2CandidateInvariantId, string>> = O
   'client-credentials.request-role-write-rejected': '/insert',
   'client-credentials.signing-failure-rolls-back': '/tokenPublished',
   'client-credentials.user-authority-unchanged': '/users',
+  'logout-session.verification-storage-closed': '/clearMaterial',
 });
 
 const assertInvariantEvidenceSafe = (value: unknown, secrets: readonly string[]): void => {
@@ -322,6 +338,10 @@ const mutation = (
     }
     case 'client-credentials.user-authority-unchanged': {
       copy.users = 'changed';
+      break;
+    }
+    case 'logout-session.verification-storage-closed': {
+      copy.clearMaterial = 'present';
       break;
     }
   }

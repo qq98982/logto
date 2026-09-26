@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'd1533e1df2c662ae62264deef1d52833aefe51cb4cfecf5c292a18d2239c4059';
-const expectedSchemaSha256 = '66de718eef734697fe5b9351e37a4db33a81d3495224f773176a694bced9f033';
+const expectedProfileSha256 = 'd1e0038645f8f84a8f5323e9e56f6787ae3f278e792a480800196a82f8e7f5e2';
+const expectedSchemaSha256 = 'ae1a72a1c2abebac7d1cc769b4ff69a288e99ba9393f7f632ac7e45576af1c10';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -95,6 +95,7 @@ const candidateInvariantIds = [
   'client-credentials.request-role-write-rejected',
   'client-credentials.signing-failure-rolls-back',
   'client-credentials.user-authority-unchanged',
+  'logout-session.verification-storage-closed',
 ] as const;
 const stillAbsentDiscoveryFields = [
   'device_authorization_endpoint',

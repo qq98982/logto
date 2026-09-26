@@ -219,7 +219,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'scenarioCount !== 63',
       'controlCount !== 12',
       'comparisonCount !== 63',
-      'invariantCount !== 4',
+      'invariantCount !== 5',
       'differenceCount !== 0',
       'sanitizerSuccess !== true',
       'runtimeBundleSha256',
