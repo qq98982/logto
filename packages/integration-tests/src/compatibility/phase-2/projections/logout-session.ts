@@ -25,6 +25,7 @@ export type LogoutSessionProjection = Readonly<{
         code: string | null;
       }>
     | Readonly<{ kind: 'verification'; expiresAt: true }>
+    | Readonly<{ kind: 'token-status'; active: boolean }>
     | Readonly<{
         kind: 'sessions';
         sessionCount: number;
@@ -149,6 +150,8 @@ export const projectLogoutSessionResponse = (
       source.expiresAt.length > 0
     ) {
       body = Object.freeze({ kind: 'verification' as const, expiresAt: true as const });
+    } else if (response.status === 200 && typeof source.active === 'boolean') {
+      body = Object.freeze({ kind: 'token-status' as const, active: source.active });
     } else if (response.status === 200 && Object.hasOwn(source, 'sessions')) {
       body = projectSessions(source);
     } else {

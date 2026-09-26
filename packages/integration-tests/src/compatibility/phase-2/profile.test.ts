@@ -43,14 +43,14 @@ describe('Phase 2 profile loader', () => {
       schemaPath: canonicalSchemaPath,
     });
 
-    expect(registries.differentialScenarios).toHaveLength(63);
+    expect(registries.differentialScenarios).toHaveLength(70);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
     );
     expect(registries.differentialScenarios[56]).toBe('account-sessions.wrong-password');
     expect(registries.differentialScenarios[57]).toBe('logout.authenticated-get');
-    expect(registries.differentialScenarios[62]).toBe('account-sessions.list-zero-current');
+    expect(registries.differentialScenarios[69]).toBe('account-sessions.list-zero-current');
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
       'client-credentials.cross-tenant-authority-rejected',
@@ -78,10 +78,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      'd1e0038645f8f84a8f5323e9e56f6787ae3f278e792a480800196a82f8e7f5e2'
+      '85f5debf797f1b827f492dee9ce441c7f6595a90c2ddc910724d93e9598158d6'
     );
     expect(registries.schemaSha256).toBe(
-      'ae1a72a1c2abebac7d1cc769b4ff69a288e99ba9393f7f632ac7e45576af1c10'
+      '7f5811e63f9e5ca458f1aed95fbbb2465a8e37d4d60bdb76202d9e47b27aff6e'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

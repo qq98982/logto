@@ -5,6 +5,7 @@ import {
   observeAccountSessionBoundary,
   observeAccountSessionWorkflow,
   observeLogoutSession,
+  observeRefreshActivity,
 } from './logout-session.js';
 
 const target: TargetConfig = Object.freeze({
@@ -204,6 +205,38 @@ describe('logout session client', () => {
 
     expect(new Headers(requests[1]?.headers).get('logto-verification-id')).toBe('verification');
     expect(new Headers(requests[1]?.headers).has('aster-verification-id')).toBe(false);
+  });
+
+  it('projects refresh activity without returning the confidential proof', async () => {
+    const calls: RequestInit[] = [];
+    const requestFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(init ?? {});
+      return new Response(
+        JSON.stringify({
+          active: true,
+          sub: 'private-account',
+          client_id: 'confidential-client',
+          exp: 2000,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }) as typeof fetch;
+
+    const projection = await observeRefreshActivity(
+      {
+        target,
+        clientId: 'confidential-client',
+        clientSecret: 'private-secret',
+        refreshToken: 'private-refresh',
+      },
+      requestFetch
+    );
+
+    expect(projection.body).toEqual({ kind: 'token-status', active: true });
+    expect(new Headers(calls[0]?.headers).get('authorization')).toBe(
+      `Basic ${Buffer.from('confidential-client:private-secret').toString('base64')}`
+    );
+    expect(JSON.stringify(projection)).not.toMatch(/private-(?:secret|refresh|account)/u);
   });
 });
 

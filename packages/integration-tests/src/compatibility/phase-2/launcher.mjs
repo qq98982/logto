@@ -72,6 +72,13 @@ const closedLogoutSessionScenarioIds = new Set([
   'success-page',
   'authenticated-get',
   'authenticated-confirmed',
+  'offline-refresh-active',
+  'authenticated-declined',
+  'offline-refresh-active-after-decline',
+  'confirm-missing-session',
+  'confirm-xsrf-mismatch',
+  'confirm-replay',
+  'confirm-cross-cookie',
 ]);
 const closedAccountSessionScenarioIds = new Set([
   'missing-verification',

@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'd1e0038645f8f84a8f5323e9e56f6787ae3f278e792a480800196a82f8e7f5e2';
-const expectedSchemaSha256 = 'ae1a72a1c2abebac7d1cc769b4ff69a288e99ba9393f7f632ac7e45576af1c10';
+const expectedProfileSha256 = '85f5debf797f1b827f492dee9ce441c7f6595a90c2ddc910724d93e9598158d6';
+const expectedSchemaSha256 = '7f5811e63f9e5ca458f1aed95fbbb2465a8e37d4d60bdb76202d9e47b27aff6e';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -85,6 +85,13 @@ const differentialScenarioIds = [
   'account-sessions.wrong-password',
   'logout.authenticated-get',
   'logout.authenticated-confirmed',
+  'logout.offline-refresh-active',
+  'logout.authenticated-declined',
+  'logout.offline-refresh-active-after-decline',
+  'logout.confirm-missing-session',
+  'logout.confirm-xsrf-mismatch',
+  'logout.confirm-replay',
+  'logout.confirm-cross-cookie',
   'account-sessions.password-verification',
   'account-sessions.list-current',
   'account-sessions.delete-current',

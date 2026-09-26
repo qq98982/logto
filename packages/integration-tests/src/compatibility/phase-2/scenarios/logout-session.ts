@@ -3,7 +3,9 @@ import type { TargetConfig } from '../../model.js';
 import {
   observeAccountSessionBoundary,
   observeAccountSessionWorkflow,
+  observeLogoutConfirmationBoundary,
   observeLogoutSession,
+  observeRefreshActivity,
 } from '../clients/logout-session.js';
 import {
   issueConfidentialUserSession,
@@ -26,6 +28,13 @@ export const logoutSessionScenarioIds = Object.freeze([
   'account-sessions.wrong-password',
   'logout.authenticated-get',
   'logout.authenticated-confirmed',
+  'logout.offline-refresh-active',
+  'logout.authenticated-declined',
+  'logout.offline-refresh-active-after-decline',
+  'logout.confirm-missing-session',
+  'logout.confirm-xsrf-mismatch',
+  'logout.confirm-replay',
+  'logout.confirm-cross-cookie',
   'account-sessions.password-verification',
   'account-sessions.list-current',
   'account-sessions.delete-current',
@@ -150,6 +159,99 @@ export const runLogoutSessionScenarios = async (
       initialCookieHeader: logoutSession.getCookieHeader(),
     })
   );
+  const statusClient = fixture.status.confidentialClient;
+  const statusSecret = await fixture.withSecretLease(async (lease) =>
+    lease.getStatusClientSecret()
+  );
+  results.push(
+    await observe(logoutSessionScenarioIds[12], async () =>
+      observeRefreshActivity(
+        {
+          target,
+          clientId: statusClient.id,
+          clientSecret: statusSecret,
+          refreshToken: logoutSession.refresh,
+        },
+        requestFetch
+      )
+    )
+  );
+  const declinedSession = await issueConfidentialUserSession(target, fixture, requestFetch);
+  results.push(
+    await run(logoutSessionScenarioIds[13], {
+      target,
+      method: 'GET',
+      path: '/oidc/session/end',
+      form: [['client_id', statusClient.id]],
+      confirm: true,
+      confirmLogout: false,
+      initialCookieHeader: declinedSession.getCookieHeader(),
+    }),
+    await observe(logoutSessionScenarioIds[14], async () =>
+      observeRefreshActivity(
+        {
+          target,
+          clientId: statusClient.id,
+          clientSecret: statusSecret,
+          refreshToken: declinedSession.refresh,
+        },
+        requestFetch
+      )
+    ),
+    await run(logoutSessionScenarioIds[15], {
+      target,
+      method: 'POST',
+      path: '/oidc/session/end/confirm',
+      form: [
+        ['xsrf', 'missing-session-proof'],
+        ['logout', 'yes'],
+      ],
+    })
+  );
+  const mismatchSession = await issueConfidentialUserSession(target, fixture, requestFetch);
+  results.push(
+    await observe(logoutSessionScenarioIds[16], async () =>
+      observeLogoutConfirmationBoundary(
+        {
+          target,
+          kind: 'mismatch',
+          clientId: statusClient.id,
+          cookieHeader: mismatchSession.getCookieHeader(),
+        },
+        requestFetch
+      )
+    )
+  );
+  const replaySession = await issueConfidentialUserSession(target, fixture, requestFetch);
+  results.push(
+    await observe(logoutSessionScenarioIds[17], async () =>
+      observeLogoutConfirmationBoundary(
+        {
+          target,
+          kind: 'replay',
+          clientId: statusClient.id,
+          cookieHeader: replaySession.getCookieHeader(),
+        },
+        requestFetch
+      )
+    )
+  );
+  const crossSession = await issueConfidentialUserSession(target, fixture, requestFetch);
+  const otherSession = await issueConfidentialUserSession(target, fixture, requestFetch);
+  results.push(
+    await observe(logoutSessionScenarioIds[18], async () =>
+      observeLogoutConfirmationBoundary(
+        {
+          target,
+          kind: 'cross-cookie',
+          clientId: statusClient.id,
+          cookieHeader: crossSession.getCookieHeader(),
+          otherCookieHeader: otherSession.getCookieHeader(),
+        },
+        requestFetch
+      )
+    )
+  );
   const accountSession = await issueConfidentialUserSession(target, fixture, requestFetch);
   const password = await fixture.withSecretLease(async (lease) => lease.getSubjectPassword?.());
   if (!password) {
@@ -166,15 +268,15 @@ export const runLogoutSessionScenarios = async (
           )?.[1]
         : undefined;
     const index =
-      stage === 'list' ? 13 : stage === 'delete' ? 14 : stage === 'list-after-delete' ? 15 : 12;
+      stage === 'list' ? 20 : stage === 'delete' ? 21 : stage === 'list-after-delete' ? 22 : 19;
     throw new Error(`Phase 2 scenario failed: ${target.label}/${logoutSessionScenarioIds[index]}`);
   });
   results.push(
-    Object.freeze({ id: logoutSessionScenarioIds[12], projection: completeWorkflow.verification }),
-    Object.freeze({ id: logoutSessionScenarioIds[13], projection: completeWorkflow.sessions }),
-    Object.freeze({ id: logoutSessionScenarioIds[14], projection: completeWorkflow.deletion }),
+    Object.freeze({ id: logoutSessionScenarioIds[19], projection: completeWorkflow.verification }),
+    Object.freeze({ id: logoutSessionScenarioIds[20], projection: completeWorkflow.sessions }),
+    Object.freeze({ id: logoutSessionScenarioIds[21], projection: completeWorkflow.deletion }),
     Object.freeze({
-      id: logoutSessionScenarioIds[15],
+      id: logoutSessionScenarioIds[22],
       projection: completeWorkflow.sessionsAfterDeletion,
     })
   );

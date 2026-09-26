@@ -93,4 +93,20 @@ describe('logout session projection', () => {
       /private-(?:verification|session|account|client|grant)/u
     );
   });
+
+  it('projects only refresh activity from an introspection response', () => {
+    const projection = projectLogoutSessionResponse(
+      'https://candidate.example/',
+      response('', { status: 200, headers: { 'content-type': 'application/json' } }),
+      JSON.stringify({
+        active: true,
+        sub: 'private-account',
+        client_id: 'private-client',
+        exp: 2000,
+      })
+    );
+
+    expect(projection.body).toEqual({ kind: 'token-status', active: true });
+    expect(JSON.stringify(projection)).not.toMatch(/private-(?:account|client)/u);
+  });
 });

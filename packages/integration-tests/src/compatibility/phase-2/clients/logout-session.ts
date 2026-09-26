@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The private cookie jar and workflow stage are intentionally updated only inside bounded browser flows. */
+/* eslint-disable complexity, max-lines, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The private cookie jar and workflow stage are intentionally updated only inside bounded browser flows. */
 import type { TargetConfig } from '../../model.js';
 import type { LogoutSessionProjection } from '../projections/logout-session.js';
 import { projectLogoutSessionResponse } from '../projections/logout-session.js';
@@ -10,6 +10,7 @@ export type LogoutSessionObservation = Readonly<{
   form?: ReadonlyArray<readonly [string, string]>;
   bearer?: string;
   confirm?: boolean;
+  confirmLogout?: boolean;
   initialCookieHeader?: string;
 }>;
 
@@ -72,6 +73,29 @@ const seedCookies = (jar: Map<string, string>, value: string | undefined): void 
   }
 };
 
+const confirmationForm = (
+  body: string,
+  targetOrigin: string
+): Readonly<{ xsrf: string; path: string }> => {
+  const xsrf = /name=["']xsrf["'][^>]*value=["']([^"']+)["']/iu.exec(body)?.[1];
+  const actionValue = /<form\b[^>]*action=["']([^"']+)["']/iu.exec(body)?.[1];
+  if (!xsrf || !actionValue) {
+    return fail();
+  }
+  const action = (() => {
+    try {
+      return new URL(actionValue, targetOrigin);
+    } catch {
+      return fail();
+    }
+  })();
+  const target = new URL(targetOrigin);
+  if (action.origin !== target.origin || action.hash !== '') {
+    return fail();
+  }
+  return Object.freeze({ xsrf, path: `${action.pathname}${action.search}` });
+};
+
 const send = async (
   input: LogoutSessionObservation,
   cookies: Map<string, string>,
@@ -119,36 +143,139 @@ export const observeLogoutSession = async (
   if (first.response.status !== 200 || !first.body.includes('name="xsrf"')) {
     return fail();
   }
-  const xsrf = /name=["']xsrf["'][^>]*value=["']([^"']+)["']/iu.exec(first.body)?.[1];
-  const actionValue = /<form\b[^>]*action=["']([^"']+)["']/iu.exec(first.body)?.[1];
-  if (!xsrf || !actionValue) {
-    return fail();
-  }
-  const action = (() => {
-    try {
-      return new URL(actionValue, input.target.coreUrl);
-    } catch {
-      return fail();
-    }
-  })();
-  const target = new URL(input.target.coreUrl);
-  if (action.origin !== target.origin || action.hash !== '') {
-    return fail();
-  }
+  const confirmation = confirmationForm(first.body, input.target.coreUrl);
   const confirmed = await send(
     {
       target: input.target,
       method: 'POST',
-      path: `${action.pathname}${action.search}`,
+      path: confirmation.path,
       form: [
-        ['xsrf', xsrf],
-        ['logout', 'yes'],
+        ['xsrf', confirmation.xsrf],
+        ...(input.confirmLogout === false ? [] : ([['logout', 'yes']] as const)),
       ],
     },
     cookies,
     requestFetch
   );
   return projectLogoutSessionResponse(input.target.coreUrl, confirmed.response, confirmed.body);
+};
+
+export const observeLogoutConfirmationBoundary = async (
+  input: Readonly<{
+    target: TargetConfig;
+    kind: 'mismatch' | 'replay' | 'cross-cookie';
+    clientId: string;
+    cookieHeader: string;
+    otherCookieHeader?: string;
+  }>,
+  requestFetch: typeof fetch = fetch
+): Promise<LogoutSessionProjection> => {
+  const cookies = new Map<string, string>();
+  seedCookies(cookies, input.cookieHeader);
+  const started = await send(
+    {
+      target: input.target,
+      method: 'GET',
+      path: '/oidc/session/end',
+      form: [['client_id', input.clientId]],
+    },
+    cookies,
+    requestFetch
+  );
+  if (started.response.status !== 200) {
+    return fail();
+  }
+  const confirmation = confirmationForm(started.body, input.target.coreUrl);
+  if (input.kind === 'mismatch') {
+    const rejected = await send(
+      {
+        target: input.target,
+        method: 'POST',
+        path: confirmation.path,
+        form: [
+          ['xsrf', `${confirmation.xsrf}-mismatch`],
+          ['logout', 'yes'],
+        ],
+      },
+      cookies,
+      requestFetch
+    );
+    return projectLogoutSessionResponse(input.target.coreUrl, rejected.response, rejected.body);
+  }
+  if (input.kind === 'cross-cookie') {
+    const other = new Map<string, string>();
+    seedCookies(other, input.otherCookieHeader);
+    const rejected = await send(
+      {
+        target: input.target,
+        method: 'POST',
+        path: confirmation.path,
+        form: [
+          ['xsrf', confirmation.xsrf],
+          ['logout', 'yes'],
+        ],
+      },
+      other,
+      requestFetch
+    );
+    return projectLogoutSessionResponse(input.target.coreUrl, rejected.response, rejected.body);
+  }
+  const declined = await send(
+    {
+      target: input.target,
+      method: 'POST',
+      path: confirmation.path,
+      form: [['xsrf', confirmation.xsrf]],
+    },
+    cookies,
+    requestFetch
+  );
+  if (declined.response.status !== 303) {
+    return fail();
+  }
+  const replayed = await send(
+    {
+      target: input.target,
+      method: 'POST',
+      path: confirmation.path,
+      form: [['xsrf', confirmation.xsrf]],
+    },
+    cookies,
+    requestFetch
+  );
+  return projectLogoutSessionResponse(input.target.coreUrl, replayed.response, replayed.body);
+};
+
+export const observeRefreshActivity = async (
+  input: Readonly<{
+    target: TargetConfig;
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+  }>,
+  requestFetch: typeof fetch = fetch
+): Promise<LogoutSessionProjection> => {
+  for (const value of [input.clientId, input.clientSecret, input.refreshToken]) {
+    if (value.length === 0 || value.length > 8192 || /[\u0000-\u001F\u007F]/u.test(value)) {
+      return fail();
+    }
+  }
+  const response = await requestFetch(new URL('/oidc/token/introspection', input.target.coreUrl), {
+    method: 'POST',
+    headers: {
+      authorization: `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString('base64')}`,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ token: input.refreshToken, token_type_hint: 'refresh_token' }),
+    redirect: 'manual',
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = await readText(response);
+  const projection = projectLogoutSessionResponse(input.target.coreUrl, response, body);
+  if (projection.status !== 200 || projection.body.kind !== 'token-status') {
+    return fail();
+  }
+  return projection;
 };
 
 export const observeAccountSessionWorkflow = async (
@@ -309,4 +436,4 @@ export const observeAccountSessionBoundary = async (
   return projectLogoutSessionResponse(input.target.coreUrl, response, await readText(response));
 };
 
-/* eslint-enable complexity, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable complexity, max-lines, no-control-regex, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
