@@ -713,6 +713,9 @@ const executeDifferential = async (
           );
         }
       }
+      if (isLogoutSession) {
+        throw new Error(`Phase 2 scenario failed: candidate/${oracleScenario.id}`);
+      }
       throw new Error('Phase 2 stage failed: candidate-comparison');
     }
     return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
