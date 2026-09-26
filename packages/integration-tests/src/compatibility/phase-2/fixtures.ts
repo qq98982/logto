@@ -108,6 +108,7 @@ type FixtureState = {
   coordinatorPublic?: Readonly<Record<string, unknown>>;
   previousDefaultResourceId?: string;
   previousSignInExperience?: unknown;
+  previousAccountCenter?: unknown;
   revoked: boolean;
   cleanup?: Promise<void>;
 };
@@ -694,6 +695,15 @@ export const createReferencePhase2FixtureProvisioner = (
           failures.push(error);
         }
       }
+      if (state.previousAccountCenter) {
+        try {
+          await referenceCall(request, 'PATCH', 'account-center', state.previousAccountCenter, [
+            200,
+          ]);
+        } catch (error: unknown) {
+          failures.push(error);
+        }
+      }
       try {
         await assertReferenceCleanup(request, state.allocationId, state.previousDefaultResourceId);
       } catch (error: unknown) {
@@ -1024,6 +1034,33 @@ export const createReferencePhase2FixtureProvisioner = (
           },
           [201],
           'status'
+        );
+        const accountCenter = exactRecord(
+          await referenceCall(request, 'GET', 'account-center', undefined, [200])
+        );
+        const accountCenterEnabled = own(accountCenter, 'enabled');
+        const accountCenterFields = exactRecord(own(accountCenter, 'fields'));
+        if (
+          typeof accountCenterEnabled !== 'boolean' ||
+          Object.values(accountCenterFields).some(
+            (value) => !['Off', 'ReadOnly', 'Edit'].includes(String(value))
+          )
+        ) {
+          return fail();
+        }
+        state.previousAccountCenter = Object.freeze({
+          enabled: accountCenterEnabled,
+          fields: Object.freeze({ ...accountCenterFields }),
+        });
+        await referenceCall(
+          request,
+          'PATCH',
+          'account-center',
+          {
+            enabled: true,
+            fields: { ...accountCenterFields, session: 'Edit' },
+          },
+          [200]
         );
         const statusClient = exactRecord(
           await referenceCall(request, 'POST', 'applications', {

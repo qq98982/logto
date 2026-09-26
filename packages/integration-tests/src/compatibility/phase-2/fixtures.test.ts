@@ -77,6 +77,9 @@ const createReferenceAdmin = () => {
           mfa: { factors: [], policy: 'PromptAtSignInAndSignUp' },
         };
       }
+      if (input.path === 'account-center') {
+        return { enabled: false, fields: {} };
+      }
       return entityRows.get(input.path) ?? [];
     }
     if (input.method === 'DELETE' || input.method === 'PATCH') {
@@ -171,6 +174,13 @@ describe('Phase 2 fixture lifecycle', () => {
         },
       })
     );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'PATCH',
+        path: 'account-center',
+        body: { enabled: true, fields: { session: 'Edit' } },
+      })
+    );
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
@@ -201,6 +211,13 @@ describe('Phase 2 fixture lifecycle', () => {
           signIn: { methods: [] },
           mfa: { factors: [], policy: 'PromptAtSignInAndSignUp' },
         },
+      })
+    );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'PATCH',
+        path: 'account-center',
+        body: { enabled: false, fields: {} },
       })
     );
     expect(JSON.stringify(fixture.public)).not.toContain('ReferenceSecretValue');
