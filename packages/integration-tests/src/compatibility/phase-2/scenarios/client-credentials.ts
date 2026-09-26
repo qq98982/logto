@@ -986,7 +986,7 @@ export const assertDiscoveryScopeAppendContract = (
   if (scopes.filter((scope) => scope === native).length !== 1) {
     return fail();
   }
-  return expectedAppend;
+  return Object.freeze([expectedAppend[0]] as const);
 };
 
 /* eslint-enable max-lines, complexity, no-await-in-loop, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types, @typescript-eslint/no-non-null-assertion, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return */

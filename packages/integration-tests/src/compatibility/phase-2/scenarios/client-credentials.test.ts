@@ -13,6 +13,7 @@ import {
   assertDiscoveryAbsentFieldsContract,
   assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
+  assertDiscoveryScopeAppendContract,
   clientCredentialsScenarioIds,
   compareClientCredentialsProjections,
   createClientCredentialsScenarioRegistry,
@@ -691,6 +692,28 @@ describe('Phase 2 client credentials scenarios', () => {
         assertDiscoveryEndpointFieldsContract(invalid, fields, 'https://candidate.example/oidc')
       ).toThrow('Invalid Phase 2 client credentials scenario');
     }
+  });
+
+  it('returns target-owned session-scope evidence without shared profile aliases', () => {
+    const expected = Object.freeze(['urn:aster:scope:sessions'] as const);
+    const oracleScopes = assertDiscoveryScopeAppendContract(
+      ['openid', 'urn:logto:scope:sessions'],
+      expected,
+      'oracle'
+    );
+    const candidateScopes = assertDiscoveryScopeAppendContract(
+      ['openid', 'urn:aster:scope:sessions'],
+      expected,
+      'candidate'
+    );
+
+    expect(oracleScopes).toEqual(expected);
+    expect(candidateScopes).toEqual(expected);
+    expect(oracleScopes).not.toBe(expected);
+    expect(candidateScopes).not.toBe(expected);
+    expect(candidateScopes).not.toBe(oracleScopes);
+    expect(Object.isFrozen(oracleScopes)).toBe(true);
+    expect(Object.isFrozen(candidateScopes)).toBe(true);
   });
 
   it('rejects credential-bearing response headers instead of normalizing them away', async () => {
