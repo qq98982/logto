@@ -202,9 +202,7 @@ describe('logout session client', () => {
       requestFetch
     );
 
-    expect(new Headers(requests[1]?.headers).get('logto-verification-record-id')).toBe(
-      'verification'
-    );
+    expect(new Headers(requests[1]?.headers).get('logto-verification-id')).toBe('verification');
     expect(new Headers(requests[1]?.headers).has('aster-verification-id')).toBe(false);
   });
 });

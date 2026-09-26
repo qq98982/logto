@@ -170,7 +170,7 @@ export const observeAccountSessionWorkflow = async (
           ...(verification
             ? {
                 [input.target.label === 'oracle'
-                  ? 'logto-verification-record-id'
+                  ? 'logto-verification-id'
                   : 'aster-verification-id']: verification,
               }
             : {}),
