@@ -103,7 +103,11 @@ const mergeCookies = (jar: Map<string, string>, response: Response): void => {
     ) {
       fail();
     }
-    jar.set(name, value);
+    if (value.length === 0) {
+      jar.delete(name);
+    } else {
+      jar.set(name, value);
+    }
     if (jar.size > 16) {
       fail();
     }

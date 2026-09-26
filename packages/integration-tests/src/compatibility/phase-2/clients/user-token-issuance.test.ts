@@ -50,7 +50,7 @@ const flow = (
   const requests: Array<{ url: URL; init: RequestInit }> = [];
   const replies = [
     response(303, undefined, { 'set-cookie': 'aster-session=private-cookie; Path=/; HttpOnly' }),
-    response(204),
+    response(204, undefined, { 'set-cookie': 'aster-interaction=; Path=/; Max-Age=0' }),
     response(200, { verificationId: 'private-verification' }),
     response(204),
     response(200, { redirectTo: 'https://candidate.example/oidc/bridge' }),
