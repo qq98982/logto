@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment, unicorn/consistent-function-scoping -- Stateful temporary paths, captured runner calls, and hostile JSON mutations are intrinsic to these lifecycle and protocol tests. */
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment -- Stateful temporary paths, captured runner calls, and hostile JSON mutations are intrinsic to these lifecycle and protocol tests. */
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -8,7 +8,11 @@ import type {
   CommandRunnerResult,
 } from '../../phase-1/clients/command-provisioner.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
-import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
+import {
+  loadPhase2Profile,
+  phase2ExpectedProfileAuthority,
+  type Phase2ProfileRegistries,
+} from '../profile.js';
 
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
@@ -20,6 +24,16 @@ import {
 const rootPrefix = '/var/tmp/henry-build/phase2-candidate-invariants-';
 let root = '';
 let driverPath = '';
+const canonicalProfilePaths = Object.freeze({
+  profilePath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.json'
+  ),
+  schemaPath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.schema.json'
+  ),
+});
 
 const target: TargetConfig = Object.freeze({
   label: 'candidate',
@@ -88,6 +102,26 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
 });
 const profile: Phase2ProfileRegistries = Object.freeze({
   ...phase2ExpectedProfileAuthority,
+  deviceOperations: Object.freeze([
+    'device.authorize',
+    'device.open-shortcut',
+    'device.open-verification',
+    'device.submit-verification',
+    'device.submit-password',
+    'device.read-consent',
+    'device.submit-consent',
+    'device.resume-consent',
+    'device.open-success',
+    'device.poll-token',
+    'device.rotate-refresh',
+    'device.introspect-token',
+    'device.revoke-token',
+    'device.request-userinfo',
+    'device.open-logout',
+    'device.confirm-logout',
+    'device.discover-oidc',
+    'device.discover-oauth',
+  ] as const),
   differentialScenarios: Object.freeze([
     'client-credentials.basic-explicit-resource',
     'client-credentials.post-explicit-resource',
@@ -112,14 +146,18 @@ const profile: Phase2ProfileRegistries = Object.freeze({
   ] as const),
   candidateInvariantScenarios: clientCredentialsCandidateInvariantIds,
   discovery: Object.freeze({
-    grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
+    grantTypesSupportedAppend: Object.freeze([
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const),
     endpointFieldsAppend: Object.freeze([
       'introspection_endpoint',
       'revocation_endpoint',
       'end_session_endpoint',
+      'device_authorization_endpoint',
     ] as const),
     scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
-    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
+    stillAbsent: Object.freeze(['registration_endpoint'] as const),
   }),
 });
 
@@ -146,6 +184,7 @@ afterAll(async () => {
 
 describe('Phase 2 candidate invariant driver', () => {
   it('runs the exact five real-driver contracts and emits sanitized positive/negative controls', async () => {
+    const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
@@ -163,7 +202,7 @@ describe('Phase 2 candidate invariant driver', () => {
         })
       );
     };
-    const evidence = await runClientCredentialsCandidateInvariants(profile, {
+    const evidence = await runClientCredentialsCandidateInvariants(canonicalProfile, {
       target,
       foreignTarget,
       fixture,
@@ -219,21 +258,30 @@ describe('Phase 2 candidate invariant driver', () => {
   });
 
   it('rejects profile drift, extra output, credential output, and unavailable drivers', async () => {
-    await expect(
-      runClientCredentialsCandidateInvariants(
-        {
-          ...profile,
-          candidateInvariantScenarios: profile.candidateInvariantScenarios.slice(1),
-        } as Phase2ProfileRegistries,
-        {
-          target,
-          foreignTarget,
-          fixture,
-          driverPath,
-          controlSocket: path.join(root, 'control.sock'),
-        }
+    const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
+    const reordered = canonicalProfile.candidateInvariantScenarios.toSpliced(
+      0,
+      2,
+      canonicalProfile.candidateInvariantScenarios[1]!,
+      canonicalProfile.candidateInvariantScenarios[0]!
+    );
+    await Promise.all(
+      [canonicalProfile.candidateInvariantScenarios.slice(1), reordered].map(
+        async (candidateInvariantScenarios) =>
+          expect(
+            runClientCredentialsCandidateInvariants(
+              { ...canonicalProfile, candidateInvariantScenarios } as Phase2ProfileRegistries,
+              {
+                target,
+                foreignTarget,
+                fixture,
+                driverPath,
+                controlSocket: path.join(root, 'control.sock'),
+              }
+            )
+          ).rejects.toThrow('Invalid Phase 2 candidate invariant')
       )
-    ).rejects.toThrow('Invalid Phase 2 candidate invariant');
+    );
 
     const extraRunner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       const descriptor = JSON.parse(request.stdin) as {
@@ -300,4 +348,4 @@ describe('Phase 2 candidate invariant driver', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment, unicorn/consistent-function-scoping */
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment */

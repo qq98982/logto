@@ -336,7 +336,7 @@ const createCandidateRuntime = (
         scenarioId: scenario.id,
         session: binding.session,
         acceptedGrantTypes: profile.oidc.grants,
-        appendGrantType: phase2Profile.discovery.grantTypesSupportedAppend[0],
+        appendGrantTypes: phase2Profile.discovery.grantTypesSupportedAppend,
         endpointFieldsAppend: phase2Profile.discovery.endpointFieldsAppend,
         scopesSupportedAppend: phase2Profile.discovery.scopesSupportedAppend,
         stillAbsent: phase2Profile.discovery.stillAbsent,

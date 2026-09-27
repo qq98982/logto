@@ -1,4 +1,4 @@
-/* eslint-disable no-await-in-loop, unicorn/consistent-function-scoping -- Each hostile response is exercised sequentially and the structural session fixture intentionally owns local throwing members. */
+/* eslint-disable max-lines, no-await-in-loop, unicorn/consistent-function-scoping -- Each hostile response is exercised sequentially and the structural session fixture intentionally owns local throwing members. */
 import type { TargetConfig } from '../../model.js';
 import type { RawProtocolResponse } from '../../phase-1/clients/oidc.js';
 import type { Phase1ProtocolSession } from '../../phase-1/scenario-runtime.js';
@@ -39,11 +39,17 @@ const baseDocument = Object.freeze({
 
 const rawDocument = (overrides: Readonly<Record<string, unknown>> = {}) => ({
   ...baseDocument,
-  grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
+  grant_types_supported: [
+    'authorization_code',
+    'refresh_token',
+    'client_credentials',
+    'urn:ietf:params:oauth:grant-type:device_code',
+  ],
   scopes_supported: ['openid', 'offline_access', 'profile', 'email', 'urn:aster:scope:sessions'],
   introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
   revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
   end_session_endpoint: 'https://candidate.example/oidc/session/end',
+  device_authorization_endpoint: 'https://candidate.example/oidc/device/auth',
   ...overrides,
 });
 
@@ -99,14 +105,18 @@ const createWrapped = (
     scenarioId: 'discovery.config',
     session: createSession(documents),
     acceptedGrantTypes: Object.freeze(['authorization_code', 'refresh_token']),
-    appendGrantType: 'client_credentials',
+    appendGrantTypes: Object.freeze([
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const),
     endpointFieldsAppend: Object.freeze([
       'introspection_endpoint',
       'revocation_endpoint',
       'end_session_endpoint',
+      'device_authorization_endpoint',
     ] as const),
     scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
-    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint']),
+    stillAbsent: Object.freeze(['registration_endpoint']),
     paths: Object.freeze({
       openid: 'oidc/.well-known/openid-configuration',
       oauth: 'oidc/.well-known/oauth-authorization-server',
@@ -160,17 +170,28 @@ describe('Phase 2 base-preservation discovery adapter', () => {
     expect(wrapped.proofs()).toEqual([
       expect.objectContaining({
         operation: 'discovery-openid',
-        rawGrantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
+        rawGrantTypes: [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+        ],
         baseGrantTypes: ['authorization_code', 'refresh_token'],
         endpointFieldsAppend: [
           'introspection_endpoint',
           'revocation_endpoint',
           'end_session_endpoint',
+          'device_authorization_endpoint',
         ],
       }),
       expect.objectContaining({
         operation: 'discovery-oauth-authorization-server',
-        rawGrantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
+        rawGrantTypes: [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+        ],
         baseGrantTypes: ['authorization_code', 'refresh_token'],
       }),
     ]);
@@ -178,13 +199,44 @@ describe('Phase 2 base-preservation discovery adapter', () => {
 
   it.each([
     ['missing append', ['authorization_code', 'refresh_token']],
-    ['wrong order', ['authorization_code', 'client_credentials', 'refresh_token']],
+    [
+      'wrong order',
+      [
+        'authorization_code',
+        'refresh_token',
+        'urn:ietf:params:oauth:grant-type:device_code',
+        'client_credentials',
+      ],
+    ],
     [
       'duplicate append',
-      ['authorization_code', 'refresh_token', 'client_credentials', 'client_credentials'],
+      [
+        'authorization_code',
+        'refresh_token',
+        'client_credentials',
+        'urn:ietf:params:oauth:grant-type:device_code',
+        'client_credentials',
+      ],
     ],
-    ['replaced base grant', ['authorization_code', 'implicit', 'client_credentials']],
-    ['extra grant', ['authorization_code', 'refresh_token', 'client_credentials', 'device_code']],
+    [
+      'replaced base grant',
+      [
+        'authorization_code',
+        'implicit',
+        'client_credentials',
+        'urn:ietf:params:oauth:grant-type:device_code',
+      ],
+    ],
+    [
+      'extra grant',
+      [
+        'authorization_code',
+        'refresh_token',
+        'client_credentials',
+        'urn:ietf:params:oauth:grant-type:device_code',
+        'urn:ietf:params:oauth:grant-type:token-exchange',
+      ],
+    ],
   ])('rejects %s before deriving a base response', async (_name, grants) => {
     const raw = rawDocument({ grant_types_supported: grants });
     const wrapped = createWrapped({
@@ -199,23 +251,20 @@ describe('Phase 2 base-preservation discovery adapter', () => {
     ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
   });
 
-  it.each(['device_authorization_endpoint', 'registration_endpoint'])(
-    'rejects the still-absent %s field',
-    async (field) => {
-      const wrapped = createWrapped({
-        'discovery-openid:oidc/.well-known/openid-configuration': response(
-          rawDocument({ [field]: `https://candidate.example/${field}` })
-        ),
-      });
+  it.each(['registration_endpoint'])('rejects the still-absent %s field', async (field) => {
+    const wrapped = createWrapped({
+      'discovery-openid:oidc/.well-known/openid-configuration': response(
+        rawDocument({ [field]: `https://candidate.example/${field}` })
+      ),
+    });
 
-      await expect(
-        wrapped.session.publicOidc.request(
-          'discovery-openid',
-          'oidc/.well-known/openid-configuration'
-        )
-      ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
-    }
-  );
+    await expect(
+      wrapped.session.publicOidc.request(
+        'discovery-openid',
+        'oidc/.well-known/openid-configuration'
+      )
+    ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
+  });
 
   it.each([
     ['missing introspection', { introspection_endpoint: undefined }],
@@ -232,6 +281,11 @@ describe('Phase 2 base-preservation discovery adapter', () => {
       { introspection_endpoint: 'https://foreign.example/oidc/token/introspection' },
     ],
     ['malformed endpoint', { revocation_endpoint: null }],
+    ['missing device authorization', { device_authorization_endpoint: undefined }],
+    [
+      'wrong device authorization',
+      { device_authorization_endpoint: 'https://candidate.example/oidc/device' },
+    ],
   ])('rejects %s before stripping the approved endpoints', async (_name, overrides) => {
     const wrapped = createWrapped({
       'discovery-openid:oidc/.well-known/openid-configuration': response(rawDocument(overrides)),
@@ -242,6 +296,88 @@ describe('Phase 2 base-preservation discovery adapter', () => {
         'oidc/.well-known/openid-configuration'
       )
     ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
+  });
+
+  it('preserves the Unit 3 single-grant and three-endpoint append contract', async () => {
+    const unit3Raw = {
+      ...baseDocument,
+      grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials'],
+      scopes_supported: [
+        'openid',
+        'offline_access',
+        'profile',
+        'email',
+        'urn:aster:scope:sessions',
+      ],
+      introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
+      revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
+      end_session_endpoint: 'https://candidate.example/oidc/session/end',
+    };
+    const wrapped = createWrapped(
+      {
+        'discovery-openid:oidc/.well-known/openid-configuration': response(unit3Raw),
+        'discovery-oauth-authorization-server:oidc/.well-known/oauth-authorization-server':
+          response(unit3Raw),
+      },
+      {
+        appendGrantTypes: Object.freeze(['client_credentials'] as const),
+        endpointFieldsAppend: Object.freeze([
+          'introspection_endpoint',
+          'revocation_endpoint',
+          'end_session_endpoint',
+        ] as const),
+        stillAbsent: Object.freeze([
+          'device_authorization_endpoint',
+          'registration_endpoint',
+        ] as const),
+      }
+    );
+
+    const projected = await wrapped.session.publicOidc.request(
+      'discovery-openid',
+      'oidc/.well-known/openid-configuration'
+    );
+    await wrapped.session.publicOidc.request(
+      'discovery-oauth-authorization-server',
+      'oidc/.well-known/oauth-authorization-server'
+    );
+
+    expect(JSON.parse(projected.body)).toEqual(baseDocument);
+    expect(wrapped.proofs()[0]).toMatchObject({
+      rawGrantTypes: ['authorization_code', 'refresh_token', 'client_credentials'],
+      endpointFieldsAppend: [
+        'introspection_endpoint',
+        'revocation_endpoint',
+        'end_session_endpoint',
+      ],
+    });
+  });
+
+  it('rejects unsupported and cross-mixed append contracts before requesting discovery', () => {
+    expect(() =>
+      createWrapped({}, { appendGrantTypes: Object.freeze(['unexpected_grant']) as never })
+    ).toThrow('Invalid Phase 2 base-preservation discovery');
+    expect(() =>
+      createWrapped(
+        {},
+        { endpointFieldsAppend: Object.freeze(['introspection_endpoint']) as never }
+      )
+    ).toThrow('Invalid Phase 2 base-preservation discovery');
+    expect(() =>
+      createWrapped(
+        {},
+        {
+          appendGrantTypes: Object.freeze(['client_credentials'] as const),
+          endpointFieldsAppend: Object.freeze([
+            'introspection_endpoint',
+            'revocation_endpoint',
+            'end_session_endpoint',
+            'device_authorization_endpoint',
+          ] as const),
+          stillAbsent: Object.freeze(['registration_endpoint'] as const),
+        }
+      )
+    ).toThrow('Invalid Phase 2 base-preservation discovery');
   });
 
   it('rejects malformed, unsuccessful, mismatched, and header-drifted responses', async () => {
@@ -311,4 +447,4 @@ describe('Phase 2 base-preservation discovery adapter', () => {
   });
 });
 
-/* eslint-enable no-await-in-loop, unicorn/consistent-function-scoping */
+/* eslint-enable max-lines, no-await-in-loop, unicorn/consistent-function-scoping */

@@ -11,6 +11,7 @@
     "baseAcceptance",
     "units",
     "grantTypes",
+    "deviceOperations",
     "differentialScenarios",
     "candidateInvariantScenarios",
     "discovery"
@@ -44,13 +45,42 @@
       "const": [
         "client-credentials-foundation",
         "token-introspection-revocation",
-        "logout-session-management"
+        "logout-session-management",
+        "device-authorization-flow"
       ]
     },
     "grantTypes": {
       "type": "array",
       "uniqueItems": true,
-      "const": ["client_credentials"]
+      "const": [
+        "client_credentials",
+        "urn:ietf:params:oauth:grant-type:device_code"
+      ]
+    },
+    "deviceOperations": {
+      "type": "array",
+      "uniqueItems": true,
+      "const": [
+        "device.authorize",
+        "device.open-shortcut",
+        "device.open-verification",
+        "device.submit-verification",
+        "device.submit-password",
+        "device.read-consent",
+        "device.submit-consent",
+        "device.resume-consent",
+        "device.open-success",
+        "device.poll-token",
+        "device.rotate-refresh",
+        "device.introspect-token",
+        "device.revoke-token",
+        "device.request-userinfo",
+        "device.open-logout",
+        "device.confirm-logout",
+        "device.discover-oidc",
+        "device.discover-oauth"
+      ],
+      "items": { "$ref": "#/$defs/scenarioId" }
     },
     "differentialScenarios": {
       "type": "array",
@@ -125,7 +155,76 @@
         "account-sessions.password-verification",
         "account-sessions.list-current",
         "account-sessions.delete-current",
-        "account-sessions.list-zero-current"
+        "account-sessions.list-zero-current",
+        "device-authorization.urlencoded-success",
+        "device-authorization.json-object-success",
+        "device-authorization.missing-client",
+        "device-authorization.unknown-client",
+        "device-authorization.ineligible-web-client",
+        "device-authorization.confidential-client",
+        "device-authorization.public-client-basic-rejected",
+        "device-authorization.public-client-secret-post-rejected",
+        "device-authorization.missing-device-grant",
+        "device-authorization.explicit-resource",
+        "device-authorization.unknown-resource",
+        "device-authorization.organization",
+        "device-authorization.unassociated-organization",
+        "device-authorization.absent-scope",
+        "device-authorization.empty-scope",
+        "device-authorization.unknown-scope",
+        "device-authorization.duplicate-client",
+        "device-authorization.duplicate-resource",
+        "device-authorization.duplicate-scope",
+        "device-authorization.malformed-form",
+        "device-authorization.malformed-json",
+        "device-authorization.unsupported-parameter",
+        "device-authorization.unknown-extension",
+        "device-authorization.ui-locales",
+        "device-authorization.json-array-rejected",
+        "device-authorization.text-body-rejected",
+        "device-authorization.query-only-rejected",
+        "device-verification.shortcut-redirect",
+        "device-verification.manual-entry",
+        "device-verification.complete-url-entry",
+        "device-verification.missing-code",
+        "device-verification.malformed-code",
+        "device-verification.unknown-code",
+        "device-verification.expired-code",
+        "device-verification.already-used-code",
+        "device-verification.invalid-xsrf",
+        "device-verification.cross-cookie-xsrf",
+        "device-verification.abort",
+        "device-verification.confirmation",
+        "device-verification.confirmed-sign-in-redirect",
+        "device-token.pending-poll",
+        "device-token.in-flight-poll",
+        "device-consent.first-party-matching-grant-required",
+        "device-consent.third-party-redirect-absent",
+        "device-token.denied-poll",
+        "device-consent.approval",
+        "device-verification.success-page",
+        "device-verification.completed-cookie-cleanup",
+        "device-token.openid-issuance",
+        "device-token.id-token-signature-and-claims",
+        "device-token.userinfo",
+        "device-token.offline-refresh-rotation",
+        "device-token.offline-refresh-after-logout",
+        "device-token.resource-authority",
+        "device-token.organization-authority",
+        "device-token.refresh-resource-selection",
+        "device-token.refresh-organization-selection",
+        "device-token.session-bound-expiry",
+        "device-token.client-mismatch",
+        "device-token.unknown-code",
+        "device-token.expired-code",
+        "device-token.consumed-replay",
+        "device-token.concurrent-reference-multi-winner",
+        "device-token-status.access-introspection",
+        "device-token-status.access-revocation",
+        "device-token-status.refresh-introspection",
+        "device-token-status.refresh-revocation",
+        "device-discovery.oidc",
+        "device-discovery.oauth"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },
@@ -137,7 +236,15 @@
         "client-credentials.request-role-write-rejected",
         "client-credentials.signing-failure-rolls-back",
         "client-credentials.user-authority-unchanged",
-        "logout-session.verification-storage-closed"
+        "logout-session.verification-storage-closed",
+        "device-authorization.forced-rls-isolation",
+        "device-authorization.credentials-digest-only",
+        "device-authorization.cross-tenant-lookup-rejected",
+        "device-authorization.transition-failure-rolls-back",
+        "device-token.concurrent-poll-one-winner",
+        "device-token.consumed-replay-revokes-grant",
+        "device-authorization.expired-cleanup-bounded",
+        "device-evidence.secret-material-absent"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },
@@ -154,7 +261,10 @@
         "grantTypesSupportedAppend": {
           "type": "array",
           "uniqueItems": true,
-          "const": ["client_credentials"]
+          "const": [
+            "client_credentials",
+            "urn:ietf:params:oauth:grant-type:device_code"
+          ]
         },
         "endpointFieldsAppend": {
           "type": "array",
@@ -162,7 +272,8 @@
           "const": [
             "introspection_endpoint",
             "revocation_endpoint",
-            "end_session_endpoint"
+            "end_session_endpoint",
+            "device_authorization_endpoint"
           ]
         },
         "scopesSupportedAppend": {
@@ -173,10 +284,7 @@
         "stillAbsent": {
           "type": "array",
           "uniqueItems": true,
-          "const": [
-            "device_authorization_endpoint",
-            "registration_endpoint"
-          ],
+          "const": ["registration_endpoint"],
           "items": { "$ref": "#/$defs/discoveryField" }
         }
       }

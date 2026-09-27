@@ -16,17 +16,41 @@ import {
 
 const phase2Profile: Phase2ProfileRegistries = Object.freeze({
   ...phase2ExpectedProfileAuthority,
+  deviceOperations: Object.freeze([
+    'device.authorize',
+    'device.open-shortcut',
+    'device.open-verification',
+    'device.submit-verification',
+    'device.submit-password',
+    'device.read-consent',
+    'device.submit-consent',
+    'device.resume-consent',
+    'device.open-success',
+    'device.poll-token',
+    'device.rotate-refresh',
+    'device.introspect-token',
+    'device.revoke-token',
+    'device.request-userinfo',
+    'device.open-logout',
+    'device.confirm-logout',
+    'device.discover-oidc',
+    'device.discover-oauth',
+  ] as const),
   differentialScenarios: Object.freeze([]) as never,
   candidateInvariantScenarios: Object.freeze([]) as never,
   discovery: Object.freeze({
-    grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
+    grantTypesSupportedAppend: Object.freeze([
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const),
     endpointFieldsAppend: Object.freeze([
       'introspection_endpoint',
       'revocation_endpoint',
       'end_session_endpoint',
+      'device_authorization_endpoint',
     ] as const),
     scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
-    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
+    stillAbsent: Object.freeze(['registration_endpoint'] as const),
   }),
 });
 
@@ -74,11 +98,13 @@ const rawDiscovery = Object.freeze({
   introspection_endpoint: 'http://localhost:3321/oidc/token/introspection',
   revocation_endpoint: 'http://localhost:3321/oidc/token/revocation',
   end_session_endpoint: 'http://localhost:3321/oidc/session/end',
+  device_authorization_endpoint: 'http://localhost:3321/oidc/device/auth',
   scopes_supported: Object.freeze(['openid', 'urn:aster:scope:sessions']),
   grant_types_supported: Object.freeze([
     'authorization_code',
     'refresh_token',
     'client_credentials',
+    'urn:ietf:params:oauth:grant-type:device_code',
   ]),
 });
 

@@ -43,7 +43,27 @@ describe('Phase 2 profile loader', () => {
       schemaPath: canonicalSchemaPath,
     });
 
-    expect(registries.differentialScenarios).toHaveLength(70);
+    expect(registries.deviceOperations).toEqual([
+      'device.authorize',
+      'device.open-shortcut',
+      'device.open-verification',
+      'device.submit-verification',
+      'device.submit-password',
+      'device.read-consent',
+      'device.submit-consent',
+      'device.resume-consent',
+      'device.open-success',
+      'device.poll-token',
+      'device.rotate-refresh',
+      'device.introspect-token',
+      'device.revoke-token',
+      'device.request-userinfo',
+      'device.open-logout',
+      'device.confirm-logout',
+      'device.discover-oidc',
+      'device.discover-oauth',
+    ]);
+    expect(registries.differentialScenarios).toHaveLength(139);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -51,6 +71,14 @@ describe('Phase 2 profile loader', () => {
     expect(registries.differentialScenarios[56]).toBe('account-sessions.wrong-password');
     expect(registries.differentialScenarios[57]).toBe('logout.authenticated-get');
     expect(registries.differentialScenarios[69]).toBe('account-sessions.list-zero-current');
+    expect(registries.differentialScenarios[70]).toBe('device-authorization.urlencoded-success');
+    expect(registries.differentialScenarios[109]).toBe(
+      'device-verification.confirmed-sign-in-redirect'
+    );
+    expect(registries.differentialScenarios[132]).toBe(
+      'device-token.concurrent-reference-multi-winner'
+    );
+    expect(registries.differentialScenarios[138]).toBe('device-discovery.oauth');
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
       'client-credentials.cross-tenant-authority-rejected',
@@ -58,35 +86,49 @@ describe('Phase 2 profile loader', () => {
       'client-credentials.signing-failure-rolls-back',
       'client-credentials.user-authority-unchanged',
       'logout-session.verification-storage-closed',
+      'device-authorization.forced-rls-isolation',
+      'device-authorization.credentials-digest-only',
+      'device-authorization.cross-tenant-lookup-rejected',
+      'device-authorization.transition-failure-rolls-back',
+      'device-token.concurrent-poll-one-winner',
+      'device-token.consumed-replay-revokes-grant',
+      'device-authorization.expired-cleanup-bounded',
+      'device-evidence.secret-material-absent',
     ]);
     expect(registries.discovery).toEqual({
-      grantTypesSupportedAppend: ['client_credentials'],
+      grantTypesSupportedAppend: [
+        'client_credentials',
+        'urn:ietf:params:oauth:grant-type:device_code',
+      ],
       endpointFieldsAppend: [
         'introspection_endpoint',
         'revocation_endpoint',
         'end_session_endpoint',
+        'device_authorization_endpoint',
       ],
       scopesSupportedAppend: ['urn:aster:scope:sessions'],
-      stillAbsent: ['device_authorization_endpoint', 'registration_endpoint'],
+      stillAbsent: ['registration_endpoint'],
     });
     expect(Object.keys(registries).toSorted()).toEqual([
       'baseAcceptance',
       'candidateInvariantScenarios',
+      'deviceOperations',
       'differentialScenarios',
       'discovery',
       'profileSha256',
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '85f5debf797f1b827f492dee9ce441c7f6595a90c2ddc910724d93e9598158d6'
+      '4909ecbaa2ab3df663a3f636a963e639500ca7cd7c54cdc3d6516403bb60931a'
     );
     expect(registries.schemaSha256).toBe(
-      '7f5811e63f9e5ca458f1aed95fbbb2465a8e37d4d60bdb76202d9e47b27aff6e'
+      '098dd83ca25333c50681bc2bd6b87b23fe0e41fa24c949541a877347858025d3'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'
     );
     expect(Object.isFrozen(registries)).toBe(true);
+    expect(Object.isFrozen(registries.deviceOperations)).toBe(true);
     expect(Object.isFrozen(registries.differentialScenarios)).toBe(true);
     expect(Object.isFrozen(registries.candidateInvariantScenarios)).toBe(true);
     expect(Object.isFrozen(registries.discovery)).toBe(true);
@@ -102,6 +144,28 @@ describe('Phase 2 profile loader', () => {
       await loadPhase2Profile({
         profilePath: canonicalProfilePath,
         schemaPath: canonicalSchemaPath,
+      })
+    );
+  });
+
+  it('rejects missing, reordered, duplicate, and extra device operation IDs', async () => {
+    const mutations: ReadonlyArray<(operations: readonly string[]) => string[]> = [
+      (operations) => operations.slice(0, -1),
+      (operations) => operations.toReversed(),
+      (operations) =>
+        operations.map((value, index) => (index === 1 ? (operations[0] ?? '') : value)),
+      (operations) => [...operations, 'device.unregistered'],
+    ];
+
+    await Promise.all(
+      mutations.map(async (mutate) => {
+        const paths = await copyCanonicalFiles();
+        const document = JSON.parse(await readFile(paths.profilePath, 'utf8')) as {
+          deviceOperations: string[];
+        };
+        document.deviceOperations = mutate(document.deviceOperations);
+        await writeFile(paths.profilePath, JSON.stringify(document), { mode: 0o600 });
+        await expect(loadPhase2Profile(paths)).rejects.toThrow('Invalid Phase 2 profile');
       })
     );
   });

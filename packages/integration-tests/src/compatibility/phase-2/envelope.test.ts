@@ -8,13 +8,41 @@ import { assertDiscoveryEndpointFieldsContract } from './scenarios/client-creden
 
 const profile: Phase2ProfileRegistries = {
   ...phase2ExpectedProfileAuthority,
+  deviceOperations: Object.freeze([
+    'device.authorize',
+    'device.open-shortcut',
+    'device.open-verification',
+    'device.submit-verification',
+    'device.submit-password',
+    'device.read-consent',
+    'device.submit-consent',
+    'device.resume-consent',
+    'device.open-success',
+    'device.poll-token',
+    'device.rotate-refresh',
+    'device.introspect-token',
+    'device.revoke-token',
+    'device.request-userinfo',
+    'device.open-logout',
+    'device.confirm-logout',
+    'device.discover-oidc',
+    'device.discover-oauth',
+  ] as const),
   differentialScenarios: [],
   candidateInvariantScenarios: [],
   discovery: {
-    grantTypesSupportedAppend: ['client_credentials'],
-    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
+    grantTypesSupportedAppend: Object.freeze([
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const),
+    endpointFieldsAppend: Object.freeze([
+      'introspection_endpoint',
+      'revocation_endpoint',
+      'end_session_endpoint',
+      'device_authorization_endpoint',
+    ] as const),
     scopesSupportedAppend: ['urn:aster:scope:sessions'],
-    stillAbsent: [],
+    stillAbsent: Object.freeze(['registration_endpoint'] as const),
   },
 };
 const harness: Phase2SourceIdentity = {
@@ -57,6 +85,7 @@ describe('Phase 2 public provenance envelope', () => {
           introspection_endpoint: `${issuer}/token/introspection`,
           revocation_endpoint: `${issuer}/token/revocation`,
           end_session_endpoint: `${issuer}/session/end`,
+          device_authorization_endpoint: `${issuer}/device/auth`,
         },
         endpointFields,
         issuer

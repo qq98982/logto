@@ -1,9 +1,15 @@
 /* eslint-disable complexity, max-lines, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- The twenty-case fake transport is a stateful negative-control harness and intentionally mutates captured request/response fixtures. */
+import path from 'node:path';
+
 import { exportJWK, generateKeyPair, SignJWT, type JSONWebKeySet } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
-import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
+import {
+  loadPhase2Profile,
+  phase2ExpectedProfileAuthority,
+  type Phase2ProfileRegistries,
+} from '../profile.js';
 import {
   createClientCredentialsJwtAudit,
   createZeroClientCredentialsSideEffects,
@@ -11,6 +17,7 @@ import {
 
 import {
   assertDiscoveryAbsentFieldsContract,
+  assertDiscoveryAppendContract,
   assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
   assertDiscoveryScopeAppendContract,
@@ -26,6 +33,16 @@ const target: TargetConfig = Object.freeze({
   label: 'candidate',
   coreUrl: 'https://candidate.example/',
   adminUrl: 'https://candidate-admin.example/',
+});
+const canonicalProfilePaths = Object.freeze({
+  profilePath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.json'
+  ),
+  schemaPath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.schema.json'
+  ),
 });
 
 const fixture: ProvisionedPhase2Fixture = Object.freeze({
@@ -72,6 +89,26 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
 
 const profile: Phase2ProfileRegistries = Object.freeze({
   ...phase2ExpectedProfileAuthority,
+  deviceOperations: Object.freeze([
+    'device.authorize',
+    'device.open-shortcut',
+    'device.open-verification',
+    'device.submit-verification',
+    'device.submit-password',
+    'device.read-consent',
+    'device.submit-consent',
+    'device.resume-consent',
+    'device.open-success',
+    'device.poll-token',
+    'device.rotate-refresh',
+    'device.introspect-token',
+    'device.revoke-token',
+    'device.request-userinfo',
+    'device.open-logout',
+    'device.confirm-logout',
+    'device.discover-oidc',
+    'device.discover-oauth',
+  ] as const),
   differentialScenarios: clientCredentialsScenarioIds,
   candidateInvariantScenarios: Object.freeze([
     'client-credentials.cross-tenant-authority-rejected',
@@ -81,14 +118,18 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'logout-session.verification-storage-closed',
   ] as const),
   discovery: Object.freeze({
-    grantTypesSupportedAppend: Object.freeze(['client_credentials'] as const),
+    grantTypesSupportedAppend: Object.freeze([
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const),
     endpointFieldsAppend: Object.freeze([
       'introspection_endpoint',
       'revocation_endpoint',
       'end_session_endpoint',
+      'device_authorization_endpoint',
     ] as const),
     scopesSupportedAppend: Object.freeze(['urn:aster:scope:sessions'] as const),
-    stillAbsent: Object.freeze(['device_authorization_endpoint', 'registration_endpoint'] as const),
+    stillAbsent: Object.freeze(['registration_endpoint'] as const),
   }),
 });
 
@@ -240,9 +281,13 @@ describe('Phase 2 client credentials scenarios', () => {
     expect(exhaustedCalls).toBe(60);
   });
 
-  it('has exact bytewise registry equality with the profile and rejects drift', () => {
+  it('selects the exact client-credentials prefix from legacy and canonical registries', async () => {
     expect(createClientCredentialsScenarioRegistry(profile).map(({ id }) => id)).toEqual(
       profile.differentialScenarios
+    );
+    const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
+    expect(createClientCredentialsScenarioRegistry(canonicalProfile).map(({ id }) => id)).toEqual(
+      clientCredentialsScenarioIds
     );
     expect(() =>
       createClientCredentialsScenarioRegistry({
@@ -601,6 +646,10 @@ describe('Phase 2 client credentials scenarios', () => {
   });
 
   it('projects the selected Oracle grant order and keeps Candidate discovery exact', () => {
+    const expectedAppend = [
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ] as const;
     expect(
       assertDiscoveryGrantContract(
         [
@@ -611,10 +660,70 @@ describe('Phase 2 client credentials scenarios', () => {
           'urn:ietf:params:oauth:grant-type:device_code',
           'urn:ietf:params:oauth:grant-type:token-exchange',
         ],
-        ['client_credentials'],
+        expectedAppend,
         'oracle'
       )
-    ).toEqual(['authorization_code', 'refresh_token', 'client_credentials']);
+    ).toEqual([
+      'authorization_code',
+      'refresh_token',
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ]);
+    expect(
+      assertDiscoveryGrantContract(
+        [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+        ],
+        expectedAppend,
+        'candidate'
+      )
+    ).toEqual([
+      'authorization_code',
+      'refresh_token',
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ]);
+    expect(() =>
+      assertDiscoveryGrantContract(
+        [
+          'authorization_code',
+          'refresh_token',
+          'urn:ietf:params:oauth:grant-type:device_code',
+          'client_credentials',
+        ],
+        expectedAppend,
+        'oracle'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(() =>
+      assertDiscoveryGrantContract(
+        [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+          'device_code',
+        ],
+        expectedAppend,
+        'candidate'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(() =>
+      assertDiscoveryGrantContract(
+        [
+          'authorization_code',
+          'refresh_token',
+          'client_credentials',
+          'client_credentials',
+          'urn:ietf:params:oauth:grant-type:device_code',
+        ],
+        expectedAppend,
+        'oracle'
+      )
+    ).toThrow('Invalid Phase 2 client credentials scenario');
     expect(
       assertDiscoveryGrantContract(
         ['authorization_code', 'refresh_token', 'client_credentials'],
@@ -622,35 +731,42 @@ describe('Phase 2 client credentials scenarios', () => {
         'candidate'
       )
     ).toEqual(['authorization_code', 'refresh_token', 'client_credentials']);
+  });
+
+  it('rejects unsupported and cross-mixed discovery append contracts', () => {
     expect(() =>
       assertDiscoveryGrantContract(
-        ['client_credentials', 'authorization_code', 'refresh_token'],
-        ['client_credentials'],
-        'oracle'
-      )
-    ).toThrow('Invalid Phase 2 client credentials scenario');
-    expect(() =>
-      assertDiscoveryGrantContract(
-        ['authorization_code', 'refresh_token', 'client_credentials', 'device_code'],
-        ['client_credentials'],
+        ['authorization_code', 'refresh_token', 'unexpected_grant'],
+        ['unexpected_grant'] as never,
         'candidate'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
     expect(() =>
-      assertDiscoveryGrantContract(
-        ['authorization_code', 'refresh_token', 'client_credentials', 'client_credentials'],
-        ['client_credentials'],
-        'oracle'
+      assertDiscoveryEndpointFieldsContract(
+        { introspection_endpoint: 'https://candidate.example/oidc/token/introspection' },
+        ['introspection_endpoint'] as never,
+        'https://candidate.example/oidc'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(() => {
+      assertDiscoveryAppendContract({
+        grantTypesSupportedAppend: ['client_credentials'],
+        endpointFieldsAppend: [
+          'introspection_endpoint',
+          'revocation_endpoint',
+          'end_session_endpoint',
+          'device_authorization_endpoint',
+        ],
+        stillAbsent: ['registration_endpoint'],
+      } as never);
+    }).toThrow('Invalid Phase 2 client credentials scenario');
   });
 
   it('normalizes Oracle-only unimplemented discovery fields and rejects them on Candidate', () => {
-    const expectedAbsent = ['device_authorization_endpoint', 'registration_endpoint'] as const;
+    const expectedAbsent = ['registration_endpoint'] as const;
     expect(
       assertDiscoveryAbsentFieldsContract(
         {
-          device_authorization_endpoint: 'https://oracle.example/oidc/device/auth',
           registration_endpoint: 'https://oracle.example/oidc/register',
         },
         expectedAbsent,
@@ -662,11 +778,18 @@ describe('Phase 2 client credentials scenarios', () => {
     );
     expect(() =>
       assertDiscoveryAbsentFieldsContract(
-        { device_authorization_endpoint: 'https://candidate.example/oidc/device/auth' },
+        { registration_endpoint: 'https://candidate.example/oidc/register' },
         expectedAbsent,
         'candidate'
       )
     ).toThrow('Invalid Phase 2 client credentials scenario');
+    expect(
+      assertDiscoveryAbsentFieldsContract(
+        { device_authorization_endpoint: 'https://oracle.example/oidc/device/auth' },
+        ['device_authorization_endpoint', 'registration_endpoint'],
+        'oracle'
+      )
+    ).toEqual(['device_authorization_endpoint', 'registration_endpoint']);
   });
 
   it('requires the published status endpoints to belong to this issuer', () => {
@@ -674,11 +797,13 @@ describe('Phase 2 client credentials scenarios', () => {
       'introspection_endpoint',
       'revocation_endpoint',
       'end_session_endpoint',
+      'device_authorization_endpoint',
     ] as const;
     const document = {
       introspection_endpoint: 'https://candidate.example/oidc/token/introspection',
       revocation_endpoint: 'https://candidate.example/oidc/token/revocation',
       end_session_endpoint: 'https://candidate.example/oidc/session/end',
+      device_authorization_endpoint: 'https://candidate.example/oidc/device/auth',
     };
     expect(
       assertDiscoveryEndpointFieldsContract(document, fields, 'https://candidate.example/oidc')
@@ -688,11 +813,19 @@ describe('Phase 2 client credentials scenarios', () => {
       { ...document, revocation_endpoint: 'https://foreign.example/oidc/token/revocation' },
       { ...document, introspection_endpoint: document.revocation_endpoint },
       { ...document, end_session_endpoint: 'https://foreign.example/oidc/session/end' },
+      { ...document, device_authorization_endpoint: 'https://candidate.example/oidc/device' },
     ]) {
       expect(() =>
         assertDiscoveryEndpointFieldsContract(invalid, fields, 'https://candidate.example/oidc')
       ).toThrow('Invalid Phase 2 client credentials scenario');
     }
+    expect(
+      assertDiscoveryEndpointFieldsContract(
+        document,
+        ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
+        'https://candidate.example/oidc'
+      )
+    ).toEqual(['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint']);
   });
 
   it('returns target-owned session-scope evidence without shared profile aliases', () => {

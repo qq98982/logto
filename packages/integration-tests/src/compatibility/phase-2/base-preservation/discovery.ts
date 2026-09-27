@@ -44,21 +44,48 @@ export type Phase2BaseDiscoverySession = Readonly<{
   proofs(): readonly Phase2BaseDiscoveryAppendProof[];
 }>;
 
-export type Phase2BaseDiscoverySessionInput = Readonly<{
+const discoveryEndpointSuffixes = Object.freeze({
+  introspection_endpoint: '/token/introspection',
+  revocation_endpoint: '/token/revocation',
+  end_session_endpoint: '/session/end',
+  device_authorization_endpoint: '/device/auth',
+} as const);
+const unit3AppendGrantTypes = Object.freeze(['client_credentials'] as const);
+const unit4AppendGrantTypes = Object.freeze([
+  'client_credentials',
+  'urn:ietf:params:oauth:grant-type:device_code',
+] as const);
+const unit3EndpointFieldsAppend = Object.freeze([
+  'introspection_endpoint',
+  'revocation_endpoint',
+  'end_session_endpoint',
+] as const);
+const unit4EndpointFieldsAppend = Object.freeze([
+  ...unit3EndpointFieldsAppend,
+  'device_authorization_endpoint',
+] as const);
+const unit3StillAbsent = Object.freeze([
+  'device_authorization_endpoint',
+  'registration_endpoint',
+] as const);
+const unit4StillAbsent = Object.freeze(['registration_endpoint'] as const);
+
+type Phase2BaseDiscoveryEndpointField = keyof typeof discoveryEndpointSuffixes;
+type Phase2BaseDiscoverySessionCommonInput = Readonly<{
   target: TargetConfig;
   scenarioId: Phase1DifferentialScenarioId;
   session: Phase1ProtocolSession;
   acceptedGrantTypes: readonly string[];
-  appendGrantType: 'client_credentials';
-  endpointFieldsAppend: readonly [
-    'introspection_endpoint',
-    'revocation_endpoint',
-    'end_session_endpoint',
-  ];
   scopesSupportedAppend: readonly ['urn:aster:scope:sessions'];
-  stillAbsent: readonly string[];
   paths: Readonly<{ openid: string; oauth: string; jwks: string }>;
 }>;
+
+export type Phase2BaseDiscoverySessionInput = Phase2BaseDiscoverySessionCommonInput &
+  Readonly<{
+    appendGrantTypes: typeof unit3AppendGrantTypes | typeof unit4AppendGrantTypes;
+    endpointFieldsAppend: typeof unit3EndpointFieldsAppend | typeof unit4EndpointFieldsAppend;
+    stillAbsent: typeof unit3StillAbsent | ReadonlyArray<'registration_endpoint'>;
+  }>;
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -206,20 +233,22 @@ const sha256 = (value: string): string => createHash('sha256').update(value).dig
 export const createPhase2BaseDiscoverySession = (
   input: Phase2BaseDiscoverySessionInput
 ): Phase2BaseDiscoverySession => {
+  const unit3 =
+    isDeepStrictEqual(input.appendGrantTypes, unit3AppendGrantTypes) &&
+    isDeepStrictEqual(input.endpointFieldsAppend, unit3EndpointFieldsAppend) &&
+    isDeepStrictEqual(input.stillAbsent, unit3StillAbsent);
+  const unit4 =
+    isDeepStrictEqual(input.appendGrantTypes, unit4AppendGrantTypes) &&
+    isDeepStrictEqual(input.endpointFieldsAppend, unit4EndpointFieldsAppend) &&
+    isDeepStrictEqual(input.stillAbsent, unit4StillAbsent);
   if (
     input.target.label !== 'candidate' ||
     input.scenarioId !== 'discovery.config' ||
-    input.appendGrantType !== 'client_credentials' ||
-    !isDeepStrictEqual(input.endpointFieldsAppend, [
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'end_session_endpoint',
-    ]) ||
+    (!unit3 && !unit4) ||
+    input.appendGrantTypes.some((grant) => input.acceptedGrantTypes.includes(grant)) ||
     !isDeepStrictEqual(input.scopesSupportedAppend, ['urn:aster:scope:sessions']) ||
     input.acceptedGrantTypes.length === 0 ||
     new Set(input.acceptedGrantTypes).size !== input.acceptedGrantTypes.length ||
-    input.stillAbsent.length === 0 ||
-    new Set(input.stillAbsent).size !== input.stillAbsent.length ||
     Object.values(input.paths).some(
       (value) =>
         typeof value !== 'string' ||
@@ -267,7 +296,7 @@ export const createPhase2BaseDiscoverySession = (
     const rawDocument = assertRawResponse(response);
     const grants = exactStringArray(rawDocument.grant_types_supported);
     const scopes = exactStringArray(rawDocument.scopes_supported);
-    const expected = [...input.acceptedGrantTypes, input.appendGrantType];
+    const expected = [...input.acceptedGrantTypes, ...input.appendGrantTypes];
     const { issuer } = rawDocument;
 
     if (
@@ -275,9 +304,9 @@ export const createPhase2BaseDiscoverySession = (
       grants.some((value, index) => value !== expected[index]) ||
       new Set(grants).size !== grants.length ||
       typeof issuer !== 'string' ||
-      rawDocument.introspection_endpoint !== `${issuer}/token/introspection` ||
-      rawDocument.revocation_endpoint !== `${issuer}/token/revocation` ||
-      rawDocument.end_session_endpoint !== `${issuer}/session/end` ||
+      input.endpointFieldsAppend.some(
+        (field) => rawDocument[field] !== `${issuer}${discoveryEndpointSuffixes[field]}`
+      ) ||
       scopes.filter((scope) => scope === input.scopesSupportedAppend[0]).length !== 1 ||
       input.stillAbsent.some((field) => Object.hasOwn(rawDocument, field))
     ) {
@@ -290,15 +319,14 @@ export const createPhase2BaseDiscoverySession = (
       return fail();
     }
     rawDocuments.set(kind, rawDocument);
-    const { introspection_endpoint, revocation_endpoint, end_session_endpoint, ...baseDocument } =
-      rawDocument;
-    if (
-      introspection_endpoint === undefined ||
-      revocation_endpoint === undefined ||
-      end_session_endpoint === undefined
-    ) {
-      return fail();
-    }
+    const baseDocument = Object.fromEntries(
+      Object.entries(rawDocument).filter(
+        ([field]) =>
+          !(input.endpointFieldsAppend as readonly Phase2BaseDiscoveryEndpointField[]).includes(
+            field as Phase2BaseDiscoveryEndpointField
+          )
+      )
+    );
     baseDocument.grant_types_supported = [...input.acceptedGrantTypes];
     baseDocument.scopes_supported = scopes.filter(
       (scope) => scope !== input.scopesSupportedAppend[0]

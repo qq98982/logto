@@ -1,4 +1,4 @@
-/* eslint-disable complexity, no-await-in-loop, no-bitwise, no-restricted-syntax, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types -- This exact-byte file identity, schema, and deep-freeze boundary is intentionally cohesive and never handles unpinned JSON. */
+/* eslint-disable complexity, max-lines, no-await-in-loop, no-bitwise, no-restricted-syntax, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types -- This exact-byte file identity, schema, closed registries, and deep-freeze boundary are intentionally cohesive and never handle unpinned JSON. */
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '85f5debf797f1b827f492dee9ce441c7f6595a90c2ddc910724d93e9598158d6';
-const expectedSchemaSha256 = '7f5811e63f9e5ca458f1aed95fbbb2465a8e37d4d60bdb76202d9e47b27aff6e';
+const expectedProfileSha256 = '4909ecbaa2ab3df663a3f636a963e639500ca7cd7c54cdc3d6516403bb60931a';
+const expectedSchemaSha256 = '098dd83ca25333c50681bc2bd6b87b23fe0e41fa24c949541a877347858025d3';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -96,6 +96,95 @@ const differentialScenarioIds = [
   'account-sessions.list-current',
   'account-sessions.delete-current',
   'account-sessions.list-zero-current',
+  'device-authorization.urlencoded-success',
+  'device-authorization.json-object-success',
+  'device-authorization.missing-client',
+  'device-authorization.unknown-client',
+  'device-authorization.ineligible-web-client',
+  'device-authorization.confidential-client',
+  'device-authorization.public-client-basic-rejected',
+  'device-authorization.public-client-secret-post-rejected',
+  'device-authorization.missing-device-grant',
+  'device-authorization.explicit-resource',
+  'device-authorization.unknown-resource',
+  'device-authorization.organization',
+  'device-authorization.unassociated-organization',
+  'device-authorization.absent-scope',
+  'device-authorization.empty-scope',
+  'device-authorization.unknown-scope',
+  'device-authorization.duplicate-client',
+  'device-authorization.duplicate-resource',
+  'device-authorization.duplicate-scope',
+  'device-authorization.malformed-form',
+  'device-authorization.malformed-json',
+  'device-authorization.unsupported-parameter',
+  'device-authorization.unknown-extension',
+  'device-authorization.ui-locales',
+  'device-authorization.json-array-rejected',
+  'device-authorization.text-body-rejected',
+  'device-authorization.query-only-rejected',
+  'device-verification.shortcut-redirect',
+  'device-verification.manual-entry',
+  'device-verification.complete-url-entry',
+  'device-verification.missing-code',
+  'device-verification.malformed-code',
+  'device-verification.unknown-code',
+  'device-verification.expired-code',
+  'device-verification.already-used-code',
+  'device-verification.invalid-xsrf',
+  'device-verification.cross-cookie-xsrf',
+  'device-verification.abort',
+  'device-verification.confirmation',
+  'device-verification.confirmed-sign-in-redirect',
+  'device-token.pending-poll',
+  'device-token.in-flight-poll',
+  'device-consent.first-party-matching-grant-required',
+  'device-consent.third-party-redirect-absent',
+  'device-token.denied-poll',
+  'device-consent.approval',
+  'device-verification.success-page',
+  'device-verification.completed-cookie-cleanup',
+  'device-token.openid-issuance',
+  'device-token.id-token-signature-and-claims',
+  'device-token.userinfo',
+  'device-token.offline-refresh-rotation',
+  'device-token.offline-refresh-after-logout',
+  'device-token.resource-authority',
+  'device-token.organization-authority',
+  'device-token.refresh-resource-selection',
+  'device-token.refresh-organization-selection',
+  'device-token.session-bound-expiry',
+  'device-token.client-mismatch',
+  'device-token.unknown-code',
+  'device-token.expired-code',
+  'device-token.consumed-replay',
+  'device-token.concurrent-reference-multi-winner',
+  'device-token-status.access-introspection',
+  'device-token-status.access-revocation',
+  'device-token-status.refresh-introspection',
+  'device-token-status.refresh-revocation',
+  'device-discovery.oidc',
+  'device-discovery.oauth',
+] as const;
+const deviceOperationIds = [
+  'device.authorize',
+  'device.open-shortcut',
+  'device.open-verification',
+  'device.submit-verification',
+  'device.submit-password',
+  'device.read-consent',
+  'device.submit-consent',
+  'device.resume-consent',
+  'device.open-success',
+  'device.poll-token',
+  'device.rotate-refresh',
+  'device.introspect-token',
+  'device.revoke-token',
+  'device.request-userinfo',
+  'device.open-logout',
+  'device.confirm-logout',
+  'device.discover-oidc',
+  'device.discover-oauth',
 ] as const;
 const candidateInvariantIds = [
   'client-credentials.cross-tenant-authority-rejected',
@@ -103,19 +192,26 @@ const candidateInvariantIds = [
   'client-credentials.signing-failure-rolls-back',
   'client-credentials.user-authority-unchanged',
   'logout-session.verification-storage-closed',
+  'device-authorization.forced-rls-isolation',
+  'device-authorization.credentials-digest-only',
+  'device-authorization.cross-tenant-lookup-rejected',
+  'device-authorization.transition-failure-rolls-back',
+  'device-token.concurrent-poll-one-winner',
+  'device-token.consumed-replay-revokes-grant',
+  'device-authorization.expired-cleanup-bounded',
+  'device-evidence.secret-material-absent',
 ] as const;
-const stillAbsentDiscoveryFields = [
-  'device_authorization_endpoint',
-  'registration_endpoint',
-] as const;
+const stillAbsentDiscoveryFields = ['registration_endpoint'] as const;
 const endpointFieldsAppend = [
   'introspection_endpoint',
   'revocation_endpoint',
   'end_session_endpoint',
+  'device_authorization_endpoint',
 ] as const;
 const scopesSupportedAppend = ['urn:aster:scope:sessions'] as const;
 
 export type Phase2DifferentialScenarioId = (typeof differentialScenarioIds)[number];
+export type Phase2DeviceOperationId = (typeof deviceOperationIds)[number];
 export type Phase2CandidateInvariantId = (typeof candidateInvariantIds)[number];
 export type Phase2StillAbsentDiscoveryField = (typeof stillAbsentDiscoveryFields)[number];
 
@@ -128,10 +224,14 @@ export type Phase2ProfileRegistries = Readonly<{
   profileSha256: string;
   schemaSha256: string;
   baseAcceptance: Phase2BaseAcceptance;
+  deviceOperations: readonly Phase2DeviceOperationId[];
   differentialScenarios: readonly Phase2DifferentialScenarioId[];
   candidateInvariantScenarios: readonly Phase2CandidateInvariantId[];
   discovery: Readonly<{
-    grantTypesSupportedAppend: readonly ['client_credentials'];
+    grantTypesSupportedAppend: readonly [
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ];
     endpointFieldsAppend: typeof endpointFieldsAppend;
     scopesSupportedAppend: typeof scopesSupportedAppend;
     stillAbsent: readonly Phase2StillAbsentDiscoveryField[];
@@ -288,6 +388,7 @@ export const loadPhase2Profile = async ({
     profileSha256: profileHash,
     schemaSha256: schemaHash,
     baseAcceptance: phase2ExpectedBaseAcceptance,
+    deviceOperations: exactArray(document.deviceOperations, deviceOperationIds),
     differentialScenarios: exactArray(document.differentialScenarios, differentialScenarioIds),
     candidateInvariantScenarios: exactArray(
       document.candidateInvariantScenarios,
@@ -296,6 +397,7 @@ export const loadPhase2Profile = async ({
     discovery: {
       grantTypesSupportedAppend: exactArray(discoveryRecord.grantTypesSupportedAppend, [
         'client_credentials',
+        'urn:ietf:params:oauth:grant-type:device_code',
       ] as const),
       endpointFieldsAppend: exactArray(discoveryRecord.endpointFieldsAppend, endpointFieldsAppend),
       scopesSupportedAppend: exactArray(
@@ -307,4 +409,4 @@ export const loadPhase2Profile = async ({
   };
   return deepFreeze(registries) as Phase2ProfileRegistries;
 };
-/* eslint-enable complexity, no-await-in-loop, no-bitwise, no-restricted-syntax, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */
+/* eslint-enable complexity, max-lines, no-await-in-loop, no-bitwise, no-restricted-syntax, prefer-destructuring, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */

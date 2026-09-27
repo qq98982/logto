@@ -1,9 +1,10 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake HTTP queue records a single authorization and revocation timeline. */
+import path from 'node:path';
+
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
-import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
+import { loadPhase2Profile } from '../profile.js';
 
-import { clientCredentialsScenarioIds } from './client-credentials.js';
 import { runTokenStatusScenarios, tokenStatusScenarioIds } from './token-status.js';
 
 const target: TargetConfig = {
@@ -11,6 +12,16 @@ const target: TargetConfig = {
   coreUrl: 'https://candidate.example/',
   adminUrl: 'https://candidate-admin.example/',
 };
+const canonicalProfilePaths = Object.freeze({
+  profilePath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.json'
+  ),
+  schemaPath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.schema.json'
+  ),
+});
 const fixture: ProvisionedPhase2Fixture = {
   public: {
     allocationId: 'status-test',
@@ -51,24 +62,6 @@ const fixture: ProvisionedPhase2Fixture = {
       },
     }),
 };
-const profile: Phase2ProfileRegistries = {
-  ...phase2ExpectedProfileAuthority,
-  differentialScenarios: [...clientCredentialsScenarioIds, ...tokenStatusScenarioIds],
-  candidateInvariantScenarios: [
-    'client-credentials.cross-tenant-authority-rejected',
-    'client-credentials.request-role-write-rejected',
-    'client-credentials.signing-failure-rolls-back',
-    'client-credentials.user-authority-unchanged',
-    'logout-session.verification-storage-closed',
-  ],
-  discovery: {
-    grantTypesSupportedAppend: ['client_credentials'],
-    endpointFieldsAppend: ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
-    scopesSupportedAppend: ['urn:aster:scope:sessions'],
-    stillAbsent: ['device_authorization_endpoint', 'registration_endpoint'],
-  },
-};
-
 const json = (body: unknown, status = 200, revocation = false): Response =>
   new Response(revocation && status === 200 ? '' : JSON.stringify(body), {
     status,
@@ -108,6 +101,7 @@ const unsupported = (kind: 'introspection' | 'revocation') =>
   );
 
 it('compares a public JWT rejection and consumed-refresh grant cascade without evidence credentials', async () => {
+  const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
   const replies = [
     new Response(null, {
       status: 303,
@@ -259,7 +253,7 @@ it('compares a public JWT rejection and consumed-refresh grant cascade without e
     next += 1;
     return reply ?? json({ unexpected: true }, 500);
   }) as typeof fetch;
-  const results = await runTokenStatusScenarios(profile, target, fixture, requestFetch);
+  const results = await runTokenStatusScenarios(canonicalProfile, target, fixture, requestFetch);
   expect(results.map(({ id }) => id)).toEqual(tokenStatusScenarioIds);
   expect(tokenStatusScenarioIds.slice(-6)).toEqual([
     'token-status.confidential-basic-access-active',

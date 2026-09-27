@@ -52,10 +52,15 @@ export const runLogoutSessionScenarios = async (
   fixture: ProvisionedPhase2Fixture,
   requestFetch: typeof fetch = fetch
 ): Promise<readonly LogoutSessionScenarioResult[]> => {
-  const tail = profile.differentialScenarios.slice(-logoutSessionScenarioIds.length);
+  const start = profile.differentialScenarios.indexOf(logoutSessionScenarioIds[0]);
+  const segment = profile.differentialScenarios.slice(
+    start,
+    start + logoutSessionScenarioIds.length
+  );
   if (
-    tail.length !== logoutSessionScenarioIds.length ||
-    tail.some((id, index) => id !== logoutSessionScenarioIds[index])
+    start < 0 ||
+    segment.length !== logoutSessionScenarioIds.length ||
+    segment.some((id, index) => id !== logoutSessionScenarioIds[index])
   ) {
     throw new TypeError('Invalid Phase 2 logout session registry');
   }

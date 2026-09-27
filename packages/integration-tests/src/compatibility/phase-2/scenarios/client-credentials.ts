@@ -924,13 +924,69 @@ export const runClientCredentialsNegativeControls = (
   return Object.freeze(controls);
 };
 
+const unit3GrantTypesSupportedAppend = Object.freeze(['client_credentials'] as const);
+const unit4GrantTypesSupportedAppend = Object.freeze([
+  'client_credentials',
+  'urn:ietf:params:oauth:grant-type:device_code',
+] as const);
+const unit3EndpointFieldsAppend = Object.freeze([
+  'introspection_endpoint',
+  'revocation_endpoint',
+  'end_session_endpoint',
+] as const);
+const unit4EndpointFieldsAppend = Object.freeze([
+  ...unit3EndpointFieldsAppend,
+  'device_authorization_endpoint',
+] as const);
+const unit3StillAbsent = Object.freeze([
+  'device_authorization_endpoint',
+  'registration_endpoint',
+] as const);
+const unit4StillAbsent = Object.freeze(['registration_endpoint'] as const);
+
+type Phase2DiscoveryGrantTypesAppend =
+  | typeof unit3GrantTypesSupportedAppend
+  | typeof unit4GrantTypesSupportedAppend;
+type Phase2DiscoveryEndpointFieldsAppend =
+  | typeof unit3EndpointFieldsAppend
+  | typeof unit4EndpointFieldsAppend;
+type Phase2DiscoveryStillAbsent = typeof unit3StillAbsent | ReadonlyArray<'registration_endpoint'>;
+
+export type Phase2DiscoveryAppendContract =
+  | Readonly<{
+      grantTypesSupportedAppend: typeof unit3GrantTypesSupportedAppend;
+      endpointFieldsAppend: typeof unit3EndpointFieldsAppend;
+      stillAbsent: typeof unit3StillAbsent;
+    }>
+  | Readonly<{
+      grantTypesSupportedAppend: typeof unit4GrantTypesSupportedAppend;
+      endpointFieldsAppend: typeof unit4EndpointFieldsAppend;
+      stillAbsent: ReadonlyArray<'registration_endpoint'>;
+    }>;
+
+export const assertDiscoveryAppendContract = (contract: Phase2DiscoveryAppendContract): void => {
+  const unit3 =
+    isDeepStrictEqual(contract.grantTypesSupportedAppend, unit3GrantTypesSupportedAppend) &&
+    isDeepStrictEqual(contract.endpointFieldsAppend, unit3EndpointFieldsAppend) &&
+    isDeepStrictEqual(contract.stillAbsent, unit3StillAbsent);
+  const unit4 =
+    isDeepStrictEqual(contract.grantTypesSupportedAppend, unit4GrantTypesSupportedAppend) &&
+    isDeepStrictEqual(contract.endpointFieldsAppend, unit4EndpointFieldsAppend) &&
+    isDeepStrictEqual(contract.stillAbsent, unit4StillAbsent);
+  if (!unit3 && !unit4) {
+    fail();
+  }
+};
+
 export const assertDiscoveryGrantContract = (
   grantTypes: unknown,
-  expectedAppend: readonly ['client_credentials'],
+  expectedAppend: Phase2DiscoveryGrantTypesAppend,
   target: TargetConfig['label']
 ): readonly string[] => {
-  const expected = Object.freeze(['authorization_code', 'refresh_token', expectedAppend[0]]);
+  const expected = Object.freeze(['authorization_code', 'refresh_token', ...expectedAppend]);
   if (
+    (!isDeepStrictEqual(expectedAppend, unit3GrantTypesSupportedAppend) &&
+      !isDeepStrictEqual(expectedAppend, unit4GrantTypesSupportedAppend)) ||
     !Array.isArray(grantTypes) ||
     grantTypes.some((value) => typeof value !== 'string') ||
     new Set(grantTypes).size !== grantTypes.length
@@ -948,30 +1004,45 @@ export const assertDiscoveryGrantContract = (
   return expected;
 };
 
-export const assertDiscoveryAbsentFieldsContract = (
+export const assertDiscoveryAbsentFieldsContract = <
+  const Fields extends Phase2DiscoveryStillAbsent,
+>(
   discovery: Readonly<Record<string, unknown>>,
-  expectedAbsent: readonly string[],
+  expectedAbsent: Fields,
   target: TargetConfig['label']
-): readonly string[] => {
-  if (target === 'candidate' && expectedAbsent.some((field) => Object.hasOwn(discovery, field))) {
-    return fail();
-  }
-  return Object.freeze([...expectedAbsent]);
-};
-
-export const assertDiscoveryEndpointFieldsContract = (
-  discovery: Readonly<Record<string, unknown>>,
-  fields: readonly ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'],
-  issuer: string
-): readonly ['introspection_endpoint', 'revocation_endpoint', 'end_session_endpoint'] => {
+): Readonly<Fields> => {
   if (
-    discovery[fields[0]] !== `${issuer}/token/introspection` ||
-    discovery[fields[1]] !== `${issuer}/token/revocation` ||
-    discovery[fields[2]] !== `${issuer}/session/end`
+    (!isDeepStrictEqual(expectedAbsent, unit3StillAbsent) &&
+      !isDeepStrictEqual(expectedAbsent, unit4StillAbsent)) ||
+    (target === 'candidate' && expectedAbsent.some((field) => Object.hasOwn(discovery, field)))
   ) {
     return fail();
   }
-  return Object.freeze([fields[0], fields[1], fields[2]] as const);
+  return Object.freeze([...expectedAbsent]) as unknown as Readonly<Fields>;
+};
+
+const discoveryEndpointSuffixes = Object.freeze({
+  introspection_endpoint: '/token/introspection',
+  revocation_endpoint: '/token/revocation',
+  end_session_endpoint: '/session/end',
+  device_authorization_endpoint: '/device/auth',
+} as const);
+
+export const assertDiscoveryEndpointFieldsContract = <
+  const Fields extends Phase2DiscoveryEndpointFieldsAppend,
+>(
+  discovery: Readonly<Record<string, unknown>>,
+  fields: Fields,
+  issuer: string
+): Readonly<Fields> => {
+  if (
+    (!isDeepStrictEqual(fields, unit3EndpointFieldsAppend) &&
+      !isDeepStrictEqual(fields, unit4EndpointFieldsAppend)) ||
+    fields.some((field) => discovery[field] !== `${issuer}${discoveryEndpointSuffixes[field]}`)
+  ) {
+    return fail();
+  }
+  return Object.freeze([...fields]) as unknown as Readonly<Fields>;
 };
 
 export const assertDiscoveryScopeAppendContract = (

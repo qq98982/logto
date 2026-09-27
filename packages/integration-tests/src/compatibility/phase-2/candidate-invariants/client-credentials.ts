@@ -25,6 +25,9 @@ export const clientCredentialsCandidateInvariantIds = Object.freeze([
   'logout-session.verification-storage-closed',
 ] as const satisfies readonly Phase2CandidateInvariantId[]);
 
+type ClientCredentialsCandidateInvariantId =
+  (typeof clientCredentialsCandidateInvariantIds)[number];
+
 export type ClientCredentialsCandidateInvariantProjection =
   | Readonly<{
       invariant: 'cross-tenant-authority-rejected';
@@ -67,7 +70,7 @@ export type ClientCredentialsCandidateInvariantProjection =
     }>;
 
 export type CandidateInvariantControlEvidence = Readonly<{
-  id: Phase2CandidateInvariantId;
+  id: ClientCredentialsCandidateInvariantId;
   candidate: ClientCredentialsCandidateInvariantProjection;
   positiveControl: Readonly<{ detected: true }>;
   negativeControl: Readonly<{ detected: true; pointer: string }>;
@@ -146,7 +149,7 @@ const own = (value: Record<string, unknown>, key: string): unknown =>
   Object.getOwnPropertyDescriptor(value, key)?.value;
 
 const expectedProjections: Readonly<
-  Record<Phase2CandidateInvariantId, ClientCredentialsCandidateInvariantProjection>
+  Record<ClientCredentialsCandidateInvariantId, ClientCredentialsCandidateInvariantProjection>
 > = Object.freeze({
   'client-credentials.cross-tenant-authority-rejected': Object.freeze({
     invariant: 'cross-tenant-authority-rejected',
@@ -189,13 +192,14 @@ const expectedProjections: Readonly<
   }),
 });
 
-const negativePointers: Readonly<Record<Phase2CandidateInvariantId, string>> = Object.freeze({
-  'client-credentials.cross-tenant-authority-rejected': '/foreignCredential',
-  'client-credentials.request-role-write-rejected': '/insert',
-  'client-credentials.signing-failure-rolls-back': '/tokenPublished',
-  'client-credentials.user-authority-unchanged': '/users',
-  'logout-session.verification-storage-closed': '/clearMaterial',
-});
+const negativePointers: Readonly<Record<ClientCredentialsCandidateInvariantId, string>> =
+  Object.freeze({
+    'client-credentials.cross-tenant-authority-rejected': '/foreignCredential',
+    'client-credentials.request-role-write-rejected': '/insert',
+    'client-credentials.signing-failure-rolls-back': '/tokenPublished',
+    'client-credentials.user-authority-unchanged': '/users',
+    'logout-session.verification-storage-closed': '/clearMaterial',
+  });
 
 const assertInvariantEvidenceSafe = (value: unknown, secrets: readonly string[]): void => {
   const inspect = (current: unknown, seen: WeakSet<object>): void => {
@@ -288,7 +292,7 @@ const requireResult = (value: unknown): CommandRunnerResult => {
 
 const parseTerminal = (
   stdout: string,
-  id: Phase2CandidateInvariantId,
+  id: ClientCredentialsCandidateInvariantId,
   secrets: readonly string[],
   topology: Phase2TopologyIdentity
 ): ClientCredentialsCandidateInvariantProjection => {
@@ -319,7 +323,7 @@ const parseTerminal = (
 };
 
 const mutation = (
-  id: Phase2CandidateInvariantId,
+  id: ClientCredentialsCandidateInvariantId,
   projection: ClientCredentialsCandidateInvariantProjection
 ): unknown => {
   const copy = JSON.parse(JSON.stringify(projection)) as Record<string, unknown>;
@@ -375,7 +379,7 @@ const recordLike = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export const runClientCredentialsCandidateInvariantControls = (
-  id: Phase2CandidateInvariantId,
+  id: ClientCredentialsCandidateInvariantId,
   candidate: ClientCredentialsCandidateInvariantProjection
 ): CandidateInvariantControlEvidence => {
   const expected = expectedProjections[id];
@@ -400,11 +404,17 @@ export const runClientCredentialsCandidateInvariants = async (
   profile: Phase2ProfileRegistries,
   options: CandidateInvariantDriverOptions
 ): Promise<readonly CandidateInvariantControlEvidence[]> => {
+  const start = profile.candidateInvariantScenarios.indexOf(
+    clientCredentialsCandidateInvariantIds[0]
+  );
+  const segment = profile.candidateInvariantScenarios.slice(
+    start,
+    start + clientCredentialsCandidateInvariantIds.length
+  );
   if (
-    profile.candidateInvariantScenarios.length !== clientCredentialsCandidateInvariantIds.length ||
-    profile.candidateInvariantScenarios.some(
-      (id, index) => id !== clientCredentialsCandidateInvariantIds[index]
-    )
+    start < 0 ||
+    segment.length !== clientCredentialsCandidateInvariantIds.length ||
+    segment.some((id, index) => id !== clientCredentialsCandidateInvariantIds[index])
   ) {
     return fail();
   }
@@ -462,7 +472,7 @@ export const runClientCredentialsCandidateInvariants = async (
 };
 
 export const clientCredentialsCandidateInvariantExpectedProjection = (
-  id: Phase2CandidateInvariantId
+  id: ClientCredentialsCandidateInvariantId
 ): ClientCredentialsCandidateInvariantProjection => expectedProjections[id];
 
 /* eslint-enable max-lines, no-restricted-syntax, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, unicorn/consistent-function-scoping */

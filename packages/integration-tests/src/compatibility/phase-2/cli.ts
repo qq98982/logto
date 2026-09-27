@@ -50,6 +50,7 @@ import {
 } from './runtime.js';
 import {
   assertDiscoveryAbsentFieldsContract,
+  assertDiscoveryAppendContract,
   assertDiscoveryEndpointFieldsContract,
   assertDiscoveryGrantContract,
   assertDiscoveryScopeAppendContract,
@@ -145,11 +146,7 @@ type TargetScenarioEvidence = Readonly<{
   >;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
-    endpointFieldsAppend: readonly [
-      'introspection_endpoint',
-      'revocation_endpoint',
-      'end_session_endpoint',
-    ];
+    endpointFieldsAppend: Phase2ProfileRegistries['discovery']['endpointFieldsAppend'];
     scopesSupportedAppend: readonly ['urn:aster:scope:sessions'];
     stillAbsent: readonly string[];
   }>;
@@ -433,6 +430,7 @@ const projectDiscovery = async (
   descriptor: Phase2TargetDescriptor,
   profile: Phase2ProfileRegistries
 ): Promise<TargetScenarioEvidence['discovery']> => {
+  assertDiscoveryAppendContract(profile.discovery);
   const discovery = await fetchPhase2Discovery(descriptor.target);
   const grantTypes = assertDiscoveryGrantContract(
     discovery.grant_types_supported,
