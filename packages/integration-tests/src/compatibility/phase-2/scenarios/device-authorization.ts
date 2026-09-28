@@ -693,7 +693,13 @@ export const executeDeviceConcurrencyTrial = async (
 const projectIssuedCredentials = async (
   lease: DeviceAuthorizationTransportLease,
   runtime: DeviceAuthorizationScenarioRuntime,
-  options: DeviceFlowOptions
+  options: DeviceFlowOptions,
+  expected: Readonly<{
+    accessFormat?: 'opaque' | 'verified-jwt';
+    audience?: string;
+    scopes?: readonly string[];
+    accessOrganizationIdRequired?: boolean;
+  }> = {}
 ): Promise<DeviceCredentialProjection> => {
   const { status } = runtime.fixture;
   if (!status) {
@@ -715,10 +721,18 @@ const projectIssuedCredentials = async (
       expected: {
         clientId: clientId(runtime, options.client),
         subjectId: status.user.id,
-        audience: options.resource ?? clientId(runtime, options.client),
-        ...(options.scope === undefined ? {} : { scopes: options.scope.split(' ').sort() }),
+        audience: expected.audience ?? options.resource ?? clientId(runtime, options.client),
+        ...(expected.accessFormat === undefined ? {} : { accessFormat: expected.accessFormat }),
+        ...(expected.scopes === undefined
+          ? options.scope === undefined
+            ? {}
+            : { scopes: options.scope.split(' ').sort() }
+          : { scopes: expected.scopes }),
         ...(options.resource === undefined ? {} : { resource: options.resource }),
         ...(options.organizationId === undefined ? {} : { organizationId: options.organizationId }),
+        ...(expected.accessOrganizationIdRequired === undefined
+          ? {}
+          : { accessOrganizationIdRequired: expected.accessOrganizationIdRequired }),
       },
     });
   });
@@ -1008,10 +1022,14 @@ const execute = async (
   }
   const resource = runtime.fixture.public.resources.primary.indicator;
   const organizationId = runtime.fixture.public.organization.id;
+  const organizationScope =
+    runtime.target.label === 'oracle'
+      ? 'urn:logto:scope:organizations'
+      : 'urn:aster:scope:organizations';
   const flow: DeviceFlowOptions = id.includes('organization')
     ? {
         client: 'firstParty',
-        scope: `openid offline_access ${runtime.fixture.public.organization.scopeName}`,
+        scope: `openid offline_access ${organizationScope}`,
         organizationId,
       }
     : id.includes('resource')
@@ -1023,10 +1041,12 @@ const execute = async (
   }
   if (
     id === 'device-token.id-token-signature-and-claims' ||
-    id === 'device-token.resource-authority' ||
     id === 'device-token.organization-authority'
   ) {
     return projectIssuedCredentials(lease, runtime, flow);
+  }
+  if (id === 'device-token.resource-authority') {
+    return projectIssuedCredentials(lease, runtime, flow, { accessFormat: 'opaque' });
   }
   if (id === 'device-token.userinfo') {
     return lease.requestLifecycle({
@@ -1035,18 +1055,56 @@ const execute = async (
       expectedSubjectId: runtime.fixture.status?.user.id ?? fail(),
     });
   }
-  if (
-    id === 'device-token.offline-refresh-rotation' ||
-    id === 'device-token.refresh-resource-selection' ||
-    id === 'device-token.refresh-organization-selection'
-  ) {
+  if (id === 'device-token.offline-refresh-rotation') {
     return lease.requestLifecycle({
       kind: 'refresh',
       method: 'POST',
       proof: { method: 'public', clientId: clientId(runtime, 'firstParty') },
-      ...(id.includes('resource') ? { resource } : {}),
-      ...(id.includes('organization') ? { organizationId } : {}),
     });
+  }
+  if (id === 'device-token.refresh-resource-selection') {
+    await lease.requestLifecycle({
+      kind: 'refresh',
+      method: 'POST',
+      proof: { method: 'public', clientId: clientId(runtime, 'firstParty') },
+      resource,
+      scope: 'read',
+    });
+    return projectIssuedCredentials(
+      lease,
+      runtime,
+      { client: 'firstParty', resource },
+      { accessFormat: 'verified-jwt', scopes: ['read'] }
+    );
+  }
+  if (id === 'device-token.refresh-organization-selection') {
+    const refreshed = await lease.requestLifecycle({
+      kind: 'refresh',
+      method: 'POST',
+      proof: { method: 'public', clientId: clientId(runtime, 'firstParty') },
+      organizationId,
+    });
+    if (
+      refreshed.kind !== 'refresh' ||
+      refreshed.facts.marker !== 'tokens-refreshed' ||
+      !refreshed.facts.idTokenIssued
+    ) {
+      return fail();
+    }
+    const organizationAudience = `${
+      runtime.target.label === 'oracle' ? 'urn:logto:organization:' : 'urn:aster:organization:'
+    }${organizationId}`;
+    return projectIssuedCredentials(
+      lease,
+      runtime,
+      { client: 'firstParty', organizationId },
+      {
+        accessFormat: 'verified-jwt',
+        audience: organizationAudience,
+        scopes: [],
+        accessOrganizationIdRequired: false,
+      }
+    );
   }
   if (id === 'device-token.offline-refresh-after-logout') {
     await lease.requestLifecycle({

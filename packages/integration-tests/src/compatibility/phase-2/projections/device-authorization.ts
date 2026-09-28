@@ -232,9 +232,11 @@ export type DeviceCredentialProjectionInput = Readonly<{
     clientId: string;
     subjectId: string;
     audience: string;
+    accessFormat?: 'opaque' | 'verified-jwt';
     scopes?: readonly string[];
     resource?: string;
     organizationId?: string;
+    accessOrganizationIdRequired?: boolean;
   }>;
 }>;
 
@@ -1183,6 +1185,9 @@ const claimType = (name: string, value: unknown): DeviceJwtClaimType => {
     }
     return 'boolean';
   }
+  if (name === 'scope' && value === '') {
+    return 'string';
+  }
   boundedSecret(value);
   return 'string';
 };
@@ -1254,7 +1259,9 @@ const verifyJwt = async (
     rawScopes === undefined
       ? undefined
       : typeof rawScopes === 'string'
-        ? exactStrings(rawScopes.split(' '))
+        ? rawScopes.length === 0
+          ? Object.freeze([])
+          : exactStrings(rawScopes.split(' '))
         : fail();
   if (
     accessSemantics &&
@@ -1272,6 +1279,8 @@ const verifyJwt = async (
   const organizationsValue = payload.organizations;
   const organizations =
     organizationsValue === undefined ? undefined : claimStringArray(organizationsValue);
+  const expectedAccessOrganizationId =
+    expected.accessOrganizationIdRequired === false ? undefined : expected.organizationId;
   if (
     organizations !== undefined &&
     expected.organizationId !== undefined &&
@@ -1285,8 +1294,11 @@ const verifyJwt = async (
   if (
     (accessSemantics && expected.resource !== undefined && resource !== expected.resource) ||
     (accessSemantics &&
-      expected.organizationId !== undefined &&
-      organizationId !== expected.organizationId) ||
+      expectedAccessOrganizationId !== undefined &&
+      organizationId !== expectedAccessOrganizationId) ||
+    (accessSemantics &&
+      expected.accessOrganizationIdRequired === false &&
+      organizationId !== undefined) ||
     (resource !== undefined && typeof resource !== 'string') ||
     (organizationId !== undefined && typeof organizationId !== 'string')
   ) {
@@ -1303,10 +1315,26 @@ const verifyJwt = async (
       claimKeys: Object.freeze(claimKeys),
       claimTypes,
       issuer: '<target-issuer>' as const,
-      audience: tokenAudiences,
+      audience: Object.freeze(
+        tokenAudiences.map((value) =>
+          targetLabel === 'oracle' && value.startsWith('urn:logto:organization:')
+            ? `urn:aster:organization:${value.slice('urn:logto:organization:'.length)}`
+            : value
+        )
+      ),
       subject: '<subject>' as const,
       ...(clientId === undefined ? {} : { clientId: '<client>' as const }),
-      ...(scopes === undefined ? {} : { scopes }),
+      ...(scopes === undefined
+        ? {}
+        : {
+            scopes: Object.freeze(
+              scopes.map((value) =>
+                targetLabel === 'oracle' && value === 'urn:logto:scope:organizations'
+                  ? 'urn:aster:scope:organizations'
+                  : value
+              )
+            ),
+          }),
       ...(resource === undefined ? {} : { resource }),
       ...(organizationId === undefined ? {} : { organizationId }),
       ...(jwtId === undefined ? {} : { jwtId: '<opaque-id>' as const }),
@@ -1348,12 +1376,33 @@ export const projectDeviceCredentials = async (
   const expectedSource = exactRecordWithOptional(
     own(source, 'expected'),
     new Set(['clientId', 'subjectId', 'audience']),
-    new Set(['scopes', 'resource', 'organizationId'])
+    new Set([
+      'accessFormat',
+      'scopes',
+      'resource',
+      'organizationId',
+      'accessOrganizationIdRequired',
+    ])
   );
+  if (
+    expectedSource.accessFormat !== undefined &&
+    !['opaque', 'verified-jwt'].includes(String(expectedSource.accessFormat))
+  ) {
+    return fail();
+  }
+  if (
+    expectedSource.accessOrganizationIdRequired !== undefined &&
+    typeof expectedSource.accessOrganizationIdRequired !== 'boolean'
+  ) {
+    return fail();
+  }
   const expected = Object.freeze({
     clientId: boundedSecret(expectedSource.clientId),
     subjectId: boundedSecret(expectedSource.subjectId),
     audience: boundedSecret(expectedSource.audience),
+    ...(expectedSource.accessFormat === undefined
+      ? {}
+      : { accessFormat: expectedSource.accessFormat as 'opaque' | 'verified-jwt' }),
     ...(expectedSource.scopes === undefined ? {} : { scopes: exactStrings(expectedSource.scopes) }),
     ...(expectedSource.resource === undefined
       ? {}
@@ -1361,6 +1410,9 @@ export const projectDeviceCredentials = async (
     ...(expectedSource.organizationId === undefined
       ? {}
       : { organizationId: boundedSecret(expectedSource.organizationId) }),
+    ...(expectedSource.accessOrganizationIdRequired === undefined
+      ? {}
+      : { accessOrganizationIdRequired: expectedSource.accessOrganizationIdRequired }),
   });
   const issuer = new URL('/oidc', target.coreUrl).href.replace(/\/$/u, '');
   const accessToken = boundedSecret(own(source, 'accessToken'));
@@ -1379,8 +1431,10 @@ export const projectDeviceCredentials = async (
   }
   const targetLabel = target.label as TargetConfig['label'];
   const localJwks = createLocalJWKSet(snapshotPublicJwks(own(source, 'jwks'), targetLabel));
+  const accessFormat =
+    expected.accessFormat ?? (expected.resource === undefined ? 'opaque' : 'verified-jwt');
   const access =
-    expected.resource === undefined
+    accessFormat === 'opaque'
       ? containsCompactJwt(accessToken)
         ? fail()
         : Object.freeze({ format: 'opaque' as const, present: true as const })

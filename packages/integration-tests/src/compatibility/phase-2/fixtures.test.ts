@@ -233,6 +233,27 @@ describe('Phase 2 fixture lifecycle', () => {
     );
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
+        method: 'POST',
+        path: 'roles',
+        body: {
+          name: 'phase2-client-credentials-reference-fixture-device-subject-role',
+          description:
+            'Phase 2 phase2-client-credentials-reference-fixture device subject authority',
+          type: 'User',
+          isDefault: false,
+          scopeIds: ['scope-1'],
+        },
+      })
+    );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'roles/role-2/users',
+        body: { userIds: ['user-1'] },
+      })
+    );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
         method: 'PATCH',
         path: 'account-center',
         body: { enabled: true, fields: { session: 'Edit' } },
@@ -270,7 +291,7 @@ describe('Phase 2 fixture lifecycle', () => {
         method: 'POST',
         path: 'applications/application-5/user-consent-scopes',
         body: {
-          userScopes: ['profile', 'email', 'address', 'phone'],
+          userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:organizations'],
           resourceScopes: ['scope-4', 'scope-1', 'scope-2'],
         },
       })
@@ -290,19 +311,21 @@ describe('Phase 2 fixture lifecycle', () => {
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
-    expect(deletes.slice(0, 10)).toEqual([
+    expect(deletes.slice(0, 12)).toEqual([
       'applications/application-8',
       'applications/application-7',
       'applications/application-6',
       'applications/application-5',
       'applications/application-4',
-      'roles/role-2',
+      'roles/role-3',
       'resources/resource-3/scopes/scope-4',
       'resources/resource-3',
+      'roles/role-2/users/user-1',
+      'roles/role-2',
       'organizations/organization-1/users/user-1',
       'users/user-1',
     ]);
-    expect(deletes.slice(10, 15)).toEqual([
+    expect(deletes.slice(12, 17)).toEqual([
       'organizations/organization-1/applications/application-1/roles/organization-role-3',
       'organizations/organization-1/applications/application-1',
       'organization-roles/organization-role-3',
@@ -581,6 +604,7 @@ describe('Phase 2 fixture lifecycle', () => {
       profile: {
         fixtures: {
           phase2: {
+            subjectResourceScopeIds: ['read-scope'],
             machineClients: [
               {
                 clientId: 'phase2-m2m-basic',
@@ -614,7 +638,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 authenticationMethod: 'none',
                 isThirdParty: false,
                 grantTypes: ['urn:ietf:params:oauth:grant-type:device_code'],
-                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                userConsentScopes: [
+                  'profile',
+                  'email',
+                  'address',
+                  'phone',
+                  'urn:aster:scope:organizations',
+                ],
                 resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
               },
               {
@@ -623,7 +653,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 authenticationMethod: 'none',
                 isThirdParty: true,
                 grantTypes: ['urn:ietf:params:oauth:grant-type:device_code'],
-                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                userConsentScopes: [
+                  'profile',
+                  'email',
+                  'address',
+                  'phone',
+                  'urn:aster:scope:organizations',
+                ],
                 resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
               },
               {
@@ -632,7 +668,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 authenticationMethod: 'none',
                 isThirdParty: false,
                 grantTypes: [],
-                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                userConsentScopes: [
+                  'profile',
+                  'email',
+                  'address',
+                  'phone',
+                  'urn:aster:scope:organizations',
+                ],
                 resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
               },
               {
@@ -641,7 +683,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 authenticationMethod: 'none',
                 isThirdParty: false,
                 grantTypes: [],
-                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                userConsentScopes: [
+                  'profile',
+                  'email',
+                  'address',
+                  'phone',
+                  'urn:aster:scope:organizations',
+                ],
                 resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
               },
             ],

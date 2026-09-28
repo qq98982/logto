@@ -14,7 +14,10 @@ import type {
 import { createDeviceAuthorizationTransportLease } from '../clients/device-authorization.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2ProfileRegistries } from '../profile.js';
-import type { DeviceCredentialProjection } from '../projections/device-authorization.js';
+import type {
+  DeviceCredentialProjection,
+  DeviceCredentialProjectionInput,
+} from '../projections/device-authorization.js';
 
 import {
   createDeviceAuthorizationScenarioRegistry,
@@ -308,7 +311,9 @@ const expectedPrimaryOperation = (id: DeviceAuthorizationScenarioId): string => 
   if (
     id === 'device-token.id-token-signature-and-claims' ||
     id === 'device-token.resource-authority' ||
-    id === 'device-token.organization-authority'
+    id === 'device-token.organization-authority' ||
+    id === 'device-token.refresh-resource-selection' ||
+    id === 'device-token.refresh-organization-selection'
   ) {
     return 'credential-lease';
   }
@@ -453,6 +458,10 @@ describe('Phase 2 device authorization scenarios', () => {
   it('executes a transport, lifecycle, credential projection or state operation for every ID', async () => {
     const produced = new WeakSet<Record<string, unknown>>();
     const operations = new Map<DeviceAuthorizationScenarioId, string[]>();
+    const credentialInputs = new Map<
+      DeviceAuthorizationScenarioId,
+      DeviceCredentialProjectionInput
+    >();
     const stateOperations = new Map<DeviceAuthorizationScenarioId, DeviceScenarioStateAction[]>();
     let activeId: DeviceAuthorizationScenarioId | undefined;
     let secretLeaseActive = false;
@@ -473,6 +482,28 @@ describe('Phase 2 device authorization scenarios', () => {
     const createTransport = (): DeviceAuthorizationTransportLease => ({
       requestAuthorization: async (request) => {
         record(`authorize:${request.encoding}`);
+        if (
+          request.encoding === 'form' &&
+          (activeId === 'device-token.refresh-resource-selection' ||
+            activeId === 'device-token.refresh-organization-selection')
+        ) {
+          expect(request.fields).toContainEqual([
+            activeId.endsWith('resource-selection') ? 'resource' : 'organization_id',
+            activeId.endsWith('resource-selection')
+              ? fixture.public.resources.primary.indicator
+              : fixture.public.organization.id,
+          ]);
+        }
+        if (
+          request.encoding === 'form' &&
+          (activeId === 'device-token.organization-authority' ||
+            activeId === 'device-token.refresh-organization-selection')
+        ) {
+          expect(request.fields).toContainEqual([
+            'scope',
+            'openid offline_access urn:aster:scope:organizations',
+          ]);
+        }
         return mark(authorizationResponse());
       },
       requestVerification: async (request) => {
@@ -517,6 +548,32 @@ describe('Phase 2 device authorization scenarios', () => {
       },
       requestLifecycle: async (request) => {
         record(`lifecycle:${request.kind}`);
+        if (request.kind === 'refresh' && activeId === 'device-token.refresh-resource-selection') {
+          expect(request).toMatchObject({
+            resource: fixture.public.resources.primary.indicator,
+            scope: 'read',
+          });
+        }
+        if (
+          request.kind === 'refresh' &&
+          activeId === 'device-token.refresh-organization-selection'
+        ) {
+          expect(request).toMatchObject({
+            organizationId: fixture.public.organization.id,
+          });
+          expect(request).not.toHaveProperty('scope');
+          return mark({
+            ...lifecycleProjection('refresh'),
+            facts: {
+              marker: 'tokens-refreshed',
+              tokenType: 'Bearer',
+              expiresIn: 3600,
+              refreshRotated: true,
+              idTokenIssued: true,
+              scopes: [],
+            },
+          } as DeviceLifecycleProjection);
+        }
         if (request.kind === 'password-verification') {
           expect(secretLeaseActive).toBe(true);
           expect(request.password).toBe('private-subject-password');
@@ -692,7 +749,10 @@ describe('Phase 2 device authorization scenarios', () => {
           },
         },
         createTransport,
-        projectCredentials: async () => mark({ ...credentialProjection }),
+        projectCredentials: async (input) => {
+          credentialInputs.set(scenario.id, input);
+          return mark({ ...credentialProjection });
+        },
       });
       expect(result.id).toBe(scenario.id);
       expect(produced.has(result.projection) || Object.hasOwn(result.projection, 'kind')).toBe(
@@ -703,6 +763,45 @@ describe('Phase 2 device authorization scenarios', () => {
       expect(secretLeaseActive).toBe(false);
     }
     expect(operations.size).toBe(69);
+    expect(operations.get('device-token.refresh-resource-selection')?.slice(-4)).toEqual([
+      'poll',
+      'lifecycle:refresh',
+      'credential-lease',
+      'clear',
+    ]);
+    expect(operations.get('device-token.refresh-organization-selection')?.slice(-4)).toEqual([
+      'poll',
+      'lifecycle:refresh',
+      'credential-lease',
+      'clear',
+    ]);
+    expect(credentialInputs.get('device-token.resource-authority')?.expected).toMatchObject({
+      accessFormat: 'opaque',
+      resource: fixture.public.resources.primary.indicator,
+    });
+    expect(credentialInputs.get('device-token.organization-authority')?.expected).toMatchObject({
+      organizationId: fixture.public.organization.id,
+    });
+    expect(
+      credentialInputs.get('device-token.organization-authority')?.expected
+    ).not.toHaveProperty('accessFormat');
+    expect(credentialInputs.get('device-token.refresh-resource-selection')?.expected).toMatchObject(
+      {
+        accessFormat: 'verified-jwt',
+        audience: fixture.public.resources.primary.indicator,
+        resource: fixture.public.resources.primary.indicator,
+        scopes: ['read'],
+      }
+    );
+    expect(
+      credentialInputs.get('device-token.refresh-organization-selection')?.expected
+    ).toMatchObject({
+      accessFormat: 'verified-jwt',
+      audience: `urn:aster:organization:${fixture.public.organization.id}`,
+      organizationId: fixture.public.organization.id,
+      accessOrganizationIdRequired: false,
+      scopes: [],
+    });
     expect(stateOperations).toEqual(
       new Map([
         ['device-verification.expired-code', ['expire']],

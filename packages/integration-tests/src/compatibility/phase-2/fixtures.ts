@@ -154,6 +154,14 @@ const logicalDeviceClientIds = Object.freeze({
   ineligibleWeb: 'phase2-device-web',
 });
 const deviceUserConsentScopes = Object.freeze(['profile', 'email', 'address', 'phone']);
+const referenceDeviceUserConsentScopes = Object.freeze([
+  ...deviceUserConsentScopes,
+  'urn:logto:scope:organizations',
+]);
+const candidateDeviceUserConsentScopes = Object.freeze([
+  ...deviceUserConsentScopes,
+  'urn:aster:scope:organizations',
+]);
 const deviceResourceScopeIds = Object.freeze(['phase1-read-profile', 'read-scope', 'write-scope']);
 const requestTimeoutMs = 10_000;
 
@@ -632,6 +640,7 @@ const referenceOwnedDefinitions = (allocationId: string) => {
       path: 'roles',
       owns: (row: Record<string, unknown>) =>
         own(row, 'name') === `${marker}-resource-role` ||
+        own(row, 'name') === `${marker}-device-subject-role` ||
         own(row, 'name') === `${marker}-status-role`,
     }),
     Object.freeze({
@@ -1058,6 +1067,29 @@ export const createReferencePhase2FixtureProvisioner = (
           [201],
           'status'
         );
+        const deviceSubjectRole = exactRecord(
+          await referenceCall(request, 'POST', 'roles', {
+            name: `${marker}-device-subject-role`,
+            description: `Phase 2 ${marker} device subject authority`,
+            type: 'User',
+            isDefault: false,
+            scopeIds: [read.id],
+          })
+        );
+        const deviceSubjectRoleId = safeId(own(deviceSubjectRole, 'id'));
+        add('device-subject-role', `roles/${encodeURIComponent(deviceSubjectRoleId)}`);
+        add(
+          'device-subject-role-user-association',
+          `roles/${encodeURIComponent(deviceSubjectRoleId)}/users/${encodeURIComponent(statusUserId)}`
+        );
+        await referenceCall(
+          request,
+          'POST',
+          `roles/${encodeURIComponent(deviceSubjectRoleId)}/users`,
+          { userIds: [statusUserId] },
+          [201],
+          'status'
+        );
         const statusResource = exactRecord(
           await referenceCall(request, 'POST', 'resources', {
             name: `Phase 2 ${marker} status resource`,
@@ -1135,7 +1167,7 @@ export const createReferencePhase2FixtureProvisioner = (
               'POST',
               `applications/${encodeURIComponent(id)}/user-consent-scopes`,
               {
-                userScopes: deviceUserConsentScopes,
+                userScopes: referenceDeviceUserConsentScopes,
                 resourceScopes: [statusScopeId, read.id, write.id],
               },
               [201],
@@ -1546,6 +1578,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         revoked: false,
       };
       const phase2 = Object.freeze({
+        subjectResourceScopeIds: Object.freeze(['read-scope']),
         machineClients: Object.freeze([
           Object.freeze({
             clientId: logicalClientIds.basic,
@@ -1587,7 +1620,7 @@ export const createCandidatePhase2FixtureProvisioner = (
             authenticationMethod: 'none',
             isThirdParty: false,
             grantTypes: Object.freeze([deviceGrant]),
-            userConsentScopes: deviceUserConsentScopes,
+            userConsentScopes: candidateDeviceUserConsentScopes,
             resourceScopeIds: deviceResourceScopeIds,
           }),
           Object.freeze({
@@ -1596,7 +1629,7 @@ export const createCandidatePhase2FixtureProvisioner = (
             authenticationMethod: 'none',
             isThirdParty: true,
             grantTypes: Object.freeze([deviceGrant]),
-            userConsentScopes: deviceUserConsentScopes,
+            userConsentScopes: candidateDeviceUserConsentScopes,
             resourceScopeIds: deviceResourceScopeIds,
           }),
           Object.freeze({
@@ -1605,7 +1638,7 @@ export const createCandidatePhase2FixtureProvisioner = (
             authenticationMethod: 'none',
             isThirdParty: false,
             grantTypes: Object.freeze([]),
-            userConsentScopes: deviceUserConsentScopes,
+            userConsentScopes: candidateDeviceUserConsentScopes,
             resourceScopeIds: deviceResourceScopeIds,
           }),
           Object.freeze({
@@ -1614,7 +1647,7 @@ export const createCandidatePhase2FixtureProvisioner = (
             authenticationMethod: 'none',
             isThirdParty: false,
             grantTypes: Object.freeze([]),
-            userConsentScopes: deviceUserConsentScopes,
+            userConsentScopes: candidateDeviceUserConsentScopes,
             resourceScopeIds: deviceResourceScopeIds,
           }),
         ]),
