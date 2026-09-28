@@ -1,4 +1,5 @@
 /* eslint-disable max-lines, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Negative controls deliberately forge forbidden public provenance fields. */
+import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 
 import {
@@ -279,7 +280,21 @@ describe('Phase 2 public provenance envelope', () => {
       payload,
     });
 
-    expect(validatePhase2OracleArtifact(artifact, artifactProfile, harness)).toBe(artifact);
+    expect(jsonValueGuard.safeParse(artifact).success).toBe(true);
+    const parsed = JSON.parse(JSON.stringify(artifact)) as unknown;
+    const restored = validatePhase2OracleArtifact(parsed, artifactProfile, harness);
+    const wireProjection: Record<string, unknown> = (artifact.payload as any).target.scenarios[0]
+      .projection;
+    const restoredProjection: Record<string, unknown> = (restored.payload as any).target
+      .scenarios[0].projection;
+    expect(Object.hasOwn(wireProjection, 'challenge')).toBe(false);
+    expect(Object.hasOwn(restoredProjection, 'challenge')).toBe(true);
+    expect(restoredProjection.challenge).toBeUndefined();
+    expect(Object.isFrozen(restoredProjection)).toBe(true);
+    expect(Object.isFrozen(restoredProjection.oauthError as Record<string, unknown>)).toBe(true);
+    expect(Object.isFrozen((restored.payload as any).target.scenarios as readonly unknown[])).toBe(
+      true
+    );
     for (const scenario of [
       {
         id: 'client-credentials.basic-explicit-resource',
@@ -351,7 +366,7 @@ describe('Phase 2 public provenance envelope', () => {
         },
       },
     });
-    expect(validatePhase2OracleArtifact(artifact, artifactProfile, harness)).toBe(artifact);
+    expect(validatePhase2OracleArtifact(artifact, artifactProfile, harness)).toEqual(artifact);
     const mutate = (change: (value: any) => void) => {
       const candidate = structuredClone(artifact) as any;
       change(candidate);

@@ -1216,6 +1216,200 @@ const validatePrimitiveProjection = (
   compareDeviceAuthorizationProjections(value, value);
 };
 
+const cloneJsonProjection = (value: unknown): unknown => {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const keys = Reflect.ownKeys(value);
+    if (
+      keys.length !== value.length + 1 ||
+      !keys.every(
+        (key) =>
+          key === 'length' ||
+          (typeof key === 'string' &&
+            Number.isSafeInteger(Number(key)) &&
+            String(Number(key)) === key &&
+            Number(key) < value.length)
+      )
+    ) {
+      return fail();
+    }
+    return value.map((entry) => cloneJsonProjection(entry));
+  }
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
+    return fail();
+  }
+  const result: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      typeof key !== 'string' ||
+      descriptor === undefined ||
+      !descriptor.enumerable ||
+      !Object.hasOwn(descriptor, 'value') ||
+      descriptor.value === undefined
+    ) {
+      return fail();
+    }
+    result[key] = cloneJsonProjection(descriptor.value);
+  }
+  return result;
+};
+
+const restoreUndefined = (value: Record<string, unknown>, keys: readonly string[]): void => {
+  for (const key of keys) {
+    if (!Object.hasOwn(value, key)) {
+      value[key] = undefined;
+    }
+  }
+};
+
+const projectionRecord = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+
+const restoreAuthorizationProjection = (projection: Record<string, unknown>): void => {
+  restoreUndefined(projection, [
+    'contentType',
+    'challenge',
+    'location',
+    'userCodeShape',
+    'deviceCodeShape',
+    'expiresIn',
+    'interval',
+    'tokenType',
+    'verificationUri',
+    'verificationUriComplete',
+    'experience',
+  ]);
+  const oauthError = projectionRecord(projection.oauthError);
+  if (oauthError !== undefined) {
+    restoreUndefined(oauthError, ['category', 'description']);
+  }
+  const userCodeShape = projectionRecord(projection.userCodeShape);
+  if (userCodeShape !== undefined) {
+    restoreUndefined(userCodeShape, ['separator']);
+  }
+  const experience = projectionRecord(projection.experience);
+  if (experience !== undefined) {
+    restoreUndefined(experience, ['title', 'formAction']);
+  }
+};
+
+const restoreLifecycleProjection = (projection: Record<string, unknown>): void => {
+  restoreUndefined(projection, ['contentType', 'challenge', 'location']);
+  const oauthError = projectionRecord(projection.oauthError);
+  if (oauthError !== undefined) {
+    restoreUndefined(oauthError, ['category', 'description']);
+  }
+  const facts = projectionRecord(projection.facts);
+  if (projection.kind === 'logout-open' && facts?.marker === 'logout-confirmation') {
+    restoreUndefined(facts, ['title']);
+  }
+};
+
+const restoreCredentialProjection = (projection: Record<string, unknown>): void => {
+  restoreUndefined(projection, ['id', 'refresh']);
+  const refresh = projectionRecord(projection.refresh);
+  if (refresh !== undefined) {
+    restoreUndefined(refresh, ['rotated']);
+  }
+};
+
+const restorePrimitiveProjection = (projection: Record<string, unknown>): void => {
+  if (Object.hasOwn(projection, 'kind')) {
+    restoreLifecycleProjection(projection);
+  } else if (Object.hasOwn(projection, 'keys')) {
+    restoreAuthorizationProjection(projection);
+  } else {
+    restoreCredentialProjection(projection);
+  }
+};
+
+const restoreConcurrencyProjection = (projection: Record<string, unknown>): void => {
+  if (!Array.isArray(projection.trials)) {
+    return;
+  }
+  for (const trialValue of projection.trials) {
+    const trial = projectionRecord(trialValue);
+    if (!Array.isArray(trial?.responses)) {
+      continue;
+    }
+    for (const response of trial.responses) {
+      const nested = projectionRecord(response);
+      if (nested !== undefined) {
+        restoreAuthorizationProjection(nested);
+      }
+    }
+  }
+};
+
+const restoreProjectionGraph = (projection: Record<string, unknown>): void => {
+  switch (projection.kind) {
+    case 'device-verification-follow': {
+      for (const key of ['redirect', 'terminal']) {
+        const nested = projectionRecord(projection[key]);
+        if (nested !== undefined) {
+          restoreAuthorizationProjection(nested);
+        }
+      }
+      return;
+    }
+    case 'device-consent-sequence': {
+      const firstIssued = projectionRecord(projection.firstIssued);
+      if (firstIssued !== undefined) {
+        restoreAuthorizationProjection(firstIssued);
+      }
+      for (const key of ['consent', 'completion']) {
+        const nested = projectionRecord(projection[key]);
+        if (nested !== undefined) {
+          restoreLifecycleProjection(nested);
+        }
+      }
+      return;
+    }
+    case 'device-concurrency': {
+      restoreConcurrencyProjection(projection);
+      return;
+    }
+    case 'device-token-lifecycle': {
+      for (const key of ['before', 'action', 'after', 'siblingBefore', 'siblingAfter']) {
+        const nested = projectionRecord(projection[key]);
+        if (nested !== undefined) {
+          restoreLifecycleProjection(nested);
+        }
+      }
+      return;
+    }
+    default: {
+      restorePrimitiveProjection(projection);
+    }
+  }
+};
+
+export const restoreDeviceScenarioProjectionFromJson = (
+  value: unknown,
+  scenarioId: DeviceAuthorizationScenarioId
+): DeviceScenarioProjection => {
+  const projection = projectionRecord(cloneJsonProjection(value));
+  if (projection === undefined) {
+    return fail();
+  }
+  restoreProjectionGraph(projection);
+  return publishDeviceScenarioProjection(projection as DeviceScenarioProjection, scenarioId);
+};
+
 const concurrencyHeaders = Object.freeze({
   'access-control-allow-origin': '*',
   'access-control-expose-headers': 'WWW-Authenticate',

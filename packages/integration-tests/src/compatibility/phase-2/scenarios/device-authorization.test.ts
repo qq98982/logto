@@ -25,6 +25,7 @@ import {
   createDeviceConcurrencyBarrierFetch,
   deviceAuthorizationScenarioIds,
   publishDeviceScenarioProjection,
+  restoreDeviceScenarioProjectionFromJson,
   runDeviceAuthorizationNegativeControls,
   type DeviceAuthorizationScenarioId,
   type DeviceScenarioProjection,
@@ -1042,6 +1043,109 @@ describe('Phase 2 device authorization scenarios', () => {
         )
       ).toThrow('Invalid Phase 2 device authorization scenario');
     }
+  });
+
+  it('restores required undefined slots after public projection JSON round trips', () => {
+    const roundTrip = <Projection extends DeviceScenarioProjection>(
+      projection: Projection,
+      scenarioId: DeviceAuthorizationScenarioId
+    ) =>
+      restoreDeviceScenarioProjectionFromJson(
+        JSON.parse(JSON.stringify(projection)) as unknown,
+        scenarioId
+      );
+    const authorization = roundTrip(
+      authorizationResponse(),
+      'device-authorization.urlencoded-success'
+    ) as DeviceAuthorizationProjection;
+    expect(authorization).toEqual(authorizationResponse());
+    expect(Object.hasOwn(authorization, 'challenge')).toBe(true);
+    expect(Object.hasOwn(authorization.oauthError, 'category')).toBe(true);
+
+    const discovery = roundTrip(
+      lifecycleProjection('oidc-discovery'),
+      'device-discovery.oidc'
+    ) as DeviceLifecycleProjection;
+    expect(discovery).toEqual(lifecycleProjection('oidc-discovery'));
+    expect(Object.hasOwn(discovery, 'location')).toBe(true);
+
+    const refresh = roundTrip(
+      {
+        ...lifecycleProjection('refresh'),
+        facts: {
+          marker: 'tokens-refreshed',
+          tokenType: 'Bearer',
+          expiresIn: 3600,
+          refreshRotated: true,
+          idTokenIssued: false,
+        },
+      } as DeviceLifecycleProjection,
+      'device-token.offline-refresh-rotation'
+    ) as DeviceLifecycleProjection;
+    expect(refresh.kind).toBe('refresh');
+
+    const logout = roundTrip(
+      {
+        ...lifecycleProjection('logout-open'),
+        facts: {
+          marker: 'logout-confirmation',
+          title: undefined,
+          formAction: {
+            origin: 'https://candidate.example',
+            path: '/oidc/session/end',
+            queryKeys: [],
+          },
+          inputNames: ['post_logout_redirect_uri'],
+        },
+      } as DeviceLifecycleProjection,
+      'device-token.offline-refresh-after-logout'
+    ) as Extract<DeviceLifecycleProjection, { kind: 'logout-open' }>;
+    expect(Object.hasOwn(logout.facts, 'title')).toBe(true);
+
+    const credential = roundTrip(
+      {
+        access: { format: 'opaque', present: true },
+        id: undefined,
+        refresh: { format: 'opaque', present: true, rotated: undefined },
+      },
+      'device-token.id-token-signature-and-claims'
+    ) as DeviceCredentialProjection;
+    expect(Object.hasOwn(credential, 'id')).toBe(true);
+    expect(Object.hasOwn(credential.refresh ?? {}, 'rotated')).toBe(true);
+
+    const composite = roundTrip(
+      {
+        kind: 'device-verification-follow',
+        redirect: {
+          ...authorizationResponse(302),
+          contentType: undefined,
+          location: {
+            origin: 'https://candidate.example',
+            path: '/oidc/device',
+            queryKeys: ['user_code'],
+          },
+        },
+        terminal: { ...authorizationResponse(), contentType: 'text/html' },
+      },
+      'device-verification.complete-url-entry'
+    ) as Extract<DeviceScenarioProjection, { kind: 'device-verification-follow' }>;
+    expect(composite.kind).toBe('device-verification-follow');
+  });
+
+  it('rejects null required slots and extra JSON keys during projection restoration', () => {
+    const parsed = JSON.parse(JSON.stringify(authorizationResponse())) as Record<string, unknown>;
+    expect(() =>
+      restoreDeviceScenarioProjectionFromJson(
+        { ...parsed, challenge: null },
+        'device-authorization.urlencoded-success'
+      )
+    ).toThrow('Invalid Phase 2 device authorization projection');
+    expect(() =>
+      restoreDeviceScenarioProjectionFromJson(
+        { ...parsed, unexpected: true },
+        'device-authorization.urlencoded-success'
+      )
+    ).toThrow('Invalid Phase 2 device authorization projection');
   });
 
   it('bounds a one-participant concurrency barrier without starting fetch', async () => {

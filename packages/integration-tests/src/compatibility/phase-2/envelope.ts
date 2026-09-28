@@ -1,7 +1,9 @@
 /* eslint-disable complexity, max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance and exact candidate evidence validation intentionally check every optional mode branch. */
 import { types as nodeTypes } from 'node:util';
 
+import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
+import { snapshotClosedDataGraph } from '../phase-1/model.js';
 
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
@@ -29,6 +31,7 @@ import {
 import {
   deviceAuthorizationScenarioIds,
   publishDeviceScenarioProjection,
+  restoreDeviceScenarioProjectionFromJson,
   type DeviceAuthorizationScenarioId,
   type DeviceScenarioProjection,
 } from './scenarios/device-authorization.js';
@@ -106,6 +109,71 @@ const snapshotExactDataRecord = (
     })
   );
   return Object.freeze(snapshot);
+};
+
+const canonicalJsonValue = (value: unknown): JsonValue => {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.includes(undefined)) {
+      return fail();
+    }
+    return value.map((entry) => canonicalJsonValue(entry));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, canonicalJsonValue(entry)])
+    );
+  }
+  return fail();
+};
+
+const snapshotJsonWire = (value: unknown): JsonValue => {
+  const snapshot = snapshotClosedDataGraph<unknown>(value);
+  if (snapshot === undefined) {
+    return fail();
+  }
+  const wire = canonicalJsonValue(snapshot);
+  return jsonValueGuard.safeParse(wire).success ? wire : fail();
+};
+
+const restoreOracleWirePayload = (value: unknown): JsonValue => {
+  const payload = snapshotExactDataRecord(value, ['schemaVersion', 'mode', 'target']);
+  const target = snapshotExactDataRecord(payload.target, [
+    'target',
+    'scenarios',
+    'discovery',
+    'controls',
+  ]);
+  const scenarios = snapshotDenseArray(target.scenarios, 139).map((entry) => {
+    const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
+    const { id, projection } = scenario;
+    if (typeof id !== 'string') {
+      return fail();
+    }
+    return Object.freeze({
+      id,
+      projection: (deviceAuthorizationScenarioIds as readonly string[]).includes(id)
+        ? restoreDeviceScenarioProjectionFromJson(projection, id as DeviceAuthorizationScenarioId)
+        : projection,
+    });
+  });
+  return Object.freeze({
+    schemaVersion: payload.schemaVersion,
+    mode: payload.mode,
+    target: Object.freeze({
+      target: target.target,
+      scenarios: Object.freeze(scenarios),
+      discovery: target.discovery,
+      controls: target.controls,
+    }),
+  }) as unknown as JsonValue;
 };
 
 const validateTarget = (value: Phase2TargetProvenance): void => {
@@ -407,7 +475,7 @@ export const createPhase2EvidenceEnvelope = (
       ...(input.candidate && { candidate: input.candidate }),
     }),
     sanitizerSuccess: true,
-    payload,
+    payload: snapshotJsonWire(payload),
   });
 };
 
@@ -416,10 +484,15 @@ const validatePhase2OracleArtifactUnchecked = (
   profile: Phase2ProfileRegistries,
   harness: Phase2SourceIdentity
 ): Phase2EvidenceEnvelope => {
-  if (!exactKeys(value, ['schemaVersion', 'mode', 'provenance', 'sanitizerSuccess', 'payload'])) {
+  const wire = snapshotClosedDataGraph<Phase2EvidenceEnvelope>(value);
+  if (
+    wire === undefined ||
+    !jsonValueGuard.safeParse(wire).success ||
+    !exactKeys(wire, ['schemaVersion', 'mode', 'provenance', 'sanitizerSuccess', 'payload'])
+  ) {
     return fail();
   }
-  const envelope = value as Phase2EvidenceEnvelope;
+  const envelope = wire;
   if (
     envelope.schemaVersion !== 1 ||
     envelope.mode !== 'oracle' ||
@@ -435,17 +508,18 @@ const validatePhase2OracleArtifactUnchecked = (
   ) {
     return fail();
   }
+  const semanticPayload = restoreOracleWirePayload(envelope.payload);
   const canonical = createPhase2EvidenceEnvelope({
     mode: 'oracle',
     profile,
     harness,
     oracle: envelope.provenance.oracle,
-    payload: envelope.payload,
+    payload: semanticPayload,
   });
   if (JSON.stringify(canonical) !== JSON.stringify(envelope)) {
     return fail();
   }
-  const { payload } = envelope;
+  const payload = semanticPayload;
   if (!exactKeys(payload, ['schemaVersion', 'mode', 'target'])) {
     return fail();
   }
@@ -484,8 +558,8 @@ const validatePhase2OracleArtifactUnchecked = (
   ) {
     return fail();
   }
-  assertPhase2PayloadIsSanitized(envelope.mode, envelope.payload);
-  return envelope;
+  assertPhase2PayloadIsSanitized(envelope.mode, payload);
+  return snapshotClosedDataGraph<Phase2EvidenceEnvelope>({ ...envelope, payload }) ?? fail();
 };
 
 export const validatePhase2OracleArtifact = (
