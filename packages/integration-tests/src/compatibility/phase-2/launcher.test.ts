@@ -114,6 +114,27 @@ describe('Phase 2 tracked launcher', () => {
       const message = `Phase 2 client credentials command failed (candidate/${id}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
     }
+    for (const stage of [
+      'lifecycle-request',
+      'lifecycle-response',
+      'token-response',
+      'credential-lease',
+      'projection',
+      'scenario',
+    ]) {
+      const message = `Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:${stage}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    for (const message of [
+      'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:unknown-marker).\n',
+      'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease:private-marker).\n',
+      'Phase 2 client credentials command failed (oracle/device-token.unregistered:credential-lease).\n',
+      'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease).\nextra-marker',
+    ]) {
+      expect(diagnosticForPhase2Child(message)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+    }
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (candidate/device-token.unregistered).\n'
