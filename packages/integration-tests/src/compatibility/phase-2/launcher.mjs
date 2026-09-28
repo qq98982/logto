@@ -583,10 +583,35 @@ const defaultDependencies = Object.freeze({
   },
 });
 
-const preparePhase2Runtime = async (dependencies) => {
-  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-  const repositoryRoot = path.resolve(packageRoot, '../..');
-  const entryPath = path.join(packageRoot, 'lib/compatibility/phase-2/cli.js');
+const preparedRuntimes = new WeakMap();
+const preparingRuntimes = new WeakMap();
+
+const manifestsEqual = (left, right) => {
+  if (
+    typeof left !== 'object' ||
+    left === null ||
+    typeof right !== 'object' ||
+    right === null ||
+    typeof left.modules !== 'object' ||
+    left.modules === null ||
+    typeof right.modules !== 'object' ||
+    right.modules === null ||
+    left.sha256 !== right.sha256 ||
+    left.moduleCount !== right.moduleCount ||
+    left.entryUrl !== right.entryUrl ||
+    left.libraryRootUrl !== right.libraryRootUrl
+  ) {
+    return false;
+  }
+  const leftEntries = Object.entries(left.modules);
+  const rightEntries = Object.entries(right.modules);
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([url, sha256]) => right.modules[url] === sha256)
+  );
+};
+
+const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) => {
   const before = await dependencies.inspect(repositoryRoot);
   await dependencies.build(repositoryRoot);
   const after = await dependencies.inspect(repositoryRoot);
@@ -601,7 +626,43 @@ const preparePhase2Runtime = async (dependencies) => {
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
   });
-  return Object.freeze({ entryPath, environment, runtime });
+  const value = Object.freeze({ entryPath, environment, runtime });
+  preparedRuntimes.set(dependencies, Object.freeze({ source: before, runtime, value }));
+  return value;
+};
+
+const preparePhase2Runtime = async (dependencies) => {
+  const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+  const repositoryRoot = path.resolve(packageRoot, '../..');
+  const entryPath = path.join(packageRoot, 'lib/compatibility/phase-2/cli.js');
+  const prepared = preparedRuntimes.get(dependencies);
+  if (prepared !== undefined) {
+    const [source, runtime] = await Promise.all([
+      dependencies.inspect(repositoryRoot),
+      dependencies.identity(entryPath),
+    ]);
+    if (
+      source.head !== prepared.source.head ||
+      source.tree !== prepared.source.tree ||
+      !manifestsEqual(runtime, prepared.runtime)
+    ) {
+      return fail();
+    }
+    return prepared.value;
+  }
+  const pending = preparingRuntimes.get(dependencies);
+  if (pending !== undefined) {
+    return pending;
+  }
+  const preparation = prepareNewPhase2Runtime(dependencies, repositoryRoot, entryPath);
+  preparingRuntimes.set(dependencies, preparation);
+  try {
+    return await preparation;
+  } finally {
+    if (preparingRuntimes.get(dependencies) === preparation) {
+      preparingRuntimes.delete(dependencies);
+    }
+  }
 };
 
 const validateBatchCommands = (commands) => {

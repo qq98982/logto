@@ -392,6 +392,231 @@ describe('Phase 2 tracked launcher', () => {
     expect(capabilities.size).toBe(3);
   });
 
+  it('pins one verified runtime across sequential batches using the same dependencies', async () => {
+    const calls: string[] = [];
+    const head = '7'.repeat(40);
+    const tree = '8'.repeat(40);
+    const digest = '9'.repeat(64);
+    const manifest = {
+      sha256: digest,
+      moduleCount: 1,
+      entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+      libraryRootUrl: 'file:///private/lib/',
+      modules: { 'file:///private/lib/compatibility/phase-2/cli.js': digest },
+    };
+    const receivedManifests: Array<typeof manifest> = [];
+    const environments: Array<Record<string, string>> = [];
+    const dependencies = {
+      inspect: async () => {
+        calls.push('inspect');
+        return { head, tree };
+      },
+      build: async (): Promise<undefined> => {
+        calls.push('build');
+      },
+      identity: async () => {
+        calls.push('identity');
+        return { ...manifest, modules: { ...manifest.modules } };
+      },
+      execute: async (
+        _entry: string,
+        args: readonly string[],
+        environment: Record<string, string>,
+        receivedManifest: typeof manifest
+      ) => {
+        calls.push(`execute:${args[0]}`);
+        environments.push(environment);
+        receivedManifests.push(receivedManifest);
+        return 0 as const;
+      },
+    };
+
+    await expect(launchPhase2Batch([['oracle']], dependencies)).resolves.toBe(0);
+    await expect(launchPhase2Batch([['differential']], dependencies)).resolves.toBe(0);
+
+    expect(calls).toEqual([
+      'inspect',
+      'build',
+      'inspect',
+      'identity',
+      'execute:oracle',
+      'inspect',
+      'identity',
+      'execute:differential',
+    ]);
+    expect(receivedManifests[1]).toBe(receivedManifests[0]);
+    expect(environments[1]).toBe(environments[0]);
+  });
+
+  it('isolates prepared runtimes by dependency object', async () => {
+    const builds: string[] = [];
+    const createDependencies = (name: string) => ({
+      inspect: async () => ({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+      build: async (): Promise<undefined> => {
+        builds.push(name);
+      },
+      identity: async () => ({
+        sha256: '5'.repeat(64),
+        moduleCount: 1,
+        entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+        libraryRootUrl: 'file:///private/lib/',
+        modules: { 'file:///private/lib/compatibility/phase-2/cli.js': '5'.repeat(64) },
+      }),
+      execute: async () => 0 as const,
+    });
+
+    await expect(launchPhase2Batch([['oracle']], createDependencies('first'))).resolves.toBe(0);
+    await expect(launchPhase2Batch([['oracle']], createDependencies('second'))).resolves.toBe(0);
+
+    expect(builds).toEqual(['first', 'second']);
+  });
+
+  it('shares one in-flight preparation across concurrent batches', async () => {
+    let releaseBuild: (() => void) | undefined;
+    const buildBlocked = new Promise<void>((resolve) => {
+      releaseBuild = resolve;
+    });
+    const calls: string[] = [];
+    const digest = '6'.repeat(64);
+    const dependencies = {
+      inspect: async () => {
+        calls.push('inspect');
+        return { head: '7'.repeat(40), tree: '8'.repeat(40) };
+      },
+      build: async (): Promise<undefined> => {
+        calls.push('build');
+        await buildBlocked;
+      },
+      identity: async () => {
+        calls.push('identity');
+        return {
+          sha256: digest,
+          moduleCount: 1,
+          entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+          libraryRootUrl: 'file:///private/lib/',
+          modules: { 'file:///private/lib/compatibility/phase-2/cli.js': digest },
+        };
+      },
+      execute: async (_entry: string, args: readonly string[]) => {
+        calls.push(`execute:${args[0]}`);
+        return 0 as const;
+      },
+    };
+
+    const oracle = launchPhase2Batch([['oracle']], dependencies);
+    const differential = launchPhase2Batch([['differential']], dependencies);
+    await Promise.resolve();
+    expect(calls).toEqual(['inspect', 'build']);
+    releaseBuild?.();
+
+    await expect(Promise.all([oracle, differential])).resolves.toEqual([0, 0]);
+    expect(calls).toEqual([
+      'inspect',
+      'build',
+      'inspect',
+      'identity',
+      'execute:oracle',
+      'execute:differential',
+    ]);
+  });
+
+  it('clears a rejected in-flight preparation so a later batch can retry', async () => {
+    let builds = 0;
+    let executions = 0;
+    const digest = '9'.repeat(64);
+    const dependencies = {
+      inspect: async () => ({ head: 'a'.repeat(40), tree: 'b'.repeat(40) }),
+      build: async (): Promise<undefined> => {
+        builds += 1;
+        if (builds === 1) {
+          throw new Error('build failed');
+        }
+      },
+      identity: async () => ({
+        sha256: digest,
+        moduleCount: 1,
+        entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+        libraryRootUrl: 'file:///private/lib/',
+        modules: { 'file:///private/lib/compatibility/phase-2/cli.js': digest },
+      }),
+      execute: async () => {
+        executions += 1;
+        return 0 as const;
+      },
+    };
+
+    await expect(launchPhase2Batch([['oracle']], dependencies)).rejects.toThrow('build failed');
+    await expect(launchPhase2Batch([['oracle']], dependencies)).resolves.toBe(0);
+    expect(builds).toBe(2);
+    expect(executions).toBe(1);
+  });
+
+  it('rejects clean source drift between sequential batches before execution', async () => {
+    let inspections = 0;
+    let executions = 0;
+    const dependencies = {
+      inspect: async () => {
+        inspections += 1;
+        return {
+          head: (inspections < 3 ? 'a' : 'b').repeat(40),
+          tree: 'c'.repeat(40),
+        };
+      },
+      build: async (): Promise<undefined> => {
+        // The first preparation build is intentionally successful.
+      },
+      identity: async () => ({
+        sha256: 'd'.repeat(64),
+        moduleCount: 1,
+        entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+        libraryRootUrl: 'file:///private/lib/',
+        modules: { 'file:///private/lib/compatibility/phase-2/cli.js': 'd'.repeat(64) },
+      }),
+      execute: async () => {
+        executions += 1;
+        return 0 as const;
+      },
+    };
+
+    await expect(launchPhase2Batch([['oracle']], dependencies)).resolves.toBe(0);
+    await expect(launchPhase2Batch([['differential']], dependencies)).rejects.toThrow(
+      'Invalid Phase 2 launcher'
+    );
+    expect(executions).toBe(1);
+  });
+
+  it('rejects runtime bundle drift between sequential batches before execution', async () => {
+    let identities = 0;
+    let executions = 0;
+    const dependencies = {
+      inspect: async () => ({ head: 'e'.repeat(40), tree: 'f'.repeat(40) }),
+      build: async (): Promise<undefined> => {
+        // The first preparation build is intentionally successful.
+      },
+      identity: async () => {
+        identities += 1;
+        const digest = (identities === 1 ? '1' : '2').repeat(64);
+        return {
+          sha256: digest,
+          moduleCount: 1,
+          entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+          libraryRootUrl: 'file:///private/lib/',
+          modules: { 'file:///private/lib/compatibility/phase-2/cli.js': digest },
+        };
+      },
+      execute: async () => {
+        executions += 1;
+        return 0 as const;
+      },
+    };
+
+    await expect(launchPhase2Batch([['oracle']], dependencies)).resolves.toBe(0);
+    await expect(launchPhase2Batch([['differential']], dependencies)).rejects.toThrow(
+      'Invalid Phase 2 launcher'
+    );
+    expect(executions).toBe(1);
+  });
+
   it('rejects a HEAD substitution across the clean rebuild boundary', async () => {
     let inspection = 0;
     let executions = 0;
