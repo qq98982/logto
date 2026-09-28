@@ -1129,17 +1129,19 @@ export const createReferencePhase2FixtureProvisioner = (
           );
           const id = safeId(own(application, 'id'));
           add(`device-client-${label}`, `applications/${encodeURIComponent(id)}`);
-          await referenceCall(
-            request,
-            'POST',
-            `applications/${encodeURIComponent(id)}/user-consent-scopes`,
-            {
-              userScopes: deviceUserConsentScopes,
-              resourceScopes: [statusScopeId, read.id, write.id],
-            },
-            [201],
-            'status'
-          );
+          if (isThirdParty) {
+            await referenceCall(
+              request,
+              'POST',
+              `applications/${encodeURIComponent(id)}/user-consent-scopes`,
+              {
+                userScopes: deviceUserConsentScopes,
+                resourceScopes: [statusScopeId, read.id, write.id],
+              },
+              [201],
+              'status'
+            );
+          }
           return id;
         };
         const deviceFirstPartyId = await createDeviceApplication('first-party', false, true);

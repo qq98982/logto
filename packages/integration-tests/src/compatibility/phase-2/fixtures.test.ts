@@ -65,6 +65,14 @@ const createReferenceAdmin = () => {
   };
   const request = async (input: Phase2AdminRequest): Promise<unknown> => {
     calls.push(input);
+    if (
+      input.method === 'POST' &&
+      /^applications\/(?:application-4|application-6|application-7)\/user-consent-scopes$/u.test(
+        input.path
+      )
+    ) {
+      throw new Error('User consent scopes are only configurable for third-party applications');
+    }
     if (input.method === 'GET') {
       if (/^applications\/[^/]+\/secrets$/u.test(input.path)) {
         return [{ value: 'ReferenceSecretValue000000000001' }];
@@ -247,17 +255,26 @@ describe('Phase 2 fixture lifecycle', () => {
           }),
         })
       );
-      expect(admin.calls).toContainEqual(
-        expect.objectContaining({
-          method: 'POST',
-          path: `applications/${id}/user-consent-scopes`,
-          body: {
-            userScopes: ['profile', 'email', 'address', 'phone'],
-            resourceScopes: ['scope-4', 'scope-1', 'scope-2'],
-          },
-        })
-      );
     }
+    expect(
+      admin.calls
+        .filter(
+          ({ method, path }) =>
+            method === 'POST' &&
+            /^applications\/application-[4-7]\/user-consent-scopes$/u.test(path)
+        )
+        .map(({ path }) => path)
+    ).toEqual(['applications/application-5/user-consent-scopes']);
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'applications/application-5/user-consent-scopes',
+        body: {
+          userScopes: ['profile', 'email', 'address', 'phone'],
+          resourceScopes: ['scope-4', 'scope-1', 'scope-2'],
+        },
+      })
+    );
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'POST',
