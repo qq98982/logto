@@ -768,13 +768,15 @@ device_ids() {
 SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb)
 FROM oidc_model_instances
 WHERE tenant_id='default' AND model_name='DeviceCode'
-  AND COALESCE(payload->>'clientId',payload->'params'->>'client_id')=:'client_id';
+  AND COALESCE(payload->>'clientId',payload->'params'->>'client_id')=:'client_id'
+  AND expires_at>now();
 SQL
   else
     run_primary_sql --set="client_id=$device_client_id" <<'SQL'
 SELECT COALESCE(jsonb_agg(device_uid ORDER BY device_uid),'[]'::jsonb)
 FROM aster_tenant.device_authorizations
-WHERE tenant_id='default' AND client_id=:'client_id';
+WHERE tenant_id='default' AND client_id=:'client_id'
+  AND expires_at>floor(extract(epoch from now()))::bigint;
 SQL
   fi
 }

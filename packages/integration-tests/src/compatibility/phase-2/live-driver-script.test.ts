@@ -306,7 +306,25 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$input" == *'jsonb_agg(id ORDER BY id)'* || "$input" == *'jsonb_agg(device_uid ORDER BY device_uid)'* ]]; then
-    if [[ -f '${root}/device-ids-seen' && "$(cat '${root}/device-ids-seen')" == multi ]]; then
+    if [[ -f '${root}/device-ids-mode' && "$(cat '${root}/device-ids-mode')" == expired-cleanup ]]; then
+      if [[ -f '${root}/device-ids-seen' ]]; then
+        printf '%s' '["device-uid-new"]'
+      else
+        printf '%s' one >'${root}/device-ids-seen'
+        if [[ "$input" == *'expires_at>now()'* || "$input" == *'expires_at>floor(extract(epoch from now()))::bigint'* ]]; then
+          printf '%s' '[]'
+        else
+          printf '%s' '["device-uid-expired"]'
+        fi
+      fi
+    elif [[ -f '${root}/device-ids-mode' && "$(cat '${root}/device-ids-mode')" == active-loss ]]; then
+      if [[ -f '${root}/device-ids-seen' ]]; then
+        printf '%s' '["device-uid-new"]'
+      else
+        printf '%s' one >'${root}/device-ids-seen'
+        printf '%s' '["device-uid-active"]'
+      fi
+    elif [[ -f '${root}/device-ids-seen' && "$(cat '${root}/device-ids-seen')" == multi ]]; then
       printf '%s' '["device-uid-a","device-uid-b"]'
     elif [[ -f '${root}/device-ids-seen' ]]; then
       printf '%s' '["device-uid"]'
@@ -985,11 +1003,47 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(calls).not.toContain('--filter publish=');
   });
 
-  it.each(['zero-new', 'multiple-new', 'cross-scenario'] as const)(
+  it.each(['oracle', 'candidate'] as const)(
+    'ignores a preexisting expired %s row when capturing one new live authorization',
+    async (kind) => {
+      const harness = await createHarness(kind);
+      await writeFile(path.join(harness.root, 'device-ids-mode'), 'expired-cleanup', {
+        mode: 0o600,
+      });
+      const scenarioId = 'device-verification.already-used-code';
+      const begun = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('device-begin', { scenarioId }, kind)),
+        harness.env
+      );
+      expect(begun).toMatchObject({ code: 0, stderr: '' });
+      const { handle } = JSON.parse(begun.stdout) as { handle: string };
+
+      const captured = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('device-capture', { scenarioId, handle }, kind)),
+        harness.env
+      );
+
+      expect(captured).toMatchObject({ code: 0, stderr: '' });
+      expect(JSON.parse(captured.stdout)).toMatchObject({ operation: 'device-capture', ok: true });
+      const aborted = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('device-abort', { scenarioId, handle }, kind)),
+        harness.env
+      );
+      expect(aborted).toMatchObject({ code: 0, stderr: '' });
+    }
+  );
+
+  it.each(['zero-new', 'multiple-new', 'active-loss', 'cross-scenario'] as const)(
     'rejects %s device capture and removes the private handle',
     async (failureMode) => {
       const harness = await createHarness();
       const scenarioId = 'device-verification.expired-code';
+      if (failureMode === 'active-loss') {
+        await writeFile(path.join(harness.root, 'device-ids-mode'), failureMode, { mode: 0o600 });
+      }
       const begun = await invoke(
         harness.state,
         JSON.stringify(stateRequest('device-begin', { scenarioId })),
