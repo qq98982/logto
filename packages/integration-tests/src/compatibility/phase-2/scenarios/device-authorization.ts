@@ -398,10 +398,11 @@ const authorizationRequest = (
     }
     case 'device-authorization.unsupported-parameter': {
       return {
-        encoding: 'raw',
-        mediaType: 'application/x-www-form-urlencoded',
-        body: `client_id=${encodeURIComponent(first)}&code_challenge=x`,
-        sensitiveFragments: [],
+        encoding: 'form',
+        fields: [
+          ['client_id', first],
+          ['request_uri', 'x'],
+        ],
       };
     }
     case 'device-authorization.unknown-extension': {

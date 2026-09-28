@@ -287,6 +287,52 @@ describe('Phase 2 device authorization transport', () => {
     }
   });
 
+  it('preserves non-secret code shapes for successful raw extension requests', async () => {
+    const replies = [
+      jsonResponse(authorizationBody, 200, { 'x-private-response': 'private-header' }),
+      jsonResponse(authorizationBody, 200, { 'x-private-response': 'private-header' }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => replies.shift() ?? Promise.reject(new TypeError('unexpected fetch')),
+    });
+
+    for (const body of [
+      'client_id=device-client&code_challenge=x',
+      'client_id=device-client&unknown_extension=x',
+    ]) {
+      // eslint-disable-next-line no-await-in-loop -- Each raw extension response is projected independently.
+      const projection = await lease.requestAuthorization({
+        encoding: 'raw',
+        mediaType: 'application/x-www-form-urlencoded',
+        body,
+      });
+
+      expect(projection).toMatchObject({
+        status: 200,
+        contentType: undefined,
+        headers: {},
+        keys: [],
+        oauthError: { category: undefined, description: undefined },
+        userCodeShape: {
+          length: 9,
+          groups: [4, 4],
+          separator: '-',
+          matchesReferencePattern: true,
+        },
+        deviceCodeShape: { length: 19 },
+        expiresIn: 600,
+        interval: 5,
+        verificationUri: undefined,
+        verificationUriComplete: undefined,
+      });
+      expect(JSON.stringify(projection)).not.toMatch(
+        /private-device-code|BCDF-GHJK|candidate\.example\/device|private-header/u
+      );
+      expectSanitized(projection);
+    }
+  });
+
   it('leases verification XSRF only inside a callback and supports a real cross-cookie request', async () => {
     const form = (xsrf: string) =>
       new Response(

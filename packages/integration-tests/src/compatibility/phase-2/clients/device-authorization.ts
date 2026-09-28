@@ -25,7 +25,8 @@ export type DeviceAuthorizationFieldName =
   | 'resource'
   | 'scope'
   | 'organization_id'
-  | 'ui_locales';
+  | 'ui_locales'
+  | 'request_uri';
 
 export type DeviceAuthorizationTransportControl = Readonly<{
   query?: ReadonlyArray<readonly [DeviceAuthorizationFieldName, string]>;
@@ -260,6 +261,7 @@ const authorizationFields = new Set<DeviceAuthorizationFieldName>([
   'scope',
   'organization_id',
   'ui_locales',
+  'request_uri',
 ]);
 const verificationFieldNames = new Set(['xsrf', 'user_code', 'confirm', 'abort']);
 const optionKeys = new Set([
@@ -1057,7 +1059,7 @@ const suppressResponseStrings = (
         : Object.freeze({
             length: projection.userCodeShape.length,
             groups: projection.userCodeShape.groups,
-            separator: undefined,
+            separator: projection.userCodeShape.separator,
             matchesReferencePattern: projection.userCodeShape.matchesReferencePattern,
           }),
     deviceCodeShape: projection.deviceCodeShape,

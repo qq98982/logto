@@ -277,7 +277,6 @@ const expectedPrimaryOperation = (id: DeviceAuthorizationScenarioId): string => 
     return [
       'device-authorization.malformed-form',
       'device-authorization.malformed-json',
-      'device-authorization.unsupported-parameter',
       'device-authorization.unknown-extension',
       'device-authorization.json-array-rejected',
       'device-authorization.text-body-rejected',
@@ -445,6 +444,9 @@ describe('Phase 2 device authorization scenarios', () => {
     });
     await expect(request('device-authorization.unknown-scope')).resolves.toEqual(
       form('client_id=device-first&scope=unknown_scope')
+    );
+    await expect(request('device-authorization.unsupported-parameter')).resolves.toEqual(
+      form('client_id=device-first&request_uri=x')
     );
   });
 
