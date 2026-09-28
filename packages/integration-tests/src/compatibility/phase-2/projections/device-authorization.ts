@@ -526,7 +526,8 @@ const inspectPublicEvidence = (
   }
   seen.add(value);
   if (Array.isArray(value)) {
-    for (const nested of snapshotDenseArray(value)) {
+    const maximum = parentKey === 'scenarios' && depth === 1 ? 139 : 128;
+    for (const nested of snapshotDenseArray(value, maximum)) {
       inspectPublicEvidence(nested, seen, depth + 1, parentKey);
     }
     return;

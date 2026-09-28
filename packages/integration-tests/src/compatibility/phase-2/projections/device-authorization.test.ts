@@ -250,6 +250,24 @@ describe('Phase 2 device authorization projection', () => {
     );
   });
 
+  it('accepts the closed 139-scenario evidence array without widening other arrays', () => {
+    const scenarios = Array.from({ length: 140 }, (_, index) => ({ id: `scenario-${index}` }));
+    expect(() =>
+      assertDeviceAuthorizationEvidenceIsSanitized({ scenarios: scenarios.slice(0, 139) })
+    ).not.toThrow();
+    expect(() => assertDeviceAuthorizationEvidenceIsSanitized({ scenarios })).toThrow(
+      'Invalid Phase 2 device authorization projection'
+    );
+    expect(() =>
+      assertDeviceAuthorizationEvidenceIsSanitized({ nested: Array.from({ length: 129 }, () => 1) })
+    ).toThrow('Invalid Phase 2 device authorization projection');
+    expect(() =>
+      assertDeviceAuthorizationEvidenceIsSanitized({
+        scenarios: [Array.from({ length: 129 }, () => 1)],
+      })
+    ).toThrow('Invalid Phase 2 device authorization projection');
+  });
+
   it('rejects proxies, cycles and accessor properties without invoking them', () => {
     expect(() => assertDeviceAuthorizationEvidenceIsSanitized(new Proxy({}, {}))).toThrow(
       'Invalid Phase 2 device authorization projection'
