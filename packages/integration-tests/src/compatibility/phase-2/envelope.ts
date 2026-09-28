@@ -165,6 +165,86 @@ const validateCandidateInvariantPayload = (
   }
 };
 
+const assertWithBothSanitizers = (value: unknown): void => {
+  assertClientCredentialsEvidenceIsSanitized(value);
+  assertDeviceAuthorizationEvidenceIsSanitized(value);
+};
+
+export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
+  if (!exactKeys(value, ['target', 'scenarios', 'discovery', 'controls'])) {
+    assertWithBothSanitizers(value);
+    return;
+  }
+  const evidence = value as Record<string, unknown>;
+  if (
+    !Array.isArray(evidence.scenarios) ||
+    evidence.scenarios.some(
+      (entry) =>
+        !exactKeys(entry, ['id', 'projection']) ||
+        typeof (entry as Record<string, unknown>).id !== 'string'
+    )
+  ) {
+    assertWithBothSanitizers(value);
+    return;
+  }
+  for (const shared of [evidence.target, evidence.discovery, evidence.controls]) {
+    assertWithBothSanitizers(shared);
+  }
+  const deviceScenarios = evidence.scenarios.filter(({ id }) =>
+    (deviceAuthorizationScenarioIds as readonly string[]).includes(id as string)
+  );
+  const nonDeviceScenarios = evidence.scenarios.filter(
+    ({ id }) => !(deviceAuthorizationScenarioIds as readonly string[]).includes(id as string)
+  );
+  assertWithBothSanitizers(nonDeviceScenarios);
+  for (const scenario of deviceScenarios) {
+    publishDeviceScenarioProjection(
+      scenario.projection as DeviceScenarioProjection,
+      scenario.id as DeviceAuthorizationScenarioId
+    );
+  }
+  assertDeviceAuthorizationEvidenceIsSanitized(deviceScenarios);
+};
+
+const assertCandidateInvariantEvidenceIsSanitized = (value: unknown): void => {
+  const payload = value as Record<string, unknown>;
+  const invariants = payload.invariants as unknown[];
+  assertWithBothSanitizers({ schemaVersion: payload.schemaVersion, mode: payload.mode });
+  for (const invariant of invariants) {
+    const id = (invariant as Record<string, unknown>).id as string;
+    if ((clientCredentialsCandidateInvariantIds as readonly string[]).includes(id)) {
+      assertClientCredentialsEvidenceIsSanitized(invariant);
+    } else {
+      assertDeviceAuthorizationEvidenceIsSanitized(invariant);
+    }
+  }
+};
+
+const assertPhase2PayloadIsSanitized = (mode: Phase2EvidenceMode, value: unknown): void => {
+  if (mode === 'candidate-invariants') {
+    assertCandidateInvariantEvidenceIsSanitized(value);
+    return;
+  }
+  if (exactKeys(value, ['schemaVersion', 'mode', 'target'])) {
+    const payload = value as Record<string, unknown>;
+    assertWithBothSanitizers({ schemaVersion: payload.schemaVersion, mode: payload.mode });
+    assertPhase2TargetEvidenceIsSanitized(payload.target);
+    return;
+  }
+  if (exactKeys(value, ['schemaVersion', 'mode', 'oracle', 'candidate', 'comparisons'])) {
+    const payload = value as Record<string, unknown>;
+    assertWithBothSanitizers({
+      schemaVersion: payload.schemaVersion,
+      mode: payload.mode,
+      comparisons: payload.comparisons,
+    });
+    assertPhase2TargetEvidenceIsSanitized(payload.oracle);
+    assertPhase2TargetEvidenceIsSanitized(payload.candidate);
+    return;
+  }
+  assertWithBothSanitizers(value);
+};
+
 export const createPhase2EvidenceEnvelope = (
   input: Readonly<{
     mode: Phase2EvidenceMode;
@@ -178,8 +258,7 @@ export const createPhase2EvidenceEnvelope = (
   if (input.mode === 'candidate-invariants') {
     validateCandidateInvariantPayload(input.payload, input.profile);
   }
-  assertClientCredentialsEvidenceIsSanitized(input.payload);
-  assertDeviceAuthorizationEvidenceIsSanitized(input.payload);
+  assertPhase2PayloadIsSanitized(input.mode, input.payload);
   const hash = /^[0-9a-f]{64}$/u;
   if (
     !input.profile.profileSha256 ||
@@ -310,8 +389,7 @@ const validatePhase2OracleArtifactUnchecked = (
   ) {
     return fail();
   }
-  assertClientCredentialsEvidenceIsSanitized(envelope.payload);
-  assertDeviceAuthorizationEvidenceIsSanitized(envelope.payload);
+  assertPhase2PayloadIsSanitized(envelope.mode, envelope.payload);
   return envelope;
 };
 

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Negative controls deliberately forge forbidden public provenance fields. */
+/* eslint-disable max-lines, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Negative controls deliberately forge forbidden public provenance fields. */
 import type { JsonValue } from '../normalize.js';
 
 import {
@@ -12,6 +12,7 @@ import {
   runDeviceCandidateInvariantControls,
 } from './candidate-invariants/device-authorization.js';
 import {
+  assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
   validatePhase2OracleArtifact,
   type Phase2TargetProvenance,
@@ -90,7 +91,162 @@ const target = (kind: 'oracle' | 'candidate'): Phase2TargetProvenance => ({
   },
 });
 
+const deviceAuthorizationProjection = {
+  status: 200,
+  contentType: 'application/json',
+  headers: {},
+  keys: [],
+  cookies: [{ name: 'interaction', options: ['HttpOnly'], clearing: false }],
+  challenge: undefined,
+  location: undefined,
+  oauthError: { category: undefined, description: undefined },
+  userCodeShape: undefined,
+  deviceCodeShape: undefined,
+  expiresIn: undefined,
+  interval: undefined,
+  tokenType: undefined,
+  verificationUri: undefined,
+  verificationUriComplete: undefined,
+  experience: undefined,
+};
+
 describe('Phase 2 public provenance envelope', () => {
+  it('sanitizes each target scenario with its owning scanner', () => {
+    const safeEvidence = {
+      target: 'oracle',
+      discovery: {
+        endpointFieldsAppend: ['device_authorization_endpoint'],
+      },
+      controls: [{ passed: true }],
+      scenarios: [
+        {
+          id: 'client-credentials.basic-explicit-resource',
+          projection: { http: { status: 200 } },
+        },
+        {
+          id: 'device-authorization.urlencoded-success',
+          projection: deviceAuthorizationProjection,
+        },
+      ],
+    };
+
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized(safeEvidence);
+    }).not.toThrow();
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: [
+          {
+            id: 'client-credentials.basic-explicit-resource',
+            projection: { cookies: { count: 1 } },
+          },
+          safeEvidence.scenarios[1],
+        ],
+      });
+    }).toThrow('Invalid Phase 2 client credentials projection');
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: [
+          safeEvidence.scenarios[0],
+          {
+            id: 'device-authorization.urlencoded-success',
+            projection: { privateKey: 'planted-value' },
+          },
+        ],
+      });
+    }).toThrow('Invalid Phase 2 device authorization projection');
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: [
+          {
+            id: 'client-credentials.basic-explicit-resource',
+            projection: { http: { status: 200, oversized: 'x'.repeat(16 * 1024 + 1) } },
+          },
+          safeEvidence.scenarios[1],
+        ],
+      });
+    }).toThrow('Invalid Phase 2 device authorization projection');
+  });
+
+  it('round-trips legitimate device evidence while rejecting planted secrets', () => {
+    const artifactProfile = {
+      ...profile,
+      differentialScenarios: ['device-authorization.urlencoded-success'],
+    } as Phase2ProfileRegistries;
+    const payload = {
+      schemaVersion: 1,
+      mode: 'oracle',
+      target: {
+        target: 'oracle',
+        scenarios: [
+          {
+            id: 'device-authorization.urlencoded-success',
+            projection: deviceAuthorizationProjection,
+          },
+        ],
+        discovery: {},
+        controls: [],
+      },
+    } as unknown as JsonValue;
+    const artifact = createPhase2EvidenceEnvelope({
+      mode: 'oracle',
+      profile: artifactProfile,
+      harness,
+      oracle: target('oracle'),
+      payload,
+    });
+
+    expect(validatePhase2OracleArtifact(artifact, artifactProfile, harness)).toBe(artifact);
+    for (const scenario of [
+      {
+        id: 'client-credentials.basic-explicit-resource',
+        projection: { cookies: { value: 'planted-value' } },
+      },
+      {
+        id: 'device-authorization.urlencoded-success',
+        projection: { privateKey: 'planted-value' },
+      },
+    ]) {
+      const plantedPayload = structuredClone(payload) as any;
+      plantedPayload.target.scenarios[0] = scenario;
+      expect(() =>
+        createPhase2EvidenceEnvelope({
+          mode: 'oracle',
+          profile: artifactProfile,
+          harness,
+          oracle: target('oracle'),
+          payload: plantedPayload,
+        })
+      ).toThrow();
+    }
+    for (const mutate of [
+      (projection: any) => {
+        projection.cookies[0].value = 'planted-value';
+      },
+      (projection: any) => {
+        projection.tokenType = 'planted-value';
+      },
+      (projection: any) => {
+        projection.authorization_endpoint = 'planted-value';
+      },
+    ]) {
+      const plantedPayload = structuredClone(payload) as any;
+      mutate(plantedPayload.target.scenarios[0].projection);
+      expect(() =>
+        createPhase2EvidenceEnvelope({
+          mode: 'oracle',
+          profile: artifactProfile,
+          harness,
+          oracle: target('oracle'),
+          payload: plantedPayload,
+        })
+      ).toThrow();
+    }
+  });
+
   it('accepts only a canonical immutable oracle artifact with the exact scenario revision and order', () => {
     const artifactProfile = {
       ...profile,
@@ -290,4 +446,4 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 });
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

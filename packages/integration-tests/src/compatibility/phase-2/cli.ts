@@ -19,6 +19,7 @@ import {
   type DeviceCandidateInvariantControlEvidence,
 } from './candidate-invariants/device-authorization.js';
 import {
+  assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
   validatePhase2OracleArtifact,
   type Phase2EvidenceEnvelope,
@@ -36,11 +37,7 @@ import {
   type Phase2ProfilePaths,
   type Phase2ProfileRegistries,
 } from './profile.js';
-import {
-  assertClientCredentialsEvidenceIsSanitized,
-  createClientCredentialsJwtAudit,
-} from './projections/client-credentials.js';
-import { assertDeviceAuthorizationEvidenceIsSanitized } from './projections/device-authorization.js';
+import { createClientCredentialsJwtAudit } from './projections/client-credentials.js';
 import { compareLogoutSessionProjections } from './projections/logout-session.js';
 import { compareTokenStatus } from './projections/token-status.js';
 import {
@@ -745,8 +742,7 @@ const runTargetScenarios = async (
     controls,
   });
   try {
-    assertClientCredentialsEvidenceIsSanitized(evidence);
-    assertDeviceAuthorizationEvidenceIsSanitized(evidence);
+    assertPhase2TargetEvidenceIsSanitized(evidence);
   } catch {
     throw new Error(`Phase 2 stage failed: ${descriptor.kind}-sanitizer`);
   }
