@@ -1009,12 +1009,22 @@ SQL
 WITH device AS (
   SELECT payload->>'sessionUid' session_uid FROM oidc_model_instances
   WHERE tenant_id='default' AND model_name='DeviceCode' AND id=:'selected_id'
+), session_candidates AS (
+  SELECT id FROM oidc_model_instances
+  WHERE tenant_id='default' AND model_name='Session'
+    AND payload->>'uid'=(SELECT session_uid FROM device)
+), unique_session AS (
+  SELECT min(id) AS id FROM session_candidates HAVING count(*)=1
 ), changed AS (
-  UPDATE oidc_model_instances SET expires_at=to_timestamp(0)
-  WHERE tenant_id='default' AND model_name='Session' AND id=(SELECT session_uid FROM device)
-  RETURNING expires_at
+  UPDATE oidc_model_instances
+  SET expires_at=to_timestamp(0),
+      payload=pg_catalog.jsonb_set(payload,'{exp}','0'::jsonb,false)
+  WHERE tenant_id='default' AND model_name='Session'
+    AND id=(SELECT id FROM unique_session)
+    AND pg_catalog.jsonb_typeof(payload->'exp')='number'
+  RETURNING expires_at,payload->>'exp' AS payload_exp
 )
-SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now()) THEN 'ok' ELSE 'invalid' END FROM changed;
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now() AND payload_exp='0') THEN 'ok' ELSE 'invalid' END FROM changed;
 SQL
       )" || die
     elif [[ "$action" == expire-session ]]; then
