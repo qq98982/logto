@@ -386,6 +386,18 @@ describe('Phase 2 CLI', () => {
     expect(
       closedDeviceFailureStage(new TypeError('Invalid Phase 2 device authorization scenario'))
     ).toBe('scenario');
+    for (const stage of [
+      'approval',
+      'transition',
+      'verification-get',
+      'verification-post',
+    ] as const) {
+      expect(
+        closedDeviceFailureStage(
+          new TypeError(`Invalid Phase 2 device already-used-code step (${stage})`)
+        )
+      ).toBe(stage);
+    }
     expect(
       closedDeviceFailureStage(
         new TypeError('Invalid Phase 2 device authorization transport (unknown-marker)')
@@ -399,6 +411,11 @@ describe('Phase 2 CLI', () => {
       )
     ).toBeUndefined();
     expect(closedDeviceFailureStage('lifecycle-request')).toBeUndefined();
+    expect(
+      closedDeviceFailureStage(
+        new TypeError('Invalid Phase 2 device already-used-code step (approval):private-marker')
+      )
+    ).toBeUndefined();
   });
 
   it('parses only the three exact command grammars', () => {
@@ -875,7 +892,13 @@ describe('Phase 2 CLI', () => {
       'projection-cookies',
       'candidate/device-verification.already-used-code:projection-cookies'
     );
+    await Promise.all(
+      ['approval', 'transition', 'verification-get', 'verification-post'].map(async (stage) =>
+        runSuffix(stage, `candidate/device-verification.already-used-code:${stage}`)
+      )
+    );
     await runSuffix('projection-private', 'differential-execution');
+    await runSuffix('approval:private', 'differential-execution');
     await runSuffix('projection-cookies:private', 'differential-execution');
   });
 

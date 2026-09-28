@@ -128,6 +128,10 @@ describe('Phase 2 tracked launcher', () => {
     const projectionField =
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies).\n';
     expect(diagnosticForPhase2Child(projectionField)).toBe(projectionField);
+    for (const stage of ['approval', 'transition', 'verification-get', 'verification-post']) {
+      const message = `Phase 2 client credentials command failed (candidate/device-verification.already-used-code:${stage}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
     for (const message of [
       'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:unknown-marker).\n',
       'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease:private-marker).\n',
@@ -135,6 +139,7 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease).\nextra-marker',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-private).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies:private-marker).\n',
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval:private-marker).\n',
     ]) {
       expect(diagnosticForPhase2Child(message)).toBe(
         'Phase 2 client credentials launcher failed.\n'

@@ -218,16 +218,22 @@ export const deviceProjectionDifferenceField = (
     : 'other';
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval|transition|verification-get|verification-post|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
+const usedCodeFailureStagePattern =
+  /^Invalid Phase 2 device already-used-code step \((approval|transition|verification-get|verification-post)\)$/u;
 type DeviceFailureStage =
   | 'lifecycle-request'
   | 'lifecycle-response'
   | 'token-response'
   | 'credential-lease'
   | 'projection'
-  | 'scenario';
+  | 'scenario'
+  | 'approval'
+  | 'transition'
+  | 'verification-get'
+  | 'verification-post';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-2][0-9]|13[0-8])))?|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
@@ -244,6 +250,10 @@ export const closedDeviceFailureStage = (error: unknown): DeviceFailureStage | u
   const transport = deviceFailureStagePattern.exec(error.message)?.[1];
   if (transport) {
     return transport as DeviceFailureStage;
+  }
+  const usedCode = usedCodeFailureStagePattern.exec(error.message)?.[1];
+  if (usedCode) {
+    return usedCode as DeviceFailureStage;
   }
   if (error.message === 'Invalid Phase 2 device authorization projection') {
     return 'projection';

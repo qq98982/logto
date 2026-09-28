@@ -27,6 +27,7 @@ import {
   publishDeviceScenarioProjection,
   restoreDeviceScenarioProjectionFromJson,
   runDeviceAuthorizationNegativeControls,
+  runUsedCodeStep,
   type DeviceAuthorizationScenarioId,
   type DeviceScenarioProjection,
   type DeviceScenarioStateAction,
@@ -328,6 +329,21 @@ const expectedPrimaryOperation = (id: DeviceAuthorizationScenarioId): string => 
 };
 
 describe('Phase 2 device authorization scenarios', () => {
+  it('maps already-used-code operation failures to fixed value-free stages', async () => {
+    for (const stage of [
+      'approval',
+      'transition',
+      'verification-get',
+      'verification-post',
+    ] as const) {
+      await expect(
+        runUsedCodeStep(stage, async () => {
+          throw new Error(`private-${stage}-value`);
+        })
+      ).rejects.toThrow(`Invalid Phase 2 device already-used-code step (${stage})`);
+    }
+  });
+
   it('requires the exact ordered 69-ID device segment', () => {
     expect(createDeviceAuthorizationScenarioRegistry(profile()).map(({ id }) => id)).toEqual(
       deviceAuthorizationScenarioIds

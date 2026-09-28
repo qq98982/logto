@@ -176,6 +176,19 @@ export type DeviceAuthorizationScenario = Readonly<{
   run(runtime: DeviceAuthorizationScenarioRuntime): Promise<DeviceAuthorizationScenarioResult>;
 }>;
 
+export type UsedCodeStep = 'approval' | 'transition' | 'verification-get' | 'verification-post';
+
+export const runUsedCodeStep = async <Result>(
+  step: UsedCodeStep,
+  operation: () => Result | Promise<Result>
+): Promise<Result> => {
+  try {
+    return await operation();
+  } catch {
+    throw new TypeError(`Invalid Phase 2 device already-used-code step (${step})`);
+  }
+};
+
 export type DeviceAuthorizationControlResult = Readonly<{
   name: 'status' | 'path' | 'cookie-clearing' | 'oauth' | 'claimKeys' | 'discovery-fields';
   pointer: string;
@@ -798,18 +811,33 @@ const execute = async (
   if (id === 'device-verification.expired-code' || id === 'device-verification.already-used-code') {
     return runtime.state.withDeviceHandle(id, runtime.fixture, async (handle) => {
       if (id.endsWith('already-used-code')) {
-        await approveDeviceAuthorization(
-          lease,
-          runtime,
-          { client: 'firstParty', scope: 'openid profile' },
-          handle.capture
+        await runUsedCodeStep('approval', async () =>
+          approveDeviceAuthorization(
+            lease,
+            runtime,
+            { client: 'firstParty', scope: 'openid profile' },
+            handle.capture
+          )
         );
-        await handle.transition('consume');
-      } else {
-        await startDeviceAuthorization(lease, runtime);
-        await handle.capture();
-        await handle.transition('expire');
+        await runUsedCodeStep('transition', async () => handle.transition('consume'));
+        await runUsedCodeStep('verification-get', async () =>
+          lease.requestVerification({ method: 'GET', path: '/oidc/device' })
+        );
+        return runUsedCodeStep('verification-post', async () =>
+          lease.requestVerification({
+            method: 'POST',
+            path: '/oidc/device',
+            fields: {
+              xsrf: { stored: 'xsrf' },
+              user_code: { stored: 'user-code' },
+              confirm: 'yes',
+            },
+          })
+        );
       }
+      await startDeviceAuthorization(lease, runtime);
+      await handle.capture();
+      await handle.transition('expire');
       await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
       return lease.requestVerification({
         method: 'POST',
