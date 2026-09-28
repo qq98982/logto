@@ -154,7 +154,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     );
   if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) return stderr;
   const deviceMatch =
-    /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(?:lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario))?\)\.\n$/u.exec(
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(?:lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?\)\.\n$/u.exec(
       stderr
     );
   if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) return stderr;

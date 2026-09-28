@@ -645,9 +645,14 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'projection',
       'scenario',
     ].map((stage) => `${prefix}:${stage}).`);
+    acceptedLines.push(
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies).'
+    );
     const rejectedLines = [
       `${prefix}:unknown-marker).`,
       `${prefix}:credential-lease:private-marker).`,
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-private).',
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies:private-marker).',
     ];
     const matchesFor = async (lines: readonly string[]) =>
       Promise.all(

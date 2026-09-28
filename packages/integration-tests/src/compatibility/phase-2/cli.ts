@@ -181,8 +181,44 @@ type TargetScenarioEvidence = Readonly<{
 
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
+const deviceProjectionDifferenceFields = Object.freeze([
+  'status',
+  'contentType',
+  'headers',
+  'keys',
+  'cookies',
+  'challenge',
+  'location',
+  'oauthError',
+  'userCodeShape',
+  'deviceCodeShape',
+  'expiresIn',
+  'interval',
+  'tokenType',
+  'verificationUri',
+  'verificationUriComplete',
+  'experience',
+  'kind',
+  'facts',
+  'access',
+  'id',
+  'refresh',
+  'redirect',
+  'terminal',
+  'other',
+] as const);
+type DeviceProjectionDifferenceField = (typeof deviceProjectionDifferenceFields)[number];
+const deviceProjectionDifferenceFieldSet = new Set<string>(deviceProjectionDifferenceFields);
+export const deviceProjectionDifferenceField = (
+  pointer: unknown
+): DeviceProjectionDifferenceField => {
+  const root = typeof pointer === 'string' ? /^\/([^/]+)(?:\/|$)/u.exec(pointer)?.[1] : undefined;
+  return root && deviceProjectionDifferenceFieldSet.has(root)
+    ? (root as DeviceProjectionDifferenceField)
+    : 'other';
+};
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 type DeviceFailureStage =
@@ -879,7 +915,11 @@ const executeDifferential = async (
         }
       }
       if (isLogoutSession || isDevice) {
-        throw new Error(`Phase 2 scenario failed: candidate/${oracleScenario.id}`);
+        throw new Error(
+          `Phase 2 scenario failed: candidate/${oracleScenario.id}${
+            isDevice ? `:projection-${deviceProjectionDifferenceField(found[0])}` : ''
+          }`
+        );
       }
       throw new Error('Phase 2 stage failed: candidate-comparison');
     }

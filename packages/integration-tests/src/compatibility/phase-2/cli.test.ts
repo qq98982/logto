@@ -26,6 +26,7 @@ import {
 } from './candidate-invariants/device-authorization.js';
 import {
   closedDeviceFailureStage,
+  deviceProjectionDifferenceField,
   parsePhase2Arguments,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
@@ -35,6 +36,13 @@ import {
 } from './cli.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
+
+describe('device projection diagnostic fields', () => {
+  it('maps a nested cookie difference to its closed root field', () => {
+    expect(deviceProjectionDifferenceField('/cookies/0/name')).toBe('cookies');
+    expect(deviceProjectionDifferenceField('/private-token/value')).toBe('other');
+  });
+});
 
 const rootPrefix = '/var/tmp/henry-build/phase2-cli-';
 let root = '';
@@ -829,6 +837,46 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (differential-execution).'
     );
     expect(hostileCalls.join(' ')).not.toContain('private credential value');
+  });
+
+  it('reports only a closed device projection field suffix', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const arguments_ = [
+      'differential',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--oracle-evidence',
+      oracleTargetPath,
+      '--candidate-target',
+      candidateTargetPath,
+      '--output',
+      output,
+      '--temp-root',
+      root,
+    ];
+    const runSuffix = async (suffix: string, expected: string) => {
+      const calls: string[] = [];
+      expect(
+        await runPhase2CliMain(arguments_, undefined, {
+          ...dependencies(calls),
+          executeDifferential: async () => {
+            throw new Error(
+              `Phase 2 scenario failed: candidate/device-verification.already-used-code:${suffix}`
+            );
+          },
+        })
+      ).toBe(1);
+      expect(calls).toContain(`stderr:Phase 2 client credentials command failed (${expected}).`);
+      expect(calls.join(' ')).not.toContain('private-token');
+    };
+    await runSuffix(
+      'projection-cookies',
+      'candidate/device-verification.already-used-code:projection-cookies'
+    );
+    await runSuffix('projection-private', 'differential-execution');
+    await runSuffix('projection-cookies:private', 'differential-execution');
   });
 
   it('reports a bounded public status stage without printing its private exception', async () => {
