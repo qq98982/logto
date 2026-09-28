@@ -128,7 +128,23 @@ describe('Phase 2 tracked launcher', () => {
     const projectionField =
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies).\n';
     expect(diagnosticForPhase2Child(projectionField)).toBe(projectionField);
-    for (const stage of ['approval', 'transition', 'verification-get', 'verification-post']) {
+    for (const stage of [
+      'approval',
+      'approval-authorize',
+      'approval-capture',
+      'approval-verify',
+      'approval-experience-open',
+      'approval-password',
+      'approval-identification',
+      'approval-experience-submit',
+      'approval-resume-initial',
+      'approval-consent-read',
+      'approval-consent-write',
+      'approval-resume-final',
+      'transition',
+      'verification-get',
+      'verification-post',
+    ]) {
       const message = `Phase 2 client credentials command failed (candidate/device-verification.already-used-code:${stage}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
     }
@@ -140,6 +156,7 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-private).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval:private-marker).\n',
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval-password:private-marker).\n',
     ]) {
       expect(diagnosticForPhase2Child(message)).toBe(
         'Phase 2 client credentials launcher failed.\n'

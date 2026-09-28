@@ -20,6 +20,7 @@ import type {
 } from '../projections/device-authorization.js';
 
 import {
+  approveDeviceAuthorization,
   createDeviceAuthorizationScenarioRegistry,
   compareDeviceScenarioProjections,
   createDeviceConcurrencyBarrierFetch,
@@ -28,6 +29,7 @@ import {
   restoreDeviceScenarioProjectionFromJson,
   runDeviceAuthorizationNegativeControls,
   runUsedCodeStep,
+  type DeviceAuthorizationScenarioRuntime,
   type DeviceAuthorizationScenarioId,
   type DeviceScenarioProjection,
   type DeviceScenarioStateAction,
@@ -329,9 +331,74 @@ const expectedPrimaryOperation = (id: DeviceAuthorizationScenarioId): string => 
 };
 
 describe('Phase 2 device authorization scenarios', () => {
+  it('maps already-used-code approval operations to exact fixed substages', async () => {
+    const cases = [
+      ['approval-authorize', 'authorize'],
+      ['approval-capture', 'capture'],
+      ['approval-verify', 'verify'],
+      ['approval-experience-open', 'experience-open'],
+      ['approval-password', 'password-verification'],
+      ['approval-identification', 'identification'],
+      ['approval-experience-submit', 'experience-submit'],
+      ['approval-resume-initial', 'resume-1'],
+      ['approval-consent-read', 'consent-read'],
+      ['approval-consent-write', 'consent-write'],
+      ['approval-resume-final', 'resume-2'],
+    ] as const;
+    for (const [stage, failedOperation] of cases) {
+      let resumeCount = 0;
+      const failAt = (operation: string) => {
+        if (operation === failedOperation) {
+          throw new Error(`private-${operation}-value`);
+        }
+      };
+      const lease = {
+        requestAuthorization: async () => {
+          failAt('authorize');
+          return authorizationResponse();
+        },
+        requestVerification: async () => {
+          failAt('verify');
+          return authorizationResponse();
+        },
+        requestLifecycle: async ({ kind }: { kind: DeviceLifecycleProjection['kind'] }) => {
+          if (kind === 'resume') {
+            resumeCount += 1;
+            failAt(`resume-${resumeCount}`);
+          } else {
+            failAt(kind);
+          }
+          return lifecycleProjection(kind);
+        },
+      } as unknown as DeviceAuthorizationTransportLease;
+
+      await expect(
+        approveDeviceAuthorization(
+          lease,
+          { target, fixture } as DeviceAuthorizationScenarioRuntime,
+          { client: 'firstParty', traceUsedCodeApproval: true },
+          async () => {
+            failAt('capture');
+          }
+        )
+      ).rejects.toThrow(`Invalid Phase 2 device already-used-code step (${stage})`);
+    }
+  });
+
   it('maps already-used-code operation failures to fixed value-free stages', async () => {
     for (const stage of [
       'approval',
+      'approval-authorize',
+      'approval-capture',
+      'approval-verify',
+      'approval-experience-open',
+      'approval-password',
+      'approval-identification',
+      'approval-experience-submit',
+      'approval-resume-initial',
+      'approval-consent-read',
+      'approval-consent-write',
+      'approval-resume-final',
       'transition',
       'verification-get',
       'verification-post',
@@ -342,6 +409,16 @@ describe('Phase 2 device authorization scenarios', () => {
         })
       ).rejects.toThrow(`Invalid Phase 2 device already-used-code step (${stage})`);
     }
+    await expect(
+      runUsedCodeStep('approval', async () =>
+        runUsedCodeStep('approval-password', async () => {
+          throw new Error('private-password-value');
+        })
+      )
+    ).rejects.toThrow('Invalid Phase 2 device already-used-code step (approval-password)');
+    await expect(runUsedCodeStep('approval', async () => 'approval-result')).resolves.toBe(
+      'approval-result'
+    );
   });
 
   it('requires the exact ordered 69-ID device segment', () => {

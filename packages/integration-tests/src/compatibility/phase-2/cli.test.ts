@@ -388,6 +388,17 @@ describe('Phase 2 CLI', () => {
     ).toBe('scenario');
     for (const stage of [
       'approval',
+      'approval-authorize',
+      'approval-capture',
+      'approval-verify',
+      'approval-experience-open',
+      'approval-password',
+      'approval-identification',
+      'approval-experience-submit',
+      'approval-resume-initial',
+      'approval-consent-read',
+      'approval-consent-write',
+      'approval-resume-final',
       'transition',
       'verification-get',
       'verification-post',
@@ -893,12 +904,29 @@ describe('Phase 2 CLI', () => {
       'candidate/device-verification.already-used-code:projection-cookies'
     );
     await Promise.all(
-      ['approval', 'transition', 'verification-get', 'verification-post'].map(async (stage) =>
+      [
+        'approval',
+        'approval-authorize',
+        'approval-capture',
+        'approval-verify',
+        'approval-experience-open',
+        'approval-password',
+        'approval-identification',
+        'approval-experience-submit',
+        'approval-resume-initial',
+        'approval-consent-read',
+        'approval-consent-write',
+        'approval-resume-final',
+        'transition',
+        'verification-get',
+        'verification-post',
+      ].map(async (stage) =>
         runSuffix(stage, `candidate/device-verification.already-used-code:${stage}`)
       )
     );
     await runSuffix('projection-private', 'differential-execution');
     await runSuffix('approval:private', 'differential-execution');
+    await runSuffix('approval-password:private', 'differential-execution');
     await runSuffix('projection-cookies:private', 'differential-execution');
   });
 

@@ -647,7 +647,23 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ].map((stage) => `${prefix}:${stage}).`);
     acceptedLines.push(
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies).',
-      ...['approval', 'transition', 'verification-get', 'verification-post'].map(
+      ...[
+        'approval',
+        'approval-authorize',
+        'approval-capture',
+        'approval-verify',
+        'approval-experience-open',
+        'approval-password',
+        'approval-identification',
+        'approval-experience-submit',
+        'approval-resume-initial',
+        'approval-consent-read',
+        'approval-consent-write',
+        'approval-resume-final',
+        'transition',
+        'verification-get',
+        'verification-post',
+      ].map(
         (stage) =>
           `Phase 2 client credentials command failed (candidate/device-verification.already-used-code:${stage}).`
       )
@@ -658,6 +674,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-private).',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies:private-marker).',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval:private-marker).',
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval-password:private-marker).',
     ];
     const matchesFor = async (lines: readonly string[]) =>
       Promise.all(

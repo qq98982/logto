@@ -218,11 +218,11 @@ export const deviceProjectionDifferenceField = (
     : 'other';
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval|transition|verification-get|verification-post|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
-  /^Invalid Phase 2 device already-used-code step \((approval|transition|verification-get|verification-post)\)$/u;
+  /^Invalid Phase 2 device already-used-code step \((approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post)\)$/u;
 type DeviceFailureStage =
   | 'lifecycle-request'
   | 'lifecycle-response'
@@ -231,6 +231,17 @@ type DeviceFailureStage =
   | 'projection'
   | 'scenario'
   | 'approval'
+  | 'approval-authorize'
+  | 'approval-capture'
+  | 'approval-verify'
+  | 'approval-experience-open'
+  | 'approval-password'
+  | 'approval-identification'
+  | 'approval-experience-submit'
+  | 'approval-resume-initial'
+  | 'approval-consent-read'
+  | 'approval-consent-write'
+  | 'approval-resume-final'
   | 'transition'
   | 'verification-get'
   | 'verification-post';

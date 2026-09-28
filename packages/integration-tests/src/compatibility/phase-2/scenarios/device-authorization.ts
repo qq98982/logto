@@ -176,7 +176,25 @@ export type DeviceAuthorizationScenario = Readonly<{
   run(runtime: DeviceAuthorizationScenarioRuntime): Promise<DeviceAuthorizationScenarioResult>;
 }>;
 
-export type UsedCodeStep = 'approval' | 'transition' | 'verification-get' | 'verification-post';
+export type UsedCodeStep =
+  | 'approval'
+  | 'approval-authorize'
+  | 'approval-capture'
+  | 'approval-verify'
+  | 'approval-experience-open'
+  | 'approval-password'
+  | 'approval-identification'
+  | 'approval-experience-submit'
+  | 'approval-resume-initial'
+  | 'approval-consent-read'
+  | 'approval-consent-write'
+  | 'approval-resume-final'
+  | 'transition'
+  | 'verification-get'
+  | 'verification-post';
+
+const usedCodeApprovalFailurePattern =
+  /^Invalid Phase 2 device already-used-code step \(approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)\)$/u;
 
 export const runUsedCodeStep = async <Result>(
   step: UsedCodeStep,
@@ -184,10 +202,23 @@ export const runUsedCodeStep = async <Result>(
 ): Promise<Result> => {
   try {
     return await operation();
-  } catch {
+  } catch (error) {
+    if (
+      step === 'approval' &&
+      error instanceof Error &&
+      usedCodeApprovalFailurePattern.test(error.message)
+    ) {
+      throw error;
+    }
     throw new TypeError(`Invalid Phase 2 device already-used-code step (${step})`);
   }
 };
+
+const runApprovalStep = async <Result>(
+  trace: boolean,
+  step: Extract<UsedCodeStep, `approval-${string}`>,
+  operation: () => Result | Promise<Result>
+): Promise<Result> => (trace ? runUsedCodeStep(step, operation) : operation());
 
 export type DeviceAuthorizationControlResult = Readonly<{
   name: 'status' | 'path' | 'cookie-clearing' | 'oauth' | 'claimKeys' | 'discovery-fields';
@@ -198,6 +229,7 @@ export type DeviceAuthorizationControlResult = Readonly<{
 export type DeviceFlowOptions = Readonly<{
   client: 'firstParty' | 'thirdParty';
   scope?: string;
+  traceUsedCodeApproval?: boolean;
   resource?: string;
   organizationId?: string;
 }>;
@@ -508,7 +540,8 @@ const confirmVerification = async (
 
 export const completeDeviceApproval = async (
   lease: DeviceAuthorizationTransportLease,
-  runtime: DeviceAuthorizationScenarioRuntime
+  runtime: DeviceAuthorizationScenarioRuntime,
+  traceUsedCodeApproval = false
 ): Promise<
   Readonly<{
     consentRead: DeviceLifecycleProjection;
@@ -516,26 +549,46 @@ export const completeDeviceApproval = async (
     resume: DeviceLifecycleProjection;
   }>
 > => {
-  await confirmVerification(lease);
+  await runApprovalStep(traceUsedCodeApproval, 'approval-verify', async () =>
+    confirmVerification(lease)
+  );
   if (!runtime.fixture.status) {
     return fail();
   }
-  await lease.requestLifecycle({ kind: 'experience-open', method: 'PUT' });
-  await runtime.fixture.withSecretLease(async (secret) => {
-    const password = secret.getSubjectPassword?.() ?? fail();
-    return lease.requestLifecycle({
-      kind: 'password-verification',
-      method: 'POST',
-      username: runtime.fixture.status?.user.username ?? fail(),
-      password,
-    });
-  });
-  await lease.requestLifecycle({ kind: 'identification', method: 'POST' });
-  await lease.requestLifecycle({ kind: 'experience-submit', method: 'POST' });
-  await lease.requestLifecycle({ kind: 'resume', method: 'GET' });
-  const consentRead = await lease.requestLifecycle({ kind: 'consent-read', method: 'GET' });
-  const consent = await lease.requestLifecycle({ kind: 'consent-write', method: 'POST' });
-  const resume = await lease.requestLifecycle({ kind: 'resume', method: 'GET' });
+  await runApprovalStep(traceUsedCodeApproval, 'approval-experience-open', async () =>
+    lease.requestLifecycle({ kind: 'experience-open', method: 'PUT' })
+  );
+  await runApprovalStep(traceUsedCodeApproval, 'approval-password', async () =>
+    runtime.fixture.withSecretLease(async (secret) => {
+      const password = secret.getSubjectPassword?.() ?? fail();
+      return lease.requestLifecycle({
+        kind: 'password-verification',
+        method: 'POST',
+        username: runtime.fixture.status?.user.username ?? fail(),
+        password,
+      });
+    })
+  );
+  await runApprovalStep(traceUsedCodeApproval, 'approval-identification', async () =>
+    lease.requestLifecycle({ kind: 'identification', method: 'POST' })
+  );
+  await runApprovalStep(traceUsedCodeApproval, 'approval-experience-submit', async () =>
+    lease.requestLifecycle({ kind: 'experience-submit', method: 'POST' })
+  );
+  await runApprovalStep(traceUsedCodeApproval, 'approval-resume-initial', async () =>
+    lease.requestLifecycle({ kind: 'resume', method: 'GET' })
+  );
+  const consentRead = await runApprovalStep(
+    traceUsedCodeApproval,
+    'approval-consent-read',
+    async () => lease.requestLifecycle({ kind: 'consent-read', method: 'GET' })
+  );
+  const consent = await runApprovalStep(traceUsedCodeApproval, 'approval-consent-write', async () =>
+    lease.requestLifecycle({ kind: 'consent-write', method: 'POST' })
+  );
+  const resume = await runApprovalStep(traceUsedCodeApproval, 'approval-resume-final', async () =>
+    lease.requestLifecycle({ kind: 'resume', method: 'GET' })
+  );
   return Object.freeze({ consentRead, consent, resume });
 };
 
@@ -551,9 +604,14 @@ export const approveDeviceAuthorization = async (
     resume: DeviceLifecycleProjection;
   }>
 > => {
-  await startDeviceAuthorization(lease, runtime, options);
-  await afterAuthorization?.();
-  return completeDeviceApproval(lease, runtime);
+  const traceUsedCodeApproval = options.traceUsedCodeApproval ?? false;
+  await runApprovalStep(traceUsedCodeApproval, 'approval-authorize', async () =>
+    startDeviceAuthorization(lease, runtime, options)
+  );
+  await runApprovalStep(traceUsedCodeApproval, 'approval-capture', async () =>
+    afterAuthorization?.()
+  );
+  return completeDeviceApproval(lease, runtime, traceUsedCodeApproval);
 };
 
 export const issueDeviceAuthorization = async (
@@ -815,7 +873,7 @@ const execute = async (
           approveDeviceAuthorization(
             lease,
             runtime,
-            { client: 'firstParty', scope: 'openid profile' },
+            { client: 'firstParty', scope: 'openid profile', traceUsedCodeApproval: true },
             handle.capture
           )
         );
