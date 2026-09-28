@@ -452,7 +452,7 @@ const exactRecordWithOptional = (
 const own = (value: Record<string, unknown>, key: string): unknown =>
   Object.getOwnPropertyDescriptor(value, key)?.value;
 
-const snapshotDenseArray = (value: unknown, maximum = 128): readonly unknown[] => {
+export const snapshotDenseArray = (value: unknown, maximum = 128): readonly unknown[] => {
   if (
     !Array.isArray(value) ||
     nodeTypes.isProxy(value) ||

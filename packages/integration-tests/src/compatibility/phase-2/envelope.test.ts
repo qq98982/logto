@@ -137,6 +137,53 @@ describe('Phase 2 public provenance envelope', () => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
         scenarios: [
+          ...safeEvidence.scenarios,
+          {
+            id: 'device-authorization.json-object-success',
+            projection: deviceAuthorizationProjection,
+          },
+        ],
+      });
+    }).not.toThrow();
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: Array.from({ length: 140 }, () => safeEvidence.scenarios[0]),
+      });
+    }).toThrow('Invalid Phase 2 device authorization projection');
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: new Proxy(safeEvidence.scenarios, {
+          get: (source, key) =>
+            key === Symbol.iterator ? () => [][Symbol.iterator]() : Reflect.get(source, key),
+        }),
+      });
+    }).toThrow('Invalid Phase 2 device authorization projection');
+    const getterCalls = { count: 0 };
+    const accessorScenario = Object.defineProperties(
+      {},
+      {
+        id: { enumerable: true, value: 'device-authorization.urlencoded-success' },
+        projection: {
+          enumerable: true,
+          get: () => {
+            getterCalls.count += 1;
+            return getterCalls.count === 1
+              ? deviceAuthorizationProjection
+              : { privateKey: 'planted-value' };
+          },
+        },
+      }
+    );
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({ ...safeEvidence, scenarios: [accessorScenario] });
+    }).toThrow('Invalid Phase 2 evidence envelope');
+    expect(getterCalls.count).toBe(0);
+    expect(() => {
+      assertPhase2TargetEvidenceIsSanitized({
+        ...safeEvidence,
+        scenarios: [
           {
             id: 'client-credentials.basic-explicit-resource',
             projection: { cookies: { count: 1 } },
@@ -376,6 +423,33 @@ describe('Phase 2 public provenance envelope', () => {
         } as JsonValue,
       });
     expect(create(invariants).payload).toMatchObject({ mode: 'candidate-invariants' });
+    const getterCalls = { count: 0 };
+    const dynamicPayload = Object.defineProperties(
+      {},
+      {
+        schemaVersion: { enumerable: true, value: 1 },
+        mode: { enumerable: true, value: 'candidate-invariants' },
+        invariants: {
+          enumerable: true,
+          get: () => {
+            getterCalls.count += 1;
+            return getterCalls.count < 3
+              ? invariants
+              : [{ id: 'private-secret', value: 'planted' }];
+          },
+        },
+      }
+    );
+    expect(() =>
+      createPhase2EvidenceEnvelope({
+        mode: 'candidate-invariants',
+        profile: candidateProfile,
+        harness,
+        candidate: target('candidate'),
+        payload: dynamicPayload as JsonValue,
+      })
+    ).toThrow('Invalid Phase 2 evidence envelope');
+    expect(getterCalls.count).toBe(0);
     for (const invalid of [
       invariants.slice(1),
       invariants.toSpliced(0, 2, invariants[1]!, invariants[0]!),

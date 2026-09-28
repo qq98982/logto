@@ -1,4 +1,6 @@
 /* eslint-disable complexity, max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance and exact candidate evidence validation intentionally check every optional mode branch. */
+import { types as nodeTypes } from 'node:util';
+
 import type { JsonValue } from '../normalize.js';
 
 import {
@@ -14,7 +16,10 @@ import {
 import type { Phase2ProfileRegistries } from './profile.js';
 import { phase2ExpectedBaseAcceptance } from './profile.js';
 import { assertClientCredentialsEvidenceIsSanitized } from './projections/client-credentials.js';
-import { assertDeviceAuthorizationEvidenceIsSanitized } from './projections/device-authorization.js';
+import {
+  assertDeviceAuthorizationEvidenceIsSanitized,
+  snapshotDenseArray,
+} from './projections/device-authorization.js';
 import {
   phase2OracleImageDigest,
   phase2OracleSourceCommit,
@@ -69,6 +74,39 @@ const exactKeys = (value: unknown, keys: readonly string[]): boolean =>
   !Array.isArray(value) &&
   Object.keys(value).length === keys.length &&
   Object.keys(value).every((key) => keys.includes(key));
+
+const snapshotExactDataRecord = (
+  value: unknown,
+  keys: readonly string[]
+): Readonly<Record<string, unknown>> => {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    nodeTypes.isProxy(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    return fail();
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (
+    ownKeys.length !== keys.length ||
+    ownKeys.some((key) => typeof key !== 'string' || !keys.includes(key))
+  ) {
+    return fail();
+  }
+  const snapshot = Object.fromEntries(
+    keys.map((key) => {
+      const descriptor = descriptors[key];
+      if (!descriptor || !Object.hasOwn(descriptor, 'value') || !descriptor.enumerable) {
+        return fail();
+      }
+      return [key, descriptor.value as unknown] as const;
+    })
+  );
+  return Object.freeze(snapshot);
+};
 
 const validateTarget = (value: Phase2TargetProvenance): void => {
   const hash = /^[0-9a-f]{64}$/u;
@@ -175,35 +213,31 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
     assertWithBothSanitizers(value);
     return;
   }
-  const evidence = value as Record<string, unknown>;
-  if (
-    !Array.isArray(evidence.scenarios) ||
-    evidence.scenarios.some(
-      (entry) =>
-        !exactKeys(entry, ['id', 'projection']) ||
-        typeof (entry as Record<string, unknown>).id !== 'string'
-    )
-  ) {
+  const evidence = snapshotExactDataRecord(value, ['target', 'scenarios', 'discovery', 'controls']);
+  const scenarios = snapshotDenseArray(evidence.scenarios, 139).map((entry) =>
+    snapshotExactDataRecord(entry, ['id', 'projection'])
+  );
+  if (scenarios.some((entry) => typeof entry.id !== 'string')) {
     assertWithBothSanitizers(value);
     return;
   }
+  const checkedScenarios = scenarios as Array<{ id: string; projection: unknown }>;
   for (const shared of [evidence.target, evidence.discovery, evidence.controls]) {
     assertWithBothSanitizers(shared);
   }
-  const deviceScenarios = evidence.scenarios.filter(({ id }) =>
-    (deviceAuthorizationScenarioIds as readonly string[]).includes(id as string)
-  );
-  const nonDeviceScenarios = evidence.scenarios.filter(
-    ({ id }) => !(deviceAuthorizationScenarioIds as readonly string[]).includes(id as string)
-  );
-  assertWithBothSanitizers(nonDeviceScenarios);
-  for (const scenario of deviceScenarios) {
-    publishDeviceScenarioProjection(
-      scenario.projection as DeviceScenarioProjection,
-      scenario.id as DeviceAuthorizationScenarioId
-    );
+  assertDeviceAuthorizationEvidenceIsSanitized({
+    scenarios: checkedScenarios.map(({ id }) => id),
+  });
+  for (const scenario of checkedScenarios) {
+    if ((deviceAuthorizationScenarioIds as readonly string[]).includes(scenario.id)) {
+      publishDeviceScenarioProjection(
+        scenario.projection as DeviceScenarioProjection,
+        scenario.id as DeviceAuthorizationScenarioId
+      );
+    } else {
+      assertWithBothSanitizers(scenario.projection);
+    }
   }
-  assertDeviceAuthorizationEvidenceIsSanitized(deviceScenarios);
 };
 
 const assertCandidateInvariantEvidenceIsSanitized = (value: unknown): void => {
@@ -220,19 +254,44 @@ const assertCandidateInvariantEvidenceIsSanitized = (value: unknown): void => {
   }
 };
 
+const snapshotCandidateInvariantPayload = (value: unknown): JsonValue => {
+  try {
+    const payload = snapshotExactDataRecord(value, ['schemaVersion', 'mode', 'invariants']);
+    const invariants = snapshotDenseArray(
+      payload.invariants,
+      clientCredentialsCandidateInvariantIds.length + deviceCandidateInvariantIds.length
+    ).map((entry) =>
+      snapshotExactDataRecord(entry, ['id', 'candidate', 'positiveControl', 'negativeControl'])
+    );
+    return Object.freeze({
+      schemaVersion: payload.schemaVersion,
+      mode: payload.mode,
+      invariants: Object.freeze(invariants),
+    }) as unknown as JsonValue;
+  } catch {
+    return fail();
+  }
+};
+
 const assertPhase2PayloadIsSanitized = (mode: Phase2EvidenceMode, value: unknown): void => {
   if (mode === 'candidate-invariants') {
     assertCandidateInvariantEvidenceIsSanitized(value);
     return;
   }
   if (exactKeys(value, ['schemaVersion', 'mode', 'target'])) {
-    const payload = value as Record<string, unknown>;
+    const payload = snapshotExactDataRecord(value, ['schemaVersion', 'mode', 'target']);
     assertWithBothSanitizers({ schemaVersion: payload.schemaVersion, mode: payload.mode });
     assertPhase2TargetEvidenceIsSanitized(payload.target);
     return;
   }
   if (exactKeys(value, ['schemaVersion', 'mode', 'oracle', 'candidate', 'comparisons'])) {
-    const payload = value as Record<string, unknown>;
+    const payload = snapshotExactDataRecord(value, [
+      'schemaVersion',
+      'mode',
+      'oracle',
+      'candidate',
+      'comparisons',
+    ]);
     assertWithBothSanitizers({
       schemaVersion: payload.schemaVersion,
       mode: payload.mode,
@@ -255,10 +314,14 @@ export const createPhase2EvidenceEnvelope = (
     payload: JsonValue;
   }>
 ): Phase2EvidenceEnvelope => {
+  const payload =
+    input.mode === 'candidate-invariants'
+      ? snapshotCandidateInvariantPayload(input.payload)
+      : input.payload;
   if (input.mode === 'candidate-invariants') {
-    validateCandidateInvariantPayload(input.payload, input.profile);
+    validateCandidateInvariantPayload(payload, input.profile);
   }
-  assertPhase2PayloadIsSanitized(input.mode, input.payload);
+  assertPhase2PayloadIsSanitized(input.mode, payload);
   const hash = /^[0-9a-f]{64}$/u;
   if (
     !input.profile.profileSha256 ||
@@ -312,7 +375,7 @@ export const createPhase2EvidenceEnvelope = (
       ...(input.candidate && { candidate: input.candidate }),
     }),
     sanitizerSuccess: true,
-    payload: input.payload,
+    payload,
   });
 };
 
