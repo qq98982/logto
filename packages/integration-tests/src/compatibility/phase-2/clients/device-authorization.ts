@@ -2285,19 +2285,12 @@ const projectLifecycleResponse = async (
       const allowedKeys = new Set(
         credentialKind === 'access'
           ? ['active', 'sub', 'client_id', 'exp', 'iat', 'iss', 'scope', 'token_type']
-          : ['active', 'exp', 'iat', 'scope', 'token_type']
+          : ['active', 'sub', 'client_id', 'exp', 'iat', 'iss', 'scope']
       );
       const keys = Object.keys(parsed);
-      const subject =
-        credentialKind === 'access'
-          ? boundedString(parsed.sub, stage, maximumFieldBytes)
-          : undefined;
-      const clientId =
-        credentialKind === 'access'
-          ? boundedString(parsed.client_id, stage, maximumFieldBytes)
-          : undefined;
-      const issuer =
-        credentialKind === 'access' ? boundedString(parsed.iss, stage, 8192) : undefined;
+      const subject = boundedString(parsed.sub, stage, maximumFieldBytes);
+      const clientId = boundedString(parsed.client_id, stage, maximumFieldBytes);
+      const issuer = boundedString(parsed.iss, stage, 8192);
       const issuedAt = parsed.iat;
       const expiresAt = parsed.exp;
       const nowSeconds = Math.floor(Date.now() / 1000);
@@ -2305,31 +2298,28 @@ const projectLifecycleResponse = async (
       const tokenType = parsed.token_type;
       if (
         keys.some((key) => !allowedKeys.has(key)) ||
-        (credentialKind === 'access' && subject !== prepared.expectedSubjectId) ||
-        (credentialKind === 'access' && clientId !== prepared.expectedClientId) ||
-        (credentialKind === 'access' &&
-          issuer !== new URL('/oidc', base).href.replace(/\/$/u, '')) ||
+        subject !== prepared.expectedSubjectId ||
+        clientId !== prepared.expectedClientId ||
+        issuer !== new URL('/oidc', base).href.replace(/\/$/u, '') ||
         !Number.isSafeInteger(issuedAt) ||
         !Number.isSafeInteger(expiresAt) ||
         Number(issuedAt) > nowSeconds + 1 ||
         Number(expiresAt) <= nowSeconds ||
         Number(expiresAt) <= Number(issuedAt) ||
-        Number(expiresAt) - Number(issuedAt) > 86_400 ||
+        Number(expiresAt) - Number(issuedAt) > (credentialKind === 'access' ? 86_400 : 1_209_600) ||
         (tokenType !== undefined && tokenType !== 'Bearer')
       ) {
         return fail(stage);
       }
-      if (subject !== undefined && clientId !== undefined) {
-        registerSensitiveValue(registry, subject);
-        registerSensitiveValue(registry, clientId);
-      }
+      registerSensitiveValue(registry, subject);
+      registerSensitiveValue(registry, clientId);
       facts = Object.freeze({
         marker: 'introspection',
         active: true,
         credentialKind,
-        ...(credentialKind === 'access'
-          ? { subject: '<subject>', clientId: '<client>', issuer: '<target-issuer>' }
-          : {}),
+        subject: '<subject>',
+        clientId: '<client>',
+        issuer: '<target-issuer>',
         issuedAt: '<issued-at>',
         lifetimeSeconds: Number(expiresAt) - Number(issuedAt),
         scopes: Object.freeze(scope.split(' ').sort()),

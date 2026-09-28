@@ -145,10 +145,12 @@ export type DeviceLifecycleFactsByKind = Readonly<{
         marker: 'introspection';
         active: true;
         credentialKind: 'refresh';
+        subject: '<subject>';
+        clientId: '<client>';
+        issuer: '<target-issuer>';
         issuedAt: '<issued-at>';
         lifetimeSeconds: number;
         scopes: readonly string[];
-        tokenType?: 'Bearer';
       }>;
   revocation: Readonly<{ marker: 'revoked' }> | Readonly<{ marker: 'oauth-error' }>;
   'logout-open':
@@ -820,19 +822,30 @@ const assertLifecycleFacts = (kind: DeviceLifecycleKind, value: unknown): void =
         return;
       }
       if (facts.credentialKind === 'refresh') {
-        const source = exactRecordWithOptional(
+        const source = exactRecord(
           facts,
-          new Set(['marker', 'active', 'credentialKind', 'issuedAt', 'lifetimeSeconds', 'scopes']),
-          new Set(['tokenType'])
+          new Set([
+            'marker',
+            'active',
+            'credentialKind',
+            'subject',
+            'clientId',
+            'issuer',
+            'issuedAt',
+            'lifetimeSeconds',
+            'scopes',
+          ])
         );
         if (
           source.marker !== 'introspection' ||
           source.active !== true ||
           source.credentialKind !== 'refresh' ||
+          source.subject !== '<subject>' ||
+          source.clientId !== '<client>' ||
+          source.issuer !== '<target-issuer>' ||
           source.issuedAt !== '<issued-at>' ||
           !Number.isSafeInteger(source.lifetimeSeconds) ||
-          Number(source.lifetimeSeconds) <= 0 ||
-          (source.tokenType !== undefined && source.tokenType !== 'Bearer')
+          Number(source.lifetimeSeconds) <= 0
         ) {
           fail();
         }

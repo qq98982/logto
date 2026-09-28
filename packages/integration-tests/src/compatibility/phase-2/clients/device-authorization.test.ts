@@ -2607,6 +2607,109 @@ describe('Phase 2 device authorization transport', () => {
     }
   });
 
+  it('projects an active 14-day refresh introspection with verified identity placeholders', async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const replies = [
+      jsonResponse(authorizationBody),
+      jsonResponse({
+        access_token: 'private-refresh-introspection-access',
+        refresh_token: 'private-refresh-introspection-refresh',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      }),
+      jsonResponse({
+        active: true,
+        sub: 'private-subject',
+        client_id: 'device-client',
+        exp: nowSeconds + 1_209_600,
+        iat: nowSeconds,
+        iss: 'https://candidate.example/oidc',
+        scope: 'offline_access openid',
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.pollToken({ proof: { method: 'public', clientId: 'device-client' } });
+
+    const projection = await lease.requestLifecycle({
+      kind: 'introspection',
+      method: 'POST',
+      token: 'refresh',
+      proof: { method: 'public', clientId: 'device-client' },
+      expectedSubjectId: 'private-subject',
+      expectedClientId: 'device-client',
+    });
+
+    expect(projection.facts).toEqual({
+      marker: 'introspection',
+      active: true,
+      credentialKind: 'refresh',
+      subject: '<subject>',
+      clientId: '<client>',
+      issuer: '<target-issuer>',
+      issuedAt: '<issued-at>',
+      lifetimeSeconds: 1_209_600,
+      scopes: ['offline_access', 'openid'],
+    });
+    expect(JSON.stringify(projection)).not.toMatch(/private-(?:subject|refresh|access)/u);
+  });
+
+  it.each([
+    ['subject', { sub: 'wrong-subject' }],
+    ['client', { client_id: 'wrong-client' }],
+    ['issuer', { iss: 'https://foreign.example/oidc' }],
+    ['lifetime', { expOffset: 1_209_601 }],
+  ])('rejects refresh introspection with invalid %s authority', async (_label, override) => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const replies = [
+      jsonResponse(authorizationBody),
+      jsonResponse({
+        access_token: 'private-refresh-authority-access',
+        refresh_token: 'private-refresh-authority-refresh',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      }),
+      jsonResponse({
+        active: true,
+        sub: 'private-subject',
+        client_id: 'device-client',
+        exp: nowSeconds + ('expOffset' in override ? override.expOffset : 1_209_600),
+        iat: nowSeconds,
+        iss: 'https://candidate.example/oidc',
+        scope: 'openid',
+        ...('expOffset' in override ? {} : override),
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.pollToken({ proof: { method: 'public', clientId: 'device-client' } });
+
+    await expect(
+      lease.requestLifecycle({
+        kind: 'introspection',
+        method: 'POST',
+        token: 'refresh',
+        proof: { method: 'public', clientId: 'device-client' },
+        expectedSubjectId: 'private-subject',
+        expectedClientId: 'device-client',
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
   it('normalizes only approved reference cookie names and exposes clear versus reset', async () => {
     const replies = [
       cookieResponse([

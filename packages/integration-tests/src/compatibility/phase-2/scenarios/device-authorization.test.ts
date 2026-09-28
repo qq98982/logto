@@ -590,8 +590,11 @@ describe('Phase 2 device authorization scenarios', () => {
                         marker: 'introspection',
                         active: true,
                         credentialKind: 'refresh',
+                        subject: '<subject>',
+                        clientId: '<client>',
+                        issuer: '<target-issuer>',
                         issuedAt: '<issued-at>',
-                        lifetimeSeconds: 3600,
+                        lifetimeSeconds: 1_209_600,
                         scopes: ['openid'],
                       },
               } as DeviceLifecycleProjection)

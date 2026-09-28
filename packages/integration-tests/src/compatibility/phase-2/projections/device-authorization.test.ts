@@ -192,6 +192,48 @@ describe('Phase 2 device authorization projection', () => {
     ).toThrow('Invalid Phase 2 device authorization projection');
   });
 
+  it('publishes and compares every verified refresh introspection identity field', () => {
+    const projection: DeviceLifecycleProjection = Object.freeze({
+      ...lifecycleProjection(),
+      kind: 'introspection',
+      facts: Object.freeze({
+        marker: 'introspection',
+        active: true,
+        credentialKind: 'refresh',
+        subject: '<subject>',
+        clientId: '<client>',
+        issuer: '<target-issuer>',
+        issuedAt: '<issued-at>',
+        lifetimeSeconds: 1_209_600,
+        scopes: Object.freeze(['offline_access', 'openid']),
+      }),
+    });
+
+    expect(publishDeviceLifecycleProjection(projection)).toBe(projection);
+    for (const [field, value] of [
+      ['subject', '<wrong-subject>'],
+      ['clientId', '<wrong-client>'],
+      ['issuer', '<wrong-issuer>'],
+    ] as const) {
+      const invalid: DeviceLifecycleProjection = {
+        ...projection,
+        facts: { ...projection.facts, [field]: value },
+      };
+      expect(() => publishDeviceLifecycleProjection(invalid)).toThrow(
+        'Invalid Phase 2 device authorization projection'
+      );
+      expect(() => compareDeviceAuthorizationProjections(projection, invalid)).toThrow(
+        'Invalid Phase 2 device authorization projection'
+      );
+    }
+    expect(
+      compareDeviceAuthorizationProjections(projection, {
+        ...projection,
+        facts: { ...projection.facts, lifetimeSeconds: 1_209_599 },
+      } as DeviceLifecycleProjection)
+    ).toEqual(['/facts/lifetimeSeconds']);
+  });
+
   it.each([
     ['sensitive key', { access_token: 'planted' }],
     ['raw device code key', { device_code: 'planted' }],
