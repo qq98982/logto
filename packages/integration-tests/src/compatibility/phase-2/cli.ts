@@ -184,7 +184,16 @@ type TargetScenarioEvidence = Readonly<{
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario))?$/u;
+const deviceFailureStagePattern =
+  /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
+type DeviceFailureStage =
+  | 'lifecycle-request'
+  | 'lifecycle-response'
+  | 'token-response'
+  | 'credential-lease'
+  | 'projection'
+  | 'scenario';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
@@ -194,6 +203,22 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
   (logoutSessionScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
+export const closedDeviceFailureStage = (error: unknown): DeviceFailureStage | undefined => {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const transport = deviceFailureStagePattern.exec(error.message)?.[1];
+  if (transport) {
+    return transport as DeviceFailureStage;
+  }
+  if (error.message === 'Invalid Phase 2 device authorization projection') {
+    return 'projection';
+  }
+  if (error.message === 'Invalid Phase 2 device authorization scenario') {
+    return 'scenario';
+  }
+  return undefined;
+};
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -662,8 +687,11 @@ const runTargetScenarios = async (
             state,
           })
         );
-      } catch {
-        throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}`);
+      } catch (error: unknown) {
+        const stage = closedDeviceFailureStage(error);
+        throw new Error(
+          `Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}${stage ? `:${stage}` : ''}`
+        );
       }
     }
     return Object.freeze([
@@ -1181,7 +1209,7 @@ export const runPhase2CliMain = async (
       error instanceof TypeError && error.message === invalidArguments.trim()
         ? invalidArguments
         : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
-          ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
+          ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n`
           : stage?.[1] && stage[2]
             ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
             : commandStage?.[1] && commandStage[2]

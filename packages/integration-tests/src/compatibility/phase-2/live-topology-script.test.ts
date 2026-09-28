@@ -43,6 +43,24 @@ const runBash = async (scriptPath: string): Promise<Readonly<{ code: number; std
     });
   });
 
+const grepMatches = async (pattern: string, line: string): Promise<boolean> =>
+  new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/grep', ['-E', pattern], {
+      cwd: repositoryRoot,
+      env: { LC_ALL: 'C', PATH: '/usr/bin:/bin' },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (signal !== null || (code !== 0 && code !== 1)) {
+        reject(new Error('grep allowlist check failed'));
+        return;
+      }
+      resolve(code === 0);
+    });
+    child.stdin.end(`${line}\n`);
+  });
+
 const runEmbeddedNode = async (
   program: string,
   arguments_: readonly string[]
@@ -598,7 +616,49 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('^Phase 2 client credentials command failed ');
     expect(source).toContain('^Phase 2 client credentials launcher child failed ');
     expect(source).toContain('^Phase 2 client credentials batch failed ');
+    expect(source).toContain(
+      'lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario'
+    );
     expect(source).not.toContain('cat "$RUN_DIR/evidence-sequence.stderr"');
+  });
+
+  it('executes both command diagnostic allowlists against closed device stages', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter(
+      (pattern): pattern is string =>
+        pattern?.startsWith('^Phase 2 client credentials command failed ') === true
+    );
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const prefix =
+      'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection';
+    const acceptedLines = [
+      'lifecycle-request',
+      'lifecycle-response',
+      'token-response',
+      'credential-lease',
+      'projection',
+      'scenario',
+    ].map((stage) => `${prefix}:${stage}).`);
+    const rejectedLines = [
+      `${prefix}:unknown-marker).`,
+      `${prefix}:credential-lease:private-marker).`,
+    ];
+    const matchesFor = async (lines: readonly string[]) =>
+      Promise.all(
+        lines.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      );
+    await expect(matchesFor(acceptedLines)).resolves.toEqual(
+      Array.from({ length: acceptedLines.length * patterns.length }, () => true)
+    );
+    await expect(matchesFor(rejectedLines)).resolves.toEqual(
+      Array.from({ length: rejectedLines.length * patterns.length }, () => false)
+    );
   });
 
   it('publishes results only after successful topology cleanup', () => {

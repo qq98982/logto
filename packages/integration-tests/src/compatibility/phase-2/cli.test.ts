@@ -25,6 +25,7 @@ import {
   runDeviceCandidateInvariantControls,
 } from './candidate-invariants/device-authorization.js';
 import {
+  closedDeviceFailureStage,
   parsePhase2Arguments,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
@@ -358,6 +359,40 @@ const oracleArguments = (output = path.join(root, 'phase-2-client-credentials-or
 ];
 
 describe('Phase 2 CLI', () => {
+  it('classifies only exact closed device failure stages', () => {
+    for (const stage of [
+      'lifecycle-request',
+      'lifecycle-response',
+      'token-response',
+      'credential-lease',
+    ] as const) {
+      expect(
+        closedDeviceFailureStage(
+          new TypeError(`Invalid Phase 2 device authorization transport (${stage})`)
+        )
+      ).toBe(stage);
+    }
+    expect(
+      closedDeviceFailureStage(new TypeError('Invalid Phase 2 device authorization projection'))
+    ).toBe('projection');
+    expect(
+      closedDeviceFailureStage(new TypeError('Invalid Phase 2 device authorization scenario'))
+    ).toBe('scenario');
+    expect(
+      closedDeviceFailureStage(
+        new TypeError('Invalid Phase 2 device authorization transport (unknown-marker)')
+      )
+    ).toBeUndefined();
+    expect(
+      closedDeviceFailureStage(
+        new TypeError(
+          'Invalid Phase 2 device authorization transport (credential-lease):private-marker'
+        )
+      )
+    ).toBeUndefined();
+    expect(closedDeviceFailureStage('lifecycle-request')).toBeUndefined();
+  });
+
   it('parses only the three exact command grammars', () => {
     expect(parsePhase2Arguments(oracleArguments())).toMatchObject({ mode: 'oracle' });
     expect(
@@ -745,6 +780,55 @@ describe('Phase 2 CLI', () => {
     expect(calls).toContain(`stderr:${exact}`);
     expect(calls.join(' ')).not.toContain('private');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports only a closed device failure stage suffix', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const arguments_ = [
+      'differential',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--oracle-evidence',
+      oracleTargetPath,
+      '--candidate-target',
+      candidateTargetPath,
+      '--output',
+      output,
+      '--temp-root',
+      root,
+    ];
+    const stageCalls: string[] = [];
+    expect(
+      await runPhase2CliMain(arguments_, undefined, {
+        ...dependencies(stageCalls),
+        executeDifferential: async () => {
+          throw new Error(
+            'Phase 2 scenario failed: oracle/device-token.refresh-resource-selection:credential-lease'
+          );
+        },
+      })
+    ).toBe(1);
+    expect(stageCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease).'
+    );
+
+    const hostileCalls: string[] = [];
+    expect(
+      await runPhase2CliMain(arguments_, undefined, {
+        ...dependencies(hostileCalls),
+        executeDifferential: async () => {
+          throw new Error(
+            'Phase 2 scenario failed: oracle/device-token.refresh-resource-selection:private credential value'
+          );
+        },
+      })
+    ).toBe(1);
+    expect(hostileCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (differential-execution).'
+    );
+    expect(hostileCalls.join(' ')).not.toContain('private credential value');
   });
 
   it('reports a bounded public status stage without printing its private exception', async () => {
