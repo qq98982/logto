@@ -1,10 +1,21 @@
-/* eslint-disable complexity, max-lines, max-params, no-await-in-loop, no-control-regex, no-restricted-syntax, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary owns a short-lived secret store, cookie jar, and bounded hostile HTTP surfaces. */
+/* eslint-disable complexity, max-lines, max-params, no-await-in-loop, no-control-regex, no-restricted-syntax, unicorn/prefer-switch, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This boundary owns a short-lived secret store, cookie jar, and bounded hostile HTTP surfaces. */
 import { types as nodeTypes } from 'node:util';
 
 import { Cookie, CookieJar } from 'tough-cookie';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
+import {
+  assertDeviceAuthorizationEvidenceIsSanitized,
+  publishDeviceAuthorizationProjection,
+  publishDeviceLifecycleProjection,
+  type DeviceAuthorizationChallengeProjection,
+  type DeviceAuthorizationCookieProjection,
+  type DeviceAuthorizationProjection,
+  type DeviceAuthorizationUrlProjection,
+  type DeviceLifecycleKind,
+  type DeviceLifecycleProjection,
+} from '../projections/device-authorization.js';
 
 import { containsCompactJwt } from './client-credentials.js';
 
@@ -62,52 +73,66 @@ export type DeviceVerificationRequest =
       }>;
     }>;
 
-export type DeviceAuthorizationUrlProjection = Readonly<{
-  origin: string;
-  path: string;
-  queryKeys: readonly string[];
-}>;
+export type {
+  DeviceAuthorizationChallengeProjection,
+  DeviceAuthorizationCookieProjection,
+  DeviceAuthorizationProjection,
+  DeviceAuthorizationUrlProjection,
+  DeviceLifecycleProjection,
+} from '../projections/device-authorization.js';
 
-export type DeviceAuthorizationCookieProjection = Readonly<{
-  name: string;
-  options: readonly string[];
-}>;
+export type DeviceLifecycleRequest =
+  | Readonly<{ kind: 'verification-success'; method: 'GET' }>
+  | Readonly<{ kind: 'experience-open'; method: 'PUT' }>
+  | Readonly<{
+      kind: 'password-verification';
+      method: 'POST';
+      username: string;
+      password: string;
+    }>
+  | Readonly<{ kind: 'identification'; method: 'POST' }>
+  | Readonly<{ kind: 'experience-submit'; method: 'POST' }>
+  | Readonly<{ kind: 'consent-read'; method: 'GET' }>
+  | Readonly<{ kind: 'consent-write'; method: 'POST' }>
+  | Readonly<{ kind: 'resume'; method: 'GET' }>
+  | Readonly<{
+      kind: 'refresh';
+      method: 'POST';
+      proof: DeviceAuthorizationClientProof;
+      scope?: string;
+      resource?: string;
+      organizationId?: string;
+    }>
+  | Readonly<{
+      kind: 'userinfo';
+      method: 'GET';
+      expectedSubjectId: string;
+    }>
+  | Readonly<{
+      kind: 'introspection' | 'revocation';
+      method: 'POST';
+      proof: DeviceAuthorizationClientProof;
+      token: 'access' | 'refresh';
+      hint?: 'access_token' | 'refresh_token';
+      expectedSubjectId?: string;
+      expectedClientId?: string;
+    }>
+  | Readonly<{
+      kind: 'logout-open';
+      method: 'GET';
+      clientId: string;
+      postLogoutRedirectUri?: string;
+      state?: string;
+    }>
+  | Readonly<{ kind: 'logout-confirm'; method: 'POST'; confirm: boolean }>
+  | Readonly<{ kind: 'oidc-discovery' | 'oauth-discovery'; method: 'GET' }>;
 
-export type DeviceAuthorizationChallengeProjection = Readonly<{
-  scheme: string;
-  parameters: Readonly<Record<string, string>>;
-}>;
-
-export type DeviceAuthorizationProjection = Readonly<{
-  status: number;
-  contentType: string | undefined;
-  headers: Readonly<Record<string, string>>;
-  keys: readonly string[];
-  cookies: readonly DeviceAuthorizationCookieProjection[];
-  challenge: DeviceAuthorizationChallengeProjection | undefined;
-  location: DeviceAuthorizationUrlProjection | undefined;
-  oauthError: Readonly<{ category: string | undefined; description: string | undefined }>;
-  userCodeShape:
-    | Readonly<{
-        length: number;
-        groups: readonly number[];
-        separator: string | undefined;
-        matchesReferencePattern: boolean;
-      }>
-    | undefined;
-  deviceCodeShape: Readonly<{ length: number }> | undefined;
-  expiresIn: number | undefined;
-  interval: number | undefined;
-  verificationUri: DeviceAuthorizationUrlProjection | undefined;
-  verificationUriComplete: DeviceAuthorizationUrlProjection | undefined;
-  experience:
-    | Readonly<{
-        title: string | undefined;
-        formAction: DeviceAuthorizationUrlProjection | undefined;
-        inputNames: readonly string[];
-        autoSubmit: boolean;
-      }>
-    | undefined;
+export type DeviceCredentialLease = Readonly<{
+  getAccessToken(): string | undefined;
+  getRefreshToken(): string | undefined;
+  getIdToken(): string | undefined;
+  getPreviousRefreshToken(): string | undefined;
+  toJSON(): never;
 }>;
 
 export type DeviceAuthorizationTransportOptions = Readonly<{
@@ -126,11 +151,16 @@ export type DeviceAuthorizationTransportLease = Readonly<{
   requestAuthorization(request: DeviceAuthorizationRequest): Promise<DeviceAuthorizationProjection>;
   requestVerification(request: DeviceVerificationRequest): Promise<DeviceAuthorizationProjection>;
   pollToken(request: DeviceTokenPollingRequest): Promise<DeviceAuthorizationProjection>;
+  requestLifecycle(request: DeviceLifecycleRequest): Promise<DeviceLifecycleProjection>;
+  withCredentialLease<Result>(
+    use: (lease: DeviceCredentialLease) => Result | Promise<Result>
+  ): Promise<Result>;
   clear(): void;
   toJSON(): never;
 }>;
 
 type TransportState = {
+  targetLabel: 'oracle' | 'candidate';
   active: boolean;
   operationActive: boolean;
   deviceCode?: string;
@@ -139,6 +169,17 @@ type TransportState = {
   xsrf?: string;
   xsrfCookieIdentity?: string;
   xsrfExpireAt?: number;
+  verificationId?: string;
+  resumeUrl?: string;
+  resumeStage?: 'after-experience-submit' | 'after-consent-write';
+  logoutXsrf?: string;
+  logoutAction?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  previousRefreshToken?: string;
+  idToken?: string;
+  accessExpireAt?: number;
+  credentialLeaseActive: boolean;
   cookies: CookieJar;
   controllers: Set<AbortController>;
 };
@@ -193,6 +234,15 @@ const maximumRequestUrlBytes = 8192;
 const maximumFieldBytes = 4096;
 const maximumTimeoutMs = 60_000;
 const maximumSensitiveVariants = 512;
+const sensitiveResponseKeyPattern =
+  /^(?:authorization|proxy.?authorization|cookie|set.?cookie|password|client.?secret|access.?token|refresh.?token|id.?token|device.?code|user.?code|xsrf|verification.?id|redirect.?to)$/iu;
+const referenceCookieNameMappings = new Map<string, string>([
+  ['_logto', '_aster'],
+  ['_logto.sig', '_aster.sig'],
+  ['_logto_device_flow_xsrf', '_aster_device_flow_xsrf'],
+  ['_logto_device_flow_xsrf.sig', '_aster_device_flow_xsrf.sig'],
+] as const);
+const referenceProductCookiePattern = /^_logto/u;
 
 const fail = (stage: string): never => {
   throw new TypeError(`${diagnostic} (${stage})`);
@@ -405,6 +455,10 @@ const pruneExpiredState = (state: TransportState): void => {
     state.xsrfCookieIdentity = undefined;
     state.xsrfExpireAt = undefined;
   }
+  if (state.accessExpireAt !== undefined && state.accessExpireAt <= now) {
+    state.accessToken = undefined;
+    state.accessExpireAt = undefined;
+  }
 };
 
 const cookieIdentity = (cookie: Cookie): string =>
@@ -417,7 +471,18 @@ const createSensitiveRegistry = (
 ): SensitiveRegistry => {
   pruneExpiredState(state);
   const registry: SensitiveRegistry = { values: new Set(), maximum, stage };
-  for (const value of [state.deviceCode, state.userCode, state.xsrf]) {
+  for (const value of [
+    state.deviceCode,
+    state.userCode,
+    state.xsrf,
+    state.verificationId,
+    state.resumeUrl,
+    state.logoutXsrf,
+    state.accessToken,
+    state.refreshToken,
+    state.previousRefreshToken,
+    state.idToken,
+  ]) {
     if (value !== undefined) {
       registerSensitiveValue(registry, value);
     }
@@ -446,7 +511,7 @@ const createSensitiveRegistry = (
 const assertAvailable = (state: TransportState): void => {
   assertActive(state);
   pruneExpiredState(state);
-  if (state.operationActive) {
+  if (state.operationActive || state.credentialLeaseActive) {
     fail('concurrent');
   }
 };
@@ -472,6 +537,17 @@ const clearState = (state: TransportState): void => {
   state.xsrf = undefined;
   state.xsrfCookieIdentity = undefined;
   state.xsrfExpireAt = undefined;
+  state.verificationId = undefined;
+  state.resumeUrl = undefined;
+  state.resumeStage = undefined;
+  state.logoutXsrf = undefined;
+  state.logoutAction = undefined;
+  state.accessToken = undefined;
+  state.refreshToken = undefined;
+  state.previousRefreshToken = undefined;
+  state.idToken = undefined;
+  state.accessExpireAt = undefined;
+  state.credentialLeaseActive = false;
   state.cookies.removeAllCookiesSync();
   for (const controller of state.controllers) {
     controller.abort();
@@ -482,6 +558,7 @@ const clearState = (state: TransportState): void => {
 };
 
 const snapshotState = (state: TransportState): TransportState => ({
+  targetLabel: state.targetLabel,
   active: state.active,
   operationActive: state.operationActive,
   deviceCode: state.deviceCode,
@@ -490,6 +567,17 @@ const snapshotState = (state: TransportState): TransportState => ({
   xsrf: state.xsrf,
   xsrfCookieIdentity: state.xsrfCookieIdentity,
   xsrfExpireAt: state.xsrfExpireAt,
+  verificationId: state.verificationId,
+  resumeUrl: state.resumeUrl,
+  resumeStage: state.resumeStage,
+  logoutXsrf: state.logoutXsrf,
+  logoutAction: state.logoutAction,
+  accessToken: state.accessToken,
+  refreshToken: state.refreshToken,
+  previousRefreshToken: state.previousRefreshToken,
+  idToken: state.idToken,
+  accessExpireAt: state.accessExpireAt,
+  credentialLeaseActive: state.credentialLeaseActive,
   cookies: state.cookies.cloneSync() ?? fail('state'),
   controllers: state.controllers,
 });
@@ -518,8 +606,18 @@ const finishProjection = (
   state.xsrf = next.xsrf;
   state.xsrfCookieIdentity = next.xsrfCookieIdentity;
   state.xsrfExpireAt = next.xsrfExpireAt;
+  state.verificationId = next.verificationId;
+  state.resumeUrl = next.resumeUrl;
+  state.resumeStage = next.resumeStage;
+  state.logoutXsrf = next.logoutXsrf;
+  state.logoutAction = next.logoutAction;
+  state.accessToken = next.accessToken;
+  state.refreshToken = next.refreshToken;
+  state.previousRefreshToken = next.previousRefreshToken;
+  state.idToken = next.idToken;
+  state.accessExpireAt = next.accessExpireAt;
   state.cookies = next.cookies;
-  return projection;
+  return publishDeviceAuthorizationProjection(projection);
 };
 
 const safePublicString = (
@@ -673,6 +771,15 @@ const mergeCookies = (
     ) {
       return fail(stage);
     }
+    const mappedReferenceName = referenceCookieNameMappings.get(parsed.key);
+    if (
+      (state.targetLabel === 'candidate' && parsed.key.startsWith('_logto')) ||
+      (state.targetLabel === 'oracle' &&
+        parsed.key.startsWith('_logto') &&
+        mappedReferenceName === undefined)
+    ) {
+      return fail(stage);
+    }
     const options = attributes.map((attribute) => {
       const option = attribute.split('=', 1)[0]?.toLowerCase() ?? '';
       return cookieNamePattern.test(option) ? option : fail(stage);
@@ -715,7 +822,15 @@ const mergeCookies = (
     ) {
       return fail(stage);
     }
-    projections.push(Object.freeze({ name: parsed.key, options: Object.freeze(options) }));
+    projections.push(
+      Object.freeze({
+        name: state.targetLabel === 'oracle' ? (mappedReferenceName ?? parsed.key) : parsed.key,
+        options: Object.freeze(options),
+        clearing:
+          accepted.value.length === 0 ||
+          (accepted.expiryTime() ?? Number.POSITIVE_INFINITY) <= Date.now(),
+      })
+    );
   }
   projections.sort(({ name: left }, { name: right }) => left.localeCompare(right));
   return Object.freeze(projections);
@@ -1046,10 +1161,35 @@ const projectResponseUnchecked = async (
     next.userCode = userCode;
     next.codesExpireAt = Date.now() + expiresIn * 1000;
   }
+  const responseTokens: Partial<Record<'access_token' | 'refresh_token' | 'id_token', string>> = {};
   for (const tokenField of ['access_token', 'refresh_token', 'id_token'] as const) {
     if (parsed[tokenField] !== undefined) {
-      registerSensitiveValue(registry, boundedString(parsed[tokenField], stage, 16 * 1024));
+      const token = boundedString(parsed[tokenField], stage, 16 * 1024);
+      registerSensitiveValue(registry, token);
+      responseTokens[tokenField] = token;
     }
+  }
+  if (
+    operation === 'token' &&
+    response.status >= 200 &&
+    response.status < 300 &&
+    (Object.keys(responseTokens).length > 0 || parsed.token_type !== undefined)
+  ) {
+    const accessToken = responseTokens.access_token ?? fail(stage);
+    const refreshToken = responseTokens.refresh_token;
+    const idToken = responseTokens.id_token;
+    const tokenExpiresIn = positiveExpiryField(parsed.expires_in, stage);
+    const issuedTokens = [accessToken, refreshToken, idToken].filter(
+      (token): token is string => token !== undefined
+    );
+    if (parsed.token_type !== 'Bearer' || new Set(issuedTokens).size !== issuedTokens.length) {
+      return fail(stage);
+    }
+    next.accessToken = accessToken;
+    next.refreshToken = refreshToken;
+    next.previousRefreshToken = undefined;
+    next.idToken = idToken;
+    next.accessExpireAt = Date.now() + tokenExpiresIn * 1000;
   }
   const keys = Object.keys(parsed).sort();
   if (keys.length > 32 || keys.some((key) => !fieldNamePattern.test(key))) {
@@ -1414,6 +1554,731 @@ const prepareTokenPoll = (
   });
 };
 
+type PreparedLifecycleRequest = Readonly<{
+  kind: DeviceLifecycleKind;
+  method: 'GET' | 'POST' | 'PUT';
+  url: URL;
+  headers: Headers;
+  body?: string | URLSearchParams;
+  sensitiveValues: readonly string[];
+  expectedSubjectId?: string;
+  expectedClientId?: string;
+}>;
+
+const applyClientProof = (
+  proof: unknown,
+  form: URLSearchParams,
+  headers: Headers,
+  sensitiveValues: string[],
+  stage: string
+): void => {
+  const source = snapshotDataRecord(proof, new Set(['method', 'clientId', 'clientSecret']), stage);
+  const { method } = source;
+  const expectedKeys =
+    method === 'public'
+      ? new Set(['method', 'clientId'])
+      : new Set(['method', 'clientId', 'clientSecret']);
+  if (!['public', 'basic', 'post'].includes(String(method)) || !hasOnlyKeys(source, expectedKeys)) {
+    fail(stage);
+  }
+  const clientId = boundedString(source.clientId, stage, maximumFieldBytes);
+  if (method === 'public') {
+    form.set('client_id', clientId);
+    return;
+  }
+  const clientSecret = boundedString(source.clientSecret, stage, maximumFieldBytes);
+  sensitiveValues.push(clientSecret);
+  if (method === 'post') {
+    form.set('client_id', clientId);
+    form.set('client_secret', clientSecret);
+    return;
+  }
+  const encodedClientId = encodeOauthBasicComponent(clientId);
+  const encodedClientSecret = encodeOauthBasicComponent(clientSecret);
+  const payload = Buffer.from(`${encodedClientId}:${encodedClientSecret}`, 'utf8').toString(
+    'base64'
+  );
+  const authorization = `Basic ${payload}`;
+  sensitiveValues.push(encodedClientSecret, payload, authorization);
+  headers.set('authorization', authorization);
+};
+
+const localStoredUrl = (value: string | undefined, base: URL, stage: string): URL => {
+  const raw = value ?? fail(stage);
+  let url: URL;
+  try {
+    url = new URL(raw, base);
+  } catch {
+    return fail(stage);
+  }
+  if (url.origin !== base.origin || url.username || url.password || url.hash) {
+    return fail(stage);
+  }
+  return url;
+};
+
+const prepareLifecycleRequest = (
+  request: DeviceLifecycleRequest,
+  base: URL,
+  state: TransportState
+): PreparedLifecycleRequest => {
+  const stage = 'lifecycle-request';
+  const input = snapshotDataRecord(
+    request,
+    new Set([
+      'kind',
+      'method',
+      'username',
+      'password',
+      'proof',
+      'scope',
+      'resource',
+      'organizationId',
+      'token',
+      'hint',
+      'clientId',
+      'postLogoutRedirectUri',
+      'state',
+      'confirm',
+      'expectedSubjectId',
+      'expectedClientId',
+    ]),
+    stage
+  );
+  const kind = input.kind as DeviceLifecycleKind;
+  const { method } = input;
+  const headers = new Headers();
+  const sensitiveValues: string[] = [];
+  let url: URL;
+  let body: string | URLSearchParams | undefined;
+  let expectedSubjectId: string | undefined;
+  let expectedClientId: string | undefined;
+  const exact = (keys: readonly string[]): void => {
+    if (!hasOnlyKeys(input, new Set(['kind', 'method', ...keys]))) {
+      fail(stage);
+    }
+  };
+  const json = (value: Readonly<Record<string, unknown>>): void => {
+    headers.set('content-type', 'application/json');
+    body = JSON.stringify(value);
+  };
+  if (kind === 'verification-success') {
+    exact([]);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    url = new URL('/device/success', base);
+  } else if (kind === 'experience-open') {
+    exact([]);
+    if (method !== 'PUT') {
+      fail(stage);
+    }
+    url = new URL('/api/experience', base);
+    json({ interactionEvent: 'SignIn' });
+  } else if (kind === 'password-verification') {
+    exact(['username', 'password']);
+    if (method !== 'POST') {
+      fail(stage);
+    }
+    const username = boundedString(input.username, stage, maximumFieldBytes);
+    const password = boundedString(input.password, stage, 256);
+    sensitiveValues.push(password);
+    url = new URL('/api/experience/verification/password', base);
+    json({ identifier: { type: 'username', value: username }, password });
+  } else if (kind === 'identification') {
+    exact([]);
+    if (method !== 'POST') {
+      fail(stage);
+    }
+    const verificationId = state.verificationId ?? fail(stage);
+    sensitiveValues.push(verificationId);
+    url = new URL('/api/experience/identification', base);
+    json({ verificationId });
+  } else if (kind === 'experience-submit') {
+    exact([]);
+    if (method !== 'POST') {
+      fail(stage);
+    }
+    url = new URL('/api/experience/submit', base);
+  } else if (kind === 'consent-read') {
+    exact([]);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    url = new URL('/api/interaction/consent', base);
+  } else if (kind === 'consent-write') {
+    exact([]);
+    if (method !== 'POST') {
+      fail(stage);
+    }
+    url = new URL('/api/interaction/consent', base);
+    json({});
+  } else if (kind === 'resume') {
+    exact([]);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    url = localStoredUrl(state.resumeUrl, base, stage);
+    sensitiveValues.push(state.resumeUrl ?? fail(stage));
+  } else if (kind === 'refresh') {
+    exact(['proof', 'scope', 'resource', 'organizationId']);
+    if (method !== 'POST') {
+      fail(stage);
+    }
+    const refreshToken = state.refreshToken ?? fail(stage);
+    const form = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken });
+    sensitiveValues.push(refreshToken);
+    applyClientProof(input.proof, form, headers, sensitiveValues, stage);
+    for (const [inputName, wireName] of [
+      ['scope', 'scope'],
+      ['resource', 'resource'],
+      ['organizationId', 'organization_id'],
+    ] as const) {
+      if (input[inputName] !== undefined) {
+        form.set(wireName, boundedString(input[inputName], stage, maximumFieldBytes));
+      }
+    }
+    headers.set('content-type', 'application/x-www-form-urlencoded');
+    url = new URL('/oidc/token', base);
+    body = form;
+  } else if (kind === 'userinfo') {
+    exact(['expectedSubjectId']);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    expectedSubjectId = boundedString(input.expectedSubjectId, stage, maximumFieldBytes);
+    sensitiveValues.push(expectedSubjectId);
+    const accessToken = state.accessToken ?? fail(stage);
+    const authorization = `Bearer ${accessToken}`;
+    headers.set('authorization', authorization);
+    sensitiveValues.push(accessToken, authorization);
+    url = new URL('/oidc/me', base);
+  } else if (kind === 'introspection' || kind === 'revocation') {
+    exact(['proof', 'token', 'hint', 'expectedSubjectId', 'expectedClientId']);
+    if (method !== 'POST' || !['access', 'refresh'].includes(String(input.token))) {
+      fail(stage);
+    }
+    const token = input.token === 'access' ? state.accessToken : state.refreshToken;
+    const credential = token ?? fail(stage);
+    const form = new URLSearchParams({ token: credential });
+    sensitiveValues.push(credential);
+    if (input.hint !== undefined) {
+      if (!['access_token', 'refresh_token'].includes(String(input.hint))) {
+        fail(stage);
+      }
+      form.set('token_type_hint', String(input.hint));
+    }
+    applyClientProof(input.proof, form, headers, sensitiveValues, stage);
+    if (kind === 'introspection') {
+      expectedSubjectId = boundedString(input.expectedSubjectId, stage, maximumFieldBytes);
+      expectedClientId = boundedString(input.expectedClientId, stage, maximumFieldBytes);
+      sensitiveValues.push(expectedSubjectId, expectedClientId);
+    } else if (input.expectedSubjectId !== undefined || input.expectedClientId !== undefined) {
+      fail(stage);
+    }
+    headers.set('content-type', 'application/x-www-form-urlencoded');
+    url = new URL(`/oidc/token/${kind}`, base);
+    body = form;
+  } else if (kind === 'logout-open') {
+    exact(['clientId', 'postLogoutRedirectUri', 'state']);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    url = new URL('/oidc/session/end', base);
+    url.searchParams.set('client_id', boundedString(input.clientId, stage, maximumFieldBytes));
+    if (state.idToken !== undefined) {
+      url.searchParams.set('id_token_hint', state.idToken);
+      sensitiveValues.push(state.idToken);
+    }
+    if (input.postLogoutRedirectUri !== undefined) {
+      const redirect = boundedString(input.postLogoutRedirectUri, stage, 8192);
+      const parsed = new URL(redirect);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+        fail(stage);
+      }
+      url.searchParams.set('post_logout_redirect_uri', redirect);
+    }
+    if (input.state !== undefined) {
+      url.searchParams.set('state', boundedString(input.state, stage, maximumFieldBytes));
+    }
+  } else if (kind === 'logout-confirm') {
+    exact(['confirm']);
+    if (method !== 'POST' || typeof input.confirm !== 'boolean') {
+      fail(stage);
+    }
+    url = localStoredUrl(state.logoutAction, base, stage);
+    const xsrf = state.logoutXsrf ?? fail(stage);
+    const form = new URLSearchParams({ xsrf });
+    if (input.confirm) {
+      form.set('logout', 'yes');
+    }
+    headers.set('content-type', 'application/x-www-form-urlencoded');
+    sensitiveValues.push(xsrf);
+    body = form;
+  } else if (kind === 'oidc-discovery' || kind === 'oauth-discovery') {
+    exact([]);
+    if (method !== 'GET') {
+      fail(stage);
+    }
+    url = new URL(
+      kind === 'oidc-discovery'
+        ? '/oidc/.well-known/openid-configuration'
+        : '/oidc/.well-known/oauth-authorization-server',
+      base
+    );
+  } else {
+    return fail(stage);
+  }
+  const browserKinds = new Set<DeviceLifecycleKind>([
+    'verification-success',
+    'experience-open',
+    'password-verification',
+    'identification',
+    'experience-submit',
+    'consent-read',
+    'consent-write',
+    'resume',
+    'logout-open',
+    'logout-confirm',
+  ]);
+  if (browserKinds.has(kind)) {
+    const cookies = cookieHeader(state, url, stage);
+    if (cookies !== undefined) {
+      headers.set('cookie', cookies);
+    }
+  }
+  return Object.freeze({
+    kind,
+    method: method as 'GET' | 'POST' | 'PUT',
+    url,
+    headers,
+    ...(body === undefined ? {} : { body }),
+    sensitiveValues: Object.freeze(sensitiveValues),
+    ...(expectedSubjectId === undefined ? {} : { expectedSubjectId }),
+    ...(expectedClientId === undefined ? {} : { expectedClientId }),
+  });
+};
+
+const lifecycleStatuses: Readonly<Record<DeviceLifecycleKind, ReadonlySet<number>>> = Object.freeze(
+  {
+    'verification-success': new Set([200]),
+    'experience-open': new Set([204]),
+    'password-verification': new Set([200]),
+    identification: new Set([204]),
+    'experience-submit': new Set([200]),
+    'consent-read': new Set([200]),
+    'consent-write': new Set([200]),
+    resume: new Set([302, 303]),
+    refresh: new Set([200, 400, 401]),
+    userinfo: new Set([200, 401]),
+    introspection: new Set([200, 400, 401]),
+    revocation: new Set([200, 400, 401]),
+    'logout-open': new Set([200, 302, 303]),
+    'logout-confirm': new Set([303]),
+    'oidc-discovery': new Set([200]),
+    'oauth-discovery': new Set([200]),
+  }
+);
+
+const jsonObject = (text: string, stage: string): Record<string, unknown> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return fail(stage);
+  }
+  const source = isPlainRecord(parsed) ? parsed : fail(stage);
+  const keys = Object.keys(source);
+  if (keys.length > 128 || keys.some((key) => !fieldNamePattern.test(key))) {
+    return fail(stage);
+  }
+  return source;
+};
+
+const markerFacts = (marker: string): Readonly<Record<string, unknown>> =>
+  Object.freeze({ marker });
+
+const htmlInputValue = (body: string, name: string): string | undefined => {
+  const escaped = name.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return (
+    new RegExp(`<input\\b[^>]*\\bname=["']${escaped}["'][^>]*\\bvalue=["']([^"']+)["']`, 'iu').exec(
+      body
+    )?.[1] ??
+    new RegExp(`<input\\b[^>]*\\bvalue=["']([^"']+)["'][^>]*\\bname=["']${escaped}["']`, 'iu').exec(
+      body
+    )?.[1]
+  );
+};
+
+const commitLifecycleState = (state: TransportState, next: TransportState): void => {
+  assertActive(state);
+  for (const key of [
+    'deviceCode',
+    'userCode',
+    'codesExpireAt',
+    'xsrf',
+    'xsrfCookieIdentity',
+    'xsrfExpireAt',
+    'verificationId',
+    'resumeUrl',
+    'resumeStage',
+    'logoutXsrf',
+    'logoutAction',
+    'accessToken',
+    'refreshToken',
+    'previousRefreshToken',
+    'idToken',
+    'accessExpireAt',
+  ] as const) {
+    state[key] = next[key] as never;
+  }
+  state.cookies = next.cookies;
+};
+
+const projectLifecycleResponse = async (
+  response: Response,
+  prepared: PreparedLifecycleRequest,
+  base: URL,
+  state: TransportState,
+  limits: ResponseLimits,
+  maximumSensitiveValues: number
+): Promise<DeviceLifecycleProjection> => {
+  const stage = 'lifecycle-response';
+  if (response.redirected || !lifecycleStatuses[prepared.kind].has(response.status)) {
+    await cancelResponseBodySafely(response.body ?? undefined);
+    return fail(stage);
+  }
+  const next = snapshotState(state);
+  const registry = createSensitiveRegistry(next, maximumSensitiveValues, stage);
+  for (const sensitive of prepared.sensitiveValues) {
+    registerSensitiveValue(registry, sensitive);
+  }
+  const cookies = mergeCookies(next, response.headers, prepared.url, registry, stage);
+  const headers = projectHeaders(response.headers, limits.headers, registry.values, false, stage);
+  const contentType = normalizedContentType(response.headers, stage);
+  const challenge = projectChallenge(response.headers, base, registry.values, false, stage);
+  const rawLocation = response.headers.get('location') ?? undefined;
+  const location = projectUrl(rawLocation, base, stage);
+  const bytes = await readBoundedBody(response, limits.body, stage);
+  const bodyText = new TextDecoder('utf8', { fatal: true }).decode(bytes);
+  const parsed = contentType === 'application/json' ? jsonObject(bodyText, stage) : undefined;
+  if (
+    parsed === undefined &&
+    bodyText.length > 0 &&
+    contentType !== 'text/html' &&
+    contentType !== 'text/plain'
+  ) {
+    return fail(stage);
+  }
+  let facts: Readonly<Record<string, unknown>>;
+  const { kind } = prepared;
+  if (kind === 'password-verification') {
+    const verificationId = boundedString(parsed?.verificationId, stage, maximumFieldBytes);
+    registerSensitiveValue(registry, verificationId);
+    next.verificationId = verificationId;
+    facts = markerFacts('password-verified');
+  } else if (kind === 'experience-submit' || kind === 'consent-write') {
+    const redirectTo = boundedString(parsed?.redirectTo, stage, 8192);
+    const redirect = localStoredUrl(redirectTo, base, stage);
+    registerSensitiveValue(registry, redirectTo);
+    next.resumeUrl = redirect.href;
+    next.resumeStage =
+      kind === 'experience-submit' ? 'after-experience-submit' : 'after-consent-write';
+    facts = Object.freeze({
+      marker: kind === 'experience-submit' ? 'experience-submitted' : 'consent-recorded',
+      redirect: projectUrl(redirect.href, base, stage),
+    });
+  } else if (kind === 'refresh' && response.status === 200) {
+    const accessToken = boundedString(parsed?.access_token, stage, 16 * 1024);
+    const refreshToken = boundedString(parsed?.refresh_token, stage, 16 * 1024);
+    const issuedIdToken =
+      parsed?.id_token === undefined ? undefined : boundedString(parsed.id_token, stage, 16 * 1024);
+    const expiresIn = positiveExpiryField(parsed?.expires_in, stage);
+    const previousRefreshToken = next.refreshToken ?? fail(stage);
+    if (
+      parsed?.token_type !== 'Bearer' ||
+      accessToken === refreshToken ||
+      refreshToken === previousRefreshToken ||
+      (issuedIdToken !== undefined &&
+        new Set([accessToken, refreshToken, issuedIdToken]).size !== 3)
+    ) {
+      return fail(stage);
+    }
+    for (const token of [accessToken, refreshToken, issuedIdToken]) {
+      if (token !== undefined) {
+        registerSensitiveValue(registry, token);
+      }
+    }
+    next.previousRefreshToken = previousRefreshToken;
+    next.accessToken = accessToken;
+    next.refreshToken = refreshToken;
+    if (issuedIdToken !== undefined) {
+      next.idToken = issuedIdToken;
+    }
+    next.accessExpireAt = Date.now() + expiresIn * 1000;
+    const { scope } = parsed;
+    facts = Object.freeze({
+      marker: 'tokens-refreshed',
+      tokenType: 'Bearer',
+      expiresIn,
+      refreshRotated: true,
+      idTokenIssued: issuedIdToken !== undefined,
+      ...(scope === undefined
+        ? {}
+        : {
+            scopes: Object.freeze(boundedString(scope, stage, maximumFieldBytes).split(' ').sort()),
+          }),
+    });
+  } else if (kind === 'userinfo' && response.status === 200) {
+    if (Object.keys(parsed ?? {}).some((key) => sensitiveResponseKeyPattern.test(key))) {
+      return fail(stage);
+    }
+    const subject = boundedString(parsed?.sub, stage, maximumFieldBytes);
+    if (subject !== prepared.expectedSubjectId) {
+      return fail(stage);
+    }
+    registerSensitiveValue(registry, subject);
+    facts = Object.freeze({
+      marker: 'userinfo',
+      subject: '<subject>',
+      keys: Object.freeze(Object.keys(parsed ?? {}).sort()),
+      ...(typeof parsed?.email_verified === 'boolean'
+        ? { emailVerified: parsed.email_verified }
+        : {}),
+      ...(typeof parsed?.phone_number_verified === 'boolean'
+        ? { phoneNumberVerified: parsed.phone_number_verified }
+        : {}),
+    });
+  } else if (kind === 'introspection' && response.status === 200) {
+    if (typeof parsed?.active !== 'boolean') {
+      return fail(stage);
+    }
+    if (parsed.active) {
+      const allowedKeys = new Set([
+        'active',
+        'sub',
+        'client_id',
+        'exp',
+        'iat',
+        'iss',
+        'scope',
+        'token_type',
+      ]);
+      const keys = Object.keys(parsed);
+      const subject = boundedString(parsed.sub, stage, maximumFieldBytes);
+      const clientId = boundedString(parsed.client_id, stage, maximumFieldBytes);
+      const issuer = boundedString(parsed.iss, stage, 8192);
+      const issuedAt = parsed.iat;
+      const expiresAt = parsed.exp;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const scope = boundedString(parsed.scope, stage, maximumFieldBytes);
+      const tokenType = parsed.token_type;
+      if (
+        keys.some((key) => !allowedKeys.has(key)) ||
+        subject !== prepared.expectedSubjectId ||
+        clientId !== prepared.expectedClientId ||
+        issuer !== new URL('/oidc', base).href.replace(/\/$/u, '') ||
+        !Number.isSafeInteger(issuedAt) ||
+        !Number.isSafeInteger(expiresAt) ||
+        Number(issuedAt) > nowSeconds + 1 ||
+        Number(expiresAt) <= nowSeconds ||
+        Number(expiresAt) <= Number(issuedAt) ||
+        Number(expiresAt) - Number(issuedAt) > 86_400 ||
+        (tokenType !== undefined && tokenType !== 'Bearer')
+      ) {
+        return fail(stage);
+      }
+      registerSensitiveValue(registry, subject);
+      registerSensitiveValue(registry, clientId);
+      facts = Object.freeze({
+        marker: 'introspection',
+        active: true,
+        subject: '<subject>',
+        clientId: '<client>',
+        issuer: '<target-issuer>',
+        issuedAt: '<issued-at>',
+        lifetimeSeconds: Number(expiresAt) - Number(issuedAt),
+        scopes: Object.freeze(scope.split(' ').sort()),
+        ...(tokenType === undefined ? {} : { tokenType }),
+      });
+    } else {
+      if (Object.keys(parsed).length !== 1) {
+        return fail(stage);
+      }
+      facts = Object.freeze({ marker: 'introspection', active: false });
+    }
+  } else if (kind === 'revocation' && response.status === 200) {
+    if (bodyText.length > 0) {
+      return fail(stage);
+    }
+    facts = markerFacts('revoked');
+  } else if (kind === 'logout-open' && response.status === 200) {
+    if (contentType !== 'text/html') {
+      return fail(stage);
+    }
+    const experience = projectExperience(bodyText, base, registry.values, stage);
+    const xsrf = boundedString(htmlInputValue(bodyText, 'xsrf'), stage, maximumFieldBytes);
+    const action = experience.formAction ?? fail(stage);
+    const actionUrl = new URL(action.path, action.origin);
+    if (actionUrl.origin !== base.origin) {
+      return fail(stage);
+    }
+    registerSensitiveValue(registry, xsrf);
+    next.logoutXsrf = xsrf;
+    next.logoutAction = actionUrl.href;
+    facts = Object.freeze({
+      marker: 'logout-confirmation',
+      title: experience.title,
+      formAction: experience.formAction,
+      inputNames: experience.inputNames,
+    });
+  } else if (kind === 'logout-open' && [302, 303].includes(response.status)) {
+    if (location === undefined) {
+      return fail(stage);
+    }
+    facts = markerFacts('logout-finished');
+  } else if (kind === 'oidc-discovery' || kind === 'oauth-discovery') {
+    const issuer = boundedString(parsed?.issuer, stage, 8192);
+    if (issuer !== new URL('/oidc', base).href.replace(/\/$/u, '')) {
+      return fail(stage);
+    }
+    const endpointPaths = Object.freeze({
+      authorization_endpoint: '/oidc/auth',
+      token_endpoint: '/oidc/token',
+      jwks_uri: '/oidc/jwks',
+      userinfo_endpoint: '/oidc/me',
+      device_authorization_endpoint: '/oidc/device/auth',
+      introspection_endpoint: '/oidc/token/introspection',
+      revocation_endpoint: '/oidc/token/revocation',
+      end_session_endpoint: '/oidc/session/end',
+    });
+    const endpoints: Record<string, DeviceAuthorizationUrlProjection> = {};
+    for (const [name, path] of Object.entries(endpointPaths)) {
+      const endpoint = projectUrl(parsed?.[name], base, stage) ?? fail(stage);
+      if (
+        endpoint.origin !== base.origin ||
+        endpoint.path !== path ||
+        endpoint.queryKeys.length > 0
+      ) {
+        return fail(stage);
+      }
+      endpoints[name] = endpoint;
+    }
+    facts = Object.freeze({
+      marker: kind,
+      issuer: '<target-issuer>',
+      endpoints: Object.freeze(endpoints),
+      keys: Object.freeze(Object.keys(parsed ?? {}).sort()),
+    });
+  } else if (
+    (kind === 'refresh' ||
+      kind === 'userinfo' ||
+      kind === 'introspection' ||
+      kind === 'revocation') &&
+    response.status >= 400
+  ) {
+    facts = markerFacts('oauth-error');
+  } else if (kind === 'verification-success') {
+    if (contentType !== 'text/html') {
+      return fail(stage);
+    }
+    if (!/<div\s+id=["']app["'][^>]*>/iu.test(bodyText)) {
+      return fail(stage);
+    }
+    facts = Object.freeze({
+      marker: 'device-success',
+      shell: 'experience-app',
+    });
+  } else if (kind === 'consent-read') {
+    if (parsed?.redirectUri !== undefined) {
+      return fail(stage);
+    }
+    const missingOidcScopes = parsed?.missingOIDCScope ?? [];
+    const missingResourceScopes = parsed?.missingResourceScopes ?? [];
+    if (
+      !Array.isArray(missingOidcScopes) ||
+      missingOidcScopes.some((scope) => typeof scope !== 'string') ||
+      !Array.isArray(missingResourceScopes)
+    ) {
+      return fail(stage);
+    }
+    const projectedMissingOidcScopes = (missingOidcScopes as unknown[])
+      .map((scope) => boundedString(scope, stage, maximumFieldBytes))
+      .sort((left, right) => left.localeCompare(right));
+    facts = Object.freeze({
+      marker: 'consent-presented',
+      redirectUriAbsent: true,
+      missingOidcScopes: Object.freeze(projectedMissingOidcScopes),
+      missingResourceScopeCount: missingResourceScopes.length,
+    });
+  } else if (kind === 'resume') {
+    const resumeStage = next.resumeStage ?? fail(stage);
+    if (
+      (resumeStage === 'after-experience-submit' &&
+        (response.status !== 303 ||
+          location?.origin !== base.origin ||
+          location.path !== '/consent' ||
+          location.queryKeys.length !== 1 ||
+          location.queryKeys[0] !== 'app_id')) ||
+      (resumeStage === 'after-consent-write' &&
+        (response.status !== 302 ||
+          location?.origin !== base.origin ||
+          location.path !== '/device/success' ||
+          location.queryKeys.length > 0))
+    ) {
+      return fail(stage);
+    }
+    next.resumeUrl = undefined;
+    next.resumeStage = undefined;
+    facts = Object.freeze(
+      resumeStage === 'after-experience-submit'
+        ? { marker: 'consent-redirect', stage: resumeStage }
+        : { marker: 'device-success-redirect', stage: resumeStage }
+    );
+  } else {
+    facts = markerFacts(
+      kind === 'experience-open'
+        ? 'experience-opened'
+        : kind === 'identification'
+          ? 'subject-identified'
+          : kind === 'logout-confirm'
+            ? 'logout-finished'
+            : kind
+    );
+  }
+  const oauthError =
+    parsed?.error === undefined && parsed?.error_description === undefined
+      ? projectRedirectError(rawLocation, base, registry.values, stage)
+      : Object.freeze({
+          category: safePublicString(parsed.error, registry.values, stage, 256),
+          description: safePublicString(parsed.error_description, registry.values, stage, 2048),
+        });
+  const projection = publishDeviceLifecycleProjection(
+    Object.freeze({
+      kind,
+      status: response.status,
+      contentType,
+      headers,
+      cookies,
+      challenge,
+      location,
+      oauthError,
+      facts,
+    }) as DeviceLifecycleProjection
+  );
+  const serialized = JSON.stringify(projection).toLowerCase();
+  if (
+    containsCompactJwt(serialized) ||
+    [...registry.values].some(
+      (sensitive) => sensitive.length > 0 && serialized.includes(sensitive.toLowerCase())
+    )
+  ) {
+    return fail(stage);
+  }
+  commitLifecycleState(state, next);
+  return projection;
+};
+
 export const createDeviceAuthorizationTransportLease = (
   options: DeviceAuthorizationTransportOptions
 ): DeviceAuthorizationTransportLease => {
@@ -1477,8 +2342,10 @@ export const createDeviceAuthorizationTransportLease = (
   const timeoutMs = boundedInteger(input.timeoutMs, 10_000, 1, maximumTimeoutMs, 'options');
   const base = new URL(target.coreUrl);
   const state: TransportState = {
+    targetLabel: target.label,
     active: true,
     operationActive: false,
+    credentialLeaseActive: false,
     cookies: new CookieJar(undefined, { allowSpecialUseDomain: true }),
     controllers: new Set(),
   };
@@ -1641,6 +2508,134 @@ export const createDeviceAuthorizationTransportLease = (
         state.operationActive = false;
       }
     },
+    requestLifecycle: async (
+      request: DeviceLifecycleRequest
+    ): Promise<DeviceLifecycleProjection> => {
+      assertAvailable(state);
+      const prepared = fixedFailure('lifecycle-request', () =>
+        prepareLifecycleRequest(request, base, state)
+      );
+      fixedFailure('lifecycle-request', () => {
+        assertRequestBounds(
+          prepared.url,
+          prepared.headers,
+          prepared.body,
+          requestLimits,
+          'lifecycle-request'
+        );
+      });
+      const control = beginRequest(state, timeoutMs);
+      try {
+        let response: Response;
+        try {
+          response = await requestFetch(prepared.url, {
+            method: prepared.method,
+            headers: prepared.headers,
+            ...(prepared.body === undefined ? {} : { body: prepared.body }),
+            redirect: 'manual',
+            signal: control.signal,
+          });
+        } catch {
+          return fail('lifecycle-request');
+        }
+        try {
+          return await projectLifecycleResponse(
+            response,
+            prepared,
+            base,
+            state,
+            limits,
+            sensitiveVariantLimit
+          );
+        } catch {
+          await cancelResponseBodySafely(response.body ?? undefined);
+          return fail('lifecycle-response');
+        }
+      } finally {
+        state.controllers.delete(control.controller);
+        state.operationActive = false;
+      }
+    },
+    withCredentialLease: async <Result>(
+      use: (lease: DeviceCredentialLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('credential-lease');
+      }
+      const { accessToken, refreshToken, idToken } = state;
+      const { previousRefreshToken } = state;
+      if (accessToken === undefined && refreshToken === undefined && idToken === undefined) {
+        return fail('credential-lease');
+      }
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'credential-lease',
+      };
+      for (const token of [accessToken, refreshToken, idToken, previousRefreshToken]) {
+        if (token !== undefined) {
+          registerSensitiveValue(registry, token);
+        }
+      }
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const read = (
+        value: string | undefined,
+        current: () => string | undefined
+      ): string | undefined => {
+        assertActive(state);
+        pruneExpiredState(state);
+        if (!valid || (value !== undefined && current() !== value)) {
+          return fail('credential-lease');
+        }
+        return value;
+      };
+      const credentialLease: DeviceCredentialLease = Object.freeze({
+        getAccessToken: () => read(accessToken, () => state.accessToken),
+        getRefreshToken: () => read(refreshToken, () => state.refreshToken),
+        getIdToken: () => read(idToken, () => state.idToken),
+        getPreviousRefreshToken: () => read(previousRefreshToken, () => state.previousRefreshToken),
+        toJSON: (): never => fail('credential-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(credentialLease);
+        } catch {
+          return fail('credential-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        if (
+          state.accessToken !== accessToken ||
+          state.refreshToken !== refreshToken ||
+          state.idToken !== idToken
+        ) {
+          return fail('credential-lease');
+        }
+        assertDeviceAuthorizationEvidenceIsSanitized(result);
+        let serialized: string;
+        try {
+          serialized = JSON.stringify(result) ?? '';
+        } catch {
+          return fail('credential-lease');
+        }
+        const normalized = serialized.toLowerCase();
+        if (
+          containsCompactJwt(serialized) ||
+          [...registry.values].some(
+            (sensitive) => sensitive.length > 0 && normalized.includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('credential-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
     clear: () => {
       clearState(state);
     },
@@ -1649,4 +2644,4 @@ export const createDeviceAuthorizationTransportLease = (
   return lease;
 };
 
-/* eslint-enable complexity, max-lines, max-params, no-await-in-loop, no-control-regex, no-restricted-syntax, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, max-params, no-await-in-loop, no-control-regex, no-restricted-syntax, unicorn/prefer-switch, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
