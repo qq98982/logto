@@ -2251,7 +2251,9 @@ const projectLifecycleResponse = async (
       ...(scope === undefined
         ? {}
         : {
-            scopes: Object.freeze(boundedString(scope, stage, maximumFieldBytes).split(' ').sort()),
+            scopes: Object.freeze(
+              scope === '' ? [] : boundedString(scope, stage, maximumFieldBytes).split(' ').sort()
+            ),
           }),
     });
   } else if (kind === 'userinfo' && response.status === 200) {

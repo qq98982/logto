@@ -2100,6 +2100,72 @@ describe('Phase 2 device authorization transport', () => {
     ).rejects.toThrow('Invalid Phase 2 device authorization transport (credential-lease)');
   });
 
+  it('projects an empty scope from a successful organization refresh', async () => {
+    const requests: URLSearchParams[] = [];
+    const replies = [
+      jsonResponse(authorizationBody),
+      jsonResponse({
+        access_token: 'private-access-token-one',
+        refresh_token: 'private-refresh-token-one',
+        id_token: 'private-id-token-one',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      }),
+      jsonResponse({
+        access_token: 'private-access-token-two',
+        refresh_token: 'private-refresh-token-two',
+        id_token: 'private-id-token-two',
+        expires_in: 3600,
+        token_type: 'Bearer',
+        scope: '',
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (_input, init) => {
+        if (init?.body instanceof URLSearchParams) {
+          requests.push(init.body);
+        }
+        return replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+      }) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.pollToken({ proof: { method: 'public', clientId: 'device-client' } });
+    const refreshed = await lease.requestLifecycle({
+      kind: 'refresh',
+      method: 'POST',
+      proof: { method: 'public', clientId: 'device-client' },
+      organizationId: 'org-1',
+    });
+
+    expect(refreshed.facts).toEqual({
+      marker: 'tokens-refreshed',
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      refreshRotated: true,
+      idTokenIssued: true,
+      scopes: [],
+    });
+    expect(requests[2]?.get('scope')).toBeNull();
+    expect(
+      await lease.withCredentialLease((credentials) => ({
+        accessUpdated: credentials.getAccessToken() === 'private-access-token-two',
+        refreshUpdated: credentials.getRefreshToken() === 'private-refresh-token-two',
+        idUpdated: credentials.getIdToken() === 'private-id-token-two',
+        previousRetained: credentials.getPreviousRefreshToken() === 'private-refresh-token-one',
+      }))
+    ).toEqual({
+      accessUpdated: true,
+      refreshUpdated: true,
+      idUpdated: true,
+      previousRetained: true,
+    });
+    lease.clear();
+  });
+
   it('keeps credential leases callback-scoped and rejects concurrency, clear and expired state', async () => {
     const replies = [
       jsonResponse(authorizationBody),
