@@ -118,12 +118,18 @@ def endpoint(value, core, admin):
     exact(value,["label","coreUrl","adminUrl"])
     if value != {"label":"candidate","coreUrl":core,"adminUrl":admin}: raise ValueError()
 def fixture(value):
-    exact(value,["allocationId","clients","resources","organization","scopes","boundary"])
+    exact(value,["allocationId","clients","deviceClients","resources","organization","scopes","boundary"])
     text(value["allocationId"],r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
     exact(value["clients"],["basic","post"])
     for name,method in (("basic","client_secret_basic"),("post","client_secret_post")):
         exact(value["clients"][name],["id","method"]); text(value["clients"][name]["id"],r"^[A-Za-z0-9._~-]{1,128}$")
         if value["clients"][name]["method"] != method: raise ValueError()
+    exact(value["deviceClients"],["firstParty","thirdParty","missingGrant","ineligibleWeb"])
+    for name,application_type,third_party,grant in (("firstParty","Native",False,True),("thirdParty","Native",True,True),("missingGrant","Native",False,False),("ineligibleWeb","SPA",False,False)):
+        client=value["deviceClients"][name]
+        exact(client,["id","applicationType","authenticationMethod","isThirdParty","deviceGrantEnabled"])
+        text(client["id"],r"^[A-Za-z0-9._~-]{1,128}$")
+        if client["applicationType"] != application_type or client["authenticationMethod"] != "none" or client["isThirdParty"] is not third_party or client["deviceGrantEnabled"] is not grant: raise ValueError()
     exact(value["resources"],["primary","default"])
     for name,indicator in (("primary","https://phase2.example.invalid/api-primary"),("default","https://phase2.example.invalid/api-default")):
         exact(value["resources"][name],["id","indicator"]); text(value["resources"][name]["id"],r"^[A-Za-z0-9._~-]{1,128}$")

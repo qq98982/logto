@@ -32,6 +32,12 @@ import type {
   Phase2ScenarioStateDriver,
   Phase2ScenarioStateObservation,
 } from './scenarios/client-credentials.js';
+import type {
+  DeviceAuthorizationScenarioId,
+  DeviceScenarioHandle,
+  DeviceScenarioStateAction,
+  DeviceScenarioStateDriver,
+} from './scenarios/device-authorization.js';
 
 export type Phase2RuntimeDriver = Readonly<{
   path: string;
@@ -353,37 +359,54 @@ const verifyArtifact = async (
   descriptor: Readonly<{ path: string; sha256: string }>
 ): Promise<Phase2ArtifactIdentity> => {
   await privateParent(descriptor.path);
-  const before = await lstat(descriptor.path).catch(fail);
-  if (
-    before.isSymbolicLink() ||
-    !before.isFile() ||
-    before.uid !== currentUid() ||
-    before.nlink !== 1 ||
-    (before.mode & 0o077) !== 0 ||
-    (before.mode & 0o500) !== 0o500 ||
-    (await realpath(descriptor.path)) !== descriptor.path
-  ) {
-    fail();
-  }
   const handle = await open(descriptor.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(
     fail
   );
   try {
     const state = await handle.stat();
-    if (state.dev !== before.dev || state.ino !== before.ino || state.size > 16 * 1024 * 1024) {
+    if (
+      !state.isFile() ||
+      state.uid !== currentUid() ||
+      (state.mode & 0o777) !== 0o700 ||
+      state.nlink !== 1 ||
+      state.size <= 0 ||
+      state.size > 16 * 1024 * 1024
+    ) {
       fail();
     }
-    const bytes = await handle.readFile();
+    const bytes = new Uint8Array(state.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead <= 0) {
+        fail();
+      }
+      offset += bytesRead;
+    }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const after = await handle.stat();
     const pathAfter = await lstat(descriptor.path);
     if (
       sha256 !== descriptor.sha256 ||
+      !after.isFile() ||
       after.dev !== state.dev ||
       after.ino !== state.ino ||
+      after.uid !== state.uid ||
+      after.mode !== state.mode ||
+      after.nlink !== state.nlink ||
+      after.size !== state.size ||
       after.mtimeMs !== state.mtimeMs ||
+      after.ctimeMs !== state.ctimeMs ||
+      pathAfter.isSymbolicLink() ||
+      !pathAfter.isFile() ||
       pathAfter.dev !== state.dev ||
-      pathAfter.ino !== state.ino
+      pathAfter.ino !== state.ino ||
+      pathAfter.uid !== state.uid ||
+      pathAfter.mode !== state.mode ||
+      pathAfter.nlink !== state.nlink ||
+      pathAfter.size !== state.size ||
+      pathAfter.mtimeMs !== state.mtimeMs ||
+      pathAfter.ctimeMs !== state.ctimeMs
     ) {
       fail();
     }
@@ -826,7 +849,15 @@ const requireResult = (value: unknown): CommandRunnerResult => {
 
 const parseTerminal = (
   stdout: string,
-  operation: 'begin' | 'finish' | 'abort' | 'set-default-resource',
+  operation:
+    | 'begin'
+    | 'finish'
+    | 'abort'
+    | 'set-default-resource'
+    | 'device-begin'
+    | 'device-capture'
+    | 'device-transition'
+    | 'device-abort',
   scenarioId: Phase2DifferentialScenarioId,
   topology: Phase2TopologyIdentity
 ): Record<string, unknown> => {
@@ -834,7 +865,7 @@ const parseTerminal = (
     return fail();
   }
   const expectedKeys =
-    operation === 'begin'
+    operation === 'begin' || operation === 'device-begin'
       ? ['schemaVersion', 'kind', 'operation', 'scenarioId', 'handle', 'attestation']
       : operation === 'finish'
         ? [
@@ -981,7 +1012,7 @@ const parseSideEffects = (value: unknown): Phase2SideEffectFacts => {
 
 export const createCommandPhase2ScenarioStateDriver = async (
   options: StateDriverOptions
-): Promise<Phase2ScenarioStateDriver> => {
+): Promise<Phase2ScenarioStateDriver & DeviceScenarioStateDriver> => {
   const verified = await verifyPhase2Target(options.descriptor);
   const executable = verified.stateDriver.path;
   const runner = options.runner ?? runPhase1FixtureCommand;
@@ -990,7 +1021,15 @@ export const createCommandPhase2ScenarioStateDriver = async (
     LC_ALL: 'C',
   });
   const run = async (
-    operation: 'begin' | 'finish' | 'abort' | 'set-default-resource',
+    operation:
+      | 'begin'
+      | 'finish'
+      | 'abort'
+      | 'set-default-resource'
+      | 'device-begin'
+      | 'device-capture'
+      | 'device-transition'
+      | 'device-abort',
     scenarioId: Phase2DifferentialScenarioId,
     fixture: ProvisionedPhase2Fixture,
     extra: Readonly<Record<string, unknown>> = {}
@@ -1095,6 +1134,66 @@ export const createCommandPhase2ScenarioStateDriver = async (
       if (own(terminal, 'ok') !== true) {
         return fail();
       }
+    },
+    withDeviceHandle: async <Result>(
+      scenarioId: DeviceAuthorizationScenarioId,
+      fixture: ProvisionedPhase2Fixture,
+      use: (handle: DeviceScenarioHandle) => Result | Promise<Result>
+    ): Promise<Result> => {
+      let handle: string | undefined;
+      let outcome: Result | undefined;
+      let callbackError: unknown;
+      let callbackFailed = false;
+      try {
+        const begin = await run('device-begin', scenarioId, fixture);
+        const rawHandle = own(begin, 'handle');
+        handle =
+          typeof rawHandle === 'string' && handlePattern.test(rawHandle) ? rawHandle : fail();
+        const controls: DeviceScenarioHandle = Object.freeze({
+          capture: async () => {
+            const terminal = await run('device-capture', scenarioId, fixture, { handle });
+            if (own(terminal, 'ok') !== true) {
+              fail();
+            }
+          },
+          transition: async (action: DeviceScenarioStateAction) => {
+            const terminal = await run('device-transition', scenarioId, fixture, {
+              handle,
+              action,
+            });
+            if (own(terminal, 'ok') !== true) {
+              fail();
+            }
+          },
+        });
+        outcome = await use(controls);
+      } catch (error: unknown) {
+        callbackFailed = true;
+        callbackError = error;
+      }
+      let cleanupError: unknown;
+      let cleanupFailed = false;
+      try {
+        const terminal = await run('device-abort', scenarioId, fixture, {
+          handle: handle ?? null,
+        });
+        if (own(terminal, 'ok') !== true) {
+          fail();
+        }
+      } catch (error: unknown) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+      if (callbackFailed && cleanupFailed) {
+        throw new AggregateError([callbackError, cleanupError], diagnostic);
+      }
+      if (callbackFailed) {
+        throw callbackError;
+      }
+      if (cleanupFailed) {
+        throw cleanupError;
+      }
+      return outcome as Result;
     },
   });
 };

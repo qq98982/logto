@@ -1,6 +1,6 @@
 /* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One private fake-engine harness exercises both shell protocols, lifecycle state, restoration, and secret argv containment. */
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import net, { type Server } from 'node:net';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -31,6 +31,36 @@ const fixture = {
   clients: {
     basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
     post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
+  },
+  deviceClients: {
+    firstParty: {
+      id: 'phase2-device-first',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: true,
+    },
+    thirdParty: {
+      id: 'phase2-device-third',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: true,
+      deviceGrantEnabled: true,
+    },
+    missingGrant: {
+      id: 'phase2-device-nogrant',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: false,
+    },
+    ineligibleWeb: {
+      id: 'phase2-device-web',
+      applicationType: 'SPA',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: false,
+    },
   },
   resources: {
     primary: {
@@ -90,6 +120,11 @@ type Harness = Readonly<{
   malformedJwks: string;
   hang: string;
   hangReached: string;
+  unlinkRace: string;
+  unlinkEvidence: string;
+  quarantineCollision: string;
+  postVerifyRace: string;
+  postVerifyEvidence: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -137,7 +172,7 @@ const listen = async (socket: string): Promise<Server> => {
 const patchedDriver = async (
   sourcePath: string,
   destination: string,
-  tools: Readonly<{ docker: string; jq: string; curl: string }>
+  tools: Readonly<{ docker: string; jq: string; curl: string; python: string }>
 ) => {
   const uid = process.getuid?.() ?? 0;
   const original = await readFile(sourcePath, 'utf8');
@@ -145,6 +180,7 @@ const patchedDriver = async (
     .replaceAll('/usr/bin/docker', tools.docker)
     .replaceAll('/usr/bin/jq', tools.jq)
     .replaceAll('/usr/bin/curl', tools.curl)
+    .replaceAll('/usr/bin/python3.12', tools.python)
     .replace('^0\\|[0-7]{3,4}', `^(0|${uid})\\|[0-7]{3,4}`);
   await writeFile(destination, source, { mode: 0o700 });
   await chmod(destination, 0o700);
@@ -170,6 +206,11 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const malformedJwks = path.join(root, 'malformed-jwks');
   const hang = path.join(root, 'hang');
   const hangReached = path.join(root, 'hang-reached');
+  const unlinkRace = path.join(root, 'unlink-race');
+  const unlinkEvidence = path.join(root, 'unlink-evidence');
+  const quarantineCollision = path.join(root, 'quarantine-collision');
+  const postVerifyRace = path.join(root, 'post-verify-race');
+  const postVerifyEvidence = path.join(root, 'post-verify-evidence');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -177,6 +218,7 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const fakeDocker = path.join(root, 'docker');
   const fakeJq = path.join(root, 'jq');
   const fakeCurl = path.join(root, 'curl');
+  const fakePython = path.join(root, 'python');
   const dockerScript = `#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker:' >>'${calls}'
@@ -247,6 +289,21 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$input" == *'UPDATE resources SET is_default'* || "$input" == *'UPDATE aster_tenant.api_resources SET is_default'* ]]; then
+    printf '%s' ok
+    exit 0
+  fi
+  if [[ "$input" == *'jsonb_agg(id ORDER BY id)'* || "$input" == *'jsonb_agg(device_uid ORDER BY device_uid)'* ]]; then
+    if [[ -f '${root}/device-ids-seen' && "$(cat '${root}/device-ids-seen')" == multi ]]; then
+      printf '%s' '["device-uid-a","device-uid-b"]'
+    elif [[ -f '${root}/device-ids-seen' ]]; then
+      printf '%s' '["device-uid"]'
+    else
+      printf '%s' one >'${root}/device-ids-seen'
+      printf '%s' '[]'
+    fi
+    exit 0
+  fi
+  if [[ "$input" == *'oidc_model_instances'*'DeviceCode'* || "$input" == *'aster_tenant.device_authorizations'* ]]; then
     printf '%s' ok
     exit 0
   fi
@@ -337,19 +394,57 @@ else
   printf '%s\n%s' '{"access_token":"opaque-test-token","expires_in":3600,"token_type":"Bearer"}' 200
 fi
 `;
+  const pythonScript = `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *'renameat2(-100'* && -f '${quarantineCollision}' ]]; then
+  quarantine_path="${'$'}{*: -1}"
+  printf '%s' 'collision-must-survive' >"$quarantine_path"
+  /usr/bin/chmod 0600 -- "$quarantine_path"
+fi
+if [[ "$*" == *'renameat2(-100'* && -f '${unlinkRace}' ]]; then
+  source_path="${'$'}{*: -2:1}"
+  /usr/bin/mv -- "$source_path" '${unlinkEvidence}'
+  printf '%s' 'replacement-must-survive' >"$source_path"
+  /usr/bin/chmod 0600 -- "$source_path"
+fi
+if [[ "$*" == *'os.ftruncate(fd, 0)'* && -f '${postVerifyRace}' ]]; then
+  quarantine_path=''
+  for candidate in '${root}/phase2-client-credentials-state'/.quarantine.*; do
+    [[ -f "$candidate" ]] || continue
+    quarantine_path=$candidate
+  done
+  [[ -n "$quarantine_path" ]]
+  /usr/bin/mv -- "$quarantine_path" '${postVerifyEvidence}'
+  printf '%s' 'post-verify-replacement-must-survive' >"$quarantine_path"
+  /usr/bin/chmod 0600 -- "$quarantine_path"
+fi
+exec /usr/bin/python3.12 "$@"
+`;
   await Promise.all([
     writeFile(fakeDocker, dockerScript, { mode: 0o700 }),
     writeFile(fakeJq, jqScript, { mode: 0o700 }),
     writeFile(fakeCurl, curlScript, { mode: 0o700 }),
+    writeFile(fakePython, pythonScript, { mode: 0o700 }),
   ]);
-  await Promise.all([chmod(fakeDocker, 0o700), chmod(fakeJq, 0o700), chmod(fakeCurl, 0o700)]);
+  await Promise.all([
+    chmod(fakeDocker, 0o700),
+    chmod(fakeJq, 0o700),
+    chmod(fakeCurl, 0o700),
+    chmod(fakePython, 0o700),
+  ]);
   const state = path.join(root, 'state-driver');
   const invariant = path.join(root, 'invariant-driver');
-  await patchedDriver(stateDriver, state, { docker: fakeDocker, jq: fakeJq, curl: fakeCurl });
+  await patchedDriver(stateDriver, state, {
+    docker: fakeDocker,
+    jq: fakeJq,
+    curl: fakeCurl,
+    python: fakePython,
+  });
   await patchedDriver(invariantDriver, invariant, {
     docker: fakeDocker,
     jq: fakeJq,
     curl: fakeCurl,
+    python: fakePython,
   });
   return {
     state,
@@ -370,6 +465,11 @@ fi
     malformedJwks,
     hang,
     hangReached,
+    unlinkRace,
+    unlinkEvidence,
+    quarantineCollision,
+    postVerifyRace,
+    postVerifyEvidence,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -407,6 +507,18 @@ const stateRequest = (
       : {}),
     ...extra,
   }) as const;
+
+const retiredTombstones = async (handleRoot: string): Promise<readonly string[]> => {
+  const directoryEntries = await readdir(handleRoot);
+  const entries = directoryEntries.filter((name) => name.startsWith('.quarantine.'));
+  for (const name of entries) {
+    const file = path.join(handleRoot, name);
+    const state = await stat(file);
+    expect(state.mode % 0o1000).toBe(0o600);
+    expect(await readFile(file, 'utf8')).toBe('{"schemaVersion":1,"retired":true}');
+  }
+  return entries;
+};
 
 const invariantRequest = (invariantId: string) => ({
   schemaVersion: 1,
@@ -700,6 +812,7 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       },
     });
     await expect(stat(handleFile)).rejects.toThrow();
+    await expect(retiredTombstones(path.dirname(handleFile))).resolves.toHaveLength(1);
 
     for (const abortHandle of [handle, null]) {
       const aborted = await invoke(
@@ -727,9 +840,197 @@ describe('Phase 2 live client-credentials shell drivers', () => {
         ok: true,
       });
     }
+    const scenarioId = 'device-verification.expired-code';
+    const deviceBegun = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('device-begin', { scenarioId })),
+      stateEnv
+    );
+    expect(deviceBegun).toMatchObject({ code: 0, stderr: '' });
+    const deviceHandle = (JSON.parse(deviceBegun.stdout) as { handle: string }).handle;
+    for (const [operation, extra] of [
+      ['device-capture', { handle: deviceHandle }],
+      ['device-transition', { handle: deviceHandle, action: 'expire' }],
+      ['device-abort', { handle: deviceHandle }],
+    ] as const) {
+      const transitioned = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest(operation, { scenarioId, ...extra })),
+        stateEnv
+      );
+      expect(transitioned).toMatchObject({ code: 0, stderr: '' });
+      expect(JSON.parse(transitioned.stdout)).toMatchObject({ operation, scenarioId, ok: true });
+    }
     const calls = await readFile(harness.calls, 'utf8');
     expect(calls).toContain('--single-transaction');
     expect(calls).not.toContain('--filter publish=');
+  });
+
+  it.each(['zero-new', 'multiple-new', 'cross-scenario'] as const)(
+    'rejects %s device capture and removes the private handle',
+    async (failureMode) => {
+      const harness = await createHarness();
+      const scenarioId = 'device-verification.expired-code';
+      const begun = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('device-begin', { scenarioId })),
+        harness.env
+      );
+      expect(begun).toMatchObject({ code: 0, stderr: '' });
+      const { handle } = JSON.parse(begun.stdout) as { handle: string };
+      const handleFile = path.join(
+        harness.root,
+        'phase2-client-credentials-state',
+        `${handle}.json`
+      );
+      const handleStats = await stat(handleFile);
+      expect(handleStats.mode % 0o1000).toBe(0o600);
+      const saved = await readFile(handleFile, 'utf8');
+      expect(saved).not.toMatch(/device.?code|user.?code|cookie|xsrf/iu);
+      if (failureMode === 'zero-new') {
+        await rm(path.join(harness.root, 'device-ids-seen'));
+      } else if (failureMode === 'multiple-new') {
+        await writeFile(path.join(harness.root, 'device-ids-seen'), 'multi', { mode: 0o600 });
+      }
+      const captured = await invoke(
+        harness.state,
+        JSON.stringify(
+          stateRequest('device-capture', {
+            scenarioId:
+              failureMode === 'cross-scenario'
+                ? 'device-verification.already-used-code'
+                : scenarioId,
+            handle,
+          })
+        ),
+        harness.env
+      );
+      expect(captured).toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: 'Phase 2 client credentials state driver failed.\n',
+      });
+      if (failureMode === 'cross-scenario') {
+        await expect(stat(handleFile)).resolves.toBeDefined();
+        const cleaned = await invoke(
+          harness.state,
+          JSON.stringify(stateRequest('device-abort', { scenarioId, handle })),
+          harness.env
+        );
+        expect(cleaned).toMatchObject({ code: 0, stderr: '' });
+      }
+      await expect(stat(handleFile)).rejects.toThrow();
+    }
+  );
+
+  it('rejects hardlinked and oversized handle files without deleting them', async () => {
+    for (const failureMode of ['hardlink', 'oversize'] as const) {
+      const harness = await createHarness();
+      const begun = await invoke(harness.state, JSON.stringify(stateRequest('begin')), harness.env);
+      expect(begun).toMatchObject({ code: 0, stderr: '' });
+      const { handle } = JSON.parse(begun.stdout) as { handle: string };
+      const handleFile = path.join(
+        harness.root,
+        'phase2-client-credentials-state',
+        `${handle}.json`
+      );
+      const second = `${handleFile}.second`;
+      await (failureMode === 'hardlink'
+        ? link(handleFile, second)
+        : writeFile(handleFile, 'x'.repeat(65_537), { mode: 0o600 }));
+      const aborted = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('abort', { handle })),
+        harness.env
+      );
+      expect(aborted).toMatchObject({
+        code: 1,
+        stdout: '',
+        stderr: 'Phase 2 client credentials state driver failed.\n',
+      });
+      await expect(stat(handleFile)).resolves.toBeDefined();
+      if (failureMode === 'hardlink') {
+        await expect(stat(second)).resolves.toBeDefined();
+      }
+    }
+  });
+
+  it('quarantines but never deletes a replacement raced into unlink', async () => {
+    const harness = await createHarness();
+    const begun = await invoke(harness.state, JSON.stringify(stateRequest('begin')), harness.env);
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    await writeFile(harness.unlinkRace, 'race', { mode: 0o600 });
+    const aborted = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('abort', { handle })),
+      harness.env
+    );
+    expect(aborted).toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials state driver failed.\n',
+    });
+    const evidence = await readFile(harness.unlinkEvidence, 'utf8');
+    expect(evidence).toContain(`"handle":"${handle}"`);
+    const handleRoot = path.join(harness.root, 'phase2-client-credentials-state');
+    const handleEntries = await readdir(handleRoot);
+    const quarantines = handleEntries.filter((name) => name.startsWith('.quarantine.'));
+    expect(quarantines).toHaveLength(1);
+    const replacement = await readFile(path.join(handleRoot, quarantines[0] ?? ''), 'utf8');
+    expect(replacement).toBe('replacement-must-survive');
+  });
+
+  it('preserves both source and an atomically colliding quarantine target', async () => {
+    const harness = await createHarness();
+    const begun = await invoke(harness.state, JSON.stringify(stateRequest('begin')), harness.env);
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    const handleRoot = path.join(harness.root, 'phase2-client-credentials-state');
+    const handleFile = path.join(handleRoot, `${handle}.json`);
+    await writeFile(harness.quarantineCollision, 'collision', { mode: 0o600 });
+    const aborted = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('abort', { handle })),
+      harness.env
+    );
+    expect(aborted).toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials state driver failed.\n',
+    });
+    expect(await readFile(handleFile, 'utf8')).toContain(`"handle":"${handle}"`);
+    const directoryEntries = await readdir(handleRoot);
+    const entries = directoryEntries.filter((name) => name.startsWith('.quarantine.'));
+    expect(entries).toHaveLength(1);
+    expect(await readFile(path.join(handleRoot, entries[0] ?? ''), 'utf8')).toBe(
+      'collision-must-survive'
+    );
+  });
+
+  it('writes the retired tombstone through the held fd without deleting a post-verify replacement', async () => {
+    const harness = await createHarness();
+    const begun = await invoke(harness.state, JSON.stringify(stateRequest('begin')), harness.env);
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    await writeFile(harness.postVerifyRace, 'race', { mode: 0o600 });
+    const aborted = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('abort', { handle })),
+      harness.env
+    );
+    expect(aborted).toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials state driver failed.\n',
+    });
+    expect(await readFile(harness.postVerifyEvidence, 'utf8')).toBe(
+      '{"schemaVersion":1,"retired":true}'
+    );
+    const handleRoot = path.join(harness.root, 'phase2-client-credentials-state');
+    const directoryEntries = await readdir(handleRoot);
+    const entries = directoryEntries.filter((name) => name.startsWith('.quarantine.'));
+    expect(entries).toHaveLength(1);
+    expect(await readFile(path.join(handleRoot, entries[0] ?? ''), 'utf8')).toBe(
+      'post-verify-replacement-must-survive'
+    );
   });
 
   it('allows exactly one concurrent finish to claim and consume a handle', async () => {
@@ -757,7 +1058,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(results.find(({ code }) => code !== 0)?.stderr).toBe(
       'Phase 2 client credentials state driver failed.\n'
     );
-    expect(await readdir(path.join(harness.root, 'phase2-client-credentials-state'))).toEqual([]);
+    await expect(
+      retiredTombstones(path.join(harness.root, 'phase2-client-credentials-state'))
+    ).resolves.toHaveLength(1);
   });
 
   it('lets finish and abort race for one claim while keeping abort idempotent', async () => {
@@ -791,7 +1094,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       harness.env
     );
     expect(repeatedAbort).toMatchObject({ code: 0, stderr: '' });
-    expect(await readdir(path.join(harness.root, 'phase2-client-credentials-state'))).toEqual([]);
+    await expect(
+      retiredTombstones(path.join(harness.root, 'phase2-client-credentials-state'))
+    ).resolves.toHaveLength(1);
   });
 
   it('releases a killed finish lock so abort can reclaim the original handle', async () => {
@@ -854,7 +1159,7 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       stateEnv
     );
     expect(aborted).toMatchObject({ code: 0, stderr: '' });
-    await expect(readdir(path.dirname(handleFile))).resolves.toEqual([]);
+    await expect(retiredTombstones(path.dirname(handleFile))).resolves.toHaveLength(1);
   });
 
   it('rejects changed persisted state instead of accepting a prebuilt projection', async () => {
@@ -887,7 +1192,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     await expect(
       stat(path.join(harness.root, 'phase2-client-credentials-state', `${handle}.json`))
     ).rejects.toThrow();
-    expect(await readdir(path.join(harness.root, 'phase2-client-credentials-state'))).toEqual([]);
+    await expect(
+      retiredTombstones(path.join(harness.root, 'phase2-client-credentials-state'))
+    ).resolves.toHaveLength(1);
   });
 
   it('cross-validates candidate finish outcomes from responseError and DB authority', async () => {
@@ -1175,6 +1482,30 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       JSON.stringify(stateRequest('begin')).replace(
         '{"schemaVersion":1,',
         '{"schemaVersion":1,"schemaVersion":1,'
+      ),
+    ],
+    [
+      'generic operation with device scenario',
+      JSON.stringify(stateRequest('begin', { scenarioId: 'device-verification.expired-code' })),
+    ],
+    ['device operation with legacy scenario', JSON.stringify(stateRequest('device-begin'))],
+    [
+      'wrong device transition action',
+      JSON.stringify(
+        stateRequest('device-transition', {
+          scenarioId: 'device-token.session-bound-expiry',
+          handle: 'a'.repeat(32),
+          action: 'expire',
+        })
+      ),
+    ],
+    [
+      'default-resource operation with wrong scenario',
+      JSON.stringify(
+        stateRequest('set-default-resource', {
+          scenarioId: 'client-credentials.basic-explicit-resource',
+          enabled: true,
+        })
       ),
     ],
   ])('rejects a malicious %s before invoking Docker, jq, or curl', async (_name, input) => {

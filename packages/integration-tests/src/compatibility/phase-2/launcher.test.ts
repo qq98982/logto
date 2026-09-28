@@ -1,4 +1,4 @@
-/* eslint-disable max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, five-part execution dependency, and mutable call-order controls. */
+/* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -103,6 +103,19 @@ describe('Phase 2 tracked launcher', () => {
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (oracle/token-status.unregistered).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    for (const id of [
+      'device-authorization.urlencoded-success',
+      'device-token.concurrent-reference-multi-winner',
+      'device-discovery.oauth',
+    ]) {
+      const message = `Phase 2 client credentials command failed (candidate/${id}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/device-token.unregistered).\n'
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
     expect(
@@ -407,4 +420,4 @@ describe('Phase 2 tracked launcher', () => {
   });
 });
 
-/* eslint-enable max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

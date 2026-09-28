@@ -39,6 +39,13 @@ const fixture: Phase2FixturePublic = Object.freeze({
       isThirdParty: false,
       deviceGrantEnabled: false,
     }),
+    ineligibleWeb: Object.freeze({
+      id: 'phase2-device-web',
+      applicationType: 'SPA',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: false,
+    }),
   }),
   resources: Object.freeze({
     primary: Object.freeze({

@@ -13,7 +13,12 @@ import {
   runClientCredentialsCandidateInvariants,
   type CandidateInvariantControlEvidence,
 } from './candidate-invariants/client-credentials.js';
-import { createPhase2EvidenceEnvelope, type Phase2TargetProvenance } from './envelope.js';
+import {
+  createPhase2EvidenceEnvelope,
+  validatePhase2OracleArtifact,
+  type Phase2EvidenceEnvelope,
+  type Phase2TargetProvenance,
+} from './envelope.js';
 import {
   createCandidatePhase2FixtureProvisioner,
   createReferencePhase2FixtureProvisioner,
@@ -30,6 +35,7 @@ import {
   assertClientCredentialsEvidenceIsSanitized,
   createClientCredentialsJwtAudit,
 } from './projections/client-credentials.js';
+import { assertDeviceAuthorizationEvidenceIsSanitized } from './projections/device-authorization.js';
 import { compareLogoutSessionProjections } from './projections/logout-session.js';
 import { compareTokenStatus } from './projections/token-status.js';
 import {
@@ -63,6 +69,15 @@ import {
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
 import {
+  createDeviceAuthorizationScenarioRegistry,
+  compareDeviceScenarioProjections,
+  deviceAuthorizationScenarioIds,
+  runDeviceAuthorizationNegativeControls,
+  type DeviceAuthorizationControlResult,
+  type DeviceAuthorizationScenarioId,
+  type DeviceAuthorizationScenarioResult,
+} from './scenarios/device-authorization.js';
+import {
   logoutSessionScenarioIds,
   runLogoutSessionScenarios,
   type LogoutSessionScenarioResult,
@@ -86,7 +101,7 @@ export type Phase2CliCommand =
       mode: 'differential';
       profilePath: string;
       schemaPath: string;
-      oracleTargetPath: string;
+      oracleEvidencePath: string;
       candidateTargetPath: string;
       outputPath: string;
       tempRoot: string;
@@ -103,6 +118,11 @@ export type Phase2CliCommand =
 export type Phase2CliDependencies = Readonly<{
   loadProfile(paths: Phase2ProfilePaths): Promise<Phase2ProfileRegistries>;
   readTarget(path: string): Promise<Phase2TargetDescriptor>;
+  readOracleArtifact(
+    path: string,
+    profile: Phase2ProfileRegistries,
+    harness: Phase2SourceIdentity
+  ): Promise<Phase2EvidenceEnvelope>;
   executeOracle(
     input: Readonly<{
       profile: Phase2ProfileRegistries;
@@ -113,7 +133,7 @@ export type Phase2CliDependencies = Readonly<{
   executeDifferential(
     input: Readonly<{
       profile: Phase2ProfileRegistries;
-      oracle: PreparedPhase2Target;
+      oracle: TargetScenarioEvidence;
       candidate: PreparedPhase2Target;
       sessionRoot: string;
     }>
@@ -129,7 +149,7 @@ export type Phase2CliDependencies = Readonly<{
   removeSessionRoot(sessionRoot: string): Promise<void>;
   stdout(message: string): void | Promise<void>;
   stderr(message: string): void | Promise<void>;
-  inspectHarness(runtimeCapability: string | undefined): Promise<Phase2SourceIdentity>;
+  inspectHarness(runtimeCapability?: string): Promise<Phase2SourceIdentity>;
   recheckHarness(capability: Phase2SourceIdentity): Promise<void>;
   verifyTarget(target: Phase2TargetDescriptor): Promise<VerifiedPhase2Target>;
   prepareTarget(
@@ -142,7 +162,10 @@ export type Phase2CliDependencies = Readonly<{
 type TargetScenarioEvidence = Readonly<{
   target: 'oracle' | 'candidate';
   scenarios: ReadonlyArray<
-    ClientCredentialsScenarioResult | TokenStatusScenarioResult | LogoutSessionScenarioResult
+    | ClientCredentialsScenarioResult
+    | TokenStatusScenarioResult
+    | LogoutSessionScenarioResult
+    | DeviceAuthorizationScenarioResult
   >;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
@@ -150,13 +173,13 @@ type TargetScenarioEvidence = Readonly<{
     scopesSupportedAppend: readonly ['urn:aster:scope:sessions'];
     stillAbsent: readonly string[];
   }>;
-  controls: readonly ClientCredentialsControlResult[];
+  controls: ReadonlyArray<ClientCredentialsControlResult | DeviceAuthorizationControlResult>;
 }>;
 
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+)$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)$/u;
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
@@ -164,7 +187,8 @@ const commandFailurePattern =
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
-  (logoutSessionScenarioIds as readonly string[]).includes(value);
+  (logoutSessionScenarioIds as readonly string[]).includes(value) ||
+  (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const successMessages = Object.freeze({
   oracle: 'Phase 2 client credentials oracle complete.\n',
   differential: 'Phase 2 client credentials differential complete.\n',
@@ -253,7 +277,7 @@ export const parsePhase2Arguments = (arguments_: readonly string[]): Phase2CliCo
       new Set([
         '--profile',
         '--schema',
-        '--oracle-target',
+        '--oracle-evidence',
         '--candidate-target',
         '--output',
         '--temp-root',
@@ -263,7 +287,7 @@ export const parsePhase2Arguments = (arguments_: readonly string[]): Phase2CliCo
       mode,
       profilePath: required(values, '--profile'),
       schemaPath: required(values, '--schema'),
-      oracleTargetPath: required(values, '--oracle-target'),
+      oracleEvidencePath: required(values, '--oracle-evidence'),
       candidateTargetPath: required(values, '--candidate-target'),
       outputPath: required(values, '--output'),
       tempRoot: required(values, '--temp-root'),
@@ -360,6 +384,21 @@ const inspectJsonNode = (node: JsonNode | undefined): void => {
   }
 };
 
+const parseStrictJsonBytes = (bytes: Uint8Array): unknown => {
+  const text = new TextDecoder('utf8', { fatal: true }).decode(bytes);
+  const errors: ParseError[] = [];
+  const tree = parseTree(text, errors, {
+    allowEmptyContent: false,
+    allowTrailingComma: false,
+    disallowComments: true,
+  });
+  if (!tree || errors.length > 0) {
+    return fail();
+  }
+  inspectJsonNode(tree);
+  return JSON.parse(text) as unknown;
+};
+
 const readStrictJson = async (filePath: string): Promise<unknown> => {
   const [before, resolved] = await Promise.all([lstat(filePath), realpath(filePath)]).catch(fail);
   if (
@@ -404,18 +443,7 @@ const readStrictJson = async (filePath: string): Promise<unknown> => {
     ) {
       return fail();
     }
-    const text = new TextDecoder('utf8', { fatal: true }).decode(bytes);
-    const errors: ParseError[] = [];
-    const tree = parseTree(text, errors, {
-      allowEmptyContent: false,
-      allowTrailingComma: false,
-      disallowComments: true,
-    });
-    if (!tree || errors.length > 0) {
-      return fail();
-    }
-    inspectJsonNode(tree);
-    return JSON.parse(text) as unknown;
+    return parseStrictJsonBytes(bytes);
   } finally {
     await handle.close();
   }
@@ -425,6 +453,68 @@ export const readPhase2TargetDescriptor = async (
   filePath: string
 ): Promise<Phase2TargetDescriptor> =>
   validatePhase2TargetDescriptor(await readStrictJson(await validateInputFile(filePath)));
+
+const readPrivateOracleArtifact = async (filePath: string): Promise<unknown> => {
+  if (!path.isAbsolute(filePath) || path.normalize(filePath) !== filePath) {
+    return fail();
+  }
+  const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(fail);
+  try {
+    const before = await handle.stat();
+    if (
+      !before.isFile() ||
+      before.uid !== currentUid() ||
+      (before.mode & 0o777) !== 0o600 ||
+      before.nlink !== 1 ||
+      before.size <= 0 ||
+      before.size > maximumInputBytes
+    ) {
+      return fail();
+    }
+    const bytes = new Uint8Array(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead <= 0) {
+        return fail();
+      }
+      offset += bytesRead;
+    }
+    const [after, pathAfter] = await Promise.all([handle.stat(), lstat(filePath)]).catch(fail);
+    if (
+      !after.isFile() ||
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.uid !== before.uid ||
+      after.mode !== before.mode ||
+      after.nlink !== before.nlink ||
+      after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs ||
+      after.ctimeMs !== before.ctimeMs ||
+      pathAfter.isSymbolicLink() ||
+      pathAfter.dev !== before.dev ||
+      pathAfter.ino !== before.ino ||
+      pathAfter.uid !== before.uid ||
+      pathAfter.mode !== before.mode ||
+      pathAfter.nlink !== before.nlink ||
+      pathAfter.size !== before.size ||
+      pathAfter.mtimeMs !== before.mtimeMs ||
+      pathAfter.ctimeMs !== before.ctimeMs
+    ) {
+      return fail();
+    }
+    return parseStrictJsonBytes(bytes);
+  } finally {
+    await handle.close();
+  }
+};
+
+export const readPhase2OracleArtifact = async (
+  filePath: string,
+  profile: Phase2ProfileRegistries,
+  harness: Phase2SourceIdentity
+): Promise<Phase2EvidenceEnvelope> =>
+  validatePhase2OracleArtifact(await readPrivateOracleArtifact(filePath), profile, harness);
 
 const projectDiscovery = async (
   descriptor: Phase2TargetDescriptor,
@@ -556,7 +646,27 @@ const runTargetScenarios = async (
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-logout-session`);
     }
-    return Object.freeze([...results, ...statusScenarios, ...logoutSessionScenarios]);
+    const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
+    for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
+      try {
+        deviceScenarios.push(
+          await scenario.run({
+            target: descriptor.target,
+            fixture,
+            jwks,
+            state,
+          })
+        );
+      } catch {
+        throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}`);
+      }
+    }
+    return Object.freeze([
+      ...results,
+      ...statusScenarios,
+      ...logoutSessionScenarios,
+      ...deviceScenarios,
+    ]);
   }).catch((error: unknown) => {
     if (
       error instanceof Error &&
@@ -578,13 +688,20 @@ const runTargetScenarios = async (
   const discovery = await projectDiscovery(descriptor, profile).catch(() => {
     throw new Error(`Phase 2 stage failed: ${descriptor.kind}-discovery`);
   });
-  let controls: readonly ClientCredentialsControlResult[];
+  let controls: ReadonlyArray<ClientCredentialsControlResult | DeviceAuthorizationControlResult>;
   try {
-    controls = runClientCredentialsNegativeControls({
-      success: success as ClientCredentialsScenarioResult['projection'],
-      authenticationError: authenticationError as ClientCredentialsScenarioResult['projection'],
-      discoveryGrantTypes: discovery.grantTypesSupported,
-    });
+    controls = Object.freeze([
+      ...runClientCredentialsNegativeControls({
+        success: success as ClientCredentialsScenarioResult['projection'],
+        authenticationError: authenticationError as ClientCredentialsScenarioResult['projection'],
+        discoveryGrantTypes: discovery.grantTypesSupported,
+      }),
+      ...runDeviceAuthorizationNegativeControls(
+        scenarios.filter(({ id }) =>
+          (deviceAuthorizationScenarioIds as readonly string[]).includes(id)
+        ) as readonly DeviceAuthorizationScenarioResult[]
+      ),
+    ]);
   } catch {
     throw new Error(`Phase 2 stage failed: ${descriptor.kind}-controls`);
   }
@@ -595,6 +712,7 @@ const runTargetScenarios = async (
     controls,
   });
   assertClientCredentialsEvidenceIsSanitized(evidence);
+  assertDeviceAuthorizationEvidenceIsSanitized(evidence);
   return evidence;
 };
 
@@ -635,18 +753,15 @@ const statusScopeClass = (value: unknown): 'short' | 'full' | 'resource' | 'offl
 const executeDifferential = async (
   input: Readonly<{
     profile: Phase2ProfileRegistries;
-    oracle: PreparedPhase2Target;
+    oracle: TargetScenarioEvidence;
     candidate: PreparedPhase2Target;
     sessionRoot: string;
   }>
 ): Promise<unknown> => {
-  if (
-    input.oracle.descriptor.kind !== 'oracle' ||
-    input.candidate.descriptor.kind !== 'candidate'
-  ) {
+  if (input.oracle.target !== 'oracle' || input.candidate.descriptor.kind !== 'candidate') {
     return fail();
   }
-  const oracle = await runTargetScenarios(input.profile, input.oracle);
+  const { oracle } = input;
   const candidate = await runTargetScenarios(input.profile, input.candidate);
   const comparisons = oracle.scenarios.map((oracleScenario, index) => {
     const candidateScenario = candidate.scenarios[index];
@@ -657,23 +772,35 @@ const executeDifferential = async (
     const isLogoutSession = (logoutSessionScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    const isDevice = (deviceAuthorizationScenarioIds as readonly string[]).includes(
+      oracleScenario.id
+    );
     const found = isLogoutSession
       ? compareLogoutSessionProjections(
           oracleScenario.projection as LogoutSessionScenarioResult['projection'],
           candidateScenario.projection as LogoutSessionScenarioResult['projection']
         )
-      : isTokenStatus &&
-          'kind' in oracleScenario.projection &&
-          'kind' in candidateScenario.projection
-        ? compareTokenStatus(oracleScenario.projection, candidateScenario.projection)
-        : !isTokenStatus &&
-            !('kind' in oracleScenario.projection) &&
-            !('kind' in candidateScenario.projection)
-          ? compareClientCredentialsProjections(
-              oracleScenario.projection as ClientCredentialsScenarioResult['projection'],
-              candidateScenario.projection as ClientCredentialsScenarioResult['projection']
+      : isDevice
+        ? compareDeviceScenarioProjections(
+            oracleScenario.projection as DeviceAuthorizationScenarioResult['projection'],
+            candidateScenario.projection as DeviceAuthorizationScenarioResult['projection'],
+            oracleScenario.id as DeviceAuthorizationScenarioId
+          )
+        : isTokenStatus &&
+            'kind' in oracleScenario.projection &&
+            'kind' in candidateScenario.projection
+          ? compareTokenStatus(
+              oracleScenario.projection as TokenStatusScenarioResult['projection'],
+              candidateScenario.projection as TokenStatusScenarioResult['projection']
             )
-          : fail();
+          : !isTokenStatus &&
+              !('kind' in oracleScenario.projection) &&
+              !('kind' in candidateScenario.projection)
+            ? compareClientCredentialsProjections(
+                oracleScenario.projection as ClientCredentialsScenarioResult['projection'],
+                candidateScenario.projection as ClientCredentialsScenarioResult['projection']
+              )
+            : fail();
     if (found.length > 0) {
       const statusIndex = (tokenStatusScenarioIds as readonly string[]).indexOf(oracleScenario.id);
       if (statusIndex >= 0) {
@@ -688,13 +815,16 @@ const executeDifferential = async (
           'kind' in oracleScenario.projection &&
           'kind' in candidateScenario.projection
         ) {
+          const oracleStatus = oracleScenario.projection as TokenStatusScenarioResult['projection'];
+          const candidateStatus =
+            candidateScenario.projection as TokenStatusScenarioResult['projection'];
           throw new Error(
             'Phase 2 stage failed: candidate-status-scope-' +
               statusIndex +
               '-' +
-              statusScopeClass(oracleScenario.projection.body?.scope) +
+              statusScopeClass(oracleStatus.body?.scope) +
               '-' +
-              statusScopeClass(candidateScenario.projection.body?.scope)
+              statusScopeClass(candidateStatus.body?.scope)
           );
         }
         if (
@@ -711,7 +841,7 @@ const executeDifferential = async (
           );
         }
       }
-      if (isLogoutSession) {
+      if (isLogoutSession || isDevice) {
         throw new Error(`Phase 2 scenario failed: candidate/${oracleScenario.id}`);
       }
       throw new Error('Phase 2 stage failed: candidate-comparison');
@@ -720,7 +850,7 @@ const executeDifferential = async (
   });
   if (
     JSON.stringify(oracle.discovery) !== JSON.stringify(candidate.discovery) ||
-    oracle.controls.length !== candidate.controls.length
+    JSON.stringify(oracle.controls) !== JSON.stringify(candidate.controls)
   ) {
     return fail();
   }
@@ -768,6 +898,7 @@ const executeCandidateInvariants = async (
 const defaultDependencies: Phase2CliDependencies = Object.freeze({
   loadProfile: loadPhase2Profile,
   readTarget: readPhase2TargetDescriptor,
+  readOracleArtifact: readPhase2OracleArtifact,
   executeOracle,
   executeDifferential,
   executeCandidateInvariants,
@@ -841,45 +972,43 @@ export const runPhase2Cli = async (
     const harness = await dependencies.inspectHarness(runtimeCapability);
     const execution = await (async () => {
       if (command.mode === 'differential') {
-        const [oracleTargetPath, candidateTargetPath] = await Promise.all([
-          validateInputFile(command.oracleTargetPath),
+        const [oracleEvidencePath, candidateTargetPath] = await Promise.all([
+          validateInputFile(command.oracleEvidencePath),
           validateInputFile(command.candidateTargetPath),
         ]).catch(() => {
           throw new Error('Phase 2 command stage failed: differential-target-path');
         });
-        if (oracleTargetPath === candidateTargetPath) {
+        if (oracleEvidencePath === candidateTargetPath) {
           return fail();
         }
-        const [oracle, candidate] = await Promise.all([
-          dependencies.readTarget(oracleTargetPath),
+        const [oracleArtifact, candidate] = await Promise.all([
+          dependencies.readOracleArtifact(oracleEvidencePath, profile, harness),
           dependencies.readTarget(candidateTargetPath),
         ]).catch(() => {
           throw new Error('Phase 2 command stage failed: differential-target-read');
         });
+        const oracleProvenance = oracleArtifact.provenance.oracle ?? fail();
         if (
-          oracle.projectName === candidate.projectName ||
-          [oracle.primaryContainerId, oracle.foreignContainerId].some((id) =>
-            [candidate.primaryContainerId, candidate.foreignContainerId].includes(id)
-          )
+          oracleProvenance.sourceCommit === candidate.sourceCommit ||
+          oracleProvenance.imageDigest === candidate.imageDigest
         ) {
           throw new Error('Phase 2 command stage failed: differential-target-pair');
         }
-        const [oracleCapability, candidateCapability] = await Promise.all([
-          dependencies.verifyTarget(oracle),
-          dependencies.verifyTarget(candidate),
-        ]).catch(() => {
+        const candidateCapability = await dependencies.verifyTarget(candidate).catch(() => {
           throw new Error('Phase 2 command stage failed: differential-target-verify');
         });
-        const [preparedOracle, preparedCandidate] = await Promise.all([
-          dependencies.prepareTarget(oracleCapability, sessionRoot, 'oracle'),
-          dependencies.prepareTarget(candidateCapability, sessionRoot, 'candidate'),
-        ]).catch(() => {
-          throw new Error('Phase 2 command stage failed: differential-target-prepare');
-        });
+        const preparedCandidate = await dependencies
+          .prepareTarget(candidateCapability, sessionRoot, 'candidate')
+          .catch(() => {
+            throw new Error('Phase 2 command stage failed: differential-target-prepare');
+          });
+        const oraclePayload = oracleArtifact.payload as unknown as Readonly<{
+          target: TargetScenarioEvidence;
+        }>;
         const payload = await dependencies
           .executeDifferential({
             profile,
-            oracle: preparedOracle,
+            oracle: oraclePayload.target,
             candidate: preparedCandidate,
             sessionRoot,
           })
@@ -893,15 +1022,12 @@ export const runPhase2Cli = async (
             }
             throw new Error('Phase 2 command stage failed: differential-execution');
           });
-        await Promise.all([
-          preparedOracle.fence.assertStable(),
-          preparedCandidate.fence.assertStable(),
-        ]).catch(() => {
+        await preparedCandidate.fence.assertStable().catch(() => {
           throw new Error('Phase 2 command stage failed: differential-harness');
         });
         return {
           payload,
-          oracle: publicTargetProvenance(oracleCapability),
+          oracle: oracleProvenance,
           candidate: publicTargetProvenance(candidateCapability),
         };
       }

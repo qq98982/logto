@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fetch double records exact private request bytes and consumes a bounded response queue. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/consistent-function-scoping -- The fetch double records exact private request bytes and consumes a bounded response queue. */
 import { inspect } from 'node:util';
 
 import type { TargetConfig } from '../../model.js';
@@ -41,6 +41,7 @@ const authorizationBody = Object.freeze({
   verification_uri_complete: 'https://candidate.example/device?user_code=BCDF-GHJK',
   expires_in: 600,
   interval: 5,
+  tokenType: undefined,
 });
 
 const expectSanitized = (projection: DeviceAuthorizationProjection): void => {
@@ -54,6 +55,63 @@ const expectSanitized = (projection: DeviceAuthorizationProjection): void => {
 };
 
 describe('Phase 2 device authorization transport', () => {
+  it('applies closed authorization query and Basic proof controls without changing body encoding', async () => {
+    const calls: Array<readonly [string, RequestInit | undefined]> = [];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (input, init) => {
+        calls.push([String(input), init]);
+        return jsonResponse({ error: 'invalid_client', error_description: 'rejected' }, 401);
+      }) as typeof fetch,
+    });
+
+    const projection = await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['scope', 'openid']],
+      transport: {
+        query: [
+          ['client_id', 'device-client'],
+          ['client_id', 'device-client'],
+        ],
+        proof: {
+          method: 'basic',
+          clientId: 'public: client+~%',
+          clientSecret: 'private: secret+~%',
+        },
+      },
+    });
+
+    expect(calls[0]?.[0]).toBe(
+      'https://candidate.example/oidc/device/auth?client_id=device-client&client_id=device-client'
+    );
+    expect(Object.fromEntries(calls[0]?.[1]?.body as URLSearchParams)).toEqual({ scope: 'openid' });
+    expect(new Headers(calls[0]?.[1]?.headers).get('authorization')).toBe(
+      `Basic ${Buffer.from('public%3A+client%2B%7E%25:private%3A+secret%2B%7E%25').toString(
+        'base64'
+      )}`
+    );
+    expect(projection.oauthError.category).toBe('invalid_client');
+    expectSanitized(projection);
+
+    const count = calls.length;
+    for (const transport of [
+      { query: [['unknown', 'x']] },
+      { query: [['client_id']] },
+      { proof: { method: 'post', clientId: 'device-client', clientSecret: 'private-secret' } },
+      { proof: { method: 'basic', clientId: 'device-client', clientSecret: 'x'.repeat(4097) } },
+    ]) {
+      // eslint-disable-next-line no-await-in-loop -- Each hostile transport descriptor is rejected before I/O.
+      await expect(
+        lease.requestAuthorization({
+          encoding: 'form',
+          fields: [['client_id', 'device-client']],
+          transport,
+        } as never)
+      ).rejects.toThrow('Invalid Phase 2 device authorization transport (authorization-request)');
+    }
+    expect(calls).toHaveLength(count);
+  });
+
   it('encodes organization and locale context in form and JSON requests within the closed bounds', async () => {
     const calls: RequestInit[] = [];
     const lease = createDeviceAuthorizationTransportLease({
@@ -200,6 +258,7 @@ describe('Phase 2 device authorization transport', () => {
       deviceCodeShape: { length: 19 },
       expiresIn: 600,
       interval: 5,
+      tokenType: undefined,
       verificationUri: {
         origin: 'https://candidate.example',
         path: '/device',
@@ -226,6 +285,145 @@ describe('Phase 2 device authorization transport', () => {
     for (const projection of [duplicate, form, json, raw]) {
       expectSanitized(projection);
     }
+  });
+
+  it('leases verification XSRF only inside a callback and supports a real cross-cookie request', async () => {
+    const form = (xsrf: string) =>
+      new Response(
+        `<title>Device Verification</title><form method="post" action="/oidc/device"><input name="xsrf" value="${xsrf}"><input name="user_code"><input name="confirm"></form>`,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'set-cookie': `_device_flow_xsrf=${xsrf}; Path=/; HttpOnly; SameSite=Lax`,
+          },
+        }
+      );
+    const calls: Array<readonly [string, RequestInit | undefined]> = [];
+    const first = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => form('private-xsrf-first'),
+    });
+    const second = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (input, init) => {
+        calls.push([String(input), init]);
+        return calls.length === 1
+          ? form('private-xsrf-second')
+          : new Response(null, {
+              status: 303,
+              headers: { location: '/oidc/device?error=invalid_request' },
+            });
+      }) as typeof fetch,
+    });
+    await first.requestVerification({ method: 'GET', path: '/oidc/device' });
+    await second.requestVerification({ method: 'GET', path: '/oidc/device' });
+
+    let escaped: (() => string) | undefined;
+    const crossed = await first.withVerificationXsrfLease(async (xsrf) => {
+      escaped = xsrf.getXsrf;
+      await expect(first.requestVerification({ method: 'GET', path: '/device' })).rejects.toThrow(
+        'Invalid Phase 2 device authorization transport (concurrent)'
+      );
+      return second.requestVerification({
+        method: 'POST',
+        path: '/oidc/device',
+        fields: { xsrf: xsrf.getXsrf(), user_code: 'BCDF-GHJK', confirm: 'yes' },
+      });
+    });
+    expect(crossed.oauthError.category).toBe('invalid_request');
+    expect(new Headers(calls[1]?.[1]?.headers).get('cookie')).toContain(
+      '_device_flow_xsrf=private-xsrf-second'
+    );
+    expect(Object.fromEntries(calls[1]?.[1]?.body as URLSearchParams).xsrf).toBe(
+      'private-xsrf-first'
+    );
+    expect(() => escaped?.()).toThrow(
+      'Invalid Phase 2 device authorization transport (xsrf-lease)'
+    );
+    await expect(first.withVerificationXsrfLease((xsrf) => xsrf.getXsrf())).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (xsrf-lease)'
+    );
+
+    const cleared = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => form('private-xsrf-cleared'),
+    });
+    await cleared.requestVerification({ method: 'GET', path: '/oidc/device' });
+    await expect(
+      cleared.withVerificationXsrfLease((xsrf) => {
+        cleared.clear();
+        return xsrf.getXsrf();
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (xsrf-lease)');
+  });
+
+  it('keeps user and device codes callback-scoped across concurrency, escape, clear and result checks', async () => {
+    const form = new Response(
+      '<title>Device Verification</title><form method="post" action="/oidc/device"><input name="xsrf" value="private-user-code-xsrf"><input name="user_code"><input name="confirm"></form>',
+      {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'set-cookie': '_device_flow_xsrf=private-user-code-xsrf; Path=/; HttpOnly; SameSite=Lax',
+        },
+      }
+    );
+    const replies = [jsonResponse(authorizationBody), form];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => replies.shift() ?? Promise.reject(new TypeError('unexpected fetch')),
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
+    let escapedUserCode: (() => string) | undefined;
+    let escapedDeviceCode: (() => string) | undefined;
+    await expect(
+      lease.withVerificationUserCodeLease(async (secrets) => {
+        escapedUserCode = secrets.getUserCode;
+        expect(secrets.getUserCode()).toBe('BCDF-GHJK');
+        expect(secrets.getXsrf()).toBe('private-user-code-xsrf');
+        await expect(lease.requestVerification({ method: 'GET', path: '/device' })).rejects.toThrow(
+          'Invalid Phase 2 device authorization transport (concurrent)'
+        );
+        return { leased: true };
+      })
+    ).resolves.toEqual({ leased: true });
+    await expect(
+      lease.withDeviceCodeLease((secret) => {
+        escapedDeviceCode = secret.getDeviceCode;
+        expect(secret.getDeviceCode()).toBe('private-device-code');
+        return { leased: true };
+      })
+    ).resolves.toEqual({ leased: true });
+    expect(() => escapedUserCode?.()).toThrow(
+      'Invalid Phase 2 device authorization transport (user-code-lease)'
+    );
+    expect(() => escapedDeviceCode?.()).toThrow(
+      'Invalid Phase 2 device authorization transport (device-code-lease)'
+    );
+    await expect(
+      lease.withVerificationUserCodeLease((secret) => secret.getUserCode())
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (user-code-lease)');
+    await expect(lease.withDeviceCodeLease((secret) => secret.getDeviceCode())).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (device-code-lease)'
+    );
+
+    const cleared = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => jsonResponse(authorizationBody),
+    });
+    await cleared.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await expect(
+      cleared.withDeviceCodeLease((secret) => {
+        cleared.clear();
+        return secret.getDeviceCode();
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (device-code-lease)');
   });
 
   it('rejects response bodies above the configured hard limit with redacted diagnostics', async () => {
@@ -386,6 +584,92 @@ describe('Phase 2 device authorization transport', () => {
     expect(() => JSON.stringify(lease)).toThrow(
       'Invalid Phase 2 device authorization transport (lease)'
     );
+  });
+
+  it('follows only the projected same-flow complete URL location', async () => {
+    const calls: string[] = [];
+    const replies = [
+      jsonResponse(authorizationBody),
+      new Response(null, {
+        status: 302,
+        headers: {
+          'content-type': 'text/html',
+          location: '/oidc/device?user_code=BCDF-GHJK',
+        },
+      }),
+      new Response('<html><title>Device Verification</title></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (input) => {
+        calls.push(String(input));
+        return replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+      }) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [
+        ['client_id', 'device-client'],
+        ['scope', 'openid'],
+      ],
+    });
+    const redirect = await lease.requestVerification({
+      method: 'GET',
+      path: '/device',
+      userCode: { stored: 'user-code' },
+    });
+    const terminal = await lease.requestVerification({ method: 'FOLLOW_PROJECTED_LOCATION' });
+    expect(redirect.location).toEqual({
+      origin: 'https://candidate.example',
+      path: '/oidc/device',
+      queryKeys: ['user_code'],
+    });
+    expect(terminal).toMatchObject({ status: 200, contentType: 'text/html' });
+    expect(calls).toEqual([
+      'https://candidate.example/oidc/device/auth',
+      'https://candidate.example/device?user_code=BCDF-GHJK',
+      'https://candidate.example/oidc/device?user_code=BCDF-GHJK',
+    ]);
+    await expect(
+      lease.requestVerification({ method: 'FOLLOW_PROJECTED_LOCATION' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (verification-request)');
+  });
+
+  it.each([
+    'https://attacker.example/oidc/device?user_code=BCDF-GHJK',
+    '/device?user_code=BCDF-GHJK',
+    '/oidc/device?user_code=WRONG-CODE',
+    '/oidc/device?user_code=BCDF-GHJK&user_code=BCDF-GHJK',
+    '/oidc/device?user_code=BCDF-GHJK&extra=1',
+  ])('rejects hostile projected complete URL location %s', async (location) => {
+    const calls: string[] = [];
+    const replies = [
+      jsonResponse(authorizationBody),
+      new Response(null, { status: 302, headers: { 'content-type': 'text/html', location } }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (input) => {
+        calls.push(String(input));
+        return replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+      }) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.requestVerification({
+      method: 'GET',
+      path: '/device',
+      userCode: { stored: 'user-code' },
+    });
+    await expect(
+      lease.requestVerification({ method: 'FOLLOW_PROJECTED_LOCATION' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (verification-request)');
+    expect(calls).toHaveLength(2);
   });
 
   it('applies Domain, Path, Secure, expiry and targeted deletion with no cookie value projection', async () => {
@@ -2187,4 +2471,4 @@ describe('Phase 2 device authorization transport', () => {
   });
 });
 
-/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/consistent-function-scoping */

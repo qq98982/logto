@@ -88,6 +88,44 @@ const closedAccountSessionScenarioIds = new Set([
   'delete-current',
   'list-zero-current',
 ]);
+const closedDeviceScenarioIds = new Set([
+  'device-authorization.urlencoded-success', 'device-authorization.json-object-success',
+  'device-authorization.missing-client', 'device-authorization.unknown-client',
+  'device-authorization.ineligible-web-client', 'device-authorization.confidential-client',
+  'device-authorization.public-client-basic-rejected',
+  'device-authorization.public-client-secret-post-rejected',
+  'device-authorization.missing-device-grant', 'device-authorization.explicit-resource',
+  'device-authorization.unknown-resource', 'device-authorization.organization',
+  'device-authorization.unassociated-organization', 'device-authorization.absent-scope',
+  'device-authorization.empty-scope', 'device-authorization.unknown-scope',
+  'device-authorization.duplicate-client', 'device-authorization.duplicate-resource',
+  'device-authorization.duplicate-scope', 'device-authorization.malformed-form',
+  'device-authorization.malformed-json', 'device-authorization.unsupported-parameter',
+  'device-authorization.unknown-extension', 'device-authorization.ui-locales',
+  'device-authorization.json-array-rejected', 'device-authorization.text-body-rejected',
+  'device-authorization.query-only-rejected', 'device-verification.shortcut-redirect',
+  'device-verification.manual-entry', 'device-verification.complete-url-entry',
+  'device-verification.missing-code', 'device-verification.malformed-code',
+  'device-verification.unknown-code', 'device-verification.expired-code',
+  'device-verification.already-used-code', 'device-verification.invalid-xsrf',
+  'device-verification.cross-cookie-xsrf', 'device-verification.abort',
+  'device-verification.confirmation', 'device-verification.confirmed-sign-in-redirect',
+  'device-token.pending-poll', 'device-token.in-flight-poll',
+  'device-consent.first-party-matching-grant-required',
+  'device-consent.third-party-redirect-absent', 'device-token.denied-poll',
+  'device-consent.approval', 'device-verification.success-page',
+  'device-verification.completed-cookie-cleanup', 'device-token.openid-issuance',
+  'device-token.id-token-signature-and-claims', 'device-token.userinfo',
+  'device-token.offline-refresh-rotation', 'device-token.offline-refresh-after-logout',
+  'device-token.resource-authority', 'device-token.organization-authority',
+  'device-token.refresh-resource-selection', 'device-token.refresh-organization-selection',
+  'device-token.session-bound-expiry', 'device-token.client-mismatch',
+  'device-token.unknown-code', 'device-token.expired-code', 'device-token.consumed-replay',
+  'device-token.concurrent-reference-multi-winner',
+  'device-token-status.access-introspection', 'device-token-status.access-revocation',
+  'device-token-status.refresh-introspection', 'device-token-status.refresh-revocation',
+  'device-discovery.oidc', 'device-discovery.oauth',
+]);
 export const diagnosticForPhase2Child = (stderr) => {
   const match =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
@@ -113,6 +151,11 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) return stderr;
+  const deviceMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) return stderr;
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||

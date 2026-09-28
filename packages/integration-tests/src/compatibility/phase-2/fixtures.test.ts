@@ -128,6 +128,7 @@ describe('Phase 2 fixture lifecycle', () => {
         firstParty: 'phase2-device-first',
         thirdParty: 'phase2-device-third',
         missingGrant: 'phase2-device-nogrant',
+        ineligibleWeb: 'phase2-device-web',
       },
       statusClient: {
         id: 'phase2-status',
@@ -167,7 +168,7 @@ describe('Phase 2 fixture lifecycle', () => {
     });
     expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
-      client: { id: 'application-7', redirectUri: 'http://localhost:3001/demo-app' },
+      client: { id: 'application-8', redirectUri: 'http://localhost:3001/demo-app' },
       confidentialClient: {
         id: 'application-3',
         redirectUri: 'http://localhost:3001/demo-app',
@@ -197,11 +198,18 @@ describe('Phase 2 fixture lifecycle', () => {
         isThirdParty: false,
         deviceGrantEnabled: false,
       },
+      ineligibleWeb: {
+        id: 'application-7',
+        applicationType: 'SPA',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
     });
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'POST',
-        path: 'applications/application-7/user-consent-scopes',
+        path: 'applications/application-8/user-consent-scopes',
         body: {
           userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
           resourceScopes: ['scope-4'],
@@ -250,10 +258,23 @@ describe('Phase 2 fixture lifecycle', () => {
         })
       );
     }
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'applications',
+        body: expect.objectContaining({
+          name: expect.stringContaining('ineligible-web device client'),
+          type: 'SPA',
+          isThirdParty: false,
+          customClientMetadata: {},
+        }),
+      })
+    );
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
-    expect(deletes.slice(0, 9)).toEqual([
+    expect(deletes.slice(0, 10)).toEqual([
+      'applications/application-8',
       'applications/application-7',
       'applications/application-6',
       'applications/application-5',
@@ -264,7 +285,7 @@ describe('Phase 2 fixture lifecycle', () => {
       'organizations/organization-1/users/user-1',
       'users/user-1',
     ]);
-    expect(deletes.slice(9, 14)).toEqual([
+    expect(deletes.slice(10, 15)).toEqual([
       'organizations/organization-1/applications/application-1/roles/organization-role-3',
       'organizations/organization-1/applications/application-1',
       'organization-roles/organization-role-3',
@@ -498,6 +519,13 @@ describe('Phase 2 fixture lifecycle', () => {
         isThirdParty: false,
         deviceGrantEnabled: false,
       },
+      ineligibleWeb: {
+        id: 'phase2-device-web',
+        applicationType: 'SPA',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
     });
     const suffix = createHash('sha256').update('candidate-fixture').digest('hex').slice(0, 16);
     expect(fixture.status).toMatchObject({
@@ -584,6 +612,15 @@ describe('Phase 2 fixture lifecycle', () => {
               {
                 clientId: 'phase2-device-nogrant',
                 applicationType: 'Native',
+                authenticationMethod: 'none',
+                isThirdParty: false,
+                grantTypes: [],
+                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
+              },
+              {
+                clientId: 'phase2-device-web',
+                applicationType: 'SPA',
                 authenticationMethod: 'none',
                 isThirdParty: false,
                 grantTypes: [],

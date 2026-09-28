@@ -51,6 +51,13 @@ const fixture: ProvisionedPhase2Fixture = {
         isThirdParty: false,
         deviceGrantEnabled: false,
       },
+      ineligibleWeb: {
+        id: 'device-web',
+        applicationType: 'SPA',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
     },
     resources: {
       primary: { id: 'machine-resource', indicator: 'https://machine.example/api' },

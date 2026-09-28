@@ -404,6 +404,14 @@ export const runClientCredentialsCandidateInvariants = async (
   profile: Phase2ProfileRegistries,
   options: CandidateInvariantDriverOptions
 ): Promise<readonly CandidateInvariantControlEvidence[]> => {
+  if (
+    profile.candidateInvariantScenarios.length !== clientCredentialsCandidateInvariantIds.length ||
+    profile.candidateInvariantScenarios.some(
+      (id, index) => id !== clientCredentialsCandidateInvariantIds[index]
+    )
+  ) {
+    return fail();
+  }
   const start = profile.candidateInvariantScenarios.indexOf(
     clientCredentialsCandidateInvariantIds[0]
   );

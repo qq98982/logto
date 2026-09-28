@@ -17,13 +17,14 @@ readonly FLOCK_BIN=/usr/bin/flock
 
 handle_path=''
 handle_fd=''
+handle_identity=''
 remove_handle_on_failure=false
 
 cleanup() {
   local status=$?
   trap - EXIT HUP INT TERM
-  if [[ "$status" -ne 0 && "$remove_handle_on_failure" == true && -n "$handle_path" ]]; then
-    /usr/bin/rm -f -- "$handle_path" >/dev/null 2>&1 || true
+  if [[ "$status" -ne 0 && "$remove_handle_on_failure" == true && -n "${handle_fd:-}" ]]; then
+    unlink_locked_handle >/dev/null 2>&1 || true
   fi
   if [[ -n "${handle_fd:-}" ]]; then
     exec {handle_fd}>&- || true
@@ -104,12 +105,18 @@ def target(value, label, core, admin):
     exact(value, ["label", "coreUrl", "adminUrl"])
     if value != {"label": label, "coreUrl": core, "adminUrl": admin}: raise ValueError()
 def fixture(value):
-    exact(value, ["allocationId", "clients", "resources", "organization", "scopes", "boundary"])
+    exact(value, ["allocationId", "clients", "deviceClients", "resources", "organization", "scopes", "boundary"])
     text(value["allocationId"], r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
     exact(value["clients"], ["basic", "post"])
     exact(value["clients"]["basic"], ["id", "method"]); exact(value["clients"]["post"], ["id", "method"])
     if value["clients"]["basic"]["method"] != "client_secret_basic" or value["clients"]["post"]["method"] != "client_secret_post": raise ValueError()
     text(value["clients"]["basic"]["id"], r"^[A-Za-z0-9._~-]{1,128}$"); text(value["clients"]["post"]["id"], r"^[A-Za-z0-9._~-]{1,128}$")
+    exact(value["deviceClients"], ["firstParty", "thirdParty", "missingGrant", "ineligibleWeb"])
+    for name, application_type, third_party, grant in (("firstParty", "Native", False, True), ("thirdParty", "Native", True, True), ("missingGrant", "Native", False, False), ("ineligibleWeb", "SPA", False, False)):
+        client = value["deviceClients"][name]
+        exact(client, ["id", "applicationType", "authenticationMethod", "isThirdParty", "deviceGrantEnabled"])
+        text(client["id"], r"^[A-Za-z0-9._~-]{1,128}$")
+        if client["applicationType"] != application_type or client["authenticationMethod"] != "none" or client["isThirdParty"] is not third_party or client["deviceGrantEnabled"] is not grant: raise ValueError()
     exact(value["resources"], ["primary", "default"])
     for name, indicator in (("primary", "https://phase2.example.invalid/api-primary"), ("default", "https://phase2.example.invalid/api-default")):
         exact(value["resources"][name], ["id", "indicator"]); text(value["resources"][name]["id"], r"^[A-Za-z0-9._~-]{1,128}$")
@@ -125,12 +132,29 @@ def fixture(value):
 
 try:
     value = json.load(sys.stdin, object_pairs_hook=pairs)
-    exact(value, ["schemaVersion", "kind", "operation", "scenarioId", "target", "foreignTarget", "fixture"] + ({"finish":["handle","responseStatus","tokenIssued","responseError","signingKeyId"], "abort":["handle"], "set-default-resource":["enabled"]}.get(value.get("operation"), [])))
+    extras = {
+        "finish":["handle","responseStatus","tokenIssued","responseError","signingKeyId"],
+        "abort":["handle"], "set-default-resource":["enabled"],
+        "device-capture":["handle"], "device-transition":["handle","action"],
+        "device-abort":["handle"]
+    }
+    exact(value, ["schemaVersion", "kind", "operation", "scenarioId", "target", "foreignTarget", "fixture"] + extras.get(value.get("operation"), []))
     if value["schemaVersion"] != 1 or value["kind"] != "phase2-client-credentials-state-request": raise ValueError()
-    scenarios = {"client-credentials." + name for name in ["basic-explicit-resource","post-explicit-resource","default-resource","resource-no-scope","resource-partial-scope","organization-empty-scope","organization-scope","organization-resource-scope","unknown-client-basic","unknown-client-post","wrong-secret-basic","wrong-secret-post","mixed-authentication","missing-target","unknown-resource","unassociated-organization","duplicate-resource","duplicate-scope-name","malformed-scope-whitespace","unsupported-parameter"]}
+    legacy_scenarios = {"client-credentials." + name for name in ["basic-explicit-resource","post-explicit-resource","default-resource","resource-no-scope","resource-partial-scope","organization-empty-scope","organization-scope","organization-resource-scope","unknown-client-basic","unknown-client-post","wrong-secret-basic","wrong-secret-post","mixed-authentication","missing-target","unknown-resource","unassociated-organization","duplicate-resource","duplicate-scope-name","malformed-scope-whitespace","unsupported-parameter"]}
+    device_actions = {
+        "device-verification.expired-code":"expire",
+        "device-verification.already-used-code":"consume",
+        "device-token.expired-code":"expire",
+        "device-token.session-bound-expiry":"expire-session"
+    }
+    scenarios = legacy_scenarios | set(device_actions)
     if value["scenarioId"] not in scenarios: raise ValueError()
     operation = value["operation"]
-    if operation not in ("begin","finish","abort","set-default-resource"): raise ValueError()
+    if operation not in ("begin","finish","abort","set-default-resource","device-begin","device-capture","device-transition","device-abort"): raise ValueError()
+    scenario = value["scenarioId"]
+    if operation in ("begin", "finish", "abort") and scenario not in legacy_scenarios: raise ValueError()
+    if operation == "set-default-resource" and scenario != "client-credentials.missing-target": raise ValueError()
+    if operation in ("device-begin", "device-capture", "device-transition", "device-abort") and scenario not in device_actions: raise ValueError()
     label = value["target"].get("label") if type(value["target"]) is dict else None
     if label == "oracle":
         target(value["target"], label, "http://localhost:3311/", "http://localhost:3411/")
@@ -145,8 +169,14 @@ try:
         if type(value["responseStatus"]) is not int or not 100 <= value["responseStatus"] <= 599 or type(value["tokenIssued"]) is not bool: raise ValueError()
         if value["responseError"] is not None and value["responseError"] not in ("invalid_client", "invalid_target", "access_denied", "invalid_request"): raise ValueError()
         if value["signingKeyId"] is not None: text(value["signingKeyId"], r"^[A-Za-z0-9._~-]{1,256}$")
-    elif operation == "abort":
+    elif operation in ("abort", "device-abort"):
         if value["handle"] is not None: text(value["handle"], r"^[0-9a-f]{32}$")
+    elif operation == "device-capture":
+        text(value["handle"], r"^[0-9a-f]{32}$")
+    elif operation == "device-transition":
+        text(value["handle"], r"^[0-9a-f]{32}$")
+        if value["action"] not in ("expire", "consume", "expire-session"): raise ValueError()
+        if value["action"] != device_actions[value["scenarioId"]]: raise ValueError()
     elif operation == "set-default-resource":
         if type(value["enabled"]) is not bool: raise ValueError()
     sys.stdout.write(json.dumps(value, separators=(",",":"), ensure_ascii=True))
@@ -277,6 +307,7 @@ attestation="$($JQ_BIN -cn \
 allocation_id="$(fixture_value '.fixture.allocationId')" || die
 basic_client_id="$(fixture_value '.fixture.clients.basic.id')" || die
 post_client_id="$(fixture_value '.fixture.clients.post.id')" || die
+device_client_id="$(fixture_value '.fixture.deviceClients.firstParty.id')" || die
 primary_resource="$(fixture_value '.fixture.resources.primary.indicator')" || die
 default_resource_id="$(fixture_value '.fixture.resources.default.id')" || die
 organization_id="$(fixture_value '.fixture.organization.id')" || die
@@ -541,17 +572,47 @@ snapshot() {
 }
 
 new_handle() {
-  local handle candidate
+  local handle candidate create_fd rw_fd descriptor_identity path_identity
   for _ in {1..16}; do
     handle="$(/usr/bin/od -An -N16 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
     [[ "$handle" =~ ^[0-9a-f]{32}$ ]] || die
     candidate="$HANDLE_ROOT/$handle.json"
-    if (set -o noclobber; : >"$candidate") 2>/dev/null; then
-      /usr/bin/chmod 0600 -- "$candidate"
+    set -o noclobber
+    if exec {create_fd}>"$candidate" 2>/dev/null; then
+      set +o noclobber
+      descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$create_fd" 2>/dev/null || true)"
+      path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$candidate" 2>/dev/null || true)"
+      if [[ ! -f "$candidate" || -L "$candidate" || ! "$descriptor_identity" =~ ^[0-9]+\|[0-9]+\|${CURRENT_UID}\|600\|1$ || "$path_identity" != "$descriptor_identity" ]]; then
+        exec {create_fd}>&-
+        return 1
+      fi
+      handle_fd=$create_fd
       handle_path=$candidate
+      handle_identity=$descriptor_identity
+      if ! exec {rw_fd}<>"/proc/$BASHPID/fd/$create_fd"; then
+        unlink_locked_handle || true
+        close_handle_file
+        return 1
+      fi
+      exec {create_fd}>&-
+      handle_fd=$rw_fd
+      "$FLOCK_BIN" --exclusive --timeout 30 "$handle_fd" || {
+        unlink_locked_handle || true
+        close_handle_file
+        return 1
+      }
+      descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+      path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$candidate" 2>/dev/null || true)"
+      if [[ ! -f "$candidate" || -L "$candidate" || ! "$descriptor_identity" =~ ^[0-9]+\|[0-9]+\|${CURRENT_UID}\|600\|1$ || "$path_identity" != "$descriptor_identity" ]]; then
+        unlink_locked_handle || true
+        close_handle_file
+        return 1
+      fi
+      handle_identity=$descriptor_identity
       new_handle_value=$handle
       return 0
     fi
+    set +o noclobber
   done
   die
 }
@@ -562,7 +623,7 @@ validate_handle_file() {
   handle_path="$HANDLE_ROOT/$handle.json"
   [[ -f "$handle_path" && ! -L "$handle_path" ]] || die
   [[ "$(/usr/bin/realpath -e -- "$handle_path" 2>/dev/null || true)" == "$handle_path" ]] || die
-  [[ "$(/usr/bin/stat -c '%u|%a|%h|%F' -- "$handle_path" 2>/dev/null || true)" == "$CURRENT_UID|600|1|regular file" ]] || die
+  [[ "$(/usr/bin/stat -c '%u|%a|%h' -- "$handle_path" 2>/dev/null || true)" == "$CURRENT_UID|600|1" ]] || die
 }
 
 close_handle_file() {
@@ -570,6 +631,7 @@ close_handle_file() {
     exec {handle_fd}>&-
     handle_fd=''
   fi
+  handle_identity=''
 }
 
 lock_handle_file() {
@@ -580,8 +642,8 @@ lock_handle_file() {
     return 2
   fi
   validate_handle_file "$handle"
-  source_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$handle_path" 2>/dev/null || true)"
-  [[ "$source_identity" =~ ^[0-9]+\|[0-9]+\|${CURRENT_UID}\|600\|1\|regular\ file$ ]] || die
+  source_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$source_identity" =~ ^[0-9]+\|[0-9]+\|${CURRENT_UID}\|600\|1$ ]] || die
   if ! exec {handle_fd}<>"$source_path"; then
     handle_fd=''
     [[ ! -e "$source_path" && ! -L "$source_path" ]] && return 2
@@ -591,23 +653,149 @@ lock_handle_file() {
     close_handle_file
     return 1
   fi
-  descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h|%F' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
   if [[ ! -e "$source_path" && ! -L "$source_path" ]]; then
     close_handle_file
     return 2
   fi
-  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$source_path" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$source_path" 2>/dev/null || true)"
   if [[ "$descriptor_identity" != "$source_identity" || "$path_identity" != "$source_identity" ]]; then
     close_handle_file
     return 1
   fi
   handle_path=$source_path
+  handle_identity=$source_identity
+}
+
+write_locked_handle() {
+  local document=$1 after_identity path_identity
+  [[ -n "${handle_fd:-}" && -n "$handle_identity" ]] || die
+  printf '%s' "$document" | "$PYTHON_BIN" -c '
+import os, stat, sys
+fd_path, maximum_text, uid_text = sys.argv[1:]
+maximum, uid = int(maximum_text), int(uid_text)
+fd = os.open(fd_path, os.O_RDWR)
+data = sys.stdin.buffer.read(maximum + 1)
+if not data or len(data) > maximum: raise SystemExit(1)
+before = os.fstat(fd)
+if not stat.S_ISREG(before.st_mode) or before.st_uid != uid or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1: raise SystemExit(1)
+os.ftruncate(fd, 0); os.lseek(fd, 0, os.SEEK_SET)
+view = memoryview(data)
+while view:
+    written = os.write(fd, view)
+    if written <= 0: raise SystemExit(1)
+    view = view[written:]
+os.fsync(fd)
+after = os.fstat(fd)
+if (after.st_dev,after.st_ino,after.st_uid,stat.S_IMODE(after.st_mode),after.st_nlink,after.st_size) != (before.st_dev,before.st_ino,uid,0o600,1,len(data)): raise SystemExit(1)
+os.close(fd)
+' "/proc/$BASHPID/fd/$handle_fd" "$MAX_DB_BYTES" "$CURRENT_UID" 2>/dev/null || die
+  after_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$after_identity" == "$handle_identity" && "$path_identity" == "$handle_identity" ]] || die
+}
+
+read_locked_handle() {
+  local after_identity path_identity
+  [[ -n "${handle_fd:-}" && -n "$handle_identity" ]] || die
+  "$PYTHON_BIN" -c '
+import os, stat, sys
+fd_path, maximum_text, uid_text = sys.argv[1:]
+maximum, uid = int(maximum_text), int(uid_text)
+fd = os.open(fd_path, os.O_RDONLY)
+before = os.fstat(fd)
+if not stat.S_ISREG(before.st_mode) or before.st_uid != uid or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1 or before.st_size <= 0 or before.st_size > maximum: raise SystemExit(1)
+os.lseek(fd, 0, os.SEEK_SET)
+data = bytearray()
+while len(data) <= maximum:
+    chunk = os.read(fd, min(65536, maximum + 1 - len(data)))
+    if not chunk: break
+    data.extend(chunk)
+after = os.fstat(fd)
+if len(data) != before.st_size or (after.st_dev,after.st_ino,after.st_uid,after.st_mode,after.st_nlink,after.st_size,after.st_mtime_ns,after.st_ctime_ns) != (before.st_dev,before.st_ino,before.st_uid,before.st_mode,before.st_nlink,before.st_size,before.st_mtime_ns,before.st_ctime_ns): raise SystemExit(1)
+sys.stdout.buffer.write(data)
+os.close(fd)
+' "/proc/$BASHPID/fd/$handle_fd" "$MAX_DB_BYTES" "$CURRENT_UID" 2>/dev/null || die
+  after_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$after_identity" == "$handle_identity" && "$path_identity" == "$handle_identity" ]] || die
+}
+
+unlink_locked_handle() {
+  local descriptor_identity path_identity quarantine quarantine_identity renamed=false
+  [[ -n "${handle_fd:-}" && -n "$handle_identity" && -n "$handle_path" ]] || die
+  remove_handle_on_failure=false
+  descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$descriptor_identity" == "$handle_identity" && "$path_identity" == "$handle_identity" ]] || die
+  for _ in {1..16}; do
+    quarantine="$HANDLE_ROOT/.quarantine.$(/usr/bin/od -An -N16 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+    [[ "$quarantine" =~ ^${HANDLE_ROOT}/\.quarantine\.[0-9a-f]{32}$ ]] || die
+    [[ ! -e "$quarantine" && ! -L "$quarantine" ]] || continue
+    if "$PYTHON_BIN" -c '
+import ctypes, os, sys
+source, quarantine = sys.argv[1:]
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = getattr(libc, "renameat2", None)
+if renameat2 is None: raise SystemExit(1)
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+if renameat2(-100, os.fsencode(source), -100, os.fsencode(quarantine), 1) != 0: raise SystemExit(1)
+' "$handle_path" "$quarantine" 2>/dev/null; then
+      renamed=true
+      break
+    fi
+    die
+  done
+  [[ "$renamed" == true && ! -e "$handle_path" && ! -L "$handle_path" ]] || die
+  quarantine_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$quarantine" 2>/dev/null || true)"
+  [[ "$quarantine_identity" == "$handle_identity" ]] || die
+  handle_path=$quarantine
+  write_locked_handle '{"schemaVersion":1,"retired":true}'
+  quarantine_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h' -- "$quarantine" 2>/dev/null || true)"
+  [[ "$quarantine_identity" == "$handle_identity" ]] || die
 }
 
 terminal_base() {
   local extra=$1
   "$JQ_BIN" -cn --arg operation "$operation" --arg scenarioId "$scenario_id" --argjson attestation "$attestation" --argjson extra "$extra" \
     '$extra + {schemaVersion:1,kind:"phase2-client-credentials-state",operation:$operation,scenarioId:$scenarioId,attestation:$attestation}'
+}
+
+device_ids() {
+  if [[ "$target_kind" == oracle ]]; then
+    run_primary_sql --set="client_id=$device_client_id" <<'SQL'
+SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb)
+FROM oidc_model_instances
+WHERE tenant_id='default' AND model_name='DeviceCode'
+  AND COALESCE(payload->>'clientId',payload->'params'->>'client_id')=:'client_id';
+SQL
+  else
+    run_primary_sql --set="client_id=$device_client_id" <<'SQL'
+SELECT COALESCE(jsonb_agg(device_uid ORDER BY device_uid),'[]'::jsonb)
+FROM aster_tenant.device_authorizations
+WHERE tenant_id='default' AND client_id=:'client_id';
+SQL
+  fi
+}
+
+load_device_handle() {
+  local handle=$1 saved
+  lock_handle_file "$handle" || die
+  saved="$(read_locked_handle)" || die
+  printf '%s' "$saved" | "$JQ_BIN" -e \
+    --arg kind "$target_kind" --arg scenarioId "$scenario_id" \
+    --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" '
+      (keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","selectedId","snapshot"] or
+       keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","snapshot"]) and
+      .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and
+      .handle==$handle and
+      .allocationId==$allocationId and .projectName==$projectName and
+      (.snapshot|type)=="array" and (.snapshot|all(type=="string" and test("^[A-Za-z0-9._~-]{1,128}$"))) and
+      (.selectedId == null or (.selectedId|type)=="string" and (.selectedId|test("^[A-Za-z0-9._~-]{1,128}$")))
+    ' >/dev/null 2>&1 || die
+  remove_handle_on_failure=true
+  device_handle_document=$saved
 }
 
 case "$operation" in
@@ -618,20 +806,19 @@ case "$operation" in
     handle=$new_handle_value
     remove_handle_on_failure=true
     handle_document="$($JQ_BIN -cn --arg schemaVersion '1' --arg kind "$target_kind" --arg scenarioId "$scenario_id" \
-      --arg allocationId "$allocation_id" --arg projectName "$project_name" --argjson baseline "$baseline" \
-      '{schemaVersion:($schemaVersion|tonumber),kind:$kind,scenarioId:$scenarioId,allocationId:$allocationId,projectName:$projectName,baseline:$baseline}')" || die
-    printf '%s' "$handle_document" >"$handle_path"
+      --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" --argjson baseline "$baseline" \
+      '{schemaVersion:($schemaVersion|tonumber),kind:$kind,scenarioId:$scenarioId,allocationId:$allocationId,projectName:$projectName,handle:$handle,baseline:$baseline}')" || die
+    write_locked_handle "$handle_document"
     remove_handle_on_failure=false
     terminal_base "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')" | /usr/bin/tr -d '\n'
     ;;
   finish)
     handle="$(fixture_value '.handle')" || die
     lock_handle_file "$handle" || die
+    saved="$(read_locked_handle)" || die
+    printf '%s' "$saved" | "$JQ_BIN" -e --arg kind "$target_kind" --arg scenarioId "$scenario_id" --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" \
+      'keys==["allocationId","baseline","handle","kind","projectName","scenarioId","schemaVersion"] and .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and .allocationId==$allocationId and .projectName==$projectName and .handle==$handle' >/dev/null 2>&1 || die
     remove_handle_on_failure=true
-    saved="$(/usr/bin/head -c $((MAX_DB_BYTES + 1)) -- "$handle_path")"
-    [[ ${#saved} -le $MAX_DB_BYTES ]] || die
-    printf '%s' "$saved" | "$JQ_BIN" -e --arg kind "$target_kind" --arg scenarioId "$scenario_id" --arg allocationId "$allocation_id" --arg projectName "$project_name" \
-      'keys==["allocationId","baseline","kind","projectName","scenarioId","schemaVersion"] and .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and .allocationId==$allocationId and .projectName==$projectName' >/dev/null 2>&1 || die
     baseline="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.baseline')" || die
     token_issued="$(fixture_boolean '.tokenIssued')" || die
     response_status="$(fixture_value '.responseStatus')" || die
@@ -686,7 +873,7 @@ case "$operation" in
       esac
       authority="$($JQ_BIN -cn --arg decision "$published_decision" '{decision:$decision,targetKind:"none",target:null,availableScopes:[],effectiveScopes:[]}')"
     fi
-    /usr/bin/rm -f -- "$handle_path"
+    unlink_locked_handle
     close_handle_file
     remove_handle_on_failure=false
     finish_extra="$($JQ_BIN -cn --arg handle "$handle" --argjson authority "$authority" --arg general "$general_use" \
@@ -697,8 +884,11 @@ case "$operation" in
     handle="$(printf '%s' "$request" | "$JQ_BIN" -er '.handle // empty' 2>/dev/null || true)"
     if [[ -n "$handle" ]]; then
       if lock_handle_file "$handle"; then
+        saved="$(read_locked_handle)" || die
+        printf '%s' "$saved" | "$JQ_BIN" -e --arg kind "$target_kind" --arg scenarioId "$scenario_id" --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" \
+          'keys==["allocationId","baseline","handle","kind","projectName","scenarioId","schemaVersion"] and .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and .allocationId==$allocationId and .projectName==$projectName and .handle==$handle' >/dev/null 2>&1 || die
         remove_handle_on_failure=true
-        /usr/bin/rm -f -- "$handle_path"
+        unlink_locked_handle
         close_handle_file
         remove_handle_on_failure=false
       else
@@ -734,6 +924,137 @@ SQL
       )" || die
     fi
     [[ "$default_result" == ok ]] || die
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  device-begin)
+    device_snapshot="$(device_ids)" || die
+    device_snapshot="$(printf '%s' "$device_snapshot" | "$JQ_BIN" -ce 'if type=="array" and all(type=="string" and test("^[A-Za-z0-9._~-]{1,128}$")) then . else error("closed") end')" || die
+    new_handle_value=''
+    new_handle || die
+    handle=$new_handle_value
+    remove_handle_on_failure=true
+    handle_document="$($JQ_BIN -cn --arg kind "$target_kind" --arg scenarioId "$scenario_id" \
+      --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" --argjson snapshot "$device_snapshot" \
+      '{schemaVersion:1,kind:$kind,scenarioId:$scenarioId,allocationId:$allocationId,projectName:$projectName,handle:$handle,snapshot:$snapshot}')" || die
+    write_locked_handle "$handle_document"
+    remove_handle_on_failure=false
+    terminal_base "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')" | /usr/bin/tr -d '\n'
+    ;;
+  device-capture)
+    handle="$(fixture_value '.handle')" || die
+    load_device_handle "$handle"
+    printf '%s' "$device_handle_document" | "$JQ_BIN" -e 'has("selectedId")|not' >/dev/null 2>&1 || die
+    current_ids="$(device_ids)" || die
+    current_ids="$(printf '%s' "$current_ids" | "$JQ_BIN" -ce 'if type=="array" and all(type=="string" and length>0) then . else error("closed") end')" || die
+    selected_id="$(printf '%s\n%s' "$device_handle_document" "$current_ids" | "$JQ_BIN" -ser '
+      .[0].snapshot as $before | .[1] as $after |
+      if (($before-$after)|length)==0 and (($after-$before)|length)==1
+      then ($after-$before)[0] else error("not-one-new-device") end' 2>/dev/null)" || die
+    captured_document="$(printf '%s' "$device_handle_document" | "$JQ_BIN" -ce --arg selectedId "$selected_id" '. + {selectedId:$selectedId}')" || die
+    write_locked_handle "$captured_document"
+    close_handle_file
+    remove_handle_on_failure=false
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  device-transition)
+    handle="$(fixture_value '.handle')" || die
+    action="$(fixture_value '.action')" || die
+    load_device_handle "$handle"
+    selected_id="$(printf '%s' "$device_handle_document" | "$JQ_BIN" -er '.selectedId')" || die
+    if [[ "$action" == expire && "$target_kind" == oracle ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE oidc_model_instances SET expires_at=to_timestamp(0)
+  WHERE tenant_id='default' AND model_name='DeviceCode' AND id=:'selected_id'
+  RETURNING expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now()) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    elif [[ "$action" == expire ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE aster_tenant.device_authorizations
+  SET issued_at=GREATEST(0,extract(epoch from now())::bigint-601),
+      expires_at=GREATEST(0,extract(epoch from now())::bigint-601)+600
+  WHERE tenant_id='default' AND device_uid=:'selected_id'
+  RETURNING expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<extract(epoch from now())::bigint) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    elif [[ "$action" == consume && "$target_kind" == oracle ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE oidc_model_instances SET consumed_at=now()
+  WHERE tenant_id='default' AND model_name='DeviceCode' AND id=:'selected_id' AND consumed_at IS NULL
+  RETURNING consumed_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(consumed_at IS NOT NULL) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    elif [[ "$action" == consume ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE aster_tenant.device_authorizations
+  SET status='consumed',consumed_at=extract(epoch from now())::bigint
+  WHERE tenant_id='default' AND device_uid=:'selected_id' AND status='approved' AND consumed_at IS NULL
+  RETURNING status,consumed_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(status='consumed' AND consumed_at IS NOT NULL) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    elif [[ "$action" == expire-session && "$target_kind" == oracle ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH device AS (
+  SELECT payload->>'sessionUid' session_uid FROM oidc_model_instances
+  WHERE tenant_id='default' AND model_name='DeviceCode' AND id=:'selected_id'
+), changed AS (
+  UPDATE oidc_model_instances SET expires_at=to_timestamp(0)
+  WHERE tenant_id='default' AND model_name='Session' AND id=(SELECT session_uid FROM device)
+  RETURNING expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now()) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    elif [[ "$action" == expire-session ]]; then
+      transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
+WITH device AS (
+  SELECT session_uid FROM aster_tenant.device_authorizations
+  WHERE tenant_id='default' AND device_uid=:'selected_id' AND status='consumed'
+), changed AS (
+  UPDATE aster_tenant.sessions SET expires_at=0
+  WHERE tenant_id='default' AND session_uid=(SELECT session_uid FROM device)
+  RETURNING expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at=0) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    else
+      die
+    fi
+    [[ "$transition_result" == ok ]] || die
+    close_handle_file
+    remove_handle_on_failure=false
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  device-abort)
+    handle="$(printf '%s' "$request" | "$JQ_BIN" -er '.handle // empty' 2>/dev/null || true)"
+    if [[ -n "$handle" ]]; then
+      if lock_handle_file "$handle"; then
+        saved="$(read_locked_handle)" || die
+        printf '%s' "$saved" | "$JQ_BIN" -e --arg kind "$target_kind" --arg scenarioId "$scenario_id" --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" '
+          (keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","selectedId","snapshot"] or keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","snapshot"]) and
+          .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and .allocationId==$allocationId and .projectName==$projectName and .handle==$handle' >/dev/null 2>&1 || die
+        remove_handle_on_failure=true
+        unlink_locked_handle
+        close_handle_file
+        remove_handle_on_failure=false
+      else
+        lock_status=$?
+        [[ "$lock_status" == 2 ]] || die
+      fi
+    fi
     terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
     ;;
   *) die ;;

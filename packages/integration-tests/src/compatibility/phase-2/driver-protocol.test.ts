@@ -35,6 +35,29 @@ it('publishes the exact closed live-driver wire contract', () => {
   ]);
   expect(phase2DriverProtocol.state.abortHandle).toBe('string-or-null');
   expect(phase2DriverProtocol.state.terminals.finish.at(-1)).toBe('attestation');
+  expect(phase2DriverProtocol.state.requests.deviceBegin).toEqual([
+    'schemaVersion',
+    'kind',
+    'operation',
+    'scenarioId',
+    'target',
+    'foreignTarget',
+    'fixture',
+  ]);
+  expect(phase2DriverProtocol.state.requests.deviceCapture.at(-1)).toBe('handle');
+  expect(phase2DriverProtocol.state.requests.deviceTransition.slice(-2)).toEqual([
+    'handle',
+    'action',
+  ]);
+  expect(phase2DriverProtocol.state.requests.deviceAbort.at(-1)).toBe('handle');
+  expect(phase2DriverProtocol.state.terminals.deviceMutation).toEqual([
+    'schemaVersion',
+    'kind',
+    'operation',
+    'scenarioId',
+    'ok',
+    'attestation',
+  ]);
   expect(phase2DriverProtocol.invariant.terminal).toEqual([
     'schemaVersion',
     'kind',

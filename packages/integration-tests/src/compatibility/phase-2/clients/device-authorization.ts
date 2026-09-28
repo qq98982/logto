@@ -27,7 +27,12 @@ export type DeviceAuthorizationFieldName =
   | 'organization_id'
   | 'ui_locales';
 
-export type DeviceAuthorizationRequest =
+export type DeviceAuthorizationTransportControl = Readonly<{
+  query?: ReadonlyArray<readonly [DeviceAuthorizationFieldName, string]>;
+  proof?: Readonly<{ method: 'basic'; clientId: string; clientSecret: string }>;
+}>;
+
+export type DeviceAuthorizationRequest = (
   | Readonly<{
       encoding: 'form';
       fields: ReadonlyArray<readonly [DeviceAuthorizationFieldName, string]>;
@@ -41,7 +46,9 @@ export type DeviceAuthorizationRequest =
       mediaType: string;
       body: string;
       sensitiveFragments?: readonly string[];
-    }>;
+    }>
+) &
+  Readonly<{ transport?: DeviceAuthorizationTransportControl }>;
 
 export type DeviceAuthorizationSecretValue =
   | string
@@ -57,6 +64,7 @@ export type DeviceTokenPollingRequest = Readonly<{
 }>;
 
 export type DeviceVerificationRequest =
+  | Readonly<{ method: 'FOLLOW_PROJECTED_LOCATION' }>
   | Readonly<{
       method: 'GET';
       path: '/device' | '/oidc/device';
@@ -135,6 +143,22 @@ export type DeviceCredentialLease = Readonly<{
   toJSON(): never;
 }>;
 
+export type DeviceVerificationXsrfLease = Readonly<{
+  getXsrf(): string;
+  toJSON(): never;
+}>;
+
+export type DeviceVerificationUserCodeLease = Readonly<{
+  getUserCode(): string;
+  getXsrf(): string;
+  toJSON(): never;
+}>;
+
+export type DeviceCodeLease = Readonly<{
+  getDeviceCode(): string;
+  toJSON(): never;
+}>;
+
 export type DeviceAuthorizationTransportOptions = Readonly<{
   target: TargetConfig;
   fetch?: typeof fetch;
@@ -155,6 +179,15 @@ export type DeviceAuthorizationTransportLease = Readonly<{
   withCredentialLease<Result>(
     use: (lease: DeviceCredentialLease) => Result | Promise<Result>
   ): Promise<Result>;
+  withVerificationXsrfLease<Result>(
+    use: (lease: DeviceVerificationXsrfLease) => Result | Promise<Result>
+  ): Promise<Result>;
+  withVerificationUserCodeLease<Result>(
+    use: (lease: DeviceVerificationUserCodeLease) => Result | Promise<Result>
+  ): Promise<Result>;
+  withDeviceCodeLease<Result>(
+    use: (lease: DeviceCodeLease) => Result | Promise<Result>
+  ): Promise<Result>;
   clear(): void;
   toJSON(): never;
 }>;
@@ -170,6 +203,7 @@ type TransportState = {
   xsrfCookieIdentity?: string;
   xsrfExpireAt?: number;
   verificationId?: string;
+  verificationFollowUrl?: string;
   resumeUrl?: string;
   resumeStage?: 'after-experience-submit' | 'after-consent-write';
   logoutXsrf?: string;
@@ -476,6 +510,7 @@ const createSensitiveRegistry = (
     state.userCode,
     state.xsrf,
     state.verificationId,
+    state.verificationFollowUrl,
     state.resumeUrl,
     state.logoutXsrf,
     state.accessToken,
@@ -538,6 +573,7 @@ const clearState = (state: TransportState): void => {
   state.xsrfCookieIdentity = undefined;
   state.xsrfExpireAt = undefined;
   state.verificationId = undefined;
+  state.verificationFollowUrl = undefined;
   state.resumeUrl = undefined;
   state.resumeStage = undefined;
   state.logoutXsrf = undefined;
@@ -568,6 +604,7 @@ const snapshotState = (state: TransportState): TransportState => ({
   xsrfCookieIdentity: state.xsrfCookieIdentity,
   xsrfExpireAt: state.xsrfExpireAt,
   verificationId: state.verificationId,
+  verificationFollowUrl: state.verificationFollowUrl,
   resumeUrl: state.resumeUrl,
   resumeStage: state.resumeStage,
   logoutXsrf: state.logoutXsrf,
@@ -607,6 +644,7 @@ const finishProjection = (
   state.xsrfCookieIdentity = next.xsrfCookieIdentity;
   state.xsrfExpireAt = next.xsrfExpireAt;
   state.verificationId = next.verificationId;
+  state.verificationFollowUrl = next.verificationFollowUrl;
   state.resumeUrl = next.resumeUrl;
   state.resumeStage = next.resumeStage;
   state.logoutXsrf = next.logoutXsrf;
@@ -983,6 +1021,7 @@ const suppressResponseStrings = (
     deviceCodeShape: projection.deviceCodeShape,
     expiresIn: projection.expiresIn,
     interval: projection.interval,
+    tokenType: projection.tokenType,
     verificationUri: undefined,
     verificationUriComplete: undefined,
     experience: undefined,
@@ -1077,6 +1116,17 @@ const projectResponseUnchecked = async (
   );
   const rawLocation = response.headers.get('location') ?? undefined;
   const location = projectUrl(rawLocation, base, stage);
+  if (operation === 'verification') {
+    if (next.verificationFollowUrl === requestUrl.href) {
+      next.verificationFollowUrl = undefined;
+    }
+    if (rawLocation !== undefined) {
+      const follow = new URL(rawLocation, base);
+      if (follow.origin === base.origin && !follow.username && !follow.password && !follow.hash) {
+        next.verificationFollowUrl = follow.href;
+      }
+    }
+  }
   const bytes = await readBoundedBody(response, limits.body, stage);
   const bodyText = new TextDecoder('utf8', { fatal: true }).decode(bytes);
   const successfulAuthorization =
@@ -1109,6 +1159,7 @@ const projectResponseUnchecked = async (
       deviceCodeShape: undefined,
       expiresIn: undefined,
       interval: undefined,
+      tokenType: undefined,
       verificationUri: undefined,
       verificationUriComplete: undefined,
       experience:
@@ -1216,6 +1267,12 @@ const projectResponseUnchecked = async (
       deviceCode === undefined ? undefined : Object.freeze({ length: [...deviceCode].length }),
     expiresIn,
     interval: numberField(parsed.interval, stage),
+    tokenType:
+      parsed.token_type === undefined
+        ? undefined
+        : boundedString(parsed.token_type, stage, maximumFieldBytes) === 'Bearer'
+          ? 'Bearer'
+          : fail(stage),
     verificationUri: projectUrl(parsed.verification_uri, base, stage),
     verificationUriComplete: projectUrl(parsed.verification_uri_complete, base, stage),
     experience: emptyExperience,
@@ -1265,20 +1322,74 @@ const prepareAuthorization = (
 ): Readonly<{
   body: BodyInit;
   contentType: string;
+  query: ReadonlyArray<readonly [DeviceAuthorizationFieldName, string]>;
+  authorization: string | undefined;
   sensitiveValues: readonly string[];
   suppressPublicStrings: boolean;
 }> => {
   const input = snapshotDataRecord(
     request,
-    new Set(['encoding', 'fields', 'mediaType', 'body', 'sensitiveFragments']),
+    new Set(['encoding', 'fields', 'mediaType', 'body', 'sensitiveFragments', 'transport']),
     'authorization-request'
   );
+  const transport: Readonly<Record<string, unknown>> =
+    input.transport === undefined
+      ? Object.freeze({})
+      : snapshotDataRecord(input.transport, new Set(['query', 'proof']), 'authorization-request');
+  const query: Array<readonly [DeviceAuthorizationFieldName, string]> = [];
+  if (transport.query !== undefined) {
+    for (const rawEntry of snapshotArray(transport.query, 16, 'authorization-request')) {
+      const entry = snapshotArray(rawEntry, 2, 'authorization-request');
+      if (
+        entry.length !== 2 ||
+        typeof entry[0] !== 'string' ||
+        !authorizationFields.has(entry[0] as DeviceAuthorizationFieldName)
+      ) {
+        return fail('authorization-request');
+      }
+      query.push([
+        entry[0] as DeviceAuthorizationFieldName,
+        boundedString(entry[1], 'authorization-request', maximumFieldBytes, true),
+      ]);
+    }
+  }
+  let authorization: string | undefined;
+  const controlSensitiveValues: string[] = query
+    .filter(([name]) => name === 'client_secret')
+    .map(([, value]) => value);
+  if (transport.proof !== undefined) {
+    const proof = snapshotDataRecord(
+      transport.proof,
+      new Set(['method', 'clientId', 'clientSecret']),
+      'authorization-request'
+    );
+    if (proof.method !== 'basic') {
+      return fail('authorization-request');
+    }
+    const clientId = boundedString(proof.clientId, 'authorization-request', maximumFieldBytes);
+    const clientSecret = boundedString(
+      proof.clientSecret,
+      'authorization-request',
+      maximumFieldBytes,
+      true
+    );
+    const encoded = Buffer.from(
+      `${encodeOauthBasicComponent(clientId)}:${encodeOauthBasicComponent(clientSecret)}`
+    ).toString('base64');
+    authorization = `Basic ${encoded}`;
+    controlSensitiveValues.push(clientSecret, authorization, encoded);
+  }
   const { encoding } = input;
   if (!['form', 'json', 'raw'].includes(String(encoding))) {
     return fail('authorization-request');
   }
   if (encoding === 'raw') {
-    if (!hasOnlyKeys(input, new Set(['encoding', 'mediaType', 'body', 'sensitiveFragments']))) {
+    if (
+      !hasOnlyKeys(
+        input,
+        new Set(['encoding', 'mediaType', 'body', 'sensitiveFragments', 'transport'])
+      )
+    ) {
       return fail('authorization-request');
     }
     const mediaType = boundedString(input.mediaType, 'authorization-request', 256);
@@ -1290,18 +1401,20 @@ const prepareAuthorization = (
       input.sensitiveFragments === undefined
         ? Object.freeze([])
         : snapshotArray(input.sensitiveFragments, 32, 'authorization-request');
-    const sensitiveValues = [body];
+    const sensitiveValues = [body, ...controlSensitiveValues];
     for (const fragment of fragments) {
       sensitiveValues.push(boundedString(fragment, 'authorization-request', maximumFieldBytes));
     }
     return Object.freeze({
       body,
       contentType: mediaType,
+      query: Object.freeze(query),
+      authorization,
       sensitiveValues: Object.freeze(sensitiveValues),
       suppressPublicStrings: true,
     });
   }
-  if (!hasOnlyKeys(input, new Set(['encoding', 'fields']))) {
+  if (!hasOnlyKeys(input, new Set(['encoding', 'fields', 'transport']))) {
     return fail('authorization-request');
   }
   const entries: Array<readonly [DeviceAuthorizationFieldName, string]> = [];
@@ -1338,7 +1451,8 @@ const prepareAuthorization = (
   }
   const sensitiveValues = entries
     .filter(([name]) => name === 'client_secret')
-    .map(([, value]) => value);
+    .map(([, value]) => value)
+    .concat(controlSensitiveValues);
   if (encoding === 'form') {
     const body = new URLSearchParams();
     for (const [name, value] of entries) {
@@ -1350,6 +1464,8 @@ const prepareAuthorization = (
     return Object.freeze({
       body,
       contentType: 'application/x-www-form-urlencoded',
+      query: Object.freeze(query),
+      authorization,
       sensitiveValues: Object.freeze(sensitiveValues),
       suppressPublicStrings: false,
     });
@@ -1361,6 +1477,8 @@ const prepareAuthorization = (
   return Object.freeze({
     body,
     contentType: 'application/json',
+    query: Object.freeze(query),
+    authorization,
     sensitiveValues: Object.freeze(sensitiveValues),
     suppressPublicStrings: false,
   });
@@ -1415,6 +1533,28 @@ const prepareVerification = (
     stage
   );
   const { method } = input;
+  if (method === 'FOLLOW_PROJECTED_LOCATION') {
+    if (!hasOnlyKeys(input, new Set(['method']))) {
+      return fail(stage);
+    }
+    const userCode = state.userCode ?? fail(stage);
+    const url = localStoredUrl(state.verificationFollowUrl, base, stage);
+    const queryKeys = [...url.searchParams.keys()];
+    if (
+      url.pathname !== '/oidc/device' ||
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== 'user_code' ||
+      url.searchParams.getAll('user_code').length !== 1 ||
+      url.searchParams.get('user_code') !== userCode
+    ) {
+      return fail(stage);
+    }
+    return Object.freeze({
+      url,
+      method: 'GET',
+      sensitiveValues: Object.freeze([userCode]),
+    });
+  }
   const { path } = input;
   if (
     !['GET', 'POST'].includes(String(method)) ||
@@ -1563,6 +1703,7 @@ type PreparedLifecycleRequest = Readonly<{
   sensitiveValues: readonly string[];
   expectedSubjectId?: string;
   expectedClientId?: string;
+  introspectionCredentialKind?: 'access' | 'refresh';
 }>;
 
 const applyClientProof = (
@@ -1856,6 +1997,9 @@ const prepareLifecycleRequest = (
     sensitiveValues: Object.freeze(sensitiveValues),
     ...(expectedSubjectId === undefined ? {} : { expectedSubjectId }),
     ...(expectedClientId === undefined ? {} : { expectedClientId }),
+    ...(kind === 'introspection'
+      ? { introspectionCredentialKind: input.token as 'access' | 'refresh' }
+      : {}),
   });
 };
 
@@ -1920,6 +2064,7 @@ const commitLifecycleState = (state: TransportState, next: TransportState): void
     'xsrfCookieIdentity',
     'xsrfExpireAt',
     'verificationId',
+    'verificationFollowUrl',
     'resumeUrl',
     'resumeStage',
     'logoutXsrf',
@@ -2054,20 +2199,23 @@ const projectLifecycleResponse = async (
       return fail(stage);
     }
     if (parsed.active) {
-      const allowedKeys = new Set([
-        'active',
-        'sub',
-        'client_id',
-        'exp',
-        'iat',
-        'iss',
-        'scope',
-        'token_type',
-      ]);
+      const credentialKind = prepared.introspectionCredentialKind ?? fail(stage);
+      const allowedKeys = new Set(
+        credentialKind === 'access'
+          ? ['active', 'sub', 'client_id', 'exp', 'iat', 'iss', 'scope', 'token_type']
+          : ['active', 'exp', 'iat', 'scope', 'token_type']
+      );
       const keys = Object.keys(parsed);
-      const subject = boundedString(parsed.sub, stage, maximumFieldBytes);
-      const clientId = boundedString(parsed.client_id, stage, maximumFieldBytes);
-      const issuer = boundedString(parsed.iss, stage, 8192);
+      const subject =
+        credentialKind === 'access'
+          ? boundedString(parsed.sub, stage, maximumFieldBytes)
+          : undefined;
+      const clientId =
+        credentialKind === 'access'
+          ? boundedString(parsed.client_id, stage, maximumFieldBytes)
+          : undefined;
+      const issuer =
+        credentialKind === 'access' ? boundedString(parsed.iss, stage, 8192) : undefined;
       const issuedAt = parsed.iat;
       const expiresAt = parsed.exp;
       const nowSeconds = Math.floor(Date.now() / 1000);
@@ -2075,9 +2223,10 @@ const projectLifecycleResponse = async (
       const tokenType = parsed.token_type;
       if (
         keys.some((key) => !allowedKeys.has(key)) ||
-        subject !== prepared.expectedSubjectId ||
-        clientId !== prepared.expectedClientId ||
-        issuer !== new URL('/oidc', base).href.replace(/\/$/u, '') ||
+        (credentialKind === 'access' && subject !== prepared.expectedSubjectId) ||
+        (credentialKind === 'access' && clientId !== prepared.expectedClientId) ||
+        (credentialKind === 'access' &&
+          issuer !== new URL('/oidc', base).href.replace(/\/$/u, '')) ||
         !Number.isSafeInteger(issuedAt) ||
         !Number.isSafeInteger(expiresAt) ||
         Number(issuedAt) > nowSeconds + 1 ||
@@ -2088,14 +2237,17 @@ const projectLifecycleResponse = async (
       ) {
         return fail(stage);
       }
-      registerSensitiveValue(registry, subject);
-      registerSensitiveValue(registry, clientId);
+      if (subject !== undefined && clientId !== undefined) {
+        registerSensitiveValue(registry, subject);
+        registerSensitiveValue(registry, clientId);
+      }
       facts = Object.freeze({
         marker: 'introspection',
         active: true,
-        subject: '<subject>',
-        clientId: '<client>',
-        issuer: '<target-issuer>',
+        credentialKind,
+        ...(credentialKind === 'access'
+          ? { subject: '<subject>', clientId: '<client>', issuer: '<target-issuer>' }
+          : {}),
         issuedAt: '<issued-at>',
         lifetimeSeconds: Number(expiresAt) - Number(issuedAt),
         scopes: Object.freeze(scope.split(' ').sort()),
@@ -2356,7 +2508,13 @@ export const createDeviceAuthorizationTransportLease = (
       assertAvailable(state);
       const prepared = fixedFailure('authorization-request', () => prepareAuthorization(request));
       const url = new URL('/oidc/device/auth', base);
+      for (const [name, value] of prepared.query) {
+        url.searchParams.append(name, value);
+      }
       const headers = new Headers({ 'content-type': prepared.contentType });
+      if (prepared.authorization !== undefined) {
+        headers.set('authorization', prepared.authorization);
+      }
       fixedFailure('authorization-request', () => {
         assertRequestBounds(
           url,
@@ -2614,7 +2772,9 @@ export const createDeviceAuthorizationTransportLease = (
         ) {
           return fail('credential-lease');
         }
-        assertDeviceAuthorizationEvidenceIsSanitized(result);
+        fixedFailure('credential-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
         let serialized: string;
         try {
           serialized = JSON.stringify(result) ?? '';
@@ -2629,6 +2789,186 @@ export const createDeviceAuthorizationTransportLease = (
           )
         ) {
           return fail('credential-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
+    withVerificationXsrfLease: async <Result>(
+      use: (xsrfLease: DeviceVerificationXsrfLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('xsrf-lease');
+      }
+      const xsrf = state.xsrf ?? fail('xsrf-lease');
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'xsrf-lease',
+      };
+      registerSensitiveValue(registry, xsrf);
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const scopedLease: DeviceVerificationXsrfLease = Object.freeze({
+        getXsrf: () => {
+          assertActive(state);
+          pruneExpiredState(state);
+          if (!valid || state.xsrf !== xsrf) {
+            return fail('xsrf-lease');
+          }
+          return xsrf;
+        },
+        toJSON: (): never => fail('xsrf-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(scopedLease);
+        } catch {
+          return fail('xsrf-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        if (state.xsrf !== xsrf) {
+          return fail('xsrf-lease');
+        }
+        fixedFailure('xsrf-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
+        let serialized: string;
+        try {
+          serialized = JSON.stringify(result) ?? '';
+        } catch {
+          return fail('xsrf-lease');
+        }
+        const normalized = serialized.toLowerCase();
+        if (
+          [...registry.values].some(
+            (sensitive) => sensitive.length > 0 && normalized.includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('xsrf-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
+    withVerificationUserCodeLease: async <Result>(
+      use: (userCodeLease: DeviceVerificationUserCodeLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('user-code-lease');
+      }
+      const userCode = state.userCode ?? fail('user-code-lease');
+      const xsrf = state.xsrf ?? fail('user-code-lease');
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'user-code-lease',
+      };
+      registerSensitiveValue(registry, userCode);
+      registerSensitiveValue(registry, xsrf);
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const read = (value: string, current: string | undefined): string => {
+        assertActive(state);
+        pruneExpiredState(state);
+        if (!valid || current !== value) {
+          return fail('user-code-lease');
+        }
+        return value;
+      };
+      const scopedLease: DeviceVerificationUserCodeLease = Object.freeze({
+        getUserCode: () => read(userCode, state.userCode),
+        getXsrf: () => read(xsrf, state.xsrf),
+        toJSON: (): never => fail('user-code-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(scopedLease);
+        } catch {
+          return fail('user-code-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        if (state.userCode !== userCode || state.xsrf !== xsrf) {
+          return fail('user-code-lease');
+        }
+        fixedFailure('user-code-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
+        const serialized = fixedFailure('user-code-lease', () => JSON.stringify(result) ?? '');
+        const normalized = serialized.toLowerCase();
+        if (
+          [...registry.values].some(
+            (sensitive) => sensitive.length > 0 && normalized.includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('user-code-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
+    withDeviceCodeLease: async <Result>(
+      use: (deviceCodeLease: DeviceCodeLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('device-code-lease');
+      }
+      const deviceCode = state.deviceCode ?? fail('device-code-lease');
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'device-code-lease',
+      };
+      registerSensitiveValue(registry, deviceCode);
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const scopedLease: DeviceCodeLease = Object.freeze({
+        getDeviceCode: () => {
+          assertActive(state);
+          pruneExpiredState(state);
+          if (!valid || state.deviceCode !== deviceCode) {
+            return fail('device-code-lease');
+          }
+          return deviceCode;
+        },
+        toJSON: (): never => fail('device-code-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(scopedLease);
+        } catch {
+          return fail('device-code-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        if (state.deviceCode !== deviceCode) {
+          return fail('device-code-lease');
+        }
+        fixedFailure('device-code-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
+        const serialized = fixedFailure('device-code-lease', () => JSON.stringify(result) ?? '');
+        if (
+          [...registry.values].some(
+            (sensitive) =>
+              sensitive.length > 0 && serialized.toLowerCase().includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('device-code-lease');
         }
         return result;
       } finally {

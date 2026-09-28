@@ -1,7 +1,11 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- Negative controls deliberately forge forbidden public provenance fields. */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Negative controls deliberately forge forbidden public provenance fields. */
 import type { JsonValue } from '../normalize.js';
 
-import { createPhase2EvidenceEnvelope, type Phase2TargetProvenance } from './envelope.js';
+import {
+  createPhase2EvidenceEnvelope,
+  validatePhase2OracleArtifact,
+  type Phase2TargetProvenance,
+} from './envelope.js';
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from './profile.js';
 import type { Phase2SourceIdentity } from './provenance.js';
 import { assertDiscoveryEndpointFieldsContract } from './scenarios/client-credentials.js';
@@ -77,6 +81,58 @@ const target = (kind: 'oracle' | 'candidate'): Phase2TargetProvenance => ({
 });
 
 describe('Phase 2 public provenance envelope', () => {
+  it('accepts only a canonical immutable oracle artifact with the exact scenario revision and order', () => {
+    const artifactProfile = {
+      ...profile,
+      differentialScenarios: [
+        'client-credentials.basic-explicit-resource',
+        'client-credentials.post-explicit-resource',
+      ],
+    } as Phase2ProfileRegistries;
+    const artifact = createPhase2EvidenceEnvelope({
+      mode: 'oracle',
+      profile: artifactProfile,
+      harness,
+      oracle: target('oracle'),
+      payload: {
+        schemaVersion: 1,
+        mode: 'oracle',
+        target: {
+          target: 'oracle',
+          scenarios: artifactProfile.differentialScenarios.map((id) => ({ id, projection: {} })),
+          discovery: {},
+          controls: [],
+        },
+      },
+    });
+    expect(validatePhase2OracleArtifact(artifact, artifactProfile, harness)).toBe(artifact);
+    const mutate = (change: (value: any) => void) => {
+      const candidate = structuredClone(artifact) as any;
+      change(candidate);
+      expect(() => validatePhase2OracleArtifact(candidate, artifactProfile, harness)).toThrow(
+        'Invalid Phase 2 evidence envelope'
+      );
+    };
+    mutate((value) => {
+      value.mode = 'differential';
+    });
+    mutate((value) => {
+      value.provenance.profileSha256 = '0'.repeat(64);
+    });
+    mutate((value) => {
+      value.payload.target.scenarios.reverse();
+    });
+    mutate((value) => {
+      value.payload.target.scenarios[1].id = value.payload.target.scenarios[0].id;
+    });
+    mutate((value) => {
+      value.payload.target.scenarios.push({
+        id: 'client-credentials.default-resource',
+        projection: {},
+      });
+    });
+  });
+
   it('publishes both targets after projecting discovery from one closed profile', () => {
     const endpointFields = profile.discovery.endpointFieldsAppend;
     const projected = (issuer: string) =>
@@ -166,6 +222,17 @@ describe('Phase 2 public provenance envelope', () => {
         payload: { sha256: 'a'.repeat(64) },
       })
     ).toThrow();
+    for (const payload of [{ device_code: 'planted' }, { xsrf: 'planted' }]) {
+      expect(() =>
+        createPhase2EvidenceEnvelope({
+          mode: 'oracle',
+          profile,
+          harness,
+          oracle: target('oracle'),
+          payload: payload as unknown as JsonValue,
+        })
+      ).toThrow('Invalid Phase 2 device authorization projection');
+    }
   });
 });
-/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment */
+/* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

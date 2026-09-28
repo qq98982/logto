@@ -1,11 +1,22 @@
-/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-object-as-default-parameter, no-bitwise, unicorn/no-await-expression-member -- CLI tests intentionally capture ordered effects, mutate filesystem modes, and inspect awaited filesystem metadata. */
-import { chmod, lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-object-as-default-parameter, no-bitwise, unicorn/no-await-expression-member, @typescript-eslint/consistent-type-assertions -- CLI tests intentionally capture ordered effects, mutate filesystem modes, and inspect awaited filesystem metadata. */
+import {
+  chmod,
+  link,
+  lstat,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
 import {
   parsePhase2Arguments,
+  readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
   runPhase2Cli,
   runPhase2CliMain,
@@ -154,6 +165,30 @@ const dependencies = (
 ): Phase2CliDependencies => ({
   loadProfile: async () => profile,
   readTarget: readPhase2TargetDescriptor,
+  readOracleArtifact: async () =>
+    ({
+      schemaVersion: 1,
+      mode: 'oracle',
+      sanitizerSuccess: true,
+      provenance: {
+        profileSha256: profile.profileSha256,
+        schemaSha256: profile.schemaSha256,
+        baseAcceptance: profile.baseAcceptance,
+        harness: {
+          repositoryUrl: 'https://github.com/qq98982/logto.git',
+          headCommit: 'f'.repeat(40),
+          headTree: 'a'.repeat(40),
+          runtimeBundleSha256: 'b'.repeat(64),
+        },
+        oracle: {
+          sourceCommit: '6852a7b8c8984c5c12b2061e8c51faa310a36412',
+          imageDigest: 'sha256:76a9977bfc5ea3ed5b7623b879c27256670e377e27b987e8af99b53d55b30bbd',
+          topology: { primaryRole: 'oracle-primary-core', foreignRole: 'oracle-foreign-core' },
+          drivers: { state: { role: 'state-driver', sha256: 'c'.repeat(64) } },
+        },
+      },
+      payload: { schemaVersion: 1, mode: 'oracle', target: { target: 'oracle' } },
+    }) as never,
   executeOracle: async () => {
     calls.push('oracle');
     return evidence;
@@ -307,7 +342,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -384,7 +419,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -417,6 +452,57 @@ describe('Phase 2 CLI', () => {
     expect(invariantCalls[0]).toBe('candidate-invariants');
   });
 
+  it('reads immutable oracle evidence and freshly prepares only the candidate', async () => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const observed: string[] = [];
+    await runPhase2Cli(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        path.join(root, 'phase-2-client-credentials-differential.json'),
+        '--temp-root',
+        root,
+      ],
+      {
+        ...base,
+        readOracleArtifact: async (...arguments_) => {
+          observed.push('oracle-artifact');
+          return base.readOracleArtifact(...arguments_);
+        },
+        readTarget: async (filePath) => {
+          observed.push(`target:${path.basename(filePath)}`);
+          return base.readTarget(filePath);
+        },
+        verifyTarget: async (value) => {
+          observed.push(`verify:${value.kind}`);
+          return base.verifyTarget(value);
+        },
+        prepareTarget: async (value, sessionRoot, namespace) => {
+          observed.push(`prepare:${namespace}`);
+          return base.prepareTarget(value, sessionRoot, namespace);
+        },
+        executeOracle: async () => {
+          throw new Error('oracle must not execute');
+        },
+      }
+    );
+    expect(observed).toEqual([
+      'oracle-artifact',
+      'target:candidate-target.json',
+      'verify:candidate',
+      'prepare:candidate',
+    ]);
+  });
+
   it('rejects wrong filenames, non-0700 roots, symlinks, duplicate target keys, and aliased targets', async () => {
     await expect(
       runPhase2Cli(oracleArguments(path.join(root, 'wrong.json')), dependencies([]))
@@ -428,11 +514,11 @@ describe('Phase 2 CLI', () => {
     );
     await chmod(root, 0o700);
 
-    const link = path.join(root, 'target-link.json');
-    await symlink(oracleTargetPath, link);
+    const linkPath = path.join(root, 'target-link.json');
+    await symlink(oracleTargetPath, linkPath);
     await expect(
       runPhase2Cli(
-        oracleArguments().map((value) => (value === oracleTargetPath ? link : value)),
+        oracleArguments().map((value) => (value === oracleTargetPath ? linkPath : value)),
         dependencies([])
       )
     ).rejects.toThrow('Invalid Phase 2 arguments.');
@@ -449,6 +535,42 @@ describe('Phase 2 CLI', () => {
         foreignTarget: targetDocument('candidate').target,
       })
     ).toThrow('Invalid Phase 2 runtime');
+
+    const artifactLink = path.join(root, 'oracle-artifact-link.json');
+    await symlink(oracleTargetPath, artifactLink);
+    const differential = (artifactPath: string) => [
+      'differential',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--oracle-evidence',
+      artifactPath,
+      '--candidate-target',
+      candidateTargetPath,
+      '--output',
+      path.join(root, 'phase-2-client-credentials-differential.json'),
+      '--temp-root',
+      root,
+    ];
+    await expect(runPhase2Cli(differential(artifactLink), dependencies([]))).rejects.toThrow(
+      'Phase 2 command stage failed: differential-target-path'
+    );
+    const oversized = path.join(root, 'oversized-oracle.json');
+    await writeFile(oversized, Buffer.alloc(1024 * 1024 + 1, 0x20), { mode: 0o600 });
+    await expect(runPhase2Cli(differential(oversized), dependencies([]))).rejects.toThrow(
+      'Phase 2 command stage failed: differential-target-path'
+    );
+    const hardlinkPath = path.join(root, 'oracle-artifact-hardlink.json');
+    await link(oracleTargetPath, hardlinkPath);
+    await expect(
+      readPhase2OracleArtifact(oracleTargetPath, profile, await dependencies([]).inspectHarness())
+    ).rejects.toThrow('Invalid Phase 2 arguments.');
+    await rm(hardlinkPath);
+    await chmod(oracleTargetPath, 0o644);
+    await expect(
+      readPhase2OracleArtifact(oracleTargetPath, profile, await dependencies([]).inspectHarness())
+    ).rejects.toThrow('Invalid Phase 2 arguments.');
   });
 
   it('publishes nothing on execution or sanitizer failure and emits fixed diagnostics', async () => {
@@ -487,7 +609,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -510,6 +632,43 @@ describe('Phase 2 CLI', () => {
     expect(calls).toContain(
       'stderr:Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).'
     );
+    expect(calls.join(' ')).not.toContain('private');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves an exact closed device scenario failure for the launcher', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw new Error(
+            'Phase 2 scenario failed: candidate/device-token.concurrent-reference-multi-winner'
+          );
+        },
+      }
+    );
+    expect(code).toBe(1);
+    const exact =
+      'Phase 2 client credentials command failed (candidate/device-token.concurrent-reference-multi-winner).';
+    expect(calls).toContain(`stderr:${exact}`);
     expect(calls.join(' ')).not.toContain('private');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -541,7 +700,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -576,7 +735,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -615,7 +774,7 @@ describe('Phase 2 CLI', () => {
         profilePath,
         '--schema',
         schemaPath,
-        '--oracle-target',
+        '--oracle-evidence',
         oracleTargetPath,
         '--candidate-target',
         candidateTargetPath,
@@ -656,4 +815,4 @@ describe('Phase 2 CLI', () => {
   });
 });
 
-/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-object-as-default-parameter, no-bitwise, unicorn/no-await-expression-member */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-object-as-default-parameter, no-bitwise, unicorn/no-await-expression-member, @typescript-eslint/consistent-type-assertions */

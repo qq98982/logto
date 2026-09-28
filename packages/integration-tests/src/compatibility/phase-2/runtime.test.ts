@@ -1,6 +1,16 @@
 /* eslint-disable max-lines, no-await-in-loop, @typescript-eslint/no-loop-func, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/consistent-function-scoping -- Runtime protocol tests capture sequential command state, repeat replace/restore probes thirty times, and own temporary executable paths. */
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import path from 'node:path';
 
@@ -97,6 +107,13 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
       missingGrant: Object.freeze({
         id: 'phase2-device-nogrant',
         applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      }),
+      ineligibleWeb: Object.freeze({
+        id: 'phase2-device-web',
+        applicationType: 'SPA',
         authenticationMethod: 'none',
         isThirdParty: false,
         deviceGrantEnabled: false,
@@ -265,12 +282,16 @@ describe('Phase 2 runtime adapters', () => {
     await chmod(driverPath, 0o755);
     await expect(verifyPhase2Target(descriptor())).rejects.toThrow();
     await chmod(driverPath, 0o700);
-    const link = path.join(root, 'driver-link');
-    await symlink(driverPath, link);
+    const hardlink = path.join(root, 'driver-hardlink');
+    await link(driverPath, hardlink);
+    await expect(verifyPhase2Target(descriptor())).rejects.toThrow();
+    await rm(hardlink);
+    const linkPath = path.join(root, 'driver-link');
+    await symlink(driverPath, linkPath);
     await expect(
       verifyPhase2Target({
         ...descriptor(),
-        stateDriver: { ...descriptor().stateDriver, path: link },
+        stateDriver: { ...descriptor().stateDriver, path: linkPath },
       })
     ).rejects.toThrow();
     await expect(
@@ -375,7 +396,7 @@ describe('Phase 2 runtime adapters', () => {
       calls.push(input);
       const { operation } = input;
       const { scenarioId } = input;
-      if (operation === 'begin') {
+      if (operation === 'begin' || operation === 'device-begin') {
         return result(
           JSON.stringify({
             schemaVersion: 1,
@@ -448,6 +469,20 @@ describe('Phase 2 runtime adapters', () => {
     expect(JSON.stringify(calls[1])).not.toContain('access_token');
     await state.setDefaultResource(fixture, false);
     expect(calls.at(-1)).toMatchObject({ operation: 'set-default-resource', enabled: false });
+    await state.withDeviceHandle('device-token.session-bound-expiry', fixture, async (handle) => {
+      await handle.capture();
+      await handle.transition('expire-session');
+    });
+    expect(calls.slice(-4).map(({ operation }) => operation)).toEqual([
+      'device-begin',
+      'device-capture',
+      'device-transition',
+      'device-abort',
+    ]);
+    expect(calls.at(-2)).toMatchObject({
+      action: 'expire-session',
+      handle: 'a'.repeat(32),
+    });
 
     await expect(
       state.observe('client-credentials.unknown-resource', fixture, async () => {

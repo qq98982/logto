@@ -1,15 +1,22 @@
-/* eslint-disable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing -- Closed nested provenance validation intentionally checks every optional mode branch. */
+/* eslint-disable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance validation intentionally checks every optional mode branch. */
 import type { JsonValue } from '../normalize.js';
 
 import type { Phase2ProfileRegistries } from './profile.js';
 import { phase2ExpectedBaseAcceptance } from './profile.js';
 import { assertClientCredentialsEvidenceIsSanitized } from './projections/client-credentials.js';
+import { assertDeviceAuthorizationEvidenceIsSanitized } from './projections/device-authorization.js';
 import {
   phase2OracleImageDigest,
   phase2OracleSourceCommit,
   type Phase2PublicHarnessProvenance,
   type Phase2SourceIdentity,
 } from './provenance.js';
+import {
+  deviceAuthorizationScenarioIds,
+  publishDeviceScenarioProjection,
+  type DeviceAuthorizationScenarioId,
+  type DeviceScenarioProjection,
+} from './scenarios/device-authorization.js';
 
 export type Phase2EvidenceMode = 'oracle' | 'differential' | 'candidate-invariants';
 
@@ -104,6 +111,7 @@ export const createPhase2EvidenceEnvelope = (
   }>
 ): Phase2EvidenceEnvelope => {
   assertClientCredentialsEvidenceIsSanitized(input.payload);
+  assertDeviceAuthorizationEvidenceIsSanitized(input.payload);
   const hash = /^[0-9a-f]{64}$/u;
   if (
     !input.profile.profileSha256 ||
@@ -161,4 +169,94 @@ export const createPhase2EvidenceEnvelope = (
   });
 };
 
-/* eslint-enable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing */
+const validatePhase2OracleArtifactUnchecked = (
+  value: unknown,
+  profile: Phase2ProfileRegistries,
+  harness: Phase2SourceIdentity
+): Phase2EvidenceEnvelope => {
+  if (!exactKeys(value, ['schemaVersion', 'mode', 'provenance', 'sanitizerSuccess', 'payload'])) {
+    return fail();
+  }
+  const envelope = value as Phase2EvidenceEnvelope;
+  if (
+    envelope.schemaVersion !== 1 ||
+    envelope.mode !== 'oracle' ||
+    !envelope.sanitizerSuccess ||
+    !exactKeys(envelope.provenance, [
+      'profileSha256',
+      'schemaSha256',
+      'baseAcceptance',
+      'harness',
+      'oracle',
+    ]) ||
+    envelope.provenance.oracle === undefined
+  ) {
+    return fail();
+  }
+  const canonical = createPhase2EvidenceEnvelope({
+    mode: 'oracle',
+    profile,
+    harness,
+    oracle: envelope.provenance.oracle,
+    payload: envelope.payload,
+  });
+  if (JSON.stringify(canonical) !== JSON.stringify(envelope)) {
+    return fail();
+  }
+  const { payload } = envelope;
+  if (!exactKeys(payload, ['schemaVersion', 'mode', 'target'])) {
+    return fail();
+  }
+  const oraclePayload = payload as Record<string, unknown>;
+  if (oraclePayload.schemaVersion !== 1 || oraclePayload.mode !== 'oracle') {
+    return fail();
+  }
+  const { target } = oraclePayload;
+  if (!exactKeys(target, ['target', 'scenarios', 'discovery', 'controls'])) {
+    return fail();
+  }
+  const targetRecord = target as Record<string, unknown>;
+  if (targetRecord.target !== 'oracle' || !Array.isArray(targetRecord.scenarios)) {
+    return fail();
+  }
+  const scenarioIds = targetRecord.scenarios.map((entry) => {
+    if (!exactKeys(entry, ['id', 'projection'])) {
+      return fail();
+    }
+    const { id, projection } = entry as Record<string, unknown>;
+    if (
+      typeof id === 'string' &&
+      (deviceAuthorizationScenarioIds as readonly string[]).includes(id)
+    ) {
+      publishDeviceScenarioProjection(
+        projection as DeviceScenarioProjection,
+        id as DeviceAuthorizationScenarioId
+      );
+    }
+    return typeof id === 'string' ? id : fail();
+  });
+  if (
+    scenarioIds.length !== profile.differentialScenarios.length ||
+    new Set(scenarioIds).size !== scenarioIds.length ||
+    scenarioIds.some((id, index) => id !== profile.differentialScenarios[index])
+  ) {
+    return fail();
+  }
+  assertClientCredentialsEvidenceIsSanitized(envelope.payload);
+  assertDeviceAuthorizationEvidenceIsSanitized(envelope.payload);
+  return envelope;
+};
+
+export const validatePhase2OracleArtifact = (
+  value: unknown,
+  profile: Phase2ProfileRegistries,
+  harness: Phase2SourceIdentity
+): Phase2EvidenceEnvelope => {
+  try {
+    return validatePhase2OracleArtifactUnchecked(value, profile, harness);
+  } catch {
+    return fail();
+  }
+};
+
+/* eslint-enable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax */

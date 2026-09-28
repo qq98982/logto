@@ -61,6 +61,7 @@ const authorizationProjection = (): DeviceAuthorizationProjection =>
     deviceCodeShape: Object.freeze({ length: 24 }),
     expiresIn: 600,
     interval: 5,
+    tokenType: undefined,
     verificationUri: Object.freeze({
       origin: 'https://candidate.example',
       path: '/device',
@@ -193,6 +194,11 @@ describe('Phase 2 device authorization projection', () => {
 
   it.each([
     ['sensitive key', { access_token: 'planted' }],
+    ['raw device code key', { device_code: 'planted' }],
+    ['raw user code key', { user_code: 'planted' }],
+    ['raw xsrf key', { xsrf: 'planted' }],
+    ['raw token key', { token: 'planted' }],
+    ['raw password key', { password: 'planted' }],
     ['sensitive value', { marker: 'private-secret' }],
     ['credential value', { marker: 'Bearer planted-value' }],
     ['compact token', { marker: 'eyJhbGciOiJFUzM4NCJ9.e30.aaaaaaaaaaaaaaaa' }],

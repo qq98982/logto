@@ -43,6 +43,7 @@ export type DeviceAuthorizationProjection = Readonly<{
   deviceCodeShape: Readonly<{ length: number }> | undefined;
   expiresIn: number | undefined;
   interval: number | undefined;
+  tokenType: 'Bearer' | undefined;
   verificationUri: DeviceAuthorizationUrlProjection | undefined;
   verificationUriComplete: DeviceAuthorizationUrlProjection | undefined;
   experience:
@@ -131,9 +132,19 @@ export type DeviceLifecycleFactsByKind = Readonly<{
     | Readonly<{
         marker: 'introspection';
         active: true;
+        credentialKind: 'access';
         subject: '<subject>';
         clientId: '<client>';
         issuer: '<target-issuer>';
+        issuedAt: '<issued-at>';
+        lifetimeSeconds: number;
+        scopes: readonly string[];
+        tokenType?: 'Bearer';
+      }>
+    | Readonly<{
+        marker: 'introspection';
+        active: true;
+        credentialKind: 'refresh';
         issuedAt: '<issued-at>';
         lifetimeSeconds: number;
         scopes: readonly string[];
@@ -231,7 +242,7 @@ const diagnostic = 'Invalid Phase 2 device authorization projection';
 const fieldNamePattern = /^[A-Za-z][A-Za-z0-9_.~-]{0,127}$/u;
 const mediaTypePattern = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
 const forbiddenKeyPattern =
-  /^(?:authorization|proxy.?authorization|cookie|set.?cookie|password|client.?secret|access.?token|refresh.?token|id.?token|device.?code|user.?code|xsrf|verification.?id|redirect.?to)$/iu;
+  /^(?:authorization|proxy.?authorization|cookie|set.?cookie|password|client.?secret|token|access.?token|refresh.?token|id.?token|device.?code|user.?code|xsrf|verification.?id|redirect.?to)$/iu;
 const credentialPattern = /\b(?:basic|bearer)\s+[A-Za-z0-9._~+/-]+=*/iu;
 const selectedHeaderNames = new Set([
   'access-control-allow-origin',
@@ -344,6 +355,7 @@ const topProjectionKeys = new Set([
   'deviceCodeShape',
   'expiresIn',
   'interval',
+  'tokenType',
   'verificationUri',
   'verificationUriComplete',
   'experience',
@@ -644,6 +656,10 @@ const assertAuthorizationProjectionFields = (source: Record<string, unknown>): v
   }
   assertOptionalPositiveInteger(own(source, 'expiresIn'));
   assertOptionalPositiveInteger(own(source, 'interval'));
+  const tokenType = own(source, 'tokenType');
+  if (tokenType !== undefined && tokenType !== 'Bearer') {
+    fail();
+  }
   for (const key of ['verificationUri', 'verificationUriComplete'] as const) {
     const url = own(source, key);
     if (url !== undefined) {
@@ -801,11 +817,32 @@ const assertLifecycleFacts = (kind: DeviceLifecycleKind, value: unknown): void =
         }
         return;
       }
+      if (facts.credentialKind === 'refresh') {
+        const source = exactRecordWithOptional(
+          facts,
+          new Set(['marker', 'active', 'credentialKind', 'issuedAt', 'lifetimeSeconds', 'scopes']),
+          new Set(['tokenType'])
+        );
+        if (
+          source.marker !== 'introspection' ||
+          source.active !== true ||
+          source.credentialKind !== 'refresh' ||
+          source.issuedAt !== '<issued-at>' ||
+          !Number.isSafeInteger(source.lifetimeSeconds) ||
+          Number(source.lifetimeSeconds) <= 0 ||
+          (source.tokenType !== undefined && source.tokenType !== 'Bearer')
+        ) {
+          fail();
+        }
+        assertStringArray(source.scopes);
+        return;
+      }
       const source = exactRecordWithOptional(
         facts,
         new Set([
           'marker',
           'active',
+          'credentialKind',
           'subject',
           'clientId',
           'issuer',
@@ -818,6 +855,7 @@ const assertLifecycleFacts = (kind: DeviceLifecycleKind, value: unknown): void =
       if (
         source.marker !== 'introspection' ||
         source.active !== true ||
+        source.credentialKind !== 'access' ||
         source.subject !== '<subject>' ||
         source.clientId !== '<client>' ||
         source.issuer !== '<target-issuer>' ||

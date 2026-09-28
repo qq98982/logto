@@ -90,6 +90,13 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
         isThirdParty: false,
         deviceGrantEnabled: false,
       }),
+      ineligibleWeb: Object.freeze({
+        id: 'phase2-device-web',
+        applicationType: 'SPA',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      }),
     }),
     resources: Object.freeze({
       primary: Object.freeze({
@@ -206,8 +213,7 @@ afterAll(async () => {
 });
 
 describe('Phase 2 candidate invariant driver', () => {
-  it('runs the exact five real-driver contracts and emits sanitized positive/negative controls', async () => {
-    const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
+  it('runs the exact five implemented contracts for the closed five-ID profile', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
@@ -225,7 +231,7 @@ describe('Phase 2 candidate invariant driver', () => {
         })
       );
     };
-    const evidence = await runClientCredentialsCandidateInvariants(canonicalProfile, {
+    const evidence = await runClientCredentialsCandidateInvariants(profile, {
       target,
       foreignTarget,
       fixture,
@@ -289,20 +295,23 @@ describe('Phase 2 candidate invariant driver', () => {
       canonicalProfile.candidateInvariantScenarios[0]!
     );
     await Promise.all(
-      [canonicalProfile.candidateInvariantScenarios.slice(1), reordered].map(
-        async (candidateInvariantScenarios) =>
-          expect(
-            runClientCredentialsCandidateInvariants(
-              { ...canonicalProfile, candidateInvariantScenarios } as Phase2ProfileRegistries,
-              {
-                target,
-                foreignTarget,
-                fixture,
-                driverPath,
-                controlSocket: path.join(root, 'control.sock'),
-              }
-            )
-          ).rejects.toThrow('Invalid Phase 2 candidate invariant')
+      [
+        canonicalProfile.candidateInvariantScenarios,
+        canonicalProfile.candidateInvariantScenarios.slice(1),
+        reordered,
+      ].map(async (candidateInvariantScenarios) =>
+        expect(
+          runClientCredentialsCandidateInvariants(
+            { ...canonicalProfile, candidateInvariantScenarios } as Phase2ProfileRegistries,
+            {
+              target,
+              foreignTarget,
+              fixture,
+              driverPath,
+              controlSocket: path.join(root, 'control.sock'),
+            }
+          )
+        ).rejects.toThrow('Invalid Phase 2 candidate invariant')
       )
     );
 
