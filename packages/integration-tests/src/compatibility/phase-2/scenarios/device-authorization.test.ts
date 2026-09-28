@@ -195,7 +195,7 @@ const lifecycleProjection = (
       case 'experience-submit': {
         return {
           marker: 'experience-submitted',
-          redirect: { origin: target.coreUrl.slice(0, -1), path: '/resume', queryKeys: [] },
+          redirect: { originCategory: 'issuer', path: '/resume', queryKeys: [] },
         };
       }
       case 'consent-read': {
@@ -209,7 +209,7 @@ const lifecycleProjection = (
       case 'consent-write': {
         return {
           marker: 'consent-recorded',
-          redirect: { origin: target.coreUrl.slice(0, -1), path: '/resume', queryKeys: [] },
+          redirect: { originCategory: 'issuer', path: '/resume', queryKeys: [] },
         };
       }
       case 'resume': {
@@ -245,7 +245,7 @@ const lifecycleProjection = (
       case 'oidc-discovery':
       case 'oauth-discovery': {
         const endpoint = (path: string) => ({
-          origin: target.coreUrl.slice(0, -1),
+          originCategory: 'issuer',
           path,
           queryKeys: [],
         });
@@ -615,7 +615,7 @@ describe('Phase 2 device authorization scenarios', () => {
             ...authorizationResponse(302),
             contentType: 'text/html',
             location: {
-              origin: target.coreUrl.slice(0, -1),
+              originCategory: 'issuer',
               path: '/oidc/device',
               queryKeys: ['user_code'],
             },
@@ -1002,7 +1002,7 @@ describe('Phase 2 device authorization scenarios', () => {
       expiresIn: undefined,
       interval: undefined,
       tokenType: undefined,
-      verificationUri: { origin: 'https://candidate.example', path: '/device', queryKeys: [] },
+      verificationUri: { originCategory: 'issuer', path: '/device', queryKeys: [] },
       verificationUriComplete: undefined,
       experience: undefined,
     } as DeviceAuthorizationProjection;
@@ -1031,7 +1031,7 @@ describe('Phase 2 device authorization scenarios', () => {
       signature: { verified: true as const },
     };
     const endpoint = (path: string) => ({
-      origin: 'https://candidate.example',
+      originCategory: 'issuer' as const,
       path,
       queryKeys: [],
     });
@@ -1184,7 +1184,7 @@ describe('Phase 2 device authorization scenarios', () => {
           marker: 'logout-confirmation',
           title: undefined,
           formAction: {
-            origin: 'https://candidate.example',
+            originCategory: 'issuer',
             path: '/oidc/session/end',
             queryKeys: [],
           },
@@ -1213,7 +1213,7 @@ describe('Phase 2 device authorization scenarios', () => {
           ...authorizationResponse(302),
           contentType: undefined,
           location: {
-            origin: 'https://candidate.example',
+            originCategory: 'issuer',
             path: '/oidc/device',
             queryKeys: ['user_code'],
           },

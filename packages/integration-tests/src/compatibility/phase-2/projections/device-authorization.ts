@@ -7,7 +7,7 @@ import type { TargetConfig } from '../../model.js';
 import { containsCompactJwt } from '../clients/client-credentials.js';
 
 export type DeviceAuthorizationUrlProjection = Readonly<{
-  origin: string;
+  originCategory: 'issuer' | 'client';
   path: string;
   queryKeys: readonly string[];
 }>;
@@ -587,27 +587,17 @@ const sortedUniqueStrings = (
   return entries;
 };
 
-const assertUrlProjection = (value: unknown): void => {
-  const source = exactRecord(value, new Set(['origin', 'path', 'queryKeys']));
-  let origin: URL;
-  try {
-    origin = new URL(String(source.origin));
-  } catch {
-    return fail();
-  }
+const assertUrlProjection = (
+  value: unknown,
+  originCategory: DeviceAuthorizationUrlProjection['originCategory'] = 'issuer'
+): void => {
+  const source = exactRecord(value, new Set(['originCategory', 'path', 'queryKeys']));
   if (
-    typeof source.origin !== 'string' ||
+    source.originCategory !== originCategory ||
     typeof source.path !== 'string' ||
     !source.path.startsWith('/') ||
     Buffer.byteLength(source.path) > 8192 ||
-    /[\u0000-\u001F\u007F?#]/u.test(source.path) ||
-    !['http:', 'https:'].includes(origin.protocol) ||
-    origin.origin !== source.origin ||
-    origin.username.length > 0 ||
-    origin.password.length > 0 ||
-    origin.pathname !== '/' ||
-    origin.search.length > 0 ||
-    origin.hash.length > 0
+    /[\u0000-\u001F\u007F?#]/u.test(source.path)
   ) {
     fail();
   }
@@ -947,7 +937,10 @@ const assertLifecycleFacts = (kind: DeviceLifecycleKind, value: unknown): void =
   }
 };
 
-const assertCommonProjectionFields = (source: Record<string, unknown>): void => {
+const assertCommonProjectionFields = (
+  source: Record<string, unknown>,
+  locationOriginCategory: DeviceAuthorizationUrlProjection['originCategory'] = 'issuer'
+): void => {
   assertStatus(own(source, 'status'));
   const contentType = own(source, 'contentType');
   if (
@@ -979,7 +972,7 @@ const assertCommonProjectionFields = (source: Record<string, unknown>): void => 
   }
   const location = own(source, 'location');
   if (location !== undefined) {
-    assertUrlProjection(location);
+    assertUrlProjection(location, locationOriginCategory);
   }
   const challengeValue = own(source, 'challenge');
   if (challengeValue !== undefined) {
@@ -1037,8 +1030,12 @@ export const publishDeviceLifecycleProjection = (
   if (!lifecycleKinds.has(own(source, 'kind') as DeviceLifecycleKind)) {
     fail();
   }
-  assertCommonProjectionFields(source);
-  assertLifecycleFacts(own(source, 'kind') as DeviceLifecycleKind, own(source, 'facts'));
+  const kind = own(source, 'kind') as DeviceLifecycleKind;
+  assertCommonProjectionFields(
+    source,
+    kind === 'logout-open' || kind === 'logout-confirm' ? 'client' : 'issuer'
+  );
+  assertLifecycleFacts(kind, own(source, 'facts'));
   assertDeviceAuthorizationEvidenceIsSanitized(source);
   return value;
 };

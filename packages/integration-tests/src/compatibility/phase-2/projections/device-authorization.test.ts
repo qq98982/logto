@@ -35,7 +35,7 @@ const lifecycleProjection = (): DeviceLifecycleProjection =>
     facts: Object.freeze({
       marker: 'consent-recorded',
       redirect: Object.freeze({
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/oidc/device/resume',
         queryKeys: Object.freeze(['ticket']),
       }),
@@ -63,19 +63,19 @@ const authorizationProjection = (): DeviceAuthorizationProjection =>
     interval: 5,
     tokenType: undefined,
     verificationUri: Object.freeze({
-      origin: 'https://candidate.example',
+      originCategory: 'issuer',
       path: '/device',
       queryKeys: Object.freeze([]),
     }),
     verificationUriComplete: Object.freeze({
-      origin: 'https://candidate.example',
+      originCategory: 'issuer',
       path: '/device',
       queryKeys: Object.freeze(['user_code']),
     }),
     experience: Object.freeze({
       title: 'Device verification',
       formAction: Object.freeze({
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/oidc/device',
         queryKeys: Object.freeze([]),
       }),
@@ -106,7 +106,7 @@ describe('Phase 2 device authorization projection', () => {
       {
         ...valid,
         verificationUriComplete: {
-          origin: 'https://candidate.example',
+          originCategory: 'issuer',
           path: '/device',
           queryKeys: ['user_code', 'app_id'],
         },
@@ -168,7 +168,7 @@ describe('Phase 2 device authorization projection', () => {
         facts: Object.freeze({
           marker: 'consent-recorded',
           redirect: Object.freeze({
-            origin: 'https://candidate.example',
+            originCategory: 'issuer',
             path: '/oidc/device/other',
             queryKeys: Object.freeze(['ticket']),
           }),

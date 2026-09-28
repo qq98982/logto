@@ -2,6 +2,7 @@
 import { inspect } from 'node:util';
 
 import type { TargetConfig } from '../../model.js';
+import { compareDeviceAuthorizationProjections } from '../projections/device-authorization.js';
 
 import {
   createDeviceAuthorizationTransportLease,
@@ -55,6 +56,52 @@ const expectSanitized = (projection: DeviceAuthorizationProjection): void => {
 };
 
 describe('Phase 2 device authorization transport', () => {
+  it('normalizes target-owned authorization URLs across distinct target origins', async () => {
+    const project = async (configuredTarget: TargetConfig) => {
+      const { origin } = new URL(configuredTarget.coreUrl);
+      const lease = createDeviceAuthorizationTransportLease({
+        target: configuredTarget,
+        fetch: async () =>
+          jsonResponse({
+            ...authorizationBody,
+            verification_uri: `${origin}/device`,
+            verification_uri_complete: `${origin}/device?user_code=BCDF-GHJK`,
+          }),
+      });
+      return lease.requestAuthorization({
+        encoding: 'form',
+        fields: [['client_id', 'device-client']],
+      });
+    };
+
+    const [oracle, candidate] = await Promise.all([project(oracleTarget), project(target)]);
+
+    expect(compareDeviceAuthorizationProjections(oracle, candidate)).toEqual([]);
+    expect(candidate.verificationUri).toEqual({
+      originCategory: 'issuer',
+      path: '/device',
+      queryKeys: [],
+    });
+  });
+
+  it('rejects authorization URLs outside the configured target origin', async () => {
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () =>
+        jsonResponse({
+          ...authorizationBody,
+          verification_uri: 'https://foreign.example/device',
+        }),
+    });
+
+    await expect(
+      lease.requestAuthorization({
+        encoding: 'form',
+        fields: [['client_id', 'device-client']],
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (authorization-response)');
+  });
+
   it('applies closed authorization query and Basic proof controls without changing body encoding', async () => {
     const calls: Array<readonly [string, RequestInit | undefined]> = [];
     const lease = createDeviceAuthorizationTransportLease({
@@ -260,12 +307,12 @@ describe('Phase 2 device authorization transport', () => {
       interval: 5,
       tokenType: undefined,
       verificationUri: {
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/device',
         queryKeys: [],
       },
       verificationUriComplete: {
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/device',
         queryKeys: ['user_code'],
       },
@@ -620,7 +667,7 @@ describe('Phase 2 device authorization transport', () => {
       ],
       experience: {
         title: 'Device Verification',
-        formAction: { origin: 'https://candidate.example', path: '/oidc/device', queryKeys: [] },
+        formAction: { originCategory: 'issuer', path: '/oidc/device', queryKeys: [] },
         inputNames: ['confirm', 'user_code', 'xsrf'],
         autoSubmit: true,
       },
@@ -628,7 +675,7 @@ describe('Phase 2 device authorization transport', () => {
     expect(shortcut).toMatchObject({
       status: 302,
       location: {
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/oidc/device',
         queryKeys: ['user_code'],
       },
@@ -643,7 +690,7 @@ describe('Phase 2 device authorization transport', () => {
         },
       ],
       location: {
-        origin: 'https://candidate.example',
+        originCategory: 'issuer',
         path: '/device/success',
         queryKeys: ['result'],
       },
@@ -704,7 +751,7 @@ describe('Phase 2 device authorization transport', () => {
 
     expect(projection.status).toBe(302);
     expect(projection.location).toEqual({
-      origin: 'https://oracle.example',
+      originCategory: 'issuer',
       path: '/device',
       queryKeys: [],
     });
@@ -757,7 +804,7 @@ describe('Phase 2 device authorization transport', () => {
     });
     const terminal = await lease.requestVerification({ method: 'FOLLOW_PROJECTED_LOCATION' });
     expect(redirect.location).toEqual({
-      origin: 'https://candidate.example',
+      originCategory: 'issuer',
       path: '/oidc/device',
       queryKeys: ['user_code'],
     });
@@ -795,11 +842,19 @@ describe('Phase 2 device authorization transport', () => {
       encoding: 'form',
       fields: [['client_id', 'device-client']],
     });
-    await lease.requestVerification({
+    const projection = lease.requestVerification({
       method: 'GET',
       path: '/device',
       userCode: { stored: 'user-code' },
     });
+    if (location.startsWith('https://attacker.example')) {
+      await expect(projection).rejects.toThrow(
+        'Invalid Phase 2 device authorization transport (verification-response)'
+      );
+      expect(calls).toHaveLength(2);
+      return;
+    }
+    await projection;
     await expect(
       lease.requestVerification({ method: 'FOLLOW_PROJECTED_LOCATION' })
     ).rejects.toThrow('Invalid Phase 2 device authorization transport (verification-request)');
@@ -1842,7 +1897,7 @@ describe('Phase 2 device authorization transport', () => {
       missingResourceScopeCount: 0,
     });
     expect(results[7]?.location).toEqual({
-      origin: 'https://candidate.example',
+      originCategory: 'issuer',
       path: '/device/success',
       queryKeys: [],
     });
@@ -1928,7 +1983,7 @@ describe('Phase 2 device authorization transport', () => {
       expect(submitted.facts).toEqual({
         marker: 'experience-submitted',
         redirect: {
-          origin: 'https://candidate.example',
+          originCategory: 'issuer',
           path: `${prefix}<interaction-uid>`,
           queryKeys: [],
         },
@@ -2419,7 +2474,7 @@ describe('Phase 2 device authorization transport', () => {
         },
       ],
       location: {
-        origin: 'https://client.example',
+        originCategory: 'client',
         path: '/after-logout',
         queryKeys: ['state'],
       },
@@ -2430,7 +2485,7 @@ describe('Phase 2 device authorization transport', () => {
       issuer: '<target-issuer>',
       endpoints: {
         token_endpoint: {
-          origin: 'https://candidate.example',
+          originCategory: 'issuer',
           path: '/oidc/token',
           queryKeys: [],
         },
@@ -2460,12 +2515,18 @@ describe('Phase 2 device authorization transport', () => {
         replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
     });
     await expect(
-      lease.requestLifecycle({ kind: 'logout-open', method: 'GET', clientId: 'device-client' })
+      lease.requestLifecycle({
+        kind: 'logout-open',
+        method: 'GET',
+        clientId: 'device-client',
+        postLogoutRedirectUri: 'https://client.example/after-logout',
+        state: 'private-state',
+      })
     ).resolves.toMatchObject({
       status: 302,
       facts: { marker: 'logout-finished' },
       location: {
-        origin: 'https://client.example',
+        originCategory: 'client',
         path: '/after-logout',
         queryKeys: ['state'],
       },
@@ -2473,6 +2534,81 @@ describe('Phase 2 device authorization transport', () => {
     await expect(
       lease.requestLifecycle({ kind: 'logout-open', method: 'GET', clientId: 'device-client' })
     ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
+  it.each([
+    'https://attacker.example/after-logout?state=private-state',
+    'https://client.example/wrong-path?state=private-state',
+    'https://client.example/after-logout?state=private-state&extra=1',
+    'https://client.example/after-logout?state=private-state#fragment',
+  ])(
+    'rejects a logout redirect that differs from the request-bound destination: %s',
+    async (location) => {
+      const lease = createDeviceAuthorizationTransportLease({
+        target,
+        fetch: async () => new Response(null, { status: 302, headers: { location } }),
+      });
+
+      await expect(
+        lease.requestLifecycle({
+          kind: 'logout-open',
+          method: 'GET',
+          clientId: 'device-client',
+          postLogoutRedirectUri: 'https://client.example/after-logout',
+          state: 'private-state',
+        })
+      ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+    }
+  );
+
+  it('retains the request-bound logout destination across confirmation', async () => {
+    const replies = [
+      new Response(
+        '<title>Sign out</title><form action="/oidc/session/end/confirmation"><input name="xsrf" value="private-logout-xsrf"><input name="logout"></form>',
+        { headers: { 'content-type': 'text/html' } }
+      ),
+      new Response(null, {
+        status: 303,
+        headers: { location: 'https://client.example/wrong-path?state=private-state' },
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+
+    await lease.requestLifecycle({
+      kind: 'logout-open',
+      method: 'GET',
+      clientId: 'device-client',
+      postLogoutRedirectUri: 'https://client.example/after-logout',
+      state: 'private-state',
+    });
+    await expect(
+      lease.requestLifecycle({ kind: 'logout-confirm', method: 'POST', confirm: true })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
+  it('redacts a malformed client logout Location parser failure', async () => {
+    const privateLocation = 'https://[private-logout-location';
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () =>
+        new Response(null, { status: 302, headers: { location: privateLocation } }),
+    });
+
+    const failure = lease.requestLifecycle({
+      kind: 'logout-open',
+      method: 'GET',
+      clientId: 'device-client',
+      postLogoutRedirectUri: 'https://client.example/after-logout',
+      state: 'private-state',
+    });
+    await expect(failure).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (lifecycle-response)'
+    );
+    await expect(failure).rejects.not.toThrow(privateLocation);
   });
 
   it('rejects wrong resume status, path and success HTML marker without advancing the private stage', async () => {

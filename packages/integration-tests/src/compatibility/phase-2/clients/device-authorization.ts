@@ -234,6 +234,8 @@ type TransportState = {
   resumeStage?: 'after-experience-submit' | 'after-consent-write';
   logoutXsrf?: string;
   logoutAction?: string;
+  logoutRedirectUri?: string;
+  logoutState?: string;
   accessToken?: string;
   refreshToken?: string;
   previousRefreshToken?: string;
@@ -614,6 +616,8 @@ const clearState = (state: TransportState): void => {
   state.resumeStage = undefined;
   state.logoutXsrf = undefined;
   state.logoutAction = undefined;
+  state.logoutRedirectUri = undefined;
+  state.logoutState = undefined;
   state.accessToken = undefined;
   state.refreshToken = undefined;
   state.previousRefreshToken = undefined;
@@ -647,6 +651,8 @@ const snapshotState = (state: TransportState): TransportState => ({
   resumeStage: state.resumeStage,
   logoutXsrf: state.logoutXsrf,
   logoutAction: state.logoutAction,
+  logoutRedirectUri: state.logoutRedirectUri,
+  logoutState: state.logoutState,
   accessToken: state.accessToken,
   refreshToken: state.refreshToken,
   previousRefreshToken: state.previousRefreshToken,
@@ -709,6 +715,8 @@ const finishProjection = (
   state.resumeStage = next.resumeStage;
   state.logoutXsrf = next.logoutXsrf;
   state.logoutAction = next.logoutAction;
+  state.logoutRedirectUri = next.logoutRedirectUri;
+  state.logoutState = next.logoutState;
   state.accessToken = next.accessToken;
   state.refreshToken = next.refreshToken;
   state.previousRefreshToken = next.previousRefreshToken;
@@ -955,6 +963,7 @@ const projectUrl = (
   }
   if (
     !['http:', 'https:'].includes(url.protocol) ||
+    url.origin !== base.origin ||
     url.username.length > 0 ||
     url.password.length > 0 ||
     url.hash.length > 0
@@ -967,7 +976,48 @@ const projectUrl = (
   }
   queryKeys.sort();
   return Object.freeze({
-    origin: url.origin,
+    originCategory: 'issuer',
+    path: url.pathname,
+    queryKeys: Object.freeze(queryKeys),
+  });
+};
+
+const projectClientLogoutUrl = (
+  value: unknown,
+  redirectUri: string | undefined,
+  state: string | undefined,
+  stage: string
+): DeviceAuthorizationUrlProjection | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const expected = redirectUri === undefined ? fail(stage) : new URL(redirectUri);
+  if (state !== undefined) {
+    expected.searchParams.set('state', state);
+  }
+  const raw = boundedString(value, stage, 8192);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return fail(stage);
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.hash.length > 0 ||
+    url.href !== expected.href
+  ) {
+    return fail(stage);
+  }
+  const queryKeys = [...new Set(url.searchParams.keys())];
+  if (queryKeys.some((key) => !fieldNamePattern.test(key))) {
+    return fail(stage);
+  }
+  queryKeys.sort();
+  return Object.freeze({
+    originCategory: 'client',
     path: url.pathname,
     queryKeys: Object.freeze(queryKeys),
   });
@@ -1784,6 +1834,8 @@ type PreparedLifecycleRequest = Readonly<{
   expectedSubjectId?: string;
   expectedClientId?: string;
   introspectionCredentialKind?: 'access' | 'refresh';
+  logoutRedirectUri?: string;
+  logoutState?: string;
 }>;
 
 const applyClientProof = (
@@ -1874,6 +1926,8 @@ const prepareLifecycleRequest = (
   let body: string | URLSearchParams | undefined;
   let expectedSubjectId: string | undefined;
   let expectedClientId: string | undefined;
+  let logoutRedirectUri: string | undefined;
+  let logoutState: string | undefined;
   const exact = (keys: readonly string[]): void => {
     if (!hasOnlyKeys(input, new Set(['kind', 'method', ...keys]))) {
       fail(stage);
@@ -2017,10 +2071,15 @@ const prepareLifecycleRequest = (
       if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
         fail(stage);
       }
+      if (parsed.hash.length > 0) {
+        fail(stage);
+      }
+      logoutRedirectUri = parsed.href;
       url.searchParams.set('post_logout_redirect_uri', redirect);
     }
     if (input.state !== undefined) {
-      url.searchParams.set('state', boundedString(input.state, stage, maximumFieldBytes));
+      logoutState = boundedString(input.state, stage, maximumFieldBytes);
+      url.searchParams.set('state', logoutState);
     }
   } else if (kind === 'logout-confirm') {
     exact(['confirm']);
@@ -2080,6 +2139,8 @@ const prepareLifecycleRequest = (
     ...(kind === 'introspection'
       ? { introspectionCredentialKind: input.token as 'access' | 'refresh' }
       : {}),
+    ...(logoutRedirectUri === undefined ? {} : { logoutRedirectUri }),
+    ...(logoutState === undefined ? {} : { logoutState }),
   });
 };
 
@@ -2149,6 +2210,8 @@ const commitLifecycleState = (state: TransportState, next: TransportState): void
     'resumeStage',
     'logoutXsrf',
     'logoutAction',
+    'logoutRedirectUri',
+    'logoutState',
     'accessToken',
     'refreshToken',
     'previousRefreshToken',
@@ -2183,7 +2246,15 @@ const projectLifecycleResponse = async (
   const contentType = normalizedContentType(response.headers, stage);
   const challenge = projectChallenge(response.headers, base, registry.values, false, stage);
   const rawLocation = response.headers.get('location') ?? undefined;
-  const location = projectUrl(rawLocation, base, stage);
+  const location =
+    prepared.kind === 'logout-open' || prepared.kind === 'logout-confirm'
+      ? projectClientLogoutUrl(
+          rawLocation,
+          prepared.kind === 'logout-open' ? prepared.logoutRedirectUri : next.logoutRedirectUri,
+          prepared.kind === 'logout-open' ? prepared.logoutState : next.logoutState,
+          stage
+        )
+      : projectUrl(rawLocation, base, stage);
   const bytes = await readBoundedBody(response, limits.body, stage);
   const bodyText = new TextDecoder('utf8', { fatal: true }).decode(bytes);
   const parsed = contentType === 'application/json' ? jsonObject(bodyText, stage) : undefined;
@@ -2343,13 +2414,12 @@ const projectLifecycleResponse = async (
     const experience = projectExperience(bodyText, base, registry.values, stage);
     const xsrf = boundedString(htmlInputValue(bodyText, 'xsrf'), stage, maximumFieldBytes);
     const action = experience.formAction ?? fail(stage);
-    const actionUrl = new URL(action.path, action.origin);
-    if (actionUrl.origin !== base.origin) {
-      return fail(stage);
-    }
+    const actionUrl = new URL(action.path, base);
     registerSensitiveValue(registry, xsrf);
     next.logoutXsrf = xsrf;
     next.logoutAction = actionUrl.href;
+    next.logoutRedirectUri = prepared.logoutRedirectUri;
+    next.logoutState = prepared.logoutState;
     facts = Object.freeze({
       marker: 'logout-confirmation',
       title: experience.title,
@@ -2361,6 +2431,8 @@ const projectLifecycleResponse = async (
       return fail(stage);
     }
     facts = markerFacts('logout-finished');
+    next.logoutRedirectUri = undefined;
+    next.logoutState = undefined;
   } else if (kind === 'oidc-discovery' || kind === 'oauth-discovery') {
     const issuer = boundedString(parsed?.issuer, stage, 8192);
     if (issuer !== new URL('/oidc', base).href.replace(/\/$/u, '')) {
@@ -2380,7 +2452,7 @@ const projectLifecycleResponse = async (
     for (const [name, path] of Object.entries(endpointPaths)) {
       const endpoint = projectUrl(parsed?.[name], base, stage) ?? fail(stage);
       if (
-        endpoint.origin !== base.origin ||
+        endpoint.originCategory !== 'issuer' ||
         endpoint.path !== path ||
         endpoint.queryKeys.length > 0
       ) {
@@ -2440,13 +2512,13 @@ const projectLifecycleResponse = async (
     if (
       (resumeStage === 'after-experience-submit' &&
         (response.status !== 303 ||
-          location?.origin !== base.origin ||
+          location?.originCategory !== 'issuer' ||
           location.path !== '/consent' ||
           location.queryKeys.length !== 1 ||
           location.queryKeys[0] !== 'app_id')) ||
       (resumeStage === 'after-consent-write' &&
         (response.status !== 302 ||
-          location?.origin !== base.origin ||
+          location?.originCategory !== 'issuer' ||
           location.path !== '/device/success' ||
           location.queryKeys.length > 0))
     ) {
@@ -2469,6 +2541,10 @@ const projectLifecycleResponse = async (
             ? 'logout-finished'
             : kind
     );
+    if (kind === 'logout-confirm') {
+      next.logoutRedirectUri = undefined;
+      next.logoutState = undefined;
+    }
   }
   const oauthError =
     parsed?.error === undefined && parsed?.error_description === undefined
