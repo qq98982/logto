@@ -502,11 +502,16 @@ const inspectPublicEvidence = (
     fail();
   }
   if (typeof value === 'string') {
+    const publicClientChallenge =
+      parentKey === 'www-authenticate' &&
+      /^Basic realm="<target-issuer>", error="invalid_client", error_description="client authentication failed"$/u.test(
+        value
+      );
     if (
       Buffer.byteLength(value) > 16 * 1024 ||
       /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value) ||
       /private-(?:secret|password|token|cookie|code|xsrf)/iu.test(value) ||
-      credentialPattern.test(value) ||
+      (!publicClientChallenge && credentialPattern.test(value)) ||
       containsCompactJwt(value)
     ) {
       fail();

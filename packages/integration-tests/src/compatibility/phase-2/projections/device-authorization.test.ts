@@ -250,6 +250,24 @@ describe('Phase 2 device authorization projection', () => {
     );
   });
 
+  it('accepts only the fixed public invalid-client challenge', () => {
+    const publicChallenge =
+      'Basic realm="<target-issuer>", error="invalid_client", error_description="client authentication failed"';
+    expect(() =>
+      assertDeviceAuthorizationEvidenceIsSanitized({
+        headers: { 'www-authenticate': publicChallenge },
+      })
+    ).not.toThrow();
+    for (const value of [`${publicChallenge}, secret="planted"`, 'Basic Zm9vOmJhcg==']) {
+      expect(() =>
+        assertDeviceAuthorizationEvidenceIsSanitized({ headers: { 'www-authenticate': value } })
+      ).toThrow('Invalid Phase 2 device authorization projection');
+    }
+    expect(() => assertDeviceAuthorizationEvidenceIsSanitized({ other: publicChallenge })).toThrow(
+      'Invalid Phase 2 device authorization projection'
+    );
+  });
+
   it('accepts the closed 139-scenario evidence array without widening other arrays', () => {
     const scenarios = Array.from({ length: 140 }, (_, index) => ({ id: `scenario-${index}` }));
     expect(() =>
