@@ -661,6 +661,53 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('executes both command diagnostic allowlists against closed sanitizer substages', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter(
+      (pattern): pattern is string =>
+        pattern?.startsWith('^Phase 2 client credentials command failed ') === true
+    );
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const acceptedLines = ['oracle', 'candidate'].flatMap((prefix) =>
+      [
+        'target',
+        'discovery',
+        'controls',
+        'ids',
+        'client-0',
+        'client-138',
+        'device-0',
+        'device-138',
+      ].map(
+        (suffix) => `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).`
+      )
+    );
+    const rejectedLines = [
+      'Phase 2 client credentials command failed (oracle-sanitizer-client-00).',
+      'Phase 2 client credentials command failed (oracle-sanitizer-client-139).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-device-01).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-device-139).',
+      'Phase 2 client credentials command failed (oracle-sanitizer-target-extra).',
+      'Phase 2 client credentials command failed (oracle-sanitizer-private-value).',
+    ];
+    const matchesFor = async (lines: readonly string[]) =>
+      Promise.all(
+        lines.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      );
+    await expect(matchesFor(acceptedLines)).resolves.toEqual(
+      Array.from({ length: acceptedLines.length * patterns.length }, () => true)
+    );
+    await expect(matchesFor(rejectedLines)).resolves.toEqual(
+      Array.from({ length: rejectedLines.length * patterns.length }, () => false)
+    );
+  });
+
   it('publishes results only after successful topology cleanup', () => {
     expect(source).toContain('.staging.XXXXXX');
     expect(source).toContain('RESULT_STAGING_IDENTITY');

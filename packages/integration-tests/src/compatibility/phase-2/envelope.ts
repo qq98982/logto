@@ -208,34 +208,66 @@ const assertWithBothSanitizers = (value: unknown): void => {
   assertDeviceAuthorizationEvidenceIsSanitized(value);
 };
 
+export class Phase2SanitizerFailure extends TypeError {
+  constructor(readonly stage: string) {
+    super('Invalid Phase 2 evidence sanitizer');
+  }
+}
+
+const assertSanitizedAt = (stage: string, check: () => void): void => {
+  try {
+    check();
+  } catch {
+    throw new Phase2SanitizerFailure(stage);
+  }
+};
+
 export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   if (!exactKeys(value, ['target', 'scenarios', 'discovery', 'controls'])) {
     assertWithBothSanitizers(value);
     return;
   }
   const evidence = snapshotExactDataRecord(value, ['target', 'scenarios', 'discovery', 'controls']);
-  const scenarios = snapshotDenseArray(evidence.scenarios, 139).map((entry) =>
-    snapshotExactDataRecord(entry, ['id', 'projection'])
-  );
-  if (scenarios.some((entry) => typeof entry.id !== 'string')) {
-    assertWithBothSanitizers(value);
-    return;
+  const shared = [
+    ['target', evidence.target],
+    ['discovery', evidence.discovery],
+    ['controls', evidence.controls],
+  ] as const;
+  for (const [stage, part] of shared) {
+    assertSanitizedAt(stage, () => {
+      assertWithBothSanitizers(part);
+    });
   }
-  const checkedScenarios = scenarios as Array<{ id: string; projection: unknown }>;
-  for (const shared of [evidence.target, evidence.discovery, evidence.controls]) {
-    assertWithBothSanitizers(shared);
-  }
-  assertDeviceAuthorizationEvidenceIsSanitized({
-    scenarios: checkedScenarios.map(({ id }) => id),
-  });
-  for (const scenario of checkedScenarios) {
-    if ((deviceAuthorizationScenarioIds as readonly string[]).includes(scenario.id)) {
-      publishDeviceScenarioProjection(
-        scenario.projection as DeviceScenarioProjection,
-        scenario.id as DeviceAuthorizationScenarioId
+  const scenarios = (() => {
+    try {
+      const snapshot = snapshotDenseArray(evidence.scenarios, 139).map((entry) =>
+        snapshotExactDataRecord(entry, ['id', 'projection'])
       );
+      if (snapshot.some((entry) => typeof entry.id !== 'string')) {
+        return fail();
+      }
+      return snapshot as Array<{ id: string; projection: unknown }>;
+    } catch {
+      throw new Phase2SanitizerFailure('ids');
+    }
+  })();
+  assertSanitizedAt('ids', () => {
+    assertDeviceAuthorizationEvidenceIsSanitized({
+      scenarios: scenarios.map(({ id }) => id),
+    });
+  });
+  for (const [index, scenario] of scenarios.entries()) {
+    if ((deviceAuthorizationScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`device-${index}`, () => {
+        publishDeviceScenarioProjection(
+          scenario.projection as DeviceScenarioProjection,
+          scenario.id as DeviceAuthorizationScenarioId
+        );
+      });
     } else {
-      assertWithBothSanitizers(scenario.projection);
+      assertSanitizedAt(`client-${index}`, () => {
+        assertWithBothSanitizers(scenario.projection);
+      });
     }
   }
 };

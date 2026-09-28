@@ -14,6 +14,7 @@ import {
 import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
+  Phase2SanitizerFailure,
   validatePhase2OracleArtifact,
   type Phase2TargetProvenance,
 } from './envelope.js';
@@ -110,6 +111,15 @@ const deviceAuthorizationProjection = {
   experience: undefined,
 };
 
+const sanitizerStageOf = (value: unknown): string => {
+  try {
+    assertPhase2TargetEvidenceIsSanitized(value);
+    return 'accepted';
+  } catch (error: unknown) {
+    return error instanceof Phase2SanitizerFailure ? error.stage : 'unclassified';
+  }
+};
+
 describe('Phase 2 public provenance envelope', () => {
   it('sanitizes each target scenario with its owning scanner', () => {
     const safeEvidence = {
@@ -150,7 +160,7 @@ describe('Phase 2 public provenance envelope', () => {
         ...safeEvidence,
         scenarios: Array.from({ length: 140 }, () => safeEvidence.scenarios[0]),
       });
-    }).toThrow('Invalid Phase 2 device authorization projection');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
@@ -159,7 +169,7 @@ describe('Phase 2 public provenance envelope', () => {
             key === Symbol.iterator ? () => [][Symbol.iterator]() : Reflect.get(source, key),
         }),
       });
-    }).toThrow('Invalid Phase 2 device authorization projection');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
     const getterCalls = { count: 0 };
     const accessorScenario = Object.defineProperties(
       {},
@@ -178,7 +188,7 @@ describe('Phase 2 public provenance envelope', () => {
     );
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({ ...safeEvidence, scenarios: [accessorScenario] });
-    }).toThrow('Invalid Phase 2 evidence envelope');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(getterCalls.count).toBe(0);
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
@@ -191,7 +201,7 @@ describe('Phase 2 public provenance envelope', () => {
           safeEvidence.scenarios[1],
         ],
       });
-    }).toThrow('Invalid Phase 2 client credentials projection');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
@@ -203,7 +213,7 @@ describe('Phase 2 public provenance envelope', () => {
           },
         ],
       });
-    }).toThrow('Invalid Phase 2 device authorization projection');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
@@ -215,7 +225,30 @@ describe('Phase 2 public provenance envelope', () => {
           safeEvidence.scenarios[1],
         ],
       });
-    }).toThrow('Invalid Phase 2 device authorization projection');
+    }).toThrow('Invalid Phase 2 evidence sanitizer');
+    expect(
+      sanitizerStageOf({
+        ...safeEvidence,
+        scenarios: Array.from({ length: 140 }, () => safeEvidence.scenarios[0]),
+      })
+    ).toBe('ids');
+    expect(
+      sanitizerStageOf({
+        ...safeEvidence,
+        scenarios: [
+          { id: 'client-credentials.basic-explicit-resource', projection: { cookies: [] } },
+        ],
+      })
+    ).toBe('client-0');
+    expect(
+      sanitizerStageOf({
+        ...safeEvidence,
+        scenarios: [
+          safeEvidence.scenarios[0],
+          { id: 'device-authorization.urlencoded-success', projection: { privateKey: 'planted' } },
+        ],
+      })
+    ).toBe('device-1');
   });
 
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {

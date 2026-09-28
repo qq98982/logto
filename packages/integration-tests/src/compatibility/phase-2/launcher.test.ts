@@ -189,6 +189,43 @@ describe('Phase 2 tracked launcher', () => {
       diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-private).\n')
     ).toBe('Phase 2 client credentials launcher failed.\n');
   });
+  it('forwards only closed sanitizer substage diagnostics from the child', () => {
+    for (const prefix of ['oracle', 'candidate']) {
+      for (const suffix of [
+        'target',
+        'discovery',
+        'controls',
+        'ids',
+        'client-0',
+        'client-138',
+        'device-0',
+        'device-138',
+      ]) {
+        const message = `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).\n`;
+        expect(diagnosticForPhase2Child(message)).toBe(message);
+      }
+    }
+
+    for (const suffix of [
+      'client-00',
+      'client-139',
+      'device-01',
+      'device-139',
+      'target-extra',
+      'private-value',
+    ]) {
+      expect(
+        diagnosticForPhase2Child(
+          `Phase 2 client credentials command failed (oracle-sanitizer-${suffix}).\n`
+        )
+      ).toBe('Phase 2 client credentials launcher failed.\n');
+    }
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (oracle-sanitizer-target).\nprivate-value'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+  });
   it('classifies abnormal child results without forwarding child output', () => {
     expect(
       diagnosticForPhase2ChildResult({

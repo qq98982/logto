@@ -21,6 +21,7 @@ import {
 import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
+  Phase2SanitizerFailure,
   validatePhase2OracleArtifact,
   type Phase2EvidenceEnvelope,
   type Phase2TargetProvenance,
@@ -192,7 +193,7 @@ type DeviceFailureStage =
   | 'projection'
   | 'scenario';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-2][0-9]|13[0-8])))?|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: (oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -743,7 +744,10 @@ const runTargetScenarios = async (
   });
   try {
     assertPhase2TargetEvidenceIsSanitized(evidence);
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof Phase2SanitizerFailure) {
+      throw new TypeError(`Phase 2 stage failed: ${descriptor.kind}-sanitizer-${error.stage}`);
+    }
     throw new Error(`Phase 2 stage failed: ${descriptor.kind}-sanitizer`);
   }
   return evidence;

@@ -158,6 +158,13 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) return stderr;
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-2][0-9]|13[0-8]))\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
