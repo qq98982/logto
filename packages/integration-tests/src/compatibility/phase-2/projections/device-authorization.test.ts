@@ -440,6 +440,7 @@ describe('Phase 2 device authorization projection', () => {
       throw new TypeError('expected verified resource access token');
     }
     expect(projection.access.claims).not.toHaveProperty('resource');
+    expect(compareDeviceAuthorizationProjections(projection, projection)).toEqual([]);
   });
 
   it('projects a resource-free access token as opaque and keeps absent ID and refresh absent', async () => {

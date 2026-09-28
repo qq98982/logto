@@ -1533,9 +1533,7 @@ const assertVerifiedJwtProjection = (value: unknown, accessSemantics: boolean): 
     new Set(claimKeys).size !== claimKeys.length ||
     claimKeys.some((name) => !(accessSemantics ? accessClaimNames : idTokenClaimNames).has(name)) ||
     (accessSemantics
-      ? ['iss', 'aud', 'sub', 'client_id', 'resource', 'iat', 'exp'].some(
-          (name) => !claimKeys.includes(name)
-        )
+      ? ['iss', 'aud', 'sub', 'client_id', 'iat', 'exp'].some((name) => !claimKeys.includes(name))
       : ['iss', 'aud', 'sub', 'iat', 'exp'].some((name) => !claimKeys.includes(name)))
   ) {
     fail();
