@@ -2536,6 +2536,106 @@ describe('Phase 2 device authorization transport', () => {
     ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
   });
 
+  it('projects the issuer logout success fallback without an explicit client redirect', async () => {
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () =>
+        new Response(null, {
+          status: 303,
+          headers: { location: 'https://candidate.example/oidc/session/end/success' },
+        }),
+    });
+
+    await expect(
+      lease.requestLifecycle({ kind: 'logout-open', method: 'GET', clientId: 'device-client' })
+    ).resolves.toMatchObject({
+      status: 303,
+      location: {
+        originCategory: 'issuer',
+        path: '/oidc/session/end/success',
+        queryKeys: [],
+      },
+      facts: { marker: 'logout-finished' },
+    });
+  });
+
+  it.each([
+    'https://candidate.example/oidc/session/end/wrong',
+    'https://candidate.example/oidc/session/end/success?unexpected=1',
+    'https://foreign.example/oidc/session/end/success',
+  ])('rejects an invalid issuer logout fallback: %s', async (location) => {
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => new Response(null, { status: 303, headers: { location } }),
+    });
+
+    await expect(
+      lease.requestLifecycle({ kind: 'logout-open', method: 'GET', clientId: 'device-client' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
+  it('retains the issuer logout fallback across confirmation without a client redirect', async () => {
+    const replies = [
+      new Response(
+        '<title>Sign out</title><form action="/oidc/session/end/confirmation"><input name="xsrf" value="private-logout-xsrf"><input name="logout"></form>',
+        { headers: { 'content-type': 'text/html' } }
+      ),
+      new Response(null, {
+        status: 303,
+        headers: { location: '/oidc/session/end/success' },
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+
+    await lease.requestLifecycle({ kind: 'logout-open', method: 'GET', clientId: 'device-client' });
+    await expect(
+      lease.requestLifecycle({ kind: 'logout-confirm', method: 'POST', confirm: true })
+    ).resolves.toMatchObject({
+      location: {
+        originCategory: 'issuer',
+        path: '/oidc/session/end/success',
+        queryKeys: [],
+      },
+      facts: { marker: 'logout-finished' },
+    });
+  });
+
+  it.each([
+    ['client-bound', 'https://client.example/after-logout', 'private-state'],
+    ['issuer fallback', undefined, undefined],
+  ] as const)(
+    'rejects a missing logout-confirm Location for %s flow',
+    async (_label, redirect, state) => {
+      const replies = [
+        new Response(
+          '<title>Sign out</title><form action="/oidc/session/end/confirmation"><input name="xsrf" value="private-logout-xsrf"><input name="logout"></form>',
+          { headers: { 'content-type': 'text/html' } }
+        ),
+        new Response(null, { status: 303 }),
+      ];
+      const lease = createDeviceAuthorizationTransportLease({
+        target,
+        fetch: (async () =>
+          replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+      });
+
+      await lease.requestLifecycle({
+        kind: 'logout-open',
+        method: 'GET',
+        clientId: 'device-client',
+        ...(redirect === undefined ? {} : { postLogoutRedirectUri: redirect }),
+        ...(state === undefined ? {} : { state }),
+      });
+      await expect(
+        lease.requestLifecycle({ kind: 'logout-confirm', method: 'POST', confirm: true })
+      ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+    }
+  );
+
   it.each([
     'https://attacker.example/after-logout?state=private-state',
     'https://client.example/wrong-path?state=private-state',

@@ -1023,6 +1023,29 @@ const projectClientLogoutUrl = (
   });
 };
 
+const projectLogoutUrl = (
+  value: unknown,
+  redirectUri: string | undefined,
+  state: string | undefined,
+  base: URL,
+  stage: string
+): DeviceAuthorizationUrlProjection | undefined => {
+  if (redirectUri !== undefined) {
+    return projectClientLogoutUrl(value, redirectUri, state, stage);
+  }
+  if (state !== undefined) {
+    return fail(stage);
+  }
+  const projection = projectUrl(value, base, stage);
+  if (
+    projection !== undefined &&
+    (projection.path !== '/oidc/session/end/success' || projection.queryKeys.length > 0)
+  ) {
+    return fail(stage);
+  }
+  return projection;
+};
+
 const projectLifecycleRedirect = (
   redirect: URL,
   base: URL,
@@ -2248,10 +2271,11 @@ const projectLifecycleResponse = async (
   const rawLocation = response.headers.get('location') ?? undefined;
   const location =
     prepared.kind === 'logout-open' || prepared.kind === 'logout-confirm'
-      ? projectClientLogoutUrl(
+      ? projectLogoutUrl(
           rawLocation,
           prepared.kind === 'logout-open' ? prepared.logoutRedirectUri : next.logoutRedirectUri,
           prepared.kind === 'logout-open' ? prepared.logoutState : next.logoutState,
+          base,
           stage
         )
       : projectUrl(rawLocation, base, stage);
@@ -2531,20 +2555,21 @@ const projectLifecycleResponse = async (
         ? { marker: 'consent-redirect', stage: resumeStage }
         : { marker: 'device-success-redirect', stage: resumeStage }
     );
+  } else if (kind === 'logout-confirm') {
+    if (location === undefined) {
+      return fail(stage);
+    }
+    facts = markerFacts('logout-finished');
+    next.logoutRedirectUri = undefined;
+    next.logoutState = undefined;
   } else {
     facts = markerFacts(
       kind === 'experience-open'
         ? 'experience-opened'
         : kind === 'identification'
           ? 'subject-identified'
-          : kind === 'logout-confirm'
-            ? 'logout-finished'
-            : kind
+          : kind
     );
-    if (kind === 'logout-confirm') {
-      next.logoutRedirectUri = undefined;
-      next.logoutState = undefined;
-    }
   }
   const oauthError =
     parsed?.error === undefined && parsed?.error_description === undefined

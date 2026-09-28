@@ -589,11 +589,13 @@ const sortedUniqueStrings = (
 
 const assertUrlProjection = (
   value: unknown,
-  originCategory: DeviceAuthorizationUrlProjection['originCategory'] = 'issuer'
+  originCategories: ReadonlyArray<DeviceAuthorizationUrlProjection['originCategory']> = ['issuer']
 ): void => {
   const source = exactRecord(value, new Set(['originCategory', 'path', 'queryKeys']));
   if (
-    source.originCategory !== originCategory ||
+    !originCategories.includes(
+      source.originCategory as DeviceAuthorizationUrlProjection['originCategory']
+    ) ||
     typeof source.path !== 'string' ||
     !source.path.startsWith('/') ||
     Buffer.byteLength(source.path) > 8192 ||
@@ -939,7 +941,9 @@ const assertLifecycleFacts = (kind: DeviceLifecycleKind, value: unknown): void =
 
 const assertCommonProjectionFields = (
   source: Record<string, unknown>,
-  locationOriginCategory: DeviceAuthorizationUrlProjection['originCategory'] = 'issuer'
+  locationOriginCategories: ReadonlyArray<DeviceAuthorizationUrlProjection['originCategory']> = [
+    'issuer',
+  ]
 ): void => {
   assertStatus(own(source, 'status'));
   const contentType = own(source, 'contentType');
@@ -972,7 +976,7 @@ const assertCommonProjectionFields = (
   }
   const location = own(source, 'location');
   if (location !== undefined) {
-    assertUrlProjection(location, locationOriginCategory);
+    assertUrlProjection(location, locationOriginCategories);
   }
   const challengeValue = own(source, 'challenge');
   if (challengeValue !== undefined) {
@@ -1033,7 +1037,7 @@ export const publishDeviceLifecycleProjection = (
   const kind = own(source, 'kind') as DeviceLifecycleKind;
   assertCommonProjectionFields(
     source,
-    kind === 'logout-open' || kind === 'logout-confirm' ? 'client' : 'issuer'
+    kind === 'logout-open' || kind === 'logout-confirm' ? ['issuer', 'client'] : ['issuer']
   );
   assertLifecycleFacts(kind, own(source, 'facts'));
   assertDeviceAuthorizationEvidenceIsSanitized(source);
