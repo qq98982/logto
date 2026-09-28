@@ -789,10 +789,12 @@ describe('Phase 2 device authorization scenarios', () => {
       {
         accessFormat: 'verified-jwt',
         audience: fixture.public.resources.primary.indicator,
-        resource: fixture.public.resources.primary.indicator,
         scopes: ['read'],
       }
     );
+    expect(
+      credentialInputs.get('device-token.refresh-resource-selection')?.expected
+    ).not.toHaveProperty('resource');
     expect(
       credentialInputs.get('device-token.refresh-organization-selection')?.expected
     ).toMatchObject({

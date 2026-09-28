@@ -398,6 +398,50 @@ describe('Phase 2 device authorization projection', () => {
     });
   });
 
+  it('verifies the selected resource audience without requiring a resource claim', async () => {
+    const { privateKey, publicKey } = await generateKeyPair('ES384');
+    const publicJwk = await exportJWK(publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    const accessToken = await new SignJWT({
+      iss: 'https://candidate.example/oidc',
+      aud: 'resource-api',
+      sub: 'subject-1',
+      client_id: 'device-client',
+      scope: 'read',
+      jti: 'resource-jti-1234',
+      iat: now,
+      exp: now + 3600,
+    })
+      .setProtectedHeader({ alg: 'ES384', kid: 'signing-key', typ: 'at+jwt' })
+      .sign(privateKey);
+    const projection = await projectDeviceCredentials({
+      target,
+      jwks: { keys: [{ ...publicJwk, alg: 'ES384', kid: 'signing-key', use: 'sig' }] },
+      accessToken,
+      expected: {
+        clientId: 'device-client',
+        subjectId: 'subject-1',
+        audience: 'resource-api',
+        accessFormat: 'verified-jwt',
+        scopes: ['read'],
+      },
+    });
+
+    expect(projection.access).toMatchObject({
+      format: 'verified-jwt',
+      claims: {
+        audience: ['resource-api'],
+        scopes: ['read'],
+        claimKeys: ['aud', 'client_id', 'exp', 'iat', 'iss', 'jti', 'scope', 'sub'],
+      },
+      signature: { verified: true },
+    });
+    if (projection.access.format === 'opaque') {
+      throw new TypeError('expected verified resource access token');
+    }
+    expect(projection.access.claims).not.toHaveProperty('resource');
+  });
+
   it('projects a resource-free access token as opaque and keeps absent ID and refresh absent', async () => {
     const { publicKey } = await generateKeyPair('ES384');
     const publicJwk = await exportJWK(publicKey);

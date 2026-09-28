@@ -1073,8 +1073,8 @@ const execute = async (
     return projectIssuedCredentials(
       lease,
       runtime,
-      { client: 'firstParty', resource },
-      { accessFormat: 'verified-jwt', scopes: ['read'] }
+      { client: 'firstParty' },
+      { accessFormat: 'verified-jwt', audience: resource, scopes: ['read'] }
     );
   }
   if (id === 'device-token.refresh-organization-selection') {
