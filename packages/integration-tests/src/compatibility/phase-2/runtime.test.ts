@@ -82,6 +82,32 @@ const descriptor = (): Phase2TargetDescriptor =>
     },
   });
 
+const oracleDescriptor = (): Phase2TargetDescriptor =>
+  validatePhase2TargetDescriptor({
+    schemaVersion: 1,
+    kind: 'oracle',
+    sourceCommit: 'a'.repeat(40),
+    imageDigest: `sha256:${'b'.repeat(64)}`,
+    projectName: topology().projectName,
+    primaryContainerId: '2'.repeat(64),
+    foreignContainerId: '4'.repeat(64),
+    target: {
+      label: 'oracle',
+      coreUrl: 'http://localhost:3311/',
+      adminUrl: 'http://localhost:3411/',
+    },
+    foreignTarget: {
+      label: 'oracle',
+      coreUrl: 'http://localhost:3312/',
+      adminUrl: 'http://localhost:3412/',
+    },
+    stateDriver: {
+      path: driverPath,
+      sha256: driverSha,
+      controlSocket: path.join(root, 'state.sock'),
+    },
+  });
+
 const fixture: ProvisionedPhase2Fixture = Object.freeze({
   public: Object.freeze({
     allocationId: 'runtime-fixture',
@@ -303,6 +329,59 @@ describe('Phase 2 runtime adapters', () => {
     await chmod(path.join(root, 'state.sock'), 0o666);
     await expect(verifyPhase2Target(descriptor())).rejects.toThrow();
     await chmod(path.join(root, 'state.sock'), 0o600);
+  });
+
+  it('accepts owner-only read-execute artifacts and rejects non-executable or shared modes', async () => {
+    const fixturePath = path.join(root, 'fixture-driver');
+    const invariantPath = path.join(root, 'invariant-driver');
+    const contents = await readFile(driverPath);
+    await Promise.all([
+      writeFile(fixturePath, contents, { mode: 0o500 }),
+      writeFile(invariantPath, contents, { mode: 0o500 }),
+    ]);
+    await chmod(driverPath, 0o500);
+    try {
+      await expect(verifyPhase2Target(oracleDescriptor())).resolves.toMatchObject({
+        stateDriver: { mode: 0o500 },
+      });
+      const candidate = {
+        ...descriptor(),
+        fixtureExecutable: { path: fixturePath, sha256: driverSha },
+        invariantDriver: {
+          path: invariantPath,
+          sha256: driverSha,
+          controlSocket: path.join(root, 'invariant.sock'),
+        },
+      };
+      const verifiedCandidate = await verifyPhase2Target(candidate);
+      expect(verifiedCandidate).toMatchObject({
+        stateDriver: { mode: 0o500 },
+        fixtureExecutable: { mode: 0o500 },
+        invariantDriver: { mode: 0o500 },
+      });
+      const sessionRoot = path.join(root, 'mode-contract-session');
+      await mkdir(sessionRoot, { mode: 0o700 });
+      const prepared = await preparePhase2TargetForExecution(
+        verifiedCandidate,
+        sessionRoot,
+        'candidate'
+      );
+      await expect(verifyPhase2Target(prepared.descriptor)).resolves.toMatchObject({
+        stateDriver: { mode: 0o700 },
+        fixtureExecutable: { mode: 0o700 },
+        invariantDriver: { mode: 0o700 },
+      });
+
+      for (const mode of [0o600, 0o755]) {
+        await chmod(driverPath, mode);
+        await expect(verifyPhase2Target(oracleDescriptor())).rejects.toThrow(
+          'Invalid Phase 2 runtime'
+        );
+      }
+    } finally {
+      await chmod(driverPath, 0o700);
+      await Promise.all([rm(fixturePath, { force: true }), rm(invariantPath, { force: true })]);
+    }
   });
 
   it('detects executable replacement after launch and does not hide abort verification failure', async () => {

@@ -364,10 +364,11 @@ const verifyArtifact = async (
   );
   try {
     const state = await handle.stat();
+    const mode = state.mode & 0o777;
     if (
       !state.isFile() ||
       state.uid !== currentUid() ||
-      (state.mode & 0o777) !== 0o700 ||
+      (mode !== 0o500 && mode !== 0o700) ||
       state.nlink !== 1 ||
       state.size <= 0 ||
       state.size > 16 * 1024 * 1024
