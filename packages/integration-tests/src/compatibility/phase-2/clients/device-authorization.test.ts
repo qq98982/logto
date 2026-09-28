@@ -1866,6 +1866,109 @@ describe('Phase 2 device authorization transport', () => {
     );
   });
 
+  it('checks lifecycle projection string leaves without matching structural JSON', async () => {
+    const lifecycleResponse = (location?: string): Response => {
+      const headers = new Headers({ 'set-cookie': '_session={}; Path=/; SameSite=Lax' });
+      if (location !== undefined) {
+        headers.set('location', location);
+      }
+      return new Response(null, { status: 204, headers });
+    };
+    const accepted = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => lifecycleResponse(),
+    });
+
+    await expect(
+      accepted.requestLifecycle({ kind: 'experience-open', method: 'PUT' })
+    ).resolves.toMatchObject({
+      status: 204,
+      cookies: [{ name: '_session', clearing: false }],
+      facts: { marker: 'experience-opened' },
+    });
+
+    const reflected = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () => lifecycleResponse('/device/%7B%7D'),
+    });
+    await expect(
+      reflected.requestLifecycle({ kind: 'experience-open', method: 'PUT' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
+  it.each(['/oidc/device/', '/oidc/auth/'])(
+    'masks only the opaque lifecycle redirect UID for %s',
+    async (prefix) => {
+      const interactionUid = 'A'.repeat(43);
+      const redirectTo = `https://candidate.example${prefix}${interactionUid}`;
+      const calls: string[] = [];
+      const replies = [
+        jsonResponse({ redirectTo }, 200, {
+          'set-cookie': `_session=${interactionUid}; Path=/; HttpOnly; SameSite=Lax`,
+        }),
+        new Response(null, {
+          status: 303,
+          headers: { location: '/consent?app_id=device-client' },
+        }),
+      ];
+      const lease = createDeviceAuthorizationTransportLease({
+        target,
+        fetch: (async (input) => {
+          calls.push(String(input));
+          return replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'));
+        }) as typeof fetch,
+      });
+
+      const submitted = await lease.requestLifecycle({
+        kind: 'experience-submit',
+        method: 'POST',
+      });
+      const resumed = await lease.requestLifecycle({ kind: 'resume', method: 'GET' });
+
+      expect(submitted.facts).toEqual({
+        marker: 'experience-submitted',
+        redirect: {
+          origin: 'https://candidate.example',
+          path: `${prefix}<interaction-uid>`,
+          queryKeys: [],
+        },
+      });
+      expect(calls[1]).toBe(redirectTo);
+      expect(resumed.facts).toEqual({
+        marker: 'consent-redirect',
+        stage: 'after-experience-submit',
+      });
+      expect(JSON.stringify([submitted, resumed])).not.toContain(interactionUid);
+
+      const reflected = createDeviceAuthorizationTransportLease({
+        target,
+        fetch: async () =>
+          jsonResponse({ redirectTo }, 200, {
+            location: `/public/${interactionUid}`,
+            'set-cookie': `_session=${interactionUid}; Path=/; HttpOnly; SameSite=Lax`,
+          }),
+      });
+      await expect(
+        reflected.requestLifecycle({ kind: 'experience-submit', method: 'POST' })
+      ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+    }
+  );
+
+  it('does not normalize an invalid 43-character lifecycle redirect segment', async () => {
+    const invalidUid = '!'.repeat(43);
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: async () =>
+        jsonResponse({ redirectTo: `https://candidate.example/oidc/device/${invalidUid}` }, 200, {
+          'set-cookie': `_session=${invalidUid}; Path=/; HttpOnly; SameSite=Lax`,
+        }),
+    });
+
+    await expect(
+      lease.requestLifecycle({ kind: 'experience-submit', method: 'POST' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (lifecycle-response)');
+  });
+
   it('rotates and consumes private credentials through bounded lifecycle requests and a callback lease', async () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const calls: Array<readonly [string, RequestInit | undefined]> = [];

@@ -657,16 +657,17 @@ const snapshotState = (state: TransportState): TransportState => ({
   controllers: state.controllers,
 });
 
-const finishProjection = (
-  state: TransportState,
-  next: TransportState,
-  projection: DeviceAuthorizationProjection,
+const assertProjectedStringsAreSanitized = (
+  projection: DeviceAuthorizationProjection | DeviceLifecycleProjection,
   registry: SensitiveRegistry,
   stage: string
-): DeviceAuthorizationProjection => {
+): void => {
   const projectedStrings: string[] = [];
   JSON.stringify(projection, (_key, value: unknown) => {
     if (typeof value === 'string') {
+      if (projectedStrings.length >= 512 || Buffer.byteLength(value) > 64 * 1024) {
+        fail(stage);
+      }
       projectedStrings.push(value);
     }
     return value;
@@ -681,8 +682,18 @@ const finishProjection = (
         )
     )
   ) {
-    return fail(stage);
+    fail(stage);
   }
+};
+
+const finishProjection = (
+  state: TransportState,
+  next: TransportState,
+  projection: DeviceAuthorizationProjection,
+  registry: SensitiveRegistry,
+  stage: string
+): DeviceAuthorizationProjection => {
+  assertProjectedStringsAreSanitized(projection, registry, stage);
   assertActive(state);
   state.deviceCode = next.deviceCode;
   state.userCode = next.userCode;
@@ -960,6 +971,22 @@ const projectUrl = (
     path: url.pathname,
     queryKeys: Object.freeze(queryKeys),
   });
+};
+
+const projectLifecycleRedirect = (
+  redirect: URL,
+  base: URL,
+  stage: string
+): DeviceAuthorizationUrlProjection => {
+  const projection = projectUrl(redirect.href, base, stage) ?? fail(stage);
+  const match = /^\/oidc\/(device|auth)\/([A-Za-z0-9_-]{43})$/u.exec(projection.path);
+  if (projection.queryKeys.length === 0 && match !== null) {
+    return Object.freeze({
+      ...projection,
+      path: `/oidc/${match[1]}/<interaction-uid>`,
+    });
+  }
+  return projection;
 };
 
 const numberField = (value: unknown, stage: string): number | undefined => {
@@ -2184,7 +2211,7 @@ const projectLifecycleResponse = async (
       kind === 'experience-submit' ? 'after-experience-submit' : 'after-consent-write';
     facts = Object.freeze({
       marker: kind === 'experience-submit' ? 'experience-submitted' : 'consent-recorded',
-      redirect: projectUrl(redirect.href, base, stage),
+      redirect: projectLifecycleRedirect(redirect, base, stage),
     });
   } else if (kind === 'refresh' && response.status === 200) {
     const accessToken = boundedString(parsed?.access_token, stage, 16 * 1024);
@@ -2471,15 +2498,7 @@ const projectLifecycleResponse = async (
       facts,
     }) as DeviceLifecycleProjection
   );
-  const serialized = JSON.stringify(projection).toLowerCase();
-  if (
-    containsCompactJwt(serialized) ||
-    [...registry.values].some(
-      (sensitive) => sensitive.length > 0 && serialized.includes(sensitive.toLowerCase())
-    )
-  ) {
-    return fail(stage);
-  }
+  assertProjectedStringsAreSanitized(projection, registry, stage);
   commitLifecycleState(state, next);
   return projection;
 };
