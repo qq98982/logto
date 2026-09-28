@@ -844,6 +844,7 @@ describe('Phase 2 client credentials scenarios', () => {
       { ...document, introspection_endpoint: document.revocation_endpoint },
       { ...document, end_session_endpoint: 'https://foreign.example/oidc/session/end' },
       { ...document, device_authorization_endpoint: 'https://candidate.example/oidc/device' },
+      { ...document, device_authorization_endpoint: 'https://foreign.example/oidc/device/auth' },
     ]) {
       expect(() =>
         assertDiscoveryEndpointFieldsContract(invalid, fields, 'https://candidate.example/oidc')

@@ -123,9 +123,12 @@ const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'])
 const allowedSensitiveMetadataKeys = new Set([
   'authorizationCodes',
   'clearedCookieCount',
+  'deviceDigestBytes',
+  'newAuthorization',
   'oidcIdTokenKeyUse',
   'refreshTokens',
   'setCookieCount',
+  'userDigestBytes',
 ]);
 const jwtProofs = new WeakMap<object, Readonly<{ jwt: object; issuedAt: number; jwtId: string }>>();
 const consumedJwtProofs = new WeakSet<object>();

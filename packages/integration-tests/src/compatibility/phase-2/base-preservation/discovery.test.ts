@@ -286,6 +286,17 @@ describe('Phase 2 base-preservation discovery adapter', () => {
       'wrong device authorization',
       { device_authorization_endpoint: 'https://candidate.example/oidc/device' },
     ],
+    [
+      'foreign device authorization',
+      { device_authorization_endpoint: 'https://foreign.example/oidc/device/auth' },
+    ],
+    [
+      'swapped device authorization',
+      {
+        device_authorization_endpoint: 'https://candidate.example/oidc/session/end',
+        end_session_endpoint: 'https://candidate.example/oidc/device/auth',
+      },
+    ],
   ])('rejects %s before stripping the approved endpoints', async (_name, overrides) => {
     const wrapped = createWrapped({
       'discovery-openid:oidc/.well-known/openid-configuration': response(rawDocument(overrides)),
@@ -296,6 +307,24 @@ describe('Phase 2 base-preservation discovery adapter', () => {
         'oidc/.well-known/openid-configuration'
       )
     ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
+  });
+
+  it('rejects a duplicate raw device endpoint before recording an append proof', async () => {
+    const raw = JSON.stringify(rawDocument()).replace(
+      '"device_authorization_endpoint":"https://candidate.example/oidc/device/auth"',
+      '"device_authorization_endpoint":"https://candidate.example/oidc/device/auth","device_authorization_endpoint":"https://candidate.example/oidc/device/auth"'
+    );
+    expect(raw.match(/"device_authorization_endpoint":/gu)).toHaveLength(2);
+    const wrapped = createWrapped({
+      'discovery-openid:oidc/.well-known/openid-configuration': response(raw),
+    });
+    await expect(
+      wrapped.session.publicOidc.request(
+        'discovery-openid',
+        'oidc/.well-known/openid-configuration'
+      )
+    ).rejects.toThrow('Invalid Phase 2 base-preservation discovery');
+    expect(() => wrapped.proofs()).toThrow('Invalid Phase 2 base-preservation discovery');
   });
 
   it('preserves the Unit 3 single-grant and three-endpoint append contract', async () => {

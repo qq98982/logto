@@ -12,9 +12,14 @@ readonly DOCKER_BIN=/usr/bin/docker
 readonly JQ_BIN=/usr/bin/jq
 readonly PYTHON_BIN=/usr/bin/python3.12
 readonly CURL_BIN=/usr/bin/curl
+readonly FLOCK_BIN=/usr/bin/flock
 
 signing_corrupted=false
 primary_postgres_id=''
+device_failure_armed=false
+handle_fd=''
+handle_path=''
+handle_identity=''
 
 early_cleanup() {
   local status=$?
@@ -43,9 +48,9 @@ trusted_root_binary() {
 }
 
 for binary in \
-  "$DOCKER_BIN" "$JQ_BIN" "$PYTHON_BIN" "$CURL_BIN" /usr/bin/realpath /usr/bin/stat \
+  "$DOCKER_BIN" "$JQ_BIN" "$PYTHON_BIN" "$CURL_BIN" "$FLOCK_BIN" /usr/bin/realpath /usr/bin/stat \
   /usr/bin/id /usr/bin/dirname /usr/bin/head /usr/bin/wc /usr/bin/tr /usr/bin/mktemp \
-  /usr/bin/chmod /usr/bin/rm /usr/bin/grep; do
+  /usr/bin/chmod /usr/bin/rm /usr/bin/grep /usr/bin/mkdir /usr/bin/od; do
   trusted_root_binary "$binary"
 done
 
@@ -63,6 +68,113 @@ readonly SOCKET_PARENT
 [[ "$(/usr/bin/realpath -e -- "$SOCKET_PARENT" 2>/dev/null || true)" == "$SOCKET_PARENT" ]] || die
 [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "$SOCKET_PARENT" 2>/dev/null || true)" == "$CURRENT_UID|700|directory" ]] || die
 export DOCKER_HOST="unix://${ASTER_PHASE2_CONTROL_SOCKET}"
+
+readonly HANDLE_ROOT="$SOCKET_PARENT/phase2-device-invariants"
+if ! /usr/bin/mkdir --mode=0700 -- "$HANDLE_ROOT" 2>/dev/null; then
+  [[ -d "$HANDLE_ROOT" && ! -L "$HANDLE_ROOT" ]] || die
+fi
+[[ "$(/usr/bin/realpath -e -- "$HANDLE_ROOT" 2>/dev/null || true)" == "$HANDLE_ROOT" ]] || die
+[[ "$(/usr/bin/stat -c '%u|%a|%F' -- "$HANDLE_ROOT" 2>/dev/null || true)" == "$CURRENT_UID|700|directory" ]] || die
+
+create_handle() {
+  local document=$1 candidate create_status
+  for _ in {1..32}; do
+    candidate="$(/usr/bin/od -An -N16 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+    [[ "$candidate" =~ ^[0-9a-f]{32}$ ]] || die
+    handle_path="$HANDLE_ROOT/$candidate"
+    if printf '%s' "$document" | "$PYTHON_BIN" -c '
+import os, stat, sys
+path=sys.argv[1]
+data=sys.stdin.buffer.read(65537)
+if not data or len(data)>65536: raise SystemExit(1)
+try: fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+except FileExistsError: raise SystemExit(2)
+os.write(fd,data); os.fsync(fd)
+state=os.fstat(fd)
+if not stat.S_ISREG(state.st_mode) or stat.S_IMODE(state.st_mode)!=0o600 or state.st_nlink!=1: raise SystemExit(1)
+os.close(fd)
+' "$handle_path" 2>/dev/null; then
+      printf '%s' "$candidate"
+      return 0
+    else
+      create_status=$?
+      [[ "$create_status" == 2 ]] || return 1
+    fi
+  done
+  return 1
+}
+
+lock_handle() {
+  local handle=$1 fd_identity path_identity
+  [[ "$handle" =~ ^[0-9a-f]{32}$ ]] || die
+  handle_path="$HANDLE_ROOT/$handle"
+  [[ -f "$handle_path" && ! -L "$handle_path" ]] || die
+  exec {handle_fd}<>"$handle_path" || die
+  "$FLOCK_BIN" --exclusive --nonblock "$handle_fd" || die
+  fd_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h|%F' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$fd_identity" == "$path_identity" && "$fd_identity" =~ \|${CURRENT_UID}\|600\|1\|regular\ file$ ]] || die
+  handle_identity=$fd_identity
+}
+
+read_handle() {
+  local document after
+  document="$(/usr/bin/head -c $((MAX_OUTPUT_BYTES + 1)) "/proc/$BASHPID/fd/$handle_fd")" || die
+  [[ -n "$document" && ${#document} -le $MAX_OUTPUT_BYTES ]] || die
+  after="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h|%F' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  [[ "$after" == "$handle_identity" ]] || die
+  printf '%s' "$document"
+}
+
+rewrite_handle() {
+  local document=$1
+  printf '%s' "$document" | "$PYTHON_BIN" -c '
+import os, sys
+path, expected=sys.argv[1:]
+data=sys.stdin.buffer.read(65537)
+if not data or len(data)>65536: raise SystemExit(1)
+fd=os.open(path,os.O_WRONLY)
+state=os.fstat(fd)
+identity=f"{state.st_dev}|{state.st_ino}|{state.st_uid}|{state.st_mode & 0o777:o}|{state.st_nlink}|regular file"
+if identity != expected: raise SystemExit(1)
+os.ftruncate(fd,0); os.write(fd,data); os.fsync(fd); os.close(fd)
+' "/proc/$BASHPID/fd/$handle_fd" "$handle_identity" 2>/dev/null || die
+}
+
+retire_handle() {
+  local descriptor_identity path_identity quarantine quarantine_identity renamed=false
+  descriptor_identity="$(/usr/bin/stat -Lc '%d|%i|%u|%a|%h|%F' -- "/proc/$BASHPID/fd/$handle_fd" 2>/dev/null || true)"
+  path_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$handle_path" 2>/dev/null || true)"
+  [[ "$descriptor_identity" == "$handle_identity" && "$path_identity" == "$handle_identity" ]] || die
+  for _ in {1..32}; do
+    quarantine="$HANDLE_ROOT/.quarantine.$(/usr/bin/od -An -N16 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+    [[ "$quarantine" =~ ^${HANDLE_ROOT}/\.quarantine\.[0-9a-f]{32}$ ]] || die
+    [[ ! -e "$quarantine" && ! -L "$quarantine" ]] || continue
+    if "$PYTHON_BIN" -c '
+import ctypes, os, sys
+source, target=sys.argv[1:]
+libc=ctypes.CDLL(None,use_errno=True)
+renameat2=getattr(libc,"renameat2",None)
+if renameat2 is None: raise SystemExit(1)
+renameat2.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint]
+renameat2.restype=ctypes.c_int
+if renameat2(-100,os.fsencode(source),-100,os.fsencode(target),1)!=0: raise SystemExit(1)
+' "$handle_path" "$quarantine" 2>/dev/null; then
+      renamed=true
+      break
+    fi
+    die
+  done
+  [[ "$renamed" == true && ! -e "$handle_path" && ! -L "$handle_path" ]] || die
+  quarantine_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$quarantine" 2>/dev/null || true)"
+  [[ "$quarantine_identity" == "$handle_identity" ]] || die
+  handle_path=$quarantine
+  rewrite_handle '{"schemaVersion":1,"retired":true}'
+  quarantine_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%F' -- "$quarantine" 2>/dev/null || true)"
+  [[ "$quarantine_identity" == "$handle_identity" ]] || die
+  exec {handle_fd}>&-
+  handle_fd=''
+}
 
 restore_signing_material() {
   [[ "$signing_corrupted" == true && -n "$primary_postgres_id" ]] || return 0
@@ -88,6 +200,18 @@ cleanup() {
   trap - EXIT HUP INT TERM
   if [[ "$signing_corrupted" == true ]] && ! restore_signing_material; then
     restore_status=1
+  fi
+  if [[ "$status" -ne 0 && "$device_failure_armed" == true && -n "$primary_postgres_id" ]]; then
+    if ! run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres >/dev/null <<'SQL'
+DROP TRIGGER IF EXISTS phase2_device_transition_failure ON aster_tenant.device_authorizations;
+DROP FUNCTION IF EXISTS aster_runtime.phase2_device_transition_failure();
+SQL
+    then
+      restore_status=1
+    fi
+  fi
+  if [[ -n "$handle_fd" ]]; then
+    exec {handle_fd}>&- || true
   fi
   if [[ "$status" -ne 0 || "$restore_status" -ne 0 ]]; then
     printf '%s\n' "$FAILURE" >&2
@@ -144,19 +268,76 @@ def fixture(value):
     if value["boundary"] != {"primary":"provisioned","foreign":"unchanged"}: raise ValueError()
 try:
     value=json.load(sys.stdin,object_pairs_hook=pairs)
-    exact(value,["schemaVersion","kind","invariantId","target","fixture","credentials"])
     if value["schemaVersion"] != 1 or value["kind"] != "phase2-client-credentials-candidate-invariant-request": raise ValueError()
-    if value["invariantId"] not in {
+    legacy={
       "client-credentials.cross-tenant-authority-rejected","client-credentials.request-role-write-rejected",
       "client-credentials.signing-failure-rolls-back","client-credentials.user-authority-unchanged",
-      "logout-session.verification-storage-closed"}: raise ValueError()
+      "logout-session.verification-storage-closed"}
+    device={
+      "device-authorization.forced-rls-isolation","device-authorization.credentials-digest-only",
+      "device-authorization.cross-tenant-lookup-rejected","device-authorization.transition-failure-rolls-back",
+      "device-token.consumed-replay-revokes-grant","device-authorization.expired-cleanup-bounded",
+      "device-evidence.secret-material-absent"}
+    invariant=value["invariantId"]
+    if invariant in legacy:
+      exact(value,["schemaVersion","kind","invariantId","target","fixture","credentials"])
+      exact(value["credentials"],["basic","post"])
+      text(value["credentials"]["basic"],r"^[^\x00-\x20\x7f]{1,256}$"); text(value["credentials"]["post"],r"^[^\x00-\x20\x7f]{1,256}$")
+      if value["credentials"]["basic"] == value["credentials"]["post"]: raise ValueError()
+    elif invariant in device:
+      operation=value.get("operation")
+      base=["schemaVersion","kind","invariantId","operation","target","fixture","private","observation"]
+      exact(value,base+(["handle"] if "handle" in value else []))
+      if operation not in {"probe","arm","restore","finish","abort"}: raise ValueError()
+      if operation in {"restore","finish","abort"}:
+        text(value.get("handle"),r"^[0-9a-f]{32}$")
+      elif "handle" in value: raise ValueError()
+      if type(value["private"]) is not dict or type(value["observation"]) is not dict: raise ValueError()
+      private_keys=set(value["private"]); observation_keys=set(value["observation"])
+      code_keys={"deviceCode","userCode","xsrf"}
+      device_only={"deviceCode"}
+      if private_keys == code_keys:
+        for item in value["private"].values(): text(item,r"^[^\x00-\x1f\x7f]{1,4096}$")
+      elif private_keys == device_only:
+        text(value["private"]["deviceCode"],r"^[^\x00-\x1f\x7f]{1,4096}$")
+      elif invariant == "device-evidence.secret-material-absent" and private_keys == {"password","clientSecrets","tokens"}:
+        text(value["private"]["password"],r"^[^\x00-\x1f\x7f]{1,4096}$")
+        for name in ("clientSecrets","tokens"):
+          if type(value["private"][name]) is not list or not 1 <= len(value["private"][name]) <= 4: raise ValueError()
+          for item in value["private"][name]: text(item,r"^[^\x00-\x1f\x7f]{1,16384}$")
+      elif invariant == "device-evidence.secret-material-absent" and private_keys == code_keys|{"password","clientSecrets","tokens"}:
+        for name in code_keys|{"password"}: text(value["private"][name],r"^[^\x00-\x1f\x7f]{1,4096}$")
+        for name in ("clientSecrets","tokens"):
+          if type(value["private"][name]) is not list or not 1 <= len(value["private"][name]) <= 4: raise ValueError()
+          for item in value["private"][name]: text(item,r"^[^\x00-\x1f\x7f]{1,16384}$")
+      elif private_keys: raise ValueError()
+      allowed={
+        "device-authorization.forced-rls-isolation":{"probe":(set(),set())},
+        "device-authorization.credentials-digest-only":{"probe":(code_keys,set())},
+        "device-authorization.cross-tenant-lookup-rejected":{
+          "arm":(code_keys,set()),"finish":(set(),{"foreignStatus","foreignError"}),
+          "abort":(set(),set())},
+        "device-authorization.transition-failure-rolls-back":{
+          "arm":(device_only,set()),"restore":(set(),{"failureStatus","tokenPublished"}),
+          "finish":(set(),{"retryStatus"}),"abort":(set(),set())},
+        "device-token.consumed-replay-revokes-grant":{
+          "arm":(device_only,{"issuedStatus"}),
+          "finish":(set(),{"replayStatus","replayError","accessActive","refreshActive","refreshStatus","refreshError"}),
+          "abort":(set(),set())},
+        "device-authorization.expired-cleanup-bounded":{
+          "arm":(set(),set()),"finish":(code_keys,{"authorizationStatus"}),"abort":(set(),set())},
+        "device-evidence.secret-material-absent":{
+          "probe":(code_keys|{"password","clientSecrets","tokens"},{"issuedStatus"})},
+      }
+      expected=allowed.get(invariant,{}).get(operation)
+      if expected is None or private_keys != expected[0] or observation_keys != expected[1]: raise ValueError()
+      for observed in value["observation"].values():
+        if type(observed) not in (str,int,bool) or (type(observed) is str and re.fullmatch(r"^[^\x00-\x1f\x7f]{1,128}$",observed) is None): raise ValueError()
+    else: raise ValueError()
     exact(value["target"],["primary","foreign"])
     endpoint(value["target"]["primary"],"http://localhost:3321/","http://localhost:3421/")
     endpoint(value["target"]["foreign"],"http://localhost:3322/","http://localhost:3422/")
     fixture(value["fixture"])
-    exact(value["credentials"],["basic","post"])
-    text(value["credentials"]["basic"],r"^[^\x00-\x20\x7f]{1,256}$"); text(value["credentials"]["post"],r"^[^\x00-\x20\x7f]{1,256}$")
-    if value["credentials"]["basic"] == value["credentials"]["post"]: raise ValueError()
     sys.stdout.write(json.dumps(value,separators=(",",":"),ensure_ascii=True))
 except Exception:
     sys.exit(1)
@@ -168,6 +349,7 @@ value() {
 }
 
 invariant_id="$(value '.invariantId')" || die
+operation="$(printf '%s' "$request" | "$JQ_BIN" -r '.operation // "legacy"' 2>/dev/null)" || die
 [[ "$ASTER_CORE_URL" == 'http://localhost:3321/' && "$ASTER_ADMIN_URL" == 'http://localhost:3421/' && \
    "$ASTER_FOREIGN_CORE_URL" == 'http://localhost:3322/' && "$ASTER_FOREIGN_ADMIN_URL" == 'http://localhost:3422/' ]] || die
 [[ "$(value '.target.primary.coreUrl')" == "$ASTER_CORE_URL" && "$(value '.target.primary.adminUrl')" == "$ASTER_ADMIN_URL" && \
@@ -353,9 +535,554 @@ terminal() {
     '{schemaVersion:1,kind:"phase2-client-credentials-candidate-invariant",invariantId:$invariantId,projection:$projection,attestation:$attestation}' | /usr/bin/tr -d '\n'
 }
 
+control_terminal() {
+  local extra=$1
+  "$JQ_BIN" -cn --arg invariantId "$invariant_id" --arg operation "$operation" \
+    --argjson extra "$extra" --argjson attestation "$attestation" \
+    '$extra + {schemaVersion:1,kind:"phase2-device-candidate-invariant-control",invariantId:$invariantId,operation:$operation,attestation:$attestation}' | /usr/bin/tr -d '\n'
+}
+
+device_handle_document() {
+  local handle=$1 document
+  lock_handle "$handle"
+  document="$(read_handle)" || die
+  printf '%s' "$document" | "$JQ_BIN" -e --arg invariantId "$invariant_id" \
+    --arg allocationId "$(value '.fixture.allocationId')" --arg projectName "$project_name" '
+      .schemaVersion==1 and .invariantId==$invariantId and .allocationId==$allocationId and
+      .projectName==$projectName and (.stage|type)=="string" and (.data|type)=="object" and
+      (keys|sort)==["allocationId","data","invariantId","projectName","schemaVersion","stage"]' \
+    >/dev/null 2>&1 || die
+  device_handle_value=$document
+}
+
+new_device_handle() {
+  local stage=$1 data=$2 document
+  document="$(printf '%s' "$data" | $JQ_BIN -c --arg invariantId "$invariant_id" \
+    --arg allocationId "$(value '.fixture.allocationId')" --arg projectName "$project_name" \
+    --arg stage "$stage" \
+    'if type=="object" then {schemaVersion:1,invariantId:$invariantId,allocationId:$allocationId,projectName:$projectName,stage:$stage,data:.} else error("closed") end')" || die
+  create_handle "$document"
+}
+
+device_row() {
+  local device_code=$1 user_code=$2 client_id
+  client_id="$(value '.fixture.deviceClients.firstParty.id')" || die
+  printf '%s\t%s\n' "$device_code" "$user_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+    --set="client_id=$client_id" \
+    --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text) ON COMMIT DROP;' \
+    --command='COPY phase2_private_codes FROM STDIN;' \
+    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0\n    AND position(codes.user_code in to_jsonb(device_authorizations)::text)=0\n    AND position(upper(replace(codes.user_code,\'-\',\'\')) in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes\nWHERE tenant_id=\'default\' AND client_id=:\'client_id\'\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'))\n  AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\'));'
+}
+
+device_row_by_device_code() {
+  local device_code=$1 client_id
+  client_id="$(value '.fixture.deviceClients.firstParty.id')" || die
+  printf '%s\n' "$device_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+    --set="client_id=$client_id" \
+    --command='CREATE TEMP TABLE phase2_private_device_code(device_code text) ON COMMIT DROP;' \
+    --command='COPY phase2_private_device_code FROM STDIN;' \
+    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_device_code codes\nWHERE tenant_id=\'default\' AND client_id=:\'client_id\'\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'));'
+}
+
+secret_variants() {
+  "$PYTHON_BIN" -c '
+import base64, sys, urllib.parse
+raw=sys.stdin.buffer.read(16385)
+if not raw or len(raw)>16384 or any(value in raw for value in (b"\x00",b"\n",b"\r",b"\t")): raise SystemExit(1)
+text=raw.decode("utf-8")
+encoded=base64.b64encode(raw).decode("ascii")
+urlsafe=base64.urlsafe_b64encode(raw).decode("ascii")
+variants={text,raw.hex(),raw.hex().upper(),encoded,encoded.rstrip("="),urlsafe,urlsafe.rstrip("="),urllib.parse.quote(text,safe=""),urllib.parse.quote_plus(text,safe="")}
+for value in sorted(variants): print(value)
+'
+}
+
+assert_secret_material_absent() {
+  local expression=$1 secret_count secret_index planted descriptors
+  descriptors='[]'
+  secret_count="$(value "$expression | length")" || die
+  for ((secret_index=0; secret_index<secret_count; secret_index+=1)); do
+    planted="$(value "$expression | .[$secret_index]")" || die
+    descriptors="$(printf '%s\n' "$descriptors" "$(printf '%s' "$planted" | secret_variants | secret_variant_descriptors)" | "$JQ_BIN" -sc 'add|unique_by([.byteLength,.sha256])')" || die
+  done
+  assert_secret_descriptors_absent "$descriptors"
+}
+
+assert_normalized_user_code_absent() {
+  local user_code descriptors
+  user_code="$(value '.private.userCode')" || die
+  descriptors="$(printf '%s' "$user_code" | "$PYTHON_BIN" -c '
+import sys
+normalized=sys.stdin.read().replace("-","").upper()
+if not normalized or len(normalized)>4096: raise SystemExit(1)
+sys.stdout.write(normalized)
+' | secret_variants | secret_variant_descriptors)" || die
+  assert_secret_descriptors_absent "$descriptors"
+}
+
+secret_variant_descriptors() {
+  "$PYTHON_BIN" -c '
+import hashlib,json,sys
+values={line.rstrip(b"\n") for line in sys.stdin.buffer.readlines()}
+if not values or any(not value or len(value)>65536 for value in values): raise SystemExit(1)
+print(json.dumps([{"byteLength":len(value),"sha256":hashlib.sha256(value).hexdigest()} for value in sorted(values)],separators=(",",":")))
+'
+}
+
+database_secret_material() {
+  run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+WITH material AS (
+  SELECT COALESCE(string_agg(body,''),'') body FROM (
+    SELECT to_jsonb(row)::text body FROM aster_tenant.device_authorizations row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.interactions row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.grants row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.sessions row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id='default'
+    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.session_access_tokens row WHERE tenant_id='default'
+  ) rows
+)
+SELECT CASE WHEN octet_length(body)<=49152 THEN encode(convert_to(body,'UTF8'),'base64') ELSE NULL END
+FROM material;
+SQL
+}
+
+assert_secret_descriptors_absent() {
+  local descriptors=$1 material
+  material="$(database_secret_material)" || die
+  [[ -n "$material" && ${#material} -le $MAX_OUTPUT_BYTES ]] || die
+  printf '%s\n%s' "$descriptors" "$material" | "$PYTHON_BIN" -c '
+import base64,hashlib,json,re,sys
+descriptor_line=sys.stdin.buffer.readline(65537)
+encoded=sys.stdin.buffer.read(65537)
+if not descriptor_line.endswith(b"\n") or not encoded or len(encoded)>65536: raise SystemExit(1)
+try:
+    descriptors=json.loads(descriptor_line)
+    material=base64.b64decode(re.sub(rb"\s+",b"",encoded),validate=True)
+except Exception: raise SystemExit(1)
+if not isinstance(descriptors,list) or not descriptors or len(descriptors)>128 or len(material)>49152: raise SystemExit(1)
+for item in descriptors:
+    if set(item)!={"byteLength","sha256"} or not isinstance(item["byteLength"],int) or not 1<=item["byteLength"]<=65536 or not re.fullmatch(r"[0-9a-f]{64}",item["sha256"]): raise SystemExit(1)
+    size=item["byteLength"]
+    for start in range(0,len(material)-size+1):
+        if hashlib.sha256(material[start:start+size]).hexdigest()==item["sha256"]: raise SystemExit(1)
+' || die
+}
+
+drop_device_failure() {
+  run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres >/dev/null <<'SQL'
+DROP TRIGGER IF EXISTS phase2_device_transition_failure ON aster_tenant.device_authorizations;
+DROP FUNCTION IF EXISTS aster_runtime.phase2_device_transition_failure();
+SQL
+  device_failure_armed=false
+}
+
+device_authority_snapshot() {
+  local uid=$1
+  run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" <<'SQL'
+WITH device AS (
+  SELECT * FROM aster_tenant.device_authorizations
+  WHERE tenant_id='default' AND device_uid=:'uid'
+), authority AS (
+  SELECT jsonb_build_object(
+    'device',COALESCE((SELECT to_jsonb(row) FROM device row),'null'::jsonb),
+    'interactions',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY encode(handle_digest,'hex')) FROM aster_tenant.interactions row WHERE tenant_id='default'),'[]'::jsonb),
+    'grant',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY grant_id) FROM aster_tenant.grants row WHERE tenant_id='default' AND grant_id=(SELECT grant_id FROM device)),'[]'::jsonb),
+    'session',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY session_uid) FROM aster_tenant.sessions row WHERE tenant_id='default' AND session_uid=(SELECT session_uid FROM device)),'[]'::jsonb),
+    'families',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY family_id) FROM aster_tenant.token_families row WHERE tenant_id='default' AND grant_id=(SELECT grant_id FROM device)),'[]'::jsonb),
+    'refresh',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY token_id) FROM aster_tenant.refresh_tokens row WHERE tenant_id='default' AND family_id IN (SELECT family_id FROM aster_tenant.token_families WHERE tenant_id='default' AND grant_id=(SELECT grant_id FROM device))),'[]'::jsonb),
+    'access',COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY encode(access_digest,'hex')) FROM aster_tenant.session_access_tokens row WHERE tenant_id='default' AND grant_id=(SELECT grant_id FROM device)),'[]'::jsonb)
+  ) value
+)
+SELECT value FROM authority;
+SQL
+}
+
 basic_client_id="$(value '.fixture.clients.basic.id')" || die
 primary_resource="$(value '.fixture.resources.primary.indicator')" || die
-basic_secret="$(value '.credentials.basic')" || die
+basic_secret=''
+if [[ "$operation" == legacy ]]; then
+  basic_secret="$(value '.credentials.basic')" || die
+fi
+
+if [[ "$operation" != legacy ]]; then
+  case "$invariant_id:$operation" in
+    device-authorization.forced-rls-isolation:probe)
+      probe_uid="phase2-rls-$(value '.fixture.allocationId')"
+      probe_client="$(value '.fixture.deviceClients.firstParty.id')"
+      catalog="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --set="probe_uid=$probe_uid" --set="client_id=$probe_client" <<'SQL'
+SET LOCAL statement_timeout='20s';
+WITH relation AS (
+  SELECT relrowsecurity,relforcerowsecurity
+  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='aster_tenant' AND c.relname='device_authorizations'
+), inserted AS (
+  INSERT INTO aster_tenant.device_authorizations (
+    tenant_id,device_uid,device_digest,user_digest,client_id,request_context,status,issued_at,expires_at
+  ) VALUES (
+    'default',:'probe_uid',sha256(convert_to(:'probe_uid'||'-device','UTF8')),
+    sha256(convert_to(:'probe_uid'||'-user','UTF8')),:'client_id','{}','pending',
+    extract(epoch from now())::bigint,extract(epoch from now())::bigint+600
+  ) RETURNING 1
+)
+SELECT jsonb_build_object(
+  'rowSecurity',(SELECT relrowsecurity FROM relation),
+  'forcedRowSecurity',(SELECT relforcerowsecurity FROM relation),
+  'requestPrivileges',(SELECT array_agg(privilege_type ORDER BY privilege_type)
+    FROM information_schema.role_table_grants WHERE table_schema='aster_tenant'
+      AND table_name='device_authorizations' AND grantee='aster_request'),
+  'adminPrivileges',has_table_privilege('aster_admin','aster_tenant.device_authorizations','SELECT,INSERT,UPDATE,DELETE'),
+  'workerPrivileges',has_table_privilege('aster_worker','aster_tenant.device_authorizations','SELECT,INSERT,UPDATE,DELETE'),
+  'inserted',(SELECT count(*) FROM inserted)
+);
+SQL
+      )" || die
+      printf '%s' "$catalog" | "$JQ_BIN" -e '.=={rowSecurity:true,forcedRowSecurity:true,requestPrivileges:["DELETE","INSERT","SELECT","UPDATE"],adminPrivileges:false,workerPrivileges:false,inserted:1}' >/dev/null || die
+      deployment_id="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SELECT deployment_id::text FROM aster_control.deployment_state WHERE singleton;
+SQL
+      )" || die
+      [[ "$deployment_id" =~ ^[0-9a-f-]{36}$ ]] || die
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_maintainer >/dev/null <<SQL
+SELECT * FROM aster_runtime.run_tenant_maintenance('$deployment_id');
+SQL
+      rls_seed_default="$(/usr/bin/od -An -N32 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+      rls_seed_foreign="$(/usr/bin/od -An -N32 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+      [[ "$rls_seed_default" =~ ^[0-9a-f]{64}$ && "$rls_seed_foreign" =~ ^[0-9a-f]{64}$ ]] || die
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_control_resolver --set="seed=$rls_seed_default" >/dev/null <<'SQL'
+SELECT * FROM aster_runtime.mint_tenant_binding(sha256(decode(:'seed','hex')),'default','request');
+SQL
+      request_primary="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_request \
+        --set="seed=$rls_seed_default" --set="probe_uid=$probe_uid" <<'SQL'
+SELECT * FROM aster_runtime.activate_tenant_binding(decode(:'seed','hex')) \g /dev/null
+WITH changed AS (
+  UPDATE aster_tenant.device_authorizations SET status=status
+  WHERE tenant_id='default' AND device_uid=:'probe_uid' RETURNING 1
+)
+SELECT jsonb_build_object(
+  'visible',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE device_uid=:'probe_uid'),
+  'updated',(SELECT count(*) FROM changed));
+SQL
+      )" || die
+      printf '%s' "$request_primary" | "$JQ_BIN" -e '.=={visible:1,updated:1}' >/dev/null || die
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_control_resolver --set="seed=$rls_seed_foreign" >/dev/null <<'SQL'
+SELECT * FROM aster_runtime.mint_tenant_binding(sha256(decode(:'seed','hex')),'admin','request');
+SQL
+      request_foreign="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_request \
+        --set="seed=$rls_seed_foreign" --set="probe_uid=$probe_uid" <<'SQL'
+SELECT * FROM aster_runtime.activate_tenant_binding(decode(:'seed','hex')) \g /dev/null
+WITH changed AS (
+  UPDATE aster_tenant.device_authorizations SET status=status
+  WHERE tenant_id='default' AND device_uid=:'probe_uid' RETURNING 1
+)
+SELECT jsonb_build_object(
+  'visible',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id='default' AND device_uid=:'probe_uid'),
+  'updated',(SELECT count(*) FROM changed));
+SQL
+      )" || die
+      printf '%s' "$request_foreign" | "$JQ_BIN" -e '.=={visible:0,updated:0}' >/dev/null || die
+      expect_rejected_sql <<'SQL'
+SET ROLE aster_admin;
+SELECT count(*) FROM aster_tenant.device_authorizations;
+SQL
+      expect_rejected_sql <<'SQL'
+SET ROLE aster_worker;
+SELECT count(*) FROM aster_tenant.device_authorizations;
+SQL
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="probe_uid=$probe_uid" >/dev/null <<'SQL'
+DELETE FROM aster_tenant.device_authorizations WHERE tenant_id='default' AND device_uid=:'probe_uid';
+SQL
+      terminal '{"invariant":"forced-rls-isolation","catalog":{"rowSecurity":true,"forcedRowSecurity":true},"privileges":{"request":"select-insert-update-delete","admin":"none","worker":"none"},"requestRole":{"primaryVisible":true,"foreignVisible":false,"foreignUpdate":"rejected"},"adminRole":"rejected","workerRole":"rejected"}'
+      ;;
+    device-authorization.credentials-digest-only:probe)
+      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
+      row="$(device_row "$device_code" "$user_code")" || die
+      printf '%s' "$row" | "$JQ_BIN" -e '
+        .status=="pending" and .deviceBytes==32 and .userBytes==32 and .clearAbsent==true' >/dev/null || die
+      clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SELECT count(*) FROM information_schema.columns
+WHERE table_schema='aster_tenant' AND table_name='device_authorizations'
+  AND column_name ~* '(device|user).*(code|credential)|clear|secret|token';
+SQL
+      )" || die
+      [[ "$clear_columns" == 0 ]] || die
+      terminal '{"invariant":"credentials-digest-only","schemaClearColumns":"absent","row":{"deviceDigestBytes":32,"userDigestBytes":32,"clearMaterial":"absent","structuredContextClearMaterial":"absent"}}'
+      ;;
+    device-authorization.cross-tenant-lookup-rejected:arm)
+      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
+      row="$(device_row "$device_code" "$user_code")" || die
+      printf '%s' "$row" | "$JQ_BIN" -e '.status=="pending"' >/dev/null || die
+      uid="$(printf '%s' "$row" | "$JQ_BIN" -er '.uid')" || die
+      row_identity="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" <<'SQL'
+SELECT jsonb_build_object(
+  'rowHash',encode(sha256(convert_to(to_jsonb(row)::text,'UTF8')),'hex'),
+  'deviceDigest',encode(device_digest,'hex'))
+FROM aster_tenant.device_authorizations row
+WHERE tenant_id='default' AND device_uid=:'uid';
+SQL
+      )" || die
+      printf '%s' "$row_identity" | "$JQ_BIN" -e '(.rowHash|test("^[0-9a-f]{64}$")) and (.deviceDigest|test("^[0-9a-f]{64}$"))' >/dev/null || die
+      handle_data="$($JQ_BIN -cn --arg uid "$uid" --argjson identity "$row_identity" '{uid:$uid,rowHash:$identity.rowHash,deviceDigest:$identity.deviceDigest}')" || die
+      handle="$(new_device_handle armed "$handle_data")" || die
+      control_terminal "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')"
+      ;;
+    device-authorization.cross-tenant-lookup-rejected:finish)
+      [[ "$(value '.observation.foreignStatus')" == 400 && "$(value '.observation.foreignError')" == invalid_grant ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="armed"' >/dev/null || die
+      uid="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.uid')"
+      expected_hash="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.rowHash')"
+      device_hash="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.deviceDigest')"
+      current_hash="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" <<'SQL'
+SELECT encode(sha256(convert_to(to_jsonb(row)::text,'UTF8')),'hex')
+FROM aster_tenant.device_authorizations row
+WHERE tenant_id='default' AND device_uid=:'uid';
+SQL
+      )" || die
+      [[ "$current_hash" == "$expected_hash" ]] || die
+      foreign_count="$(run_sql "$foreign_postgres_id" aster_phase1_candidate_foreign postgres --set="device_hash=$device_hash" <<'SQL'
+SELECT count(*) FROM aster_tenant.device_authorizations
+WHERE tenant_id='default' AND device_digest=decode(:'device_hash','hex');
+SQL
+      )" || die
+      [[ "$foreign_count" == 0 ]] || die
+      retire_handle
+      terminal '{"invariant":"cross-tenant-lookup-rejected","foreignPoll":{"status":400,"error":"invalid_grant"},"foreignRow":"not-visible","primaryState":"unchanged"}'
+      ;;
+    device-authorization.transition-failure-rolls-back:arm)
+      device_code="$(value '.private.deviceCode')"
+      row="$(device_row_by_device_code "$device_code")" || die
+      uid="$(printf '%s' "$row" | "$JQ_BIN" -er 'if .status=="approved" and (.grantId|type)=="string" then .uid else error("closed") end')" || die
+      snapshot_value="$(device_authority_snapshot "$uid")" || die
+      device_hash="$(printf '%s' "$row" | "$JQ_BIN" -er '.row.device_digest | if type=="string" then . else error("closed") end' 2>/dev/null || true)"
+      device_hash="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" <<'SQL'
+SELECT encode(device_digest,'hex') FROM aster_tenant.device_authorizations
+WHERE tenant_id='default' AND device_uid=:'uid' AND status='approved';
+SQL
+      )" || die
+      [[ "$device_hash" =~ ^[0-9a-f]{64}$ ]] || die
+      handle_data="$($JQ_BIN -cn --arg uid "$uid" --arg hash "$device_hash" --argjson snapshot "$snapshot_value" '{uid:$uid,deviceHash:$hash,snapshot:$snapshot}')" || die
+      handle="$(new_device_handle armed "$handle_data")" || die
+      lock_handle "$handle"
+      if ! run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="device_hash=$device_hash" >/dev/null <<'SQL'
+SELECT format($outer$
+CREATE OR REPLACE FUNCTION aster_runtime.phase2_device_transition_failure()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $function$
+BEGIN
+  IF encode(OLD.device_digest,'hex')=%L AND NEW.status='consumed' THEN
+    RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='phase2 injected device transition failure';
+  END IF;
+  RETURN NEW;
+END
+$function$
+$outer$, :'device_hash') \gexec
+CREATE TRIGGER phase2_device_transition_failure
+BEFORE UPDATE OF status ON aster_tenant.device_authorizations
+FOR EACH ROW EXECUTE FUNCTION aster_runtime.phase2_device_transition_failure();
+SQL
+      then
+        retire_handle
+        die
+      fi
+      exec {handle_fd}>&-; handle_fd=''
+      device_failure_armed=true
+      control_terminal "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')"
+      ;;
+    device-authorization.transition-failure-rolls-back:restore)
+      [[ "$(value '.observation.failureStatus')" -ge 500 && "$(value '.observation.failureStatus')" -le 599 && "$(value '.observation.tokenPublished')" == false ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="armed"' >/dev/null || die
+      uid="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.uid')" || die
+      expected_snapshot="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.data.snapshot')" || die
+      drop_device_failure
+      current_snapshot="$(device_authority_snapshot "$uid")" || die
+      [[ "$(printf '%s\n%s' "$expected_snapshot" "$current_snapshot" | "$JQ_BIN" -s '.[0]==.[1]')" == true ]] || die
+      restored="$(printf '%s' "$saved" | "$JQ_BIN" -c '.stage="restored"')" || die
+      rewrite_handle "$restored"
+      exec {handle_fd}>&-; handle_fd=''
+      control_terminal '{"ok":true}'
+      ;;
+    device-authorization.transition-failure-rolls-back:finish)
+      [[ "$(value '.observation.retryStatus')" == 200 ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="restored"' >/dev/null || die
+      uid="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.uid')" || die
+      consumed="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" <<'SQL'
+SELECT count(*) FROM aster_tenant.device_authorizations
+WHERE tenant_id='default' AND device_uid=:'uid' AND status='consumed' AND consumed_at IS NOT NULL;
+SQL
+      )" || die
+      [[ "$consumed" == 1 ]] || die
+      retire_handle
+      terminal '{"invariant":"transition-failure-rolls-back","injectedFailure":"observed","rollback":{"deviceState":"approved","interaction":"unchanged","grant":"unchanged","session":"unchanged"},"retry":"issued"}'
+      ;;
+    device-token.consumed-replay-revokes-grant:arm)
+      [[ "$(value '.observation.issuedStatus')" == 200 ]] || die
+      device_code="$(value '.private.deviceCode')"
+      row="$(device_row_by_device_code "$device_code")" || die
+      uid="$(printf '%s' "$row" | "$JQ_BIN" -er 'if .status=="consumed" and (.grantId|type)=="string" then .uid else error("closed") end')" || die
+      grant_id="$(printf '%s' "$row" | "$JQ_BIN" -er '.grantId')" || die
+      authority_ids="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="grant_id=$grant_id" <<'SQL'
+SELECT jsonb_build_object(
+  'familyIds',COALESCE((SELECT jsonb_agg(family_id ORDER BY family_id) FROM aster_tenant.token_families WHERE tenant_id='default' AND grant_id=:'grant_id'),'[]'::jsonb),
+  'refreshIds',COALESCE((SELECT jsonb_agg(jsonb_build_object('tokenId',token_id,'digest',encode(refresh_digest,'hex')) ORDER BY token_id) FROM aster_tenant.refresh_tokens WHERE tenant_id='default' AND family_id IN (SELECT family_id FROM aster_tenant.token_families WHERE tenant_id='default' AND grant_id=:'grant_id')),'[]'::jsonb),
+  'accessDigests',COALESCE((SELECT jsonb_agg(digest ORDER BY digest) FROM (
+    SELECT encode(access_digest,'hex') digest FROM aster_tenant.session_access_tokens WHERE tenant_id='default' AND grant_id=:'grant_id'
+    UNION SELECT encode(opaque_access_digest,'hex') FROM aster_tenant.refresh_tokens WHERE tenant_id='default' AND opaque_access_digest IS NOT NULL AND family_id IN (SELECT family_id FROM aster_tenant.token_families WHERE tenant_id='default' AND grant_id=:'grant_id')
+  ) values),'[]'::jsonb));
+SQL
+      )" || die
+      printf '%s' "$authority_ids" | "$JQ_BIN" -e '
+        (.familyIds|length)>0 and (.refreshIds|length)>0 and (.accessDigests|length)>0 and
+        all(.familyIds[];type=="string" and length>0) and
+        all(.refreshIds[];(.tokenId|type)=="string" and (.digest|test("^[0-9a-f]{64}$"))) and
+        all(.accessDigests[];test("^[0-9a-f]{64}$"))' >/dev/null || die
+      handle_data="$($JQ_BIN -cn --arg uid "$uid" --arg grantId "$grant_id" --argjson ids "$authority_ids" '{uid:$uid,grantId:$grantId,familyIds:$ids.familyIds,refreshIds:$ids.refreshIds,accessDigests:$ids.accessDigests}')" || die
+      handle="$(new_device_handle armed "$handle_data")" || die
+      control_terminal "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')"
+      ;;
+    device-token.consumed-replay-revokes-grant:finish)
+      [[ "$(value '.observation.replayStatus')" == 400 && "$(value '.observation.replayError')" == invalid_grant && \
+         "$(value '.observation.accessActive')" == false && "$(value '.observation.refreshActive')" == false && \
+         "$(value '.observation.refreshStatus')" == 400 && "$(value '.observation.refreshError')" == invalid_grant ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="armed"' >/dev/null || die
+      uid="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.uid')"; grant_id="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.grantId')"
+      family_ids="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.data.familyIds')"
+      refresh_ids="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.data.refreshIds')"
+      access_digests="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.data.accessDigests')"
+      revoked="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="uid=$uid" --set="grant_id=$grant_id" \
+        --set="family_ids=$family_ids" --set="refresh_ids=$refresh_ids" --set="access_digests=$access_digests" <<'SQL'
+SELECT jsonb_build_object(
+  'device',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id='default' AND device_uid=:'uid'),
+  'grant',(SELECT count(*) FROM aster_tenant.grants WHERE tenant_id='default' AND grant_id=:'grant_id'),
+  'families',(SELECT count(*) FROM aster_tenant.token_families WHERE tenant_id='default' AND family_id IN (SELECT jsonb_array_elements_text(:'family_ids'::jsonb))),
+  'access',(SELECT count(*) FROM (
+    SELECT encode(access_digest,'hex') digest FROM aster_tenant.session_access_tokens WHERE tenant_id='default'
+    UNION ALL SELECT encode(opaque_access_digest,'hex') FROM aster_tenant.refresh_tokens WHERE tenant_id='default' AND opaque_access_digest IS NOT NULL
+  ) rows WHERE digest IN (SELECT jsonb_array_elements_text(:'access_digests'::jsonb))),
+  'refresh',(SELECT count(*) FROM aster_tenant.refresh_tokens token WHERE tenant_id='default' AND EXISTS (
+    SELECT 1 FROM jsonb_to_recordset(:'refresh_ids'::jsonb) saved(tokenId text,digest text)
+    WHERE token.token_id=saved.tokenId OR token.refresh_digest=decode(saved.digest,'hex')))
+);
+SQL
+      )" || die
+      printf '%s' "$revoked" | "$JQ_BIN" -e '.=={device:0,grant:0,families:0,access:0,refresh:0}' >/dev/null || die
+      retire_handle
+      terminal '{"invariant":"consumed-replay-revokes-grant","replay":{"status":400,"error":"invalid_grant"},"authority":{"device":"removed","grant":"revoked","family":"inactive","access":"inactive","refresh":"inactive"}}'
+      ;;
+    device-authorization.expired-cleanup-bounded:arm)
+      foreign_before="$(run_sql "$foreign_postgres_id" aster_phase1_candidate_foreign postgres <<'SQL'
+SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id='default';
+SQL
+      )" || die
+      prefix="phase2-expired-$(/usr/bin/od -An -N16 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+      [[ "$prefix" =~ ^phase2-expired-[0-9a-f]{32}$ ]] || die
+      client_id="$(value '.fixture.deviceClients.firstParty.id')"
+      seeded="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="prefix=$prefix" --set="client_id=$client_id" <<'SQL'
+WITH clock AS (SELECT extract(epoch from now())::bigint now_value), expired AS (
+  INSERT INTO aster_tenant.device_authorizations (
+    tenant_id,device_uid,device_digest,user_digest,client_id,request_context,status,issued_at,expires_at
+  )
+  SELECT 'default',:'prefix'||'-'||ordinal,
+    sha256(convert_to(:'prefix'||'-device-'||ordinal,'UTF8')),
+    sha256(convert_to(:'prefix'||'-user-'||ordinal,'UTF8')),
+    :'client_id','{}','pending',clock.now_value-700,clock.now_value-100
+  FROM generate_series(0,64) ordinal CROSS JOIN clock RETURNING 1
+), sentinel AS (
+  INSERT INTO aster_tenant.device_authorizations (
+    tenant_id,device_uid,device_digest,user_digest,client_id,request_context,status,issued_at,expires_at
+  ) SELECT 'default',:'prefix'||'-sentinel',sha256(convert_to(:'prefix'||'-sentinel-device','UTF8')),
+    sha256(convert_to(:'prefix'||'-sentinel-user','UTF8')),:'client_id','{}','pending',clock.now_value,clock.now_value+600
+  FROM clock RETURNING 1
+)
+SELECT jsonb_build_object('expired',(SELECT count(*) FROM expired),'sentinel',(SELECT count(*) FROM sentinel));
+SQL
+      )" || die
+      printf '%s' "$seeded" | "$JQ_BIN" -e '.=={expired:65,sentinel:1}' >/dev/null || die
+      handle_data="$($JQ_BIN -cn --arg foreignCount "$foreign_before" --arg prefix "$prefix" '{foreignCount:($foreignCount|tonumber),prefix:$prefix}')" || die
+      if ! handle="$(new_device_handle seeded "$handle_data")"; then
+        run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="prefix=$prefix" >/dev/null <<'SQL'
+DELETE FROM aster_tenant.device_authorizations WHERE tenant_id='default' AND device_uid LIKE :'prefix'||'-%';
+SQL
+        die
+      fi
+      control_terminal "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')"
+      ;;
+    device-authorization.expired-cleanup-bounded:finish)
+      [[ "$(value '.observation.authorizationStatus')" == 200 ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="seeded"' >/dev/null || die
+      prefix="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.prefix')"; foreign_before="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.foreignCount')"
+      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
+      cleanup_state="$(printf '%s\t%s\n' "$device_code" "$user_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --set="prefix=$prefix" \
+        --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_codes FROM STDIN;' \
+        --command=$'SELECT jsonb_build_object(\n  \'expired\',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id=\'default\' AND device_uid LIKE :\'prefix\'||\'-%\' AND device_uid<>:\'prefix\'||\'-sentinel\' AND expires_at<extract(epoch from now())::bigint),\n  \'sentinel\',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id=\'default\' AND device_uid=:\'prefix\'||\'-sentinel\' AND expires_at>=extract(epoch from now())::bigint),\n  \'newRow\',(SELECT count(*) FROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes WHERE tenant_id=\'default\' AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\')) AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\')))\n);')" || die
+      printf '%s' "$cleanup_state" | "$JQ_BIN" -e '.=={expired:1,sentinel:1,newRow:1}' >/dev/null || die
+      foreign_after="$(run_sql "$foreign_postgres_id" aster_phase1_candidate_foreign postgres <<'SQL'
+SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id='default';
+SQL
+      )" || die
+      [[ "$foreign_after" == "$foreign_before" ]] || die
+      printf '%s\n' "$device_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --set="prefix=$prefix" \
+        --command='CREATE TEMP TABLE phase2_private_code(device_code text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_code FROM STDIN;' \
+        --command=$'DELETE FROM aster_tenant.device_authorizations\nWHERE tenant_id=\'default\' AND (device_uid LIKE :\'prefix\'||\'-%\' OR device_digest=(SELECT sha256(convert_to(device_code,\'UTF8\')) FROM phase2_private_code));' >/dev/null || die
+      retire_handle
+      terminal '{"invariant":"expired-cleanup-bounded","cleanup":{"seededExpired":65,"deletedExpired":64,"remainingExpired":1,"sentinel":"preserved","foreignTenant":"unchanged","newAuthorization":"published"}}'
+      ;;
+    device-evidence.secret-material-absent:probe)
+      [[ "$(value '.observation.issuedStatus')" == 200 ]] || die
+      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"; xsrf="$(value '.private.xsrf')"
+      row="$(device_row "$device_code" "$user_code")" || die
+      printf '%s' "$row" | "$JQ_BIN" -e '.status=="consumed" and .deviceBytes==32 and .userBytes==32' >/dev/null || die
+      clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SELECT count(*) FROM information_schema.columns
+WHERE table_schema='aster_tenant' AND table_name IN ('device_authorizations','interactions','grants','sessions','token_families','refresh_tokens','session_access_tokens')
+  AND column_name ~* '(^|_)(password|client_secret|device_code|user_code|xsrf|access_token|refresh_token|id_token)($|_)';
+SQL
+      )" || die
+      [[ "$clear_columns" == 0 ]] || die
+      assert_secret_material_absent '.private | [.deviceCode,.userCode,.xsrf,.password]+.clientSecrets+.tokens'
+      assert_normalized_user_code_absent
+      terminal '{"invariant":"secret-material-absent","database":"clear-material-absent","schema":"closed","evidence":"sanitized","driverOutput":"sanitized"}'
+      ;;
+    device-authorization.transition-failure-rolls-back:abort)
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      drop_device_failure
+      retire_handle
+      control_terminal '{"ok":true}'
+      ;;
+    device-authorization.cross-tenant-lookup-rejected:abort)
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      retire_handle
+      control_terminal '{"ok":true}'
+      ;;
+    device-token.consumed-replay-revokes-grant:abort)
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      retire_handle
+      control_terminal '{"ok":true}'
+      ;;
+    device-authorization.expired-cleanup-bounded:abort)
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      prefix="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.prefix // empty')"
+      if [[ -n "$prefix" ]]; then
+        run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="prefix=$prefix" >/dev/null <<'SQL'
+DELETE FROM aster_tenant.device_authorizations WHERE tenant_id='default' AND device_uid LIKE :'prefix'||'-%';
+SQL
+      fi
+      retire_handle
+      control_terminal '{"ok":true}'
+      ;;
+    *) die ;;
+  esac
+  trap - EXIT HUP INT TERM
+  exit 0
+fi
 
 case "$invariant_id" in
   client-credentials.cross-tenant-authority-rejected)

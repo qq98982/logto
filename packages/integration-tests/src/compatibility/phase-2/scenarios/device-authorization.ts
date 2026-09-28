@@ -182,7 +182,7 @@ export type DeviceAuthorizationControlResult = Readonly<{
   detected: true;
 }>;
 
-type FlowOptions = Readonly<{
+export type DeviceFlowOptions = Readonly<{
   client: 'firstParty' | 'thirdParty';
   scope?: string;
   resource?: string;
@@ -206,8 +206,10 @@ const fail = (): never => {
 const isDeviceScenario = (value: string): boolean =>
   devicePrefixes.some((prefix) => value.startsWith(prefix));
 
-const clientId = (runtime: DeviceAuthorizationScenarioRuntime, client: FlowOptions['client']) =>
-  runtime.fixture.public.deviceClients[client].id;
+const clientId = (
+  runtime: DeviceAuthorizationScenarioRuntime,
+  client: DeviceFlowOptions['client']
+) => runtime.fixture.public.deviceClients[client].id;
 
 const authorizationRequest = (
   runtime: DeviceAuthorizationScenarioRuntime,
@@ -459,10 +461,10 @@ const authorizationRequest = (
   }
 };
 
-const startAuthorization = async (
+export const startDeviceAuthorization = async (
   lease: DeviceAuthorizationTransportLease,
   runtime: DeviceAuthorizationScenarioRuntime,
-  options: FlowOptions = { client: 'firstParty' }
+  options: DeviceFlowOptions = { client: 'firstParty' }
 ): Promise<DeviceAuthorizationProjection> => {
   const fields: Array<readonly ['client_id' | 'scope' | 'resource' | 'organization_id', string]> = [
     ['client_id', clientId(runtime, options.client)],
@@ -490,11 +492,9 @@ const confirmVerification = async (
   });
 };
 
-const approve = async (
+export const completeDeviceApproval = async (
   lease: DeviceAuthorizationTransportLease,
-  runtime: DeviceAuthorizationScenarioRuntime,
-  options: FlowOptions,
-  afterAuthorization?: () => Promise<void>
+  runtime: DeviceAuthorizationScenarioRuntime
 ): Promise<
   Readonly<{
     consentRead: DeviceLifecycleProjection;
@@ -502,8 +502,6 @@ const approve = async (
     resume: DeviceLifecycleProjection;
   }>
 > => {
-  await startAuthorization(lease, runtime, options);
-  await afterAuthorization?.();
   await confirmVerification(lease);
   if (!runtime.fixture.status) {
     return fail();
@@ -527,13 +525,30 @@ const approve = async (
   return Object.freeze({ consentRead, consent, resume });
 };
 
-const issue = async (
+export const approveDeviceAuthorization = async (
   lease: DeviceAuthorizationTransportLease,
   runtime: DeviceAuthorizationScenarioRuntime,
-  options: FlowOptions,
+  options: DeviceFlowOptions,
+  afterAuthorization?: () => Promise<void>
+): Promise<
+  Readonly<{
+    consentRead: DeviceLifecycleProjection;
+    consent: DeviceLifecycleProjection;
+    resume: DeviceLifecycleProjection;
+  }>
+> => {
+  await startDeviceAuthorization(lease, runtime, options);
+  await afterAuthorization?.();
+  return completeDeviceApproval(lease, runtime);
+};
+
+export const issueDeviceAuthorization = async (
+  lease: DeviceAuthorizationTransportLease,
+  runtime: DeviceAuthorizationScenarioRuntime,
+  options: DeviceFlowOptions,
   afterAuthorization?: () => Promise<void>
 ): Promise<DeviceAuthorizationProjection> => {
-  await approve(lease, runtime, options, afterAuthorization);
+  await approveDeviceAuthorization(lease, runtime, options, afterAuthorization);
   return lease.pollToken({
     proof: { method: 'public', clientId: clientId(runtime, options.client) },
   });
@@ -629,13 +644,16 @@ export const createDeviceConcurrencyBarrierFetch = (
   });
 };
 
-const executeConcurrencyTrial = async (
+export const executeDeviceConcurrencyTrial = async (
   runtime: DeviceAuthorizationScenarioRuntime,
   createTransport: typeof createDeviceAuthorizationTransportLease
 ): Promise<DeviceConcurrencyTrial> => {
   const flow = createTransport({ target: runtime.target, fetch: runtime.fetch });
   try {
-    await approve(flow, runtime, { client: 'firstParty', scope: 'openid profile' });
+    await approveDeviceAuthorization(flow, runtime, {
+      client: 'firstParty',
+      scope: 'openid profile',
+    });
     return await flow.withDeviceCodeLease(async (secret) => {
       const barrier = createDeviceConcurrencyBarrierFetch(
         runtime.fetch,
@@ -674,7 +692,7 @@ const executeConcurrencyTrial = async (
 const projectIssuedCredentials = async (
   lease: DeviceAuthorizationTransportLease,
   runtime: DeviceAuthorizationScenarioRuntime,
-  options: FlowOptions
+  options: DeviceFlowOptions
 ): Promise<DeviceCredentialProjection> => {
   const { status } = runtime.fixture;
   if (!status) {
@@ -725,7 +743,7 @@ const execute = async (
     return lease.requestVerification({ method: 'GET', path: '/device' });
   }
   if (id === 'device-verification.manual-entry') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     return lease.requestVerification({
       method: 'POST',
@@ -734,7 +752,7 @@ const execute = async (
     });
   }
   if (id === 'device-verification.complete-url-entry') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     const redirect = await lease.requestVerification({
       method: 'GET',
       path: '/device',
@@ -765,7 +783,7 @@ const execute = async (
   if (id === 'device-verification.expired-code' || id === 'device-verification.already-used-code') {
     return runtime.state.withDeviceHandle(id, runtime.fixture, async (handle) => {
       if (id.endsWith('already-used-code')) {
-        await approve(
+        await approveDeviceAuthorization(
           lease,
           runtime,
           { client: 'firstParty', scope: 'openid profile' },
@@ -773,7 +791,7 @@ const execute = async (
         );
         await handle.transition('consume');
       } else {
-        await startAuthorization(lease, runtime);
+        await startDeviceAuthorization(lease, runtime);
         await handle.capture();
         await handle.transition('expire');
       }
@@ -790,7 +808,7 @@ const execute = async (
     });
   }
   if (id === 'device-verification.invalid-xsrf') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     return lease.requestVerification({
       method: 'POST',
@@ -799,7 +817,7 @@ const execute = async (
     });
   }
   if (id === 'device-verification.cross-cookie-xsrf') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     const other = createTransport({ target: runtime.target, fetch: runtime.fetch });
     try {
@@ -820,7 +838,7 @@ const execute = async (
     }
   }
   if (id === 'device-verification.abort' || id === 'device-token.denied-poll') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     const denied = await lease.requestVerification({
       method: 'POST',
@@ -835,7 +853,7 @@ const execute = async (
     id === 'device-verification.confirmation' ||
     id === 'device-verification.confirmed-sign-in-redirect'
   ) {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     return lease.requestVerification({
       method: 'POST',
@@ -848,7 +866,7 @@ const execute = async (
     });
   }
   if (id === 'device-token.pending-poll' || id === 'device-token.in-flight-poll') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     if (id.endsWith('in-flight-poll')) {
       await confirmVerification(lease);
     }
@@ -862,8 +880,8 @@ const execute = async (
         client: 'firstParty' as const,
         scope: 'openid offline_access profile',
       };
-      const firstIssued = await issue(lease, runtime, flow);
-      const second = await approve(lease, runtime, flow);
+      const firstIssued = await issueDeviceAuthorization(lease, runtime, flow);
+      const second = await approveDeviceAuthorization(lease, runtime, flow);
       return publishDeviceScenarioProjection(
         Object.freeze({
           kind: 'device-consent-sequence' as const,
@@ -878,7 +896,7 @@ const execute = async (
       id === 'device-consent.third-party-redirect-absent'
         ? { client: 'thirdParty' as const, scope: 'openid profile' }
         : { client: 'firstParty' as const, scope: 'openid profile' };
-    const approved = await approve(lease, runtime, flow);
+    const approved = await approveDeviceAuthorization(lease, runtime, flow);
     return id === 'device-consent.third-party-redirect-absent'
       ? publishDeviceScenarioProjection(
           Object.freeze({
@@ -894,7 +912,7 @@ const execute = async (
     id === 'device-verification.success-page' ||
     id === 'device-verification.completed-cookie-cleanup'
   ) {
-    const approved = await approve(lease, runtime, {
+    const approved = await approveDeviceAuthorization(lease, runtime, {
       client: 'firstParty',
       scope: 'openid profile',
     });
@@ -910,7 +928,7 @@ const execute = async (
   }
   if (id === 'device-token.expired-code') {
     return runtime.state.withDeviceHandle(id, runtime.fixture, async (handle) => {
-      await startAuthorization(lease, runtime);
+      await startDeviceAuthorization(lease, runtime);
       await handle.capture();
       await handle.transition('expire');
       return lease.pollToken({
@@ -919,13 +937,16 @@ const execute = async (
     });
   }
   if (id === 'device-token.client-mismatch') {
-    await startAuthorization(lease, runtime);
+    await startDeviceAuthorization(lease, runtime);
     return lease.pollToken({
       proof: { method: 'public', clientId: clientId(runtime, 'thirdParty') },
     });
   }
   if (id === 'device-token.consumed-replay') {
-    await issue(lease, runtime, { client: 'firstParty', scope: 'openid profile' });
+    await issueDeviceAuthorization(lease, runtime, {
+      client: 'firstParty',
+      scope: 'openid profile',
+    });
     return lease.pollToken({
       proof: { method: 'public', clientId: clientId(runtime, 'firstParty') },
     });
@@ -933,7 +954,7 @@ const execute = async (
   if (id === 'device-token.concurrent-reference-multi-winner') {
     const trials: DeviceConcurrencyTrial[] = [];
     for (let index = 0; index < 3; index += 1) {
-      trials.push(await executeConcurrencyTrial(runtime, createTransport));
+      trials.push(await executeDeviceConcurrencyTrial(runtime, createTransport));
     }
     return publishDeviceScenarioProjection(
       Object.freeze({
@@ -946,7 +967,7 @@ const execute = async (
   }
   if (id === 'device-token.session-bound-expiry') {
     return runtime.state.withDeviceHandle(id, runtime.fixture, async (handle) => {
-      await issue(
+      await issueDeviceAuthorization(
         lease,
         runtime,
         { client: 'firstParty', scope: 'openid profile' },
@@ -986,7 +1007,7 @@ const execute = async (
   }
   const resource = runtime.fixture.public.resources.primary.indicator;
   const organizationId = runtime.fixture.public.organization.id;
-  const flow: FlowOptions = id.includes('organization')
+  const flow: DeviceFlowOptions = id.includes('organization')
     ? {
         client: 'firstParty',
         scope: `openid offline_access ${runtime.fixture.public.organization.scopeName}`,
@@ -995,7 +1016,7 @@ const execute = async (
     : id.includes('resource')
       ? { client: 'firstParty', scope: 'openid offline_access read', resource }
       : { client: 'firstParty', scope: 'openid offline_access profile email' };
-  const issued = await issue(lease, runtime, flow);
+  const issued = await issueDeviceAuthorization(lease, runtime, flow);
   if (id === 'device-token.openid-issuance') {
     return issued;
   }

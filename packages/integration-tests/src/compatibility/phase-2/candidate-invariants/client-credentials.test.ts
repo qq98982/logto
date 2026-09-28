@@ -174,7 +174,17 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'client-credentials.malformed-scope-whitespace',
     'client-credentials.unsupported-parameter',
   ] as const),
-  candidateInvariantScenarios: clientCredentialsCandidateInvariantIds,
+  candidateInvariantScenarios: Object.freeze([
+    ...clientCredentialsCandidateInvariantIds,
+    'device-authorization.forced-rls-isolation',
+    'device-authorization.credentials-digest-only',
+    'device-authorization.cross-tenant-lookup-rejected',
+    'device-authorization.transition-failure-rolls-back',
+    'device-token.concurrent-poll-one-winner',
+    'device-token.consumed-replay-revokes-grant',
+    'device-authorization.expired-cleanup-bounded',
+    'device-evidence.secret-material-absent',
+  ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze([
       'client_credentials',
@@ -213,7 +223,7 @@ afterAll(async () => {
 });
 
 describe('Phase 2 candidate invariant driver', () => {
-  it('runs the exact five implemented contracts for the closed five-ID profile', async () => {
+  it('runs the exact legacy five-ID prefix for the closed thirteen-ID profile', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
@@ -296,9 +306,12 @@ describe('Phase 2 candidate invariant driver', () => {
     );
     await Promise.all(
       [
-        canonicalProfile.candidateInvariantScenarios,
         canonicalProfile.candidateInvariantScenarios.slice(1),
         reordered,
+        [
+          ...canonicalProfile.candidateInvariantScenarios,
+          clientCredentialsCandidateInvariantIds[0],
+        ],
       ].map(async (candidateInvariantScenarios) =>
         expect(
           runClientCredentialsCandidateInvariants(

@@ -14,6 +14,11 @@ import {
   type CandidateInvariantControlEvidence,
 } from './candidate-invariants/client-credentials.js';
 import {
+  createLiveDeviceCandidateInvariantExecutor,
+  runDeviceCandidateInvariants,
+  type DeviceCandidateInvariantControlEvidence,
+} from './candidate-invariants/device-authorization.js';
+import {
   createPhase2EvidenceEnvelope,
   validatePhase2OracleArtifact,
   type Phase2EvidenceEnvelope,
@@ -877,21 +882,45 @@ const executeCandidateInvariants = async (
   }
   const { invariantDriver } = target;
   const provisioner = provisionerFor(prepared);
-  const invariants: readonly CandidateInvariantControlEvidence[] = await runWithPhase2Fixture(
-    provisioner,
-    async (fixture: ProvisionedPhase2Fixture) => {
-      await waitForClientCredentialsFixtureReady(target.target, fixture.public);
-      return runClientCredentialsCandidateInvariants(input.profile, {
-        target: target.target,
-        foreignTarget: target.foreignTarget,
-        fixture,
-        driverPath: invariantDriver.path,
-        controlSocket: invariantDriver.controlSocket,
-        topology: prepared.topology,
-        identityFence: prepared.fence,
-      });
+  const state = await createCommandPhase2ScenarioStateDriver({
+    descriptor: target,
+    identityFence: prepared.fence,
+  });
+  const invariants: ReadonlyArray<
+    CandidateInvariantControlEvidence | DeviceCandidateInvariantControlEvidence
+  > = await runWithPhase2Fixture(provisioner, async (fixture: ProvisionedPhase2Fixture) => {
+    await waitForClientCredentialsFixtureReady(target.target, fixture.public);
+    const legacy = await runClientCredentialsCandidateInvariants(input.profile, {
+      target: target.target,
+      foreignTarget: target.foreignTarget,
+      fixture,
+      driverPath: invariantDriver.path,
+      controlSocket: invariantDriver.controlSocket,
+      topology: prepared.topology,
+      identityFence: prepared.fence,
+    });
+    const deviceExecutor = await createLiveDeviceCandidateInvariantExecutor({
+      profile: input.profile,
+      target: target.target,
+      foreignTarget: target.foreignTarget,
+      fixture,
+      driverPath: invariantDriver.path,
+      controlSocket: invariantDriver.controlSocket,
+      topology: prepared.topology,
+      state,
+      jwks: await fetchPhase2PublicJwks(target.target),
+      identityFence: prepared.fence,
+    });
+    const device = await runDeviceCandidateInvariants(input.profile, deviceExecutor);
+    const combined = Object.freeze([...legacy, ...device]);
+    if (
+      combined.length !== input.profile.candidateInvariantScenarios.length ||
+      combined.some(({ id }, index) => id !== input.profile.candidateInvariantScenarios[index])
+    ) {
+      return fail();
     }
-  );
+    return combined;
+  });
   return Object.freeze({ schemaVersion: 1, mode: 'candidate-invariants', invariants });
 };
 

@@ -159,6 +159,23 @@ export type DeviceCodeLease = Readonly<{
   toJSON(): never;
 }>;
 
+export type DeviceAuthorizationSecretLease = Readonly<{
+  getDeviceCode(): string;
+  getUserCode(): string;
+  getXsrf(): string;
+  toJSON(): never;
+}>;
+
+export type DeviceEvidenceSecretLease = Readonly<{
+  getDeviceCode(): string;
+  getUserCode(): string;
+  getAuditXsrf(): string;
+  getAccessToken(): string | undefined;
+  getRefreshToken(): string | undefined;
+  getIdToken(): string | undefined;
+  toJSON(): never;
+}>;
+
 export type DeviceAuthorizationTransportOptions = Readonly<{
   target: TargetConfig;
   fetch?: typeof fetch;
@@ -188,6 +205,12 @@ export type DeviceAuthorizationTransportLease = Readonly<{
   withDeviceCodeLease<Result>(
     use: (lease: DeviceCodeLease) => Result | Promise<Result>
   ): Promise<Result>;
+  withAuthorizationSecretLease?<Result>(
+    use: (lease: DeviceAuthorizationSecretLease) => Result | Promise<Result>
+  ): Promise<Result>;
+  withEvidenceSecretLease?<Result>(
+    use: (lease: DeviceEvidenceSecretLease) => Result | Promise<Result>
+  ): Promise<Result>;
   clear(): void;
   toJSON(): never;
 }>;
@@ -200,6 +223,8 @@ type TransportState = {
   userCode?: string;
   codesExpireAt?: number;
   xsrf?: string;
+  auditXsrf?: string;
+  auditXsrfExpireAt?: number;
   xsrfCookieIdentity?: string;
   xsrfExpireAt?: number;
   verificationId?: string;
@@ -483,11 +508,17 @@ const pruneExpiredState = (state: TransportState): void => {
     state.deviceCode = undefined;
     state.userCode = undefined;
     state.codesExpireAt = undefined;
+    state.auditXsrf = undefined;
+    state.auditXsrfExpireAt = undefined;
   }
   if (state.xsrfExpireAt !== undefined && state.xsrfExpireAt <= now) {
     state.xsrf = undefined;
     state.xsrfCookieIdentity = undefined;
     state.xsrfExpireAt = undefined;
+  }
+  if (state.auditXsrfExpireAt !== undefined && state.auditXsrfExpireAt <= now) {
+    state.auditXsrf = undefined;
+    state.auditXsrfExpireAt = undefined;
   }
   if (state.accessExpireAt !== undefined && state.accessExpireAt <= now) {
     state.accessToken = undefined;
@@ -509,6 +540,7 @@ const createSensitiveRegistry = (
     state.deviceCode,
     state.userCode,
     state.xsrf,
+    state.auditXsrf,
     state.verificationId,
     state.verificationFollowUrl,
     state.resumeUrl,
@@ -570,6 +602,8 @@ const clearState = (state: TransportState): void => {
   state.userCode = undefined;
   state.codesExpireAt = undefined;
   state.xsrf = undefined;
+  state.auditXsrf = undefined;
+  state.auditXsrfExpireAt = undefined;
   state.xsrfCookieIdentity = undefined;
   state.xsrfExpireAt = undefined;
   state.verificationId = undefined;
@@ -601,6 +635,8 @@ const snapshotState = (state: TransportState): TransportState => ({
   userCode: state.userCode,
   codesExpireAt: state.codesExpireAt,
   xsrf: state.xsrf,
+  auditXsrf: state.auditXsrf,
+  auditXsrfExpireAt: state.auditXsrfExpireAt,
   xsrfCookieIdentity: state.xsrfCookieIdentity,
   xsrfExpireAt: state.xsrfExpireAt,
   verificationId: state.verificationId,
@@ -641,6 +677,8 @@ const finishProjection = (
   state.userCode = next.userCode;
   state.codesExpireAt = next.codesExpireAt;
   state.xsrf = next.xsrf;
+  state.auditXsrf = next.auditXsrf;
+  state.auditXsrfExpireAt = next.auditXsrfExpireAt;
   state.xsrfCookieIdentity = next.xsrfCookieIdentity;
   state.xsrfExpireAt = next.xsrfExpireAt;
   state.verificationId = next.verificationId;
@@ -844,9 +882,13 @@ const mergeCookies = (
       }
       if (accepted.value.length > 0 && expireAt > Date.now()) {
         state.xsrf = accepted.value;
+        state.auditXsrf = undefined;
+        state.auditXsrfExpireAt = undefined;
         state.xsrfCookieIdentity = identity;
         state.xsrfExpireAt = expireAt;
       } else if (state.xsrfCookieIdentity === identity) {
+        state.auditXsrf = state.xsrf;
+        state.auditXsrfExpireAt = state.xsrfExpireAt;
         state.xsrf = undefined;
         state.xsrfCookieIdentity = undefined;
         state.xsrfExpireAt = undefined;
@@ -2969,6 +3011,141 @@ export const createDeviceAuthorizationTransportLease = (
           )
         ) {
           return fail('device-code-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
+    withAuthorizationSecretLease: async <Result>(
+      use: (secretLease: DeviceAuthorizationSecretLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('authorization-secret-lease');
+      }
+      const deviceCode = state.deviceCode ?? fail('authorization-secret-lease');
+      const userCode = state.userCode ?? fail('authorization-secret-lease');
+      const xsrf = state.xsrf ?? fail('authorization-secret-lease');
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'authorization-secret-lease',
+      };
+      for (const secret of [deviceCode, userCode, xsrf]) {
+        registerSensitiveValue(registry, secret);
+      }
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const read = (value: string, current: string | undefined): string => {
+        assertActive(state);
+        pruneExpiredState(state);
+        if (!valid || current !== value) {
+          return fail('authorization-secret-lease');
+        }
+        return value;
+      };
+      const scopedLease: DeviceAuthorizationSecretLease = Object.freeze({
+        getDeviceCode: () => read(deviceCode, state.deviceCode),
+        getUserCode: () => read(userCode, state.userCode),
+        getXsrf: () => read(xsrf, state.xsrf),
+        toJSON: (): never => fail('authorization-secret-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(scopedLease);
+        } catch {
+          return fail('authorization-secret-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        if (state.deviceCode !== deviceCode || state.userCode !== userCode || state.xsrf !== xsrf) {
+          return fail('authorization-secret-lease');
+        }
+        fixedFailure('authorization-secret-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
+        const serialized = fixedFailure(
+          'authorization-secret-lease',
+          () => JSON.stringify(result) ?? ''
+        ).toLowerCase();
+        if (
+          [...registry.values].some(
+            (sensitive) => sensitive.length > 0 && serialized.includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('authorization-secret-lease');
+        }
+        return result;
+      } finally {
+        valid = false;
+        state.credentialLeaseActive = false;
+      }
+    },
+    withEvidenceSecretLease: async <Result>(
+      use: (evidenceLease: DeviceEvidenceSecretLease) => Result | Promise<Result>
+    ): Promise<Result> => {
+      assertAvailable(state);
+      if (typeof use !== 'function') {
+        return fail('evidence-secret-lease');
+      }
+      const deviceCode = state.deviceCode ?? fail('evidence-secret-lease');
+      const userCode = state.userCode ?? fail('evidence-secret-lease');
+      const auditXsrf = state.auditXsrf ?? fail('evidence-secret-lease');
+      const { accessToken, refreshToken, idToken } = state;
+      const registry: SensitiveRegistry = {
+        values: new Set(),
+        maximum: sensitiveVariantLimit,
+        stage: 'evidence-secret-lease',
+      };
+      for (const secret of [deviceCode, userCode, auditXsrf, accessToken, refreshToken, idToken]) {
+        if (secret !== undefined) {
+          registerSensitiveValue(registry, secret);
+        }
+      }
+      let valid = true;
+      state.credentialLeaseActive = true;
+      const read = (value: string | undefined, current: string | undefined) => {
+        assertActive(state);
+        pruneExpiredState(state);
+        if (!valid || current !== value) {
+          return fail('evidence-secret-lease');
+        }
+        return value;
+      };
+      const scopedLease: DeviceEvidenceSecretLease = Object.freeze({
+        getDeviceCode: () => read(deviceCode, state.deviceCode) ?? fail('evidence-secret-lease'),
+        getUserCode: () => read(userCode, state.userCode) ?? fail('evidence-secret-lease'),
+        getAuditXsrf: () => read(auditXsrf, state.auditXsrf) ?? fail('evidence-secret-lease'),
+        getAccessToken: () => read(accessToken, state.accessToken),
+        getRefreshToken: () => read(refreshToken, state.refreshToken),
+        getIdToken: () => read(idToken, state.idToken),
+        toJSON: (): never => fail('evidence-secret-lease'),
+      });
+      try {
+        let result: Result;
+        try {
+          result = await use(scopedLease);
+        } catch {
+          return fail('evidence-secret-lease');
+        }
+        assertActive(state);
+        pruneExpiredState(state);
+        fixedFailure('evidence-secret-lease', () => {
+          assertDeviceAuthorizationEvidenceIsSanitized(result);
+        });
+        const serialized = fixedFailure(
+          'evidence-secret-lease',
+          () => JSON.stringify(result) ?? ''
+        ).toLowerCase();
+        if (
+          [...registry.values].some(
+            (sensitive) => sensitive.length > 0 && serialized.includes(sensitive.toLowerCase())
+          )
+        ) {
+          return fail('evidence-secret-lease');
         }
         return result;
       } finally {

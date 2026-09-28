@@ -125,6 +125,9 @@ type Harness = Readonly<{
   quarantineCollision: string;
   postVerifyRace: string;
   postVerifyEvidence: string;
+  deviceStatus: string;
+  secretLeak: string;
+  normalizedInitialLeak: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -211,6 +214,9 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const quarantineCollision = path.join(root, 'quarantine-collision');
   const postVerifyRace = path.join(root, 'post-verify-race');
   const postVerifyEvidence = path.join(root, 'post-verify-evidence');
+  const deviceStatus = path.join(root, 'device-status');
+  const secretLeak = path.join(root, 'secret-leak');
+  const normalizedInitialLeak = path.join(root, 'normalized-initial-leak');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -265,15 +271,22 @@ fi
 if [[ "$1" == exec ]]; then
   client_id=''
   general_key_id='${kind === 'oracle' ? 'general-db-id' : 'general'}'
+  command_query=''
   for argument in "$@"; do
     case "$argument" in
       --set=client_id=*) client_id="${'$'}{argument#--set=client_id=}" ;;
       --set=general_key_id=*) general_key_id="${'$'}{argument#--set=general_key_id=}" ;;
+      --command=*) command_query+="${'$'}{argument#--command=}"$'\n' ;;
     esac
   done
   input="$(cat)"
-  printf '%s\n-- invocation --\n' "$input" >>'${sql}'
-  if [[ "$input" == *'SET ROLE aster_request'* ]]; then
+  if [[ -n "$command_query" ]]; then
+    input="$command_query"
+    printf '%s\n[COPY DATA OMITTED]\n-- invocation --\n' "$input" >>'${sql}'
+  else
+    printf '%s\n-- invocation --\n' "$input" >>'${sql}'
+  fi
+  if [[ "$input" == *'SET ROLE aster_request'* || "$input" == *'SET ROLE aster_admin'* || "$input" == *'SET ROLE aster_worker'* ]]; then
     if [[ -f '${acceptRole}' ]]; then exit 0; fi
     printf '%s\n' 'ERROR:  42501: request role write rejected' >&2
     exit 1
@@ -303,16 +316,101 @@ if [[ "$1" == exec ]]; then
     fi
     exit 0
   fi
-  if [[ "$input" == *'oidc_model_instances'*'DeviceCode'* || "$input" == *'aster_tenant.device_authorizations'* ]]; then
-    printf '%s' ok
-    exit 0
-  fi
   if [[ "$input" == *'WITH client_row AS'* && -f '${hang}' ]]; then
     : >'${hangReached}'
     /usr/bin/sleep 30
   fi
   if [[ "$input" == *'relforcerowsecurity'* && "$input" == *'account_verification_records'* ]]; then
     printf '%s' '{"forcedRls":true,"columns":["tenant_id","verification_digest","account_id","verification_method","issued_at","expires_at"],"privileges":["INSERT","SELECT"],"recordCount":0}'
+    exit 0
+  fi
+  if [[ "$input" == *'relforcerowsecurity'* && "$input" == *"relname='device_authorizations'"* ]]; then
+    printf '%s' '{"rowSecurity":true,"forcedRowSecurity":true,"requestPrivileges":["DELETE","INSERT","SELECT","UPDATE"],"adminPrivileges":false,"workerPrivileges":false,"inserted":1}'
+    exit 0
+  fi
+  if [[ "$input" == *'SELECT deployment_id::text FROM aster_control.deployment_state'* ]]; then
+    printf '%s' '00000000-0000-4000-8000-000000000001'
+    exit 0
+  fi
+  if [[ "$input" == *'run_tenant_maintenance'* || "$input" == *'mint_tenant_binding'* ]]; then
+    exit 0
+  fi
+  if [[ "$input" == *'activate_tenant_binding'* && "$input" == *"'visible'"* ]]; then
+    if [[ "$input" == *"WHERE tenant_id='default' AND device_uid=:'probe_uid')"* ]]; then
+      printf '%s' '{"visible":0,"updated":0}'
+    else
+      printf '%s' '{"visible":1,"updated":1}'
+    fi
+    exit 0
+  fi
+  if [[ "$input" == *"'uid',device_uid"* && "$input" == *'device_digest=sha256'* ]]; then
+    device_status=pending
+    [[ -f '${deviceStatus}' ]] && device_status="$(cat '${deviceStatus}')"
+    if [[ "$device_status" == pending ]]; then grant_id=null; else grant_id='"phase2-device-grant"'; fi
+    clear_absent=true
+    [[ -f '${normalizedInitialLeak}' ]] && clear_absent=false
+    printf '{"uid":"device-uid","status":"%s","grantId":%s,"deviceBytes":32,"userBytes":32,"clearAbsent":%s,"row":{"tenant_id":"default","device_uid":"device-uid","device_digest":"stored-device-credential","user_digest":"stored-user-credential","client_id":"phase2-device-first","request_context":{},"status":"%s","grant_id":%s}}' "$device_status" "$grant_id" "$clear_absent" "$device_status" "$grant_id"
+    exit 0
+  fi
+  if [[ "$input" == *"'rowHash'"* && "$input" == *"'deviceDigest'"* ]]; then
+    printf '{"rowHash":"%064d","deviceDigest":"%064d"}' 0 0 | tr '0' a
+    exit 0
+  fi
+  if [[ "$input" == *"SELECT encode(sha256(convert_to(to_jsonb(row)::text"* ]]; then
+    printf '%064d' 0 | tr '0' a
+    exit 0
+  fi
+  if [[ "$input" == *"information_schema.columns"* && "$input" == *"device_authorizations"* ]]; then
+    printf '%s' 0
+    exit 0
+  fi
+  if [[ "$input" == *'WITH device AS ('* && "$input" == *"'interactions'"* ]]; then
+    device_status=approved
+    [[ -f '${deviceStatus}' ]] && device_status="$(cat '${deviceStatus}')"
+    printf '{"device":{"tenant_id":"default","device_uid":"device-uid","status":"%s","grant_id":"phase2-device-grant"},"interactions":[],"grant":[{"grant_id":"phase2-device-grant"}],"session":[],"families":[],"refresh":[],"access":[]}' "$device_status"
+    exit 0
+  fi
+  if [[ "$input" == *"SELECT encode(device_digest,'hex')"* ]]; then
+    printf '%064d' 0 | tr '0' a
+    exit 0
+  fi
+  if [[ "$input" == *'phase2_device_transition_failure'* ]]; then
+    exit 0
+  fi
+  if [[ "$input" == *"status='consumed'"* && "$input" == *'consumed_at IS NOT NULL'* ]]; then
+    printf '%s' 1
+    exit 0
+  fi
+  if [[ "$input" == *'generate_series(0,64)'* ]]; then
+    printf '%s' '{"expired":65,"sentinel":1}'
+    exit 0
+  fi
+  if [[ "$input" == *"'newRow'"* && "$input" == *"device_uid LIKE"* ]]; then
+    printf '%s' '{"expired":1,"sentinel":1,"newRow":1}'
+    exit 0
+  fi
+  if [[ "$input" == *"'device',(SELECT count(*)"* && "$input" == *"'families'"* ]]; then
+    printf '%s' '{"device":0,"grant":0,"families":0,"access":0,"refresh":0}'
+    exit 0
+  fi
+  if [[ "$input" == *"'familyIds'"* && "$input" == *"'refreshIds'"* && "$input" == *"'accessDigests'"* ]]; then
+    printf '%s' '{"familyIds":["family-id"],"refreshIds":[{"tokenId":"refresh-id","digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],"accessDigests":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]}'
+    exit 0
+  fi
+  if [[ "$input" == *'octet_length(body)<=49152'* && "$input" == *"encode(convert_to(body,'UTF8'),'base64')"* ]]; then
+    if [[ -f '${secretLeak}' ]]; then
+      printf '%s' 'eyJlbWJlZGRlZCI6IkJDREZHSEpLIn0='
+    else
+      printf '%s' 'e30='
+    fi
+    exit 0
+  fi
+  if [[ "$input" == *'SELECT count(*) FROM aster_tenant.device_authorizations'* && "$*" == *'aster_phase1_candidate_foreign'* ]]; then
+    printf '%s' 0
+    exit 0
+  fi
+  if [[ "$input" == *'oidc_model_instances'*'DeviceCode'* || "$input" == *'aster_tenant.device_authorizations'* ]]; then
+    printf '%s' ok
     exit 0
   fi
   general=10
@@ -470,6 +568,9 @@ exec /usr/bin/python3.12 "$@"
     quarantineCollision,
     postVerifyRace,
     postVerifyEvidence,
+    deviceStatus,
+    secretLeak,
+    normalizedInitialLeak,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -527,6 +628,24 @@ const invariantRequest = (invariantId: string) => ({
   target: { primary: candidateTarget, foreign: candidateForeignTarget },
   fixture,
   credentials: { basic: basicSecret, post: postSecret },
+});
+
+const deviceInvariantRequest = (
+  invariantId: string,
+  operation: string,
+  privateValues: Readonly<Record<string, unknown>> = {},
+  observation: Readonly<Record<string, unknown>> = {},
+  handle?: string
+) => ({
+  schemaVersion: 1,
+  kind: 'phase2-client-credentials-candidate-invariant-request',
+  invariantId,
+  operation,
+  target: { primary: candidateTarget, foreign: candidateForeignTarget },
+  fixture,
+  private: privateValues,
+  observation,
+  ...(handle === undefined ? {} : { handle }),
 });
 
 afterEach(async () => {
@@ -1544,6 +1663,508 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toBe('Phase 2 client credentials invariant driver failed.\n');
     await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
+  });
+
+  it.each([
+    [
+      'device extra field',
+      JSON.stringify({
+        ...deviceInvariantRequest('device-authorization.forced-rls-isolation', 'probe'),
+        unexpected: true,
+      }),
+    ],
+    [
+      'device duplicate field',
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.forced-rls-isolation', 'probe')
+      ).replace('{"schemaVersion":1,', '{"schemaVersion":1,"schemaVersion":1,'),
+    ],
+    [
+      'device wrong operation',
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.credentials-digest-only', 'arm', {
+          deviceCode: 'private-device-code',
+          userCode: 'ABCD-EFGH',
+          xsrf: 'private-xsrf',
+        })
+      ),
+    ],
+    [
+      'device private key missing',
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.credentials-digest-only', 'probe', {
+          deviceCode: 'private-device-code',
+          userCode: 'ABCD-EFGH',
+        })
+      ),
+    ],
+    [
+      'device private key extra',
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.credentials-digest-only', 'probe', {
+          deviceCode: 'private-device-code',
+          userCode: 'ABCD-EFGH',
+          xsrf: 'private-xsrf',
+          password: 'private-password',
+        })
+      ),
+    ],
+    [
+      'device invalid handle',
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.transition-failure-rolls-back',
+          'restore',
+          {},
+          { failureStatus: 500, tokenPublished: false },
+          '../wrong'
+        )
+      ),
+    ],
+  ])('rejects a hostile %s before tool invocation', async (_name, input) => {
+    const harness = await createHarness();
+    const result = await invoke(harness.invariant, input, harness.env);
+
+    expect(result).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
+  });
+
+  it('proves digest-only state from a real code-bound row without putting clear codes in argv', async () => {
+    const harness = await createHarness();
+    const deviceCode = 'private-device-code-0123456789';
+    const userCode = 'BCDF-GHJK';
+    const xsrf = 'private-xsrf-0123456789';
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.credentials-digest-only', 'probe', {
+          deviceCode,
+          userCode,
+          xsrf,
+        })
+      ),
+      harness.env
+    );
+
+    if (result.code !== 0 || result.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          result,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      invariantId: 'device-authorization.credentials-digest-only',
+      projection: {
+        invariant: 'credentials-digest-only',
+        schemaClearColumns: 'absent',
+        row: { deviceDigestBytes: 32, userDigestBytes: 32, clearMaterial: 'absent' },
+      },
+    });
+    const calls = await readFile(harness.calls, 'utf8');
+    const sql = await readFile(harness.sql, 'utf8');
+    const copyInvocation = calls.split('\n').find((line) => line.includes('phase2_private_codes'));
+    expect(copyInvocation?.match(/--command=/gu)).toHaveLength(3);
+    expect(copyInvocation).toContain('COPY');
+    for (const secret of [deviceCode, userCode, xsrf]) {
+      expect(calls).not.toContain(secret);
+      expect(calls).not.toContain(Buffer.from(secret).toString('base64'));
+      expect(sql).not.toContain(secret);
+      expect(sql).not.toContain(Buffer.from(secret).toString('base64'));
+      expect(result.stdout).not.toContain(secret);
+      expect(result.stderr).not.toContain(secret);
+    }
+  });
+
+  it('rejects a normalized clear user code in the initial device row', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.normalizedInitialLeak, 'present', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.credentials-digest-only', 'probe', {
+          deviceCode: 'private-device-code-normalized-row',
+          userCode: 'BCDF-GHJK',
+          xsrf: 'private-xsrf-normalized-row',
+        })
+      ),
+      harness.env
+    );
+    expect(result).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+  });
+
+  it('arms, restores, and finishes the device transition rollback through one claimed handle', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'approved', { mode: 0o600 });
+    const privateValues = {
+      deviceCode: 'private-device-code-rollback',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-rollback',
+    };
+    const arm = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-authorization.transition-failure-rolls-back', 'arm', {
+          deviceCode: privateValues.deviceCode,
+        })
+      ),
+      harness.env
+    );
+    if (arm.code !== 0 || arm.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          arm,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    const { handle } = JSON.parse(arm.stdout) as { handle: string };
+    expect(handle).toMatch(/^[0-9a-f]{32}$/u);
+    const handleRoot = path.join(harness.root, 'phase2-device-invariants');
+    const handleState = await stat(path.join(handleRoot, handle));
+    expect(handleState.mode % 0o1000).toBe(0o600);
+
+    const restore = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.transition-failure-rolls-back',
+          'restore',
+          {},
+          { failureStatus: 500, tokenPublished: false },
+          handle
+        )
+      ),
+      harness.env
+    );
+    if (restore.code !== 0 || restore.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          restore,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    expect(JSON.parse(restore.stdout)).toMatchObject({ operation: 'restore', ok: true });
+
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    const finish = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.transition-failure-rolls-back',
+          'finish',
+          {},
+          { retryStatus: 200 },
+          handle
+        )
+      ),
+      harness.env
+    );
+    if (finish.code !== 0 || finish.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          finish,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    expect(JSON.parse(finish.stdout)).toMatchObject({
+      invariantId: 'device-authorization.transition-failure-rolls-back',
+      projection: {
+        invariant: 'transition-failure-rolls-back',
+        injectedFailure: 'observed',
+        retry: 'issued',
+      },
+    });
+    await expect(stat(path.join(handleRoot, handle))).rejects.toThrow();
+    const rollbackTombstones = await retiredTombstones(handleRoot);
+    expect(rollbackTombstones.length).toBe(1);
+  });
+
+  it('seeds sixty-five expired rows and proves one authorization deletes exactly sixty-four', async () => {
+    const harness = await createHarness();
+    const arm = await invoke(
+      harness.invariant,
+      JSON.stringify(deviceInvariantRequest('device-authorization.expired-cleanup-bounded', 'arm')),
+      harness.env
+    );
+    expect(arm).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(arm.stdout) as { handle: string };
+    const finish = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.expired-cleanup-bounded',
+          'finish',
+          {
+            deviceCode: 'private-device-code-cleanup',
+            userCode: 'BCDF-GHJK',
+            xsrf: 'private-xsrf-cleanup',
+          },
+          { authorizationStatus: 200 },
+          handle
+        )
+      ),
+      harness.env
+    );
+    expect(finish).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(finish.stdout)).toMatchObject({
+      projection: {
+        invariant: 'expired-cleanup-bounded',
+        cleanup: {
+          seededExpired: 65,
+          deletedExpired: 64,
+          remainingExpired: 1,
+          sentinel: 'preserved',
+          foreignTenant: 'unchanged',
+          newAuthorization: 'published',
+        },
+      },
+    });
+    const handleRoot = path.join(harness.root, 'phase2-device-invariants');
+    await expect(stat(path.join(handleRoot, handle))).rejects.toThrow();
+    const cleanupTombstones = await retiredTombstones(handleRoot);
+    expect(cleanupTombstones.length).toBe(1);
+  });
+
+  it('proves forced RLS with live catalog, ACL, and bound-role SQL observations', async () => {
+    const harness = await createHarness();
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(deviceInvariantRequest('device-authorization.forced-rls-isolation', 'probe')),
+      harness.env
+    );
+    if (result.code !== 0 || result.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          result,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projection: {
+        invariant: 'forced-rls-isolation',
+        catalog: { rowSecurity: true, forcedRowSecurity: true },
+        requestRole: { primaryVisible: true, foreignVisible: false, foreignUpdate: 'rejected' },
+      },
+    });
+    const sql = await readFile(harness.sql, 'utf8');
+    expect(sql).toContain("relname='device_authorizations'");
+    expect(sql).toContain('activate_tenant_binding');
+    expect(sql).toContain('SET ROLE aster_admin');
+    expect(sql).toContain('SET ROLE aster_worker');
+  });
+
+  it('cross-validates foreign invalid_grant with foreign absence and unchanged primary pending state', async () => {
+    const harness = await createHarness();
+    const privateValues = {
+      deviceCode: 'private-device-code-cross',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-cross',
+    };
+    const armed = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.cross-tenant-lookup-rejected',
+          'arm',
+          privateValues
+        )
+      ),
+      harness.env
+    );
+    if (armed.code !== 0 || armed.stderr !== '') {
+      throw new Error(
+        JSON.stringify({
+          armed,
+          calls: await readFile(harness.calls, 'utf8').catch(() => ''),
+          sql: await readFile(harness.sql, 'utf8').catch(() => ''),
+        })
+      );
+    }
+    expect(armed).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(armed.stdout) as { handle: string };
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-authorization.cross-tenant-lookup-rejected',
+          'finish',
+          {},
+          { foreignStatus: 400, foreignError: 'invalid_grant' },
+          handle
+        )
+      ),
+      harness.env
+    );
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projection: {
+        invariant: 'cross-tenant-lookup-rejected',
+        foreignPoll: { status: 400, error: 'invalid_grant' },
+        foreignRow: 'not-visible',
+        primaryState: 'unchanged',
+      },
+    });
+  });
+
+  it('binds replay revocation to the pre-issue grant and proves every retained authority is absent', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    const privateValues = {
+      deviceCode: 'private-device-code-replay',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-replay',
+    };
+    const arm = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-token.consumed-replay-revokes-grant',
+          'arm',
+          { deviceCode: privateValues.deviceCode },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+    expect(arm).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(arm.stdout) as { handle: string };
+    const finish = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-token.consumed-replay-revokes-grant',
+          'finish',
+          {},
+          {
+            replayStatus: 400,
+            replayError: 'invalid_grant',
+            accessActive: false,
+            refreshActive: false,
+            refreshStatus: 400,
+            refreshError: 'invalid_grant',
+          },
+          handle
+        )
+      ),
+      harness.env
+    );
+    expect(finish).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(finish.stdout)).toMatchObject({
+      projection: {
+        invariant: 'consumed-replay-revokes-grant',
+        authority: {
+          device: 'removed',
+          grant: 'revoked',
+          family: 'inactive',
+          access: 'inactive',
+          refresh: 'inactive',
+        },
+      },
+    });
+  });
+
+  it('scans all callback secrets against closed schema and persisted device authority', async () => {
+    const harness = await createHarness();
+    const privateValues = {
+      deviceCode: 'private-device-code-evidence',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-evidence',
+      password: 'private-password-evidence',
+      clientSecrets: ['private-client-a', 'private-client-b', 'private-client-c'],
+      tokens: ['private-access-value', 'private-refresh-value', 'private-id-value'],
+    };
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-evidence.secret-material-absent', 'probe', privateValues, {
+          issuedStatus: 200,
+        })
+      ),
+      harness.env
+    );
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projection: {
+        invariant: 'secret-material-absent',
+        database: 'clear-material-absent',
+        schema: 'closed',
+        evidence: 'sanitized',
+        driverOutput: 'sanitized',
+      },
+    });
+    const calls = await readFile(harness.calls, 'utf8');
+    const sql = await readFile(harness.sql, 'utf8');
+    for (const secret of [
+      privateValues.deviceCode,
+      privateValues.userCode,
+      privateValues.xsrf,
+      privateValues.password,
+      ...privateValues.clientSecrets,
+      ...privateValues.tokens,
+    ]) {
+      expect(calls).not.toContain(secret);
+      for (const variant of [
+        secret,
+        Buffer.from(secret).toString('hex'),
+        Buffer.from(secret).toString('base64'),
+        encodeURIComponent(secret),
+        new URLSearchParams([['value', secret]]).toString().slice('value='.length),
+      ]) {
+        expect(calls).not.toContain(variant);
+        expect(sql).not.toContain(variant);
+      }
+      expect(result.stdout).not.toContain(secret);
+      expect(result.stderr).not.toContain(secret);
+    }
+  });
+
+  it('rejects a normalized clear user code planted in final-state material', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.secretLeak, 'present', { mode: 0o600 });
+    const finish = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-evidence.secret-material-absent',
+          'probe',
+          {
+            deviceCode: 'private-device-code-late-write',
+            userCode: 'BCDF-GHJK',
+            xsrf: 'private-xsrf-late-write',
+            password: 'private-password-late-write',
+            clientSecrets: ['private-client-late-write'],
+            tokens: ['private-token-late-write'],
+          },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+    expect(finish).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
   });
 
   it('executes all five invariant probes, restores faults, and keeps secrets out of argv', async () => {

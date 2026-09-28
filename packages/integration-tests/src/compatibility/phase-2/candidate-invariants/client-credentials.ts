@@ -405,10 +405,10 @@ export const runClientCredentialsCandidateInvariants = async (
   options: CandidateInvariantDriverOptions
 ): Promise<readonly CandidateInvariantControlEvidence[]> => {
   if (
-    profile.candidateInvariantScenarios.length !== clientCredentialsCandidateInvariantIds.length ||
-    profile.candidateInvariantScenarios.some(
-      (id, index) => id !== clientCredentialsCandidateInvariantIds[index]
-    )
+    profile.candidateInvariantScenarios.length !== 13 ||
+    profile.candidateInvariantScenarios
+      .slice(0, clientCredentialsCandidateInvariantIds.length)
+      .some((id, index) => id !== clientCredentialsCandidateInvariantIds[index])
   ) {
     return fail();
   }

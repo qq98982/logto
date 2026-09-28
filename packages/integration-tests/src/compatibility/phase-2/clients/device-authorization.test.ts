@@ -379,6 +379,25 @@ describe('Phase 2 device authorization transport', () => {
     await lease.requestVerification({ method: 'GET', path: '/oidc/device' });
     let escapedUserCode: (() => string) | undefined;
     let escapedDeviceCode: (() => string) | undefined;
+    let escapedCombinedDeviceCode: (() => string) | undefined;
+    await expect(
+      lease.withAuthorizationSecretLease!(async (secrets) => {
+        escapedCombinedDeviceCode = secrets.getDeviceCode;
+        expect({
+          deviceCode: secrets.getDeviceCode(),
+          userCode: secrets.getUserCode(),
+          xsrf: secrets.getXsrf(),
+        }).toEqual({
+          deviceCode: 'private-device-code',
+          userCode: 'BCDF-GHJK',
+          xsrf: 'private-user-code-xsrf',
+        });
+        await expect(
+          lease.pollToken({ proof: { method: 'public', clientId: 'device-client' } })
+        ).rejects.toThrow('Invalid Phase 2 device authorization transport (concurrent)');
+        return { leased: true };
+      })
+    ).resolves.toEqual({ leased: true });
     await expect(
       lease.withVerificationUserCodeLease(async (secrets) => {
         escapedUserCode = secrets.getUserCode;
@@ -402,6 +421,14 @@ describe('Phase 2 device authorization transport', () => {
     );
     expect(() => escapedDeviceCode?.()).toThrow(
       'Invalid Phase 2 device authorization transport (device-code-lease)'
+    );
+    expect(() => escapedCombinedDeviceCode?.()).toThrow(
+      'Invalid Phase 2 device authorization transport (authorization-secret-lease)'
+    );
+    await expect(
+      lease.withAuthorizationSecretLease!((secrets) => secrets.getDeviceCode())
+    ).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (authorization-secret-lease)'
     );
     await expect(
       lease.withVerificationUserCodeLease((secret) => secret.getUserCode())
@@ -506,6 +533,24 @@ describe('Phase 2 device authorization transport', () => {
         confirm: 'yes',
       },
     });
+    await expect(
+      lease.withDeviceCodeLease((secret) => ({
+        retained: secret.getDeviceCode() === 'private-device-code',
+      }))
+    ).resolves.toEqual({ retained: true });
+    await expect(lease.withAuthorizationSecretLease!(() => ({ retained: true }))).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (authorization-secret-lease)'
+    );
+    await expect(lease.withVerificationXsrfLease(() => ({ replay: true }))).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (xsrf-lease)'
+    );
+    await expect(
+      lease.withEvidenceSecretLease!((secrets) => ({
+        device: secrets.getDeviceCode() === 'private-device-code',
+        user: secrets.getUserCode() === 'BCDF-GHJK',
+        auditXsrf: secrets.getAuditXsrf() === 'private-xsrf',
+      }))
+    ).resolves.toEqual({ device: true, user: true, auditXsrf: true });
     const aborted = await lease.requestVerification({
       method: 'POST',
       path: '/device',

@@ -15,6 +15,16 @@ import path from 'node:path';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
 import {
+  clientCredentialsCandidateInvariantExpectedProjection,
+  clientCredentialsCandidateInvariantIds,
+  runClientCredentialsCandidateInvariantControls,
+} from './candidate-invariants/client-credentials.js';
+import {
+  deviceCandidateInvariantExpectedProjection,
+  deviceCandidateInvariantIds,
+  runDeviceCandidateInvariantControls,
+} from './candidate-invariants/device-authorization.js';
+import {
   parsePhase2Arguments,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
@@ -84,6 +94,7 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'client-credentials.signing-failure-rolls-back',
     'client-credentials.user-authority-unchanged',
     'logout-session.verification-storage-closed',
+    ...deviceCandidateInvariantIds,
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze([
@@ -199,7 +210,21 @@ const dependencies = (
   },
   executeCandidateInvariants: async () => {
     calls.push('candidate-invariants');
-    return evidence;
+    return Object.freeze({
+      schemaVersion: 1,
+      mode: 'candidate-invariants',
+      invariants: Object.freeze([
+        ...clientCredentialsCandidateInvariantIds.map((id) =>
+          runClientCredentialsCandidateInvariantControls(
+            id,
+            clientCredentialsCandidateInvariantExpectedProjection(id)
+          )
+        ),
+        ...deviceCandidateInvariantIds.map((id) =>
+          runDeviceCandidateInvariantControls(id, deviceCandidateInvariantExpectedProjection(id))
+        ),
+      ]),
+    });
   },
   publish: async (outputPath, value) => {
     calls.push(`publish:${path.basename(outputPath)}`);

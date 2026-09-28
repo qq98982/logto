@@ -1,6 +1,16 @@
-/* eslint-disable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance validation intentionally checks every optional mode branch. */
+/* eslint-disable complexity, max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance and exact candidate evidence validation intentionally check every optional mode branch. */
 import type { JsonValue } from '../normalize.js';
 
+import {
+  clientCredentialsCandidateInvariantExpectedProjection,
+  clientCredentialsCandidateInvariantIds,
+  runClientCredentialsCandidateInvariantControls,
+} from './candidate-invariants/client-credentials.js';
+import {
+  deviceCandidateInvariantExpectedProjection,
+  deviceCandidateInvariantIds,
+  runDeviceCandidateInvariantControls,
+} from './candidate-invariants/device-authorization.js';
 import type { Phase2ProfileRegistries } from './profile.js';
 import { phase2ExpectedBaseAcceptance } from './profile.js';
 import { assertClientCredentialsEvidenceIsSanitized } from './projections/client-credentials.js';
@@ -100,6 +110,61 @@ const validateTarget = (value: Phase2TargetProvenance): void => {
   }
 };
 
+const validateCandidateInvariantPayload = (
+  value: unknown,
+  profile: Phase2ProfileRegistries
+): void => {
+  if (!exactKeys(value, ['schemaVersion', 'mode', 'invariants'])) {
+    fail();
+  }
+  const payload = value as Record<string, unknown>;
+  const { invariants } = payload;
+  if (
+    payload.schemaVersion !== 1 ||
+    payload.mode !== 'candidate-invariants' ||
+    !Array.isArray(invariants) ||
+    invariants.length !== profile.candidateInvariantScenarios.length
+  ) {
+    fail();
+  }
+  const invariantEntries = invariants as unknown[];
+  const allIds = [...clientCredentialsCandidateInvariantIds, ...deviceCandidateInvariantIds];
+  if (
+    allIds.length !== profile.candidateInvariantScenarios.length ||
+    allIds.some((id, index) => id !== profile.candidateInvariantScenarios[index])
+  ) {
+    fail();
+  }
+  for (const [index, entry] of invariantEntries.entries()) {
+    if (!exactKeys(entry, ['id', 'candidate', 'positiveControl', 'negativeControl'])) {
+      fail();
+    }
+    const evidence = entry as Record<string, unknown>;
+    const id = allIds[index] ?? fail();
+    if (evidence.id !== id) {
+      fail();
+    }
+    const expectedEvidence = (clientCredentialsCandidateInvariantIds as readonly string[]).includes(
+      id
+    )
+      ? runClientCredentialsCandidateInvariantControls(
+          id as (typeof clientCredentialsCandidateInvariantIds)[number],
+          clientCredentialsCandidateInvariantExpectedProjection(
+            id as (typeof clientCredentialsCandidateInvariantIds)[number]
+          )
+        )
+      : runDeviceCandidateInvariantControls(
+          id as (typeof deviceCandidateInvariantIds)[number],
+          deviceCandidateInvariantExpectedProjection(
+            id as (typeof deviceCandidateInvariantIds)[number]
+          )
+        );
+    if (JSON.stringify(evidence) !== JSON.stringify(expectedEvidence)) {
+      fail();
+    }
+  }
+};
+
 export const createPhase2EvidenceEnvelope = (
   input: Readonly<{
     mode: Phase2EvidenceMode;
@@ -110,6 +175,9 @@ export const createPhase2EvidenceEnvelope = (
     payload: JsonValue;
   }>
 ): Phase2EvidenceEnvelope => {
+  if (input.mode === 'candidate-invariants') {
+    validateCandidateInvariantPayload(input.payload, input.profile);
+  }
   assertClientCredentialsEvidenceIsSanitized(input.payload);
   assertDeviceAuthorizationEvidenceIsSanitized(input.payload);
   const hash = /^[0-9a-f]{64}$/u;
@@ -259,4 +327,4 @@ export const validatePhase2OracleArtifact = (
   }
 };
 
-/* eslint-enable complexity, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax */
+/* eslint-enable complexity, max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax */

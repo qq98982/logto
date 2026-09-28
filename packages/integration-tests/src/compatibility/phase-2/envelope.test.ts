@@ -2,6 +2,16 @@
 import type { JsonValue } from '../normalize.js';
 
 import {
+  clientCredentialsCandidateInvariantExpectedProjection,
+  clientCredentialsCandidateInvariantIds,
+  runClientCredentialsCandidateInvariantControls,
+} from './candidate-invariants/client-credentials.js';
+import {
+  deviceCandidateInvariantExpectedProjection,
+  deviceCandidateInvariantIds,
+  runDeviceCandidateInvariantControls,
+} from './candidate-invariants/device-authorization.js';
+import {
   createPhase2EvidenceEnvelope,
   validatePhase2OracleArtifact,
   type Phase2TargetProvenance,
@@ -176,6 +186,51 @@ describe('Phase 2 public provenance envelope', () => {
     expect(text).not.toMatch(/container|projectName|socket|repositoryRoot|"dev"|"ino"|"uid"/u);
     expect(value.provenance.harness.runtimeBundleSha256).toBe('a'.repeat(64));
     expect(value.sanitizerSuccess).toBe(true);
+  });
+
+  it('accepts only the exact ordered thirteen candidate invariant proofs', () => {
+    const candidateProfile = {
+      ...profile,
+      candidateInvariantScenarios: [
+        ...clientCredentialsCandidateInvariantIds,
+        ...deviceCandidateInvariantIds,
+      ],
+    } as Phase2ProfileRegistries;
+    const invariants = [
+      ...clientCredentialsCandidateInvariantIds.map((id) =>
+        runClientCredentialsCandidateInvariantControls(
+          id,
+          clientCredentialsCandidateInvariantExpectedProjection(id)
+        )
+      ),
+      ...deviceCandidateInvariantIds.map((id) =>
+        runDeviceCandidateInvariantControls(id, deviceCandidateInvariantExpectedProjection(id))
+      ),
+    ];
+    const create = (entries: unknown[]) =>
+      createPhase2EvidenceEnvelope({
+        mode: 'candidate-invariants',
+        profile: candidateProfile,
+        harness,
+        candidate: target('candidate'),
+        payload: {
+          schemaVersion: 1,
+          mode: 'candidate-invariants',
+          invariants: entries,
+        } as JsonValue,
+      });
+    expect(create(invariants).payload).toMatchObject({ mode: 'candidate-invariants' });
+    for (const invalid of [
+      invariants.slice(1),
+      invariants.toSpliced(0, 2, invariants[1]!, invariants[0]!),
+      [...invariants, invariants[0]],
+      invariants.toSpliced(5, 1, {
+        ...invariants[5],
+        extra: true,
+      } as unknown as (typeof invariants)[number]),
+    ]) {
+      expect(() => create(invalid)).toThrow('Invalid Phase 2 evidence envelope');
+    }
   });
   it('rejects source/image substitution and local capability leakage', () => {
     expect(() =>

@@ -870,8 +870,18 @@ const [profile, oracle, differential, invariants] = await Promise.all([
 const profileSha = await hash(profilePath);
 const schemaSha = await hash(schemaPath);
 const exact = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
+  Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
 const common = (value, mode) => {
-  if (value.schemaVersion !== 1 || value.mode !== mode || value.sanitizerSuccess !== true ||
+  const provenanceKeys = mode === 'oracle'
+    ? ['profileSha256','schemaSha256','baseAcceptance','harness','oracle']
+    : mode === 'differential'
+      ? ['profileSha256','schemaSha256','baseAcceptance','harness','oracle','candidate']
+      : ['profileSha256','schemaSha256','baseAcceptance','harness','candidate'];
+  if (!exactKeys(value, ['schemaVersion','mode','provenance','sanitizerSuccess','payload']) ||
+      !exactKeys(value.provenance, provenanceKeys) ||
+      !exactKeys(value.provenance?.harness, ['repositoryUrl','headCommit','headTree','runtimeBundleSha256']) ||
+      value.schemaVersion !== 1 || value.mode !== mode || value.sanitizerSuccess !== true ||
       value.provenance?.profileSha256 !== profileSha || value.provenance?.schemaSha256 !== schemaSha ||
       !exact(value.provenance?.baseAcceptance, profile.baseAcceptance) ||
       value.provenance?.harness?.headCommit !== harnessHead ||
@@ -884,11 +894,18 @@ common(invariants, 'candidate-invariants');
 const bundles = [oracle, differential, invariants].map((value) => value.provenance.harness.runtimeBundleSha256);
 if (new Set(bundles).size !== 1) fail();
 const checkTopology = (target, kind, sourceCommit, imageDigest, stateSha, fixture, invariant) => {
-  if (target?.sourceCommit !== sourceCommit || target?.imageDigest !== imageDigest ||
+  const driverKeys = fixture ? ['state','fixture','invariant'] : ['state'];
+  if (!exactKeys(target, ['sourceCommit','imageDigest','topology','drivers']) ||
+      !exactKeys(target?.topology, ['primaryRole','foreignRole']) ||
+      !exactKeys(target?.drivers, driverKeys) ||
+      !exactKeys(target?.drivers?.state, ['role','sha256']) ||
+      target?.sourceCommit !== sourceCommit || target?.imageDigest !== imageDigest ||
       !exact(target?.topology, {primaryRole:`${kind}-primary-core`,foreignRole:`${kind}-foreign-core`}) ||
       target?.drivers?.state?.role !== 'state-driver' || target?.drivers?.state?.sha256 !== stateSha) fail();
   if (fixture) {
-    if (target?.drivers?.fixture?.role !== 'fixture-executable' || target?.drivers?.fixture?.sha256 !== fixtureSha ||
+    if (!exactKeys(target?.drivers?.fixture, ['role','sha256']) ||
+        !exactKeys(target?.drivers?.invariant, ['role','sha256']) ||
+        target?.drivers?.fixture?.role !== 'fixture-executable' || target?.drivers?.fixture?.sha256 !== fixtureSha ||
         target?.drivers?.invariant?.role !== 'invariant-driver' || target?.drivers?.invariant?.sha256 !== invariantSha) fail();
   } else if (target?.drivers?.fixture !== undefined || target?.drivers?.invariant !== undefined) fail();
 };
@@ -899,19 +916,48 @@ checkTopology(invariants.provenance.candidate, 'candidate', candidateCommit, can
 
 const oracleScenarios = oracle.payload?.target?.scenarios;
 const scenarioCount = oracleScenarios?.length;
-const controlCount = oracle.payload?.target?.controls?.length;
-if (scenarioCount !== 70 || controlCount !== 12 ||
+const oracleControls = oracle.payload?.target?.controls;
+const expectedControlNames = [
+  'status','challenge','error','audience','scope','client-id','organization-id','typ','alg','kid',
+  'discovery-grant-order','unexpected-field','status','path','cookie-clearing','oauth','claimKeys',
+  'discovery-fields',
+];
+const expectedControlCount = expectedControlNames.length;
+const controlsAreExact = (controls) => Array.isArray(controls) && controls.every((control, index) =>
+  exactKeys(control, ['name','pointer','detected']) &&
+  control.name === expectedControlNames[index] &&
+  typeof control.pointer === 'string' && control.detected === true);
+if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
+    !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
+    oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
+    oracle.payload.target.target !== 'oracle' ||
+    scenarioCount !== 139 || oracleControls?.length !== expectedControlCount ||
+    oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
+    !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
-  if (side?.scenarios?.length !== 70 || side?.controls?.length !== 12 ||
+  if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
+      side?.scenarios?.length !== 139 || side?.controls?.length !== expectedControlCount ||
+      side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
+      !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 }
+if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate','comparisons']) ||
+    differential.payload.schemaVersion !== 1 || differential.payload.mode !== 'differential' ||
+    differential.payload.oracle.target !== 'oracle' ||
+    differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 70 || differential.payload.comparisons.some(({differenceCount}) => differenceCount !== 0)) fail();
+if (comparisonCount !== 139 || differential.payload.comparisons.some((comparison, index) =>
+  !exactKeys(comparison, ['scenarioId','differenceCount']) ||
+  comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
-if (invariantCount !== 5 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
-    invariants.payload.invariants.some(({positiveControl, negativeControl}) =>
-      positiveControl?.detected !== true || negativeControl?.detected !== true || typeof negativeControl?.pointer !== 'string')) fail();
+if (!exactKeys(invariants.payload, ['schemaVersion','mode','invariants']) ||
+    invariants.payload.schemaVersion !== 1 || invariants.payload.mode !== 'candidate-invariants' ||
+    invariantCount !== 13 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
+    invariants.payload.invariants.some((entry) =>
+      !exactKeys(entry, ['id','candidate','positiveControl','negativeControl']) ||
+      entry.positiveControl?.detected !== true || entry.negativeControl?.detected !== true ||
+      typeof entry.negativeControl?.pointer !== 'string')) fail();
 
 const serialized = [oracle, differential, invariants].map((value) => JSON.stringify(value));
 const envValues = [];
@@ -1239,38 +1285,89 @@ NODE
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-before'; fail; return 1; }
 
   launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
-  failure_stage='evidence-batch'
+  failure_stage='evidence-sequence'
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
-    "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-batch.stderr" || {
+    "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {
+import { createHash } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 const [launcherPath, profile, schema, oracleTarget, candidateTarget,
   oracleOutput, differentialOutput, invariantOutput, temporaryRoot] = process.argv.slice(2);
 const { launchPhase2Batch, diagnosticForPhase2Batch } = await import(pathToFileURL(launcherPath).href);
-const commands = Object.freeze([
-  Object.freeze(['oracle', '--profile', profile, '--schema', schema, '--target', oracleTarget,
-    '--output', oracleOutput, '--temp-root', temporaryRoot]),
-  Object.freeze(['differential', '--profile', profile, '--schema', schema,
-    '--oracle-target', oracleTarget, '--candidate-target', candidateTarget,
-    '--output', differentialOutput, '--temp-root', temporaryRoot]),
-  Object.freeze(['candidate-invariants', '--profile', profile, '--schema', schema,
-    '--target', candidateTarget, '--output', invariantOutput, '--temp-root', temporaryRoot]),
-]);
+const maximumArtifactBytes = 16 * 1024 * 1024;
+const immutableArtifact = async (file) => {
+  const [state, resolved] = await Promise.all([lstat(file), realpath(file)]);
+  if (state.isSymbolicLink() || !state.isFile() || state.nlink !== 1 ||
+      state.uid !== process.getuid() || (state.mode & 0o777) !== 0o600 || resolved !== file ||
+      state.size <= 0 || state.size > maximumArtifactBytes) throw new Error('artifact');
+  const handle = await open(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    if (opened.dev !== state.dev || opened.ino !== state.ino || opened.uid !== state.uid ||
+        opened.mode !== state.mode || opened.nlink !== state.nlink || opened.size !== state.size) {
+      throw new Error('artifact');
+    }
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    if (after.dev !== opened.dev || after.ino !== opened.ino || after.mode !== opened.mode ||
+        after.nlink !== opened.nlink || after.size !== opened.size) throw new Error('artifact');
+    return Object.freeze({dev: state.dev, ino: state.ino, uid: state.uid, mode: state.mode,
+      nlink: state.nlink, size: state.size, mtimeMs: state.mtimeMs, ctimeMs: state.ctimeMs,
+      sha256: createHash('sha256').update(bytes).digest('hex')});
+  } finally {
+    await handle.close();
+  }
+};
+const assertExactArtifacts = async (expected) => {
+  const actual = (await readdir(temporaryRoot)).sort();
+  if (JSON.stringify(actual) !== JSON.stringify([...expected].sort())) throw new Error('artifact');
+};
+const runBatch = async (mode, command) => {
+  const code = await launchPhase2Batch(Object.freeze([command]));
+  if (code !== 0) throw new Error(mode);
+};
+const oracleCommand = Object.freeze(['oracle', '--profile', profile, '--schema', schema,
+  '--target', oracleTarget, '--output', oracleOutput, '--temp-root', temporaryRoot]);
+const differentialCommand = Object.freeze(['differential', '--profile', profile, '--schema', schema,
+  '--oracle-evidence', oracleOutput, '--candidate-target', candidateTarget,
+  '--output', differentialOutput, '--temp-root', temporaryRoot]);
+const invariantCommand = Object.freeze(['candidate-invariants', '--profile', profile,
+  '--schema', schema, '--target', candidateTarget, '--output', invariantOutput,
+  '--temp-root', temporaryRoot]);
 try {
-  const code = await launchPhase2Batch(commands);
-  if (code !== 0) process.exitCode = 1;
+  await runBatch('oracle', oracleCommand);
+  await assertExactArtifacts(['phase-2-client-credentials-oracle.json']);
+  const oracleIdentity = await immutableArtifact(oracleOutput);
+  await runBatch('differential', differentialCommand);
+  await assertExactArtifacts(['phase-2-client-credentials-oracle.json',
+    'phase-2-client-credentials-differential.json']);
+  if (JSON.stringify(await immutableArtifact(oracleOutput)) !== JSON.stringify(oracleIdentity)) {
+    throw new Error('differential');
+  }
+  await immutableArtifact(differentialOutput);
+  await runBatch('candidate-invariants', invariantCommand);
+  await assertExactArtifacts(['phase-2-client-credentials-oracle.json',
+    'phase-2-client-credentials-differential.json',
+    'phase-2-client-credentials-candidate-invariants.json']);
+  if (JSON.stringify(await immutableArtifact(oracleOutput)) !== JSON.stringify(oracleIdentity)) {
+    throw new Error('candidate-invariants');
+  }
+  await immutableArtifact(differentialOutput);
+  await immutableArtifact(invariantOutput);
 } catch (error) {
   process.stderr.write(diagnosticForPhase2Batch(error));
   process.exitCode = 1;
 }
 NODE
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+)|-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+)|-(fixture|discovery|controls|comparison|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)|-(fixture|discovery|controls|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(((oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)|-(fixture|discovery|controls|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
-    if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-batch.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     fail; return 1;
   }

@@ -1,5 +1,6 @@
 /* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types -- This contract test keeps the complete security-sensitive runner and cleanup retry harnesses together for source and behavioral auditing. */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -31,6 +32,270 @@ const runBash = async (scriptPath: string): Promise<Readonly<{ code: number; std
       resolve({ code, stderr: Buffer.concat(stderr).toString('utf8') });
     });
   });
+
+const runEmbeddedNode = async (
+  program: string,
+  arguments_: readonly string[]
+): Promise<Readonly<{ code: number; stderr: string }>> =>
+  new Promise((resolve, reject) => {
+    const child = spawn('/usr/bin/node', ['--input-type=module', '-', ...arguments_], {
+      cwd: repositoryRoot,
+      env: { LC_ALL: 'C', PATH: '/usr/bin:/bin' },
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    const stderr: Buffer[] = [];
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (signal !== null || code === null) {
+        reject(new Error('embedded Node harness terminated by signal'));
+        return;
+      }
+      resolve({ code, stderr: Buffer.concat(stderr).toString('utf8') });
+    });
+    child.stdin.end(program);
+  });
+
+const embeddedNodeProgram = (anchor: string): string => {
+  const anchorIndex = source.indexOf(anchor);
+  const openingIndex = source.indexOf("<<'NODE'", anchorIndex);
+  const programStart = source.indexOf('\n', openingIndex) + 1;
+  const programEnd = source.indexOf('\nNODE\n', programStart);
+  if (anchorIndex < 0 || openingIndex < 0 || programStart === 0 || programEnd < 0) {
+    throw new Error(`embedded Node program is missing after ${anchor}`);
+  }
+  return source.slice(programStart, programEnd);
+};
+
+const writeFakeLauncher = async (
+  directory: string,
+  behavior: 'success' | 'differential-failure' | 'replace-oracle' | 'extra-artifact'
+): Promise<Readonly<{ launcherPath: string; tracePath: string }>> => {
+  const launcherPath = path.join(directory, 'fake-launcher.mjs');
+  const tracePath = path.join(directory, 'launcher.trace');
+  const launcher = `
+import { appendFile, chmod, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+const behavior = ${JSON.stringify(behavior)};
+const tracePath = ${JSON.stringify(tracePath)};
+const option = (command, name) => command[command.indexOf(name) + 1];
+export const launchPhase2Batch = async (commands) => {
+  const command = commands[0];
+  const mode = command[0];
+  await appendFile(tracePath, JSON.stringify(command) + '\\n', { mode: 0o600 });
+  if (behavior === 'differential-failure' && mode === 'differential') return 1;
+  const output = option(command, '--output');
+  await writeFile(output, mode.padEnd(32, '.'), { mode: 0o600 });
+  await chmod(output, 0o600);
+  if (mode === 'differential' && behavior === 'replace-oracle') {
+    const oracle = option(command, '--oracle-evidence');
+    const replacement = oracle + '.replacement';
+    await writeFile(replacement, 'replaced-oracle-artifact.......', { mode: 0o600 });
+    await chmod(replacement, 0o600);
+    await rename(replacement, oracle);
+  }
+  if (mode === 'differential' && behavior === 'extra-artifact') {
+    const temporaryRoot = option(command, '--temp-root');
+    await writeFile(path.join(temporaryRoot, 'unexpected.json'), '{}', { mode: 0o600 });
+  }
+  return 0;
+};
+export const diagnosticForPhase2Batch = (error) =>
+  'Phase 2 client credentials batch failed (' + error.message + ').\\n';
+`;
+  await writeFile(launcherPath, launcher, { mode: 0o600 });
+  return { launcherPath, tracePath };
+};
+
+const runEvidenceSequence = async (
+  behavior: 'success' | 'differential-failure' | 'replace-oracle' | 'extra-artifact'
+): Promise<
+  Readonly<{ code: number; stderr: string; commands: ReadonlyArray<readonly string[]> }>
+> => {
+  const directory = await mkdtemp(path.join(temporaryRoot, 'evidence-sequence-'));
+  const evidenceDirectory = path.join(directory, 'evidence');
+  await mkdir(evidenceDirectory, { mode: 0o700 });
+  const { launcherPath, tracePath } = await writeFakeLauncher(directory, behavior);
+  const names = [
+    'phase-2-client-credentials-oracle.json',
+    'phase-2-client-credentials-differential.json',
+    'phase-2-client-credentials-candidate-invariants.json',
+  ] as const;
+  const result = await runEmbeddedNode(embeddedNodeProgram("failure_stage='evidence-sequence'"), [
+    launcherPath,
+    path.join(directory, 'profile.json'),
+    path.join(directory, 'schema.json'),
+    path.join(directory, 'oracle-target.json'),
+    path.join(directory, 'candidate-target.json'),
+    ...names.map((name) => path.join(evidenceDirectory, name)),
+    evidenceDirectory,
+  ]);
+  const trace = await readFile(tracePath, 'utf8');
+  return {
+    ...result,
+    commands: trace
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as readonly string[]),
+  };
+};
+
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+const evidenceTopology = (kind: 'oracle' | 'candidate') => ({
+  sourceCommit: `${kind}-commit`,
+  imageDigest: `${kind}-image`,
+  topology: { primaryRole: `${kind}-primary-core`, foreignRole: `${kind}-foreign-core` },
+  drivers: {
+    state: { role: 'state-driver', sha256: `${kind}-state-sha` },
+    ...(kind === 'candidate'
+      ? {
+          fixture: { role: 'fixture-executable', sha256: 'fixture-sha' },
+          invariant: { role: 'invariant-driver', sha256: 'invariant-sha' },
+        }
+      : {}),
+  },
+});
+
+const runEvidenceValidation = async (
+  scenarioCount: number,
+  invariantCount: number,
+  controlCount = 18
+): Promise<Readonly<{ code: number; stderr: string }>> => {
+  const directory = await mkdtemp(path.join(temporaryRoot, 'evidence-validation-'));
+  const profilePath = path.join(directory, 'profile.json');
+  const schemaPath = path.join(directory, 'schema.json');
+  const oraclePath = path.join(directory, 'oracle.json');
+  const differentialPath = path.join(directory, 'differential.json');
+  const invariantPath = path.join(directory, 'invariants.json');
+  const oracleEnvPath = path.join(directory, 'oracle.env');
+  const candidateEnvPath = path.join(directory, 'candidate.env');
+  const differentialScenarioIds = Array.from({ length: 139 }, (_, index) => `scenario-${index}`);
+  const invariantIds = Array.from({ length: 13 }, (_, index) => `invariant-${index}`);
+  const profile = {
+    baseAcceptance: { phase: 1 },
+    differentialScenarios: differentialScenarioIds,
+    candidateInvariantScenarios: invariantIds,
+  };
+  const profileText = JSON.stringify(profile);
+  const schemaText = '{}';
+  await Promise.all([
+    writeFile(profilePath, profileText, { mode: 0o600 }),
+    writeFile(schemaPath, schemaText, { mode: 0o600 }),
+    writeFile(oracleEnvPath, 'PASSWORD=private-oracle-password\n', { mode: 0o600 }),
+    writeFile(candidateEnvPath, 'STATUS_API_KEY=private-candidate-key\n', { mode: 0o600 }),
+  ]);
+  const harness = {
+    repositoryUrl: 'https://example.invalid/harness.git',
+    headCommit: 'harness-head',
+    headTree: 'harness-tree',
+    runtimeBundleSha256: 'a'.repeat(64),
+  };
+  const provenance = (mode: 'oracle' | 'differential' | 'candidate-invariants') => ({
+    profileSha256: sha256(profileText),
+    schemaSha256: sha256(schemaText),
+    baseAcceptance: profile.baseAcceptance,
+    harness,
+    ...(mode === 'candidate-invariants' ? {} : { oracle: evidenceTopology('oracle') }),
+    ...(mode === 'oracle' ? {} : { candidate: evidenceTopology('candidate') }),
+  });
+  const controlNames = [
+    'status',
+    'challenge',
+    'error',
+    'audience',
+    'scope',
+    'client-id',
+    'organization-id',
+    'typ',
+    'alg',
+    'kid',
+    'discovery-grant-order',
+    'unexpected-field',
+    'status',
+    'path',
+    'cookie-clearing',
+    'oauth',
+    'claimKeys',
+    'discovery-fields',
+  ];
+  const controls = controlNames.slice(0, controlCount).map((name, index) => ({
+    name,
+    pointer: `/controls/${index}`,
+    detected: true,
+  }));
+  const target = (kind: 'oracle' | 'candidate', count: number) => ({
+    target: kind,
+    scenarios: differentialScenarioIds.slice(0, count).map((id) => ({ id, projection: {} })),
+    discovery: {},
+    controls,
+  });
+  const oracle = {
+    schemaVersion: 1,
+    mode: 'oracle',
+    provenance: provenance('oracle'),
+    sanitizerSuccess: true,
+    payload: { schemaVersion: 1, mode: 'oracle', target: target('oracle', scenarioCount) },
+  };
+  const differential = {
+    schemaVersion: 1,
+    mode: 'differential',
+    provenance: provenance('differential'),
+    sanitizerSuccess: true,
+    payload: {
+      schemaVersion: 1,
+      mode: 'differential',
+      oracle: target('oracle', scenarioCount),
+      candidate: target('candidate', scenarioCount),
+      comparisons: differentialScenarioIds.slice(0, scenarioCount).map((scenarioId) => ({
+        scenarioId,
+        differenceCount: 0,
+      })),
+    },
+  };
+  const invariants = {
+    schemaVersion: 1,
+    mode: 'candidate-invariants',
+    provenance: provenance('candidate-invariants'),
+    sanitizerSuccess: true,
+    payload: {
+      schemaVersion: 1,
+      mode: 'candidate-invariants',
+      invariants: invariantIds.slice(0, invariantCount).map((id) => ({
+        id,
+        candidate: {},
+        positiveControl: { detected: true },
+        negativeControl: { detected: true, pointer: `/invariants/${id}` },
+      })),
+    },
+  };
+  await Promise.all([
+    writeFile(oraclePath, JSON.stringify(oracle), { mode: 0o600 }),
+    writeFile(differentialPath, JSON.stringify(differential), { mode: 0o600 }),
+    writeFile(invariantPath, JSON.stringify(invariants), { mode: 0o600 }),
+  ]);
+  return runEmbeddedNode(embeddedNodeProgram('scan_evidence_for_private_values() {'), [
+    profilePath,
+    schemaPath,
+    oraclePath,
+    differentialPath,
+    invariantPath,
+    oracleEnvPath,
+    candidateEnvPath,
+    'harness-head',
+    'harness-tree',
+    'oracle-commit',
+    'candidate-commit',
+    'oracle-image',
+    'candidate-image',
+    'oracle-state-sha',
+    'candidate-state-sha',
+    'invariant-sha',
+    'fixture-sha',
+    'private-runtime-path',
+  ]);
+};
 
 beforeAll(async () => {
   await mkdir(buildRoot, { mode: 0o700, recursive: true });
@@ -196,15 +461,23 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).not.toContain('/dev/shm');
   });
 
-  it('builds one tracked runtime bundle and runs all three modes with fixed output names', () => {
+  it('runs oracle first, binds differential to immutable oracle evidence, then runs invariants', () => {
     expect(source).toContain('packages/integration-tests/src/compatibility/phase-2/launcher.mjs');
-    expect(source.match(/launchPhase2Batch/gmu)).toHaveLength(2);
-    expect(source).toContain("failure_stage='evidence-batch'");
+    expect(source).toContain("failure_stage='evidence-sequence'");
     expect(source).toContain("failure_stage='runtime-fence-after-evidence'");
     expect(source).not.toContain('compatibility:phase2 --');
-    for (const command of ['oracle', 'differential', 'candidate-invariants']) {
-      expect(source).toContain(`Object.freeze(['${command}'`);
-    }
+    const oracle = source.indexOf("Object.freeze(['oracle'");
+    const differential = source.indexOf("Object.freeze(['differential'");
+    const invariants = source.indexOf("Object.freeze(['candidate-invariants'");
+    expect(oracle).toBeGreaterThan(0);
+    expect(differential).toBeGreaterThan(oracle);
+    expect(invariants).toBeGreaterThan(differential);
+    expect(source).toContain("'--oracle-evidence', oracleOutput");
+    expect(source).not.toContain("'--oracle-target', oracleTarget");
+    expect(source).toContain('immutableArtifact');
+    expect(source).toContain('(state.mode & 0o777) !== 0o600');
+    expect(source).toContain('oracleIdentity');
+    expect(source).toContain('assertExactArtifacts');
     for (const artifact of [
       'phase-2-client-credentials-oracle.json',
       'phase-2-client-credentials-differential.json',
@@ -214,13 +487,52 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     }
   });
 
+  it('executes the embedded evidence sequence in exact oracle, differential, invariant order', async () => {
+    const result = await runEvidenceSequence('success');
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.commands.map(([mode]) => mode)).toEqual([
+      'oracle',
+      'differential',
+      'candidate-invariants',
+    ]);
+    const differential = result.commands[1] ?? [];
+    const oracleOutput = result.commands[0]?.[result.commands[0].indexOf('--output') + 1];
+    expect(differential[differential.indexOf('--oracle-evidence') + 1]).toBe(oracleOutput);
+    expect(differential).not.toContain('--oracle-target');
+  });
+
+  it('does not run candidate invariants after an embedded differential failure', async () => {
+    const result = await runEvidenceSequence('differential-failure');
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toBe('Phase 2 client credentials batch failed (differential).\n');
+    expect(result.commands.map(([mode]) => mode)).toEqual(['oracle', 'differential']);
+  });
+
+  it.each(['replace-oracle', 'extra-artifact'] as const)(
+    'fails closed before invariants when the launcher introduces %s',
+    async (behavior) => {
+      const result = await runEvidenceSequence(behavior);
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toMatch(
+        /^Phase 2 client credentials batch failed \((?:artifact|differential)\)\.\n$/u
+      );
+      expect(result.commands.map(([mode]) => mode)).toEqual(['oracle', 'differential']);
+    }
+  );
+
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 70',
-      'controlCount !== 12',
-      'comparisonCount !== 70',
-      'invariantCount !== 5',
+      'scenarioCount !== 139',
+      'expectedControlCount = expectedControlNames.length',
+      'comparisonCount !== 139',
+      'invariantCount !== 13',
       'differenceCount !== 0',
+      'comparison.scenarioId !== profile.differentialScenarios[index]',
+      "exactKeys(comparison, ['scenarioId','differenceCount'])",
       'sanitizerSuccess !== true',
       'runtimeBundleSha256',
       'baseAcceptance',
@@ -230,7 +542,35 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ]) {
       expect(source).toContain(marker);
     }
-    expect(source).toContain('logout\\.[a-z-]+|account-sessions\\.[a-z-]+');
+    for (const stale of [
+      'scenarioCount !== 70',
+      'controlCount !== 12',
+      'comparisonCount !== 70',
+      'invariantCount !== 5',
+    ]) {
+      expect(source).not.toContain(stale);
+    }
+    for (const control of [
+      'discovery-grant-order',
+      'unexpected-field',
+      'cookie-clearing',
+      'claimKeys',
+      'discovery-fields',
+    ]) {
+      expect(source).toContain(`'${control}'`);
+    }
+    expect(source).toContain('!exact(side.controls, oracleControls)');
+    expect(source).toContain(
+      'device-(authorization|verification|consent|token|token-status|discovery)'
+    );
+  });
+
+  it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
+    await expect(runEvidenceValidation(139, 13, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(138, 13, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(139, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(139, 13, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(139, 13, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {
@@ -244,10 +584,10 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('scan_evidence_for_private_values');
     expect(source).toContain('remove_state_handle_root');
     expect(source).toContain('assert_state_handle_root_clean');
-    expect(source).toContain('2>"$RUN_DIR/evidence-batch.stderr"');
+    expect(source).toContain('2>"$RUN_DIR/evidence-sequence.stderr"');
     expect(source).toContain('^Phase 2 client credentials command failed ');
     expect(source).toContain('^Phase 2 client credentials batch failed ');
-    expect(source).not.toContain('cat "$RUN_DIR/evidence-batch.stderr"');
+    expect(source).not.toContain('cat "$RUN_DIR/evidence-sequence.stderr"');
   });
 
   it('publishes results only after successful topology cleanup', () => {
