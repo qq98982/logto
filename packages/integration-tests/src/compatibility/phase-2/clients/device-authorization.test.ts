@@ -677,6 +677,49 @@ describe('Phase 2 device authorization transport', () => {
     );
   });
 
+  it('distinguishes structural JSON braces from projected sensitive string values', async () => {
+    const redirectResponse = (location: string): Response => {
+      const headers = new Headers({ location });
+      for (const cookie of [
+        '_logto={}; Path=/; SameSite=Lax',
+        '_logto.sig=synthetic-ui-signature; Path=/; SameSite=Lax',
+        '_logto_device_flow_xsrf=synthetic-xsrf; Path=/device; SameSite=Lax',
+        '_logto_device_flow_xsrf.sig=synthetic-xsrf-signature; Path=/device; SameSite=Lax',
+        '_session=synthetic-session; Path=/; SameSite=Lax',
+        '_session.sig=synthetic-session-signature; Path=/; SameSite=Lax',
+      ]) {
+        headers.append('set-cookie', cookie);
+      }
+      return new Response(null, { status: 302, headers });
+    };
+    const accepted = createDeviceAuthorizationTransportLease({
+      target: oracleTarget,
+      fetch: async () => redirectResponse('/device'),
+    });
+
+    const projection = await accepted.requestVerification({
+      method: 'GET',
+      path: '/oidc/device',
+    });
+
+    expect(projection.status).toBe(302);
+    expect(projection.location).toEqual({
+      origin: 'https://oracle.example',
+      path: '/device',
+      queryKeys: [],
+    });
+    expect(projection.cookies).toHaveLength(6);
+    expectSanitized(projection);
+
+    const reflected = createDeviceAuthorizationTransportLease({
+      target: oracleTarget,
+      fetch: async () => redirectResponse('/device/%7B%7D'),
+    });
+    await expect(
+      reflected.requestVerification({ method: 'GET', path: '/oidc/device' })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (verification-response)');
+  });
+
   it('follows only the projected same-flow complete URL location', async () => {
     const calls: string[] = [];
     const replies = [

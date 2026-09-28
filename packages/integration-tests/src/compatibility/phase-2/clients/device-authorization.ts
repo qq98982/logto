@@ -664,12 +664,21 @@ const finishProjection = (
   registry: SensitiveRegistry,
   stage: string
 ): DeviceAuthorizationProjection => {
-  const serialized = JSON.stringify(projection);
-  const normalized = serialized.toLowerCase();
+  const projectedStrings: string[] = [];
+  JSON.stringify(projection, (_key, value: unknown) => {
+    if (typeof value === 'string') {
+      projectedStrings.push(value);
+    }
+    return value;
+  });
   if (
-    containsCompactJwt(serialized) ||
-    [...registry.values].some(
-      (sensitive) => sensitive.length > 0 && normalized.includes(sensitive.toLowerCase())
+    projectedStrings.some(
+      (value) =>
+        containsCompactJwt(value) ||
+        [...registry.values].some(
+          (sensitive) =>
+            sensitive.length > 0 && value.toLowerCase().includes(sensitive.toLowerCase())
+        )
     )
   ) {
     return fail(stage);
