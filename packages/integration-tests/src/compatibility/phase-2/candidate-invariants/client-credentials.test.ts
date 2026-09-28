@@ -68,6 +68,29 @@ const fixture: ProvisionedPhase2Fixture = Object.freeze({
       basic: Object.freeze({ id: 'phase2-m2m-basic', method: 'client_secret_basic' }),
       post: Object.freeze({ id: 'phase2-m2m-post', method: 'client_secret_post' }),
     }),
+    deviceClients: Object.freeze({
+      firstParty: Object.freeze({
+        id: 'phase2-device-first',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: true,
+      }),
+      thirdParty: Object.freeze({
+        id: 'phase2-device-third',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: true,
+        deviceGrantEnabled: true,
+      }),
+      missingGrant: Object.freeze({
+        id: 'phase2-device-nogrant',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      }),
+    }),
     resources: Object.freeze({
       primary: Object.freeze({
         id: 'phase2-resource-primary',

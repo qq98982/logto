@@ -17,6 +17,29 @@ const fixture: Phase2FixturePublic = Object.freeze({
     basic: Object.freeze({ id: 'basic-runtime', method: 'client_secret_basic' }),
     post: Object.freeze({ id: 'post-runtime', method: 'client_secret_post' }),
   }),
+  deviceClients: Object.freeze({
+    firstParty: Object.freeze({
+      id: 'device-first',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: true,
+    }),
+    thirdParty: Object.freeze({
+      id: 'device-third',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: true,
+      deviceGrantEnabled: true,
+    }),
+    missingGrant: Object.freeze({
+      id: 'device-nogrant',
+      applicationType: 'Native',
+      authenticationMethod: 'none',
+      isThirdParty: false,
+      deviceGrantEnabled: false,
+    }),
+  }),
   resources: Object.freeze({
     primary: Object.freeze({
       id: 'resource-primary',

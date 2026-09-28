@@ -8,7 +8,13 @@ import type { TargetConfig } from '../../model.js';
 
 import { containsCompactJwt } from './client-credentials.js';
 
-export type DeviceAuthorizationFieldName = 'client_id' | 'client_secret' | 'resource' | 'scope';
+export type DeviceAuthorizationFieldName =
+  | 'client_id'
+  | 'client_secret'
+  | 'resource'
+  | 'scope'
+  | 'organization_id'
+  | 'ui_locales';
 
 export type DeviceAuthorizationRequest =
   | Readonly<{
@@ -152,6 +158,8 @@ const authorizationFields = new Set<DeviceAuthorizationFieldName>([
   'client_secret',
   'resource',
   'scope',
+  'organization_id',
+  'ui_locales',
 ]);
 const verificationFieldNames = new Set(['xsrf', 'user_code', 'confirm', 'abort']);
 const optionKeys = new Set([

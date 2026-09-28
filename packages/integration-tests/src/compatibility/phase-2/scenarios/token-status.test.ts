@@ -29,6 +29,29 @@ const fixture: ProvisionedPhase2Fixture = {
       basic: { id: 'machine-basic', method: 'client_secret_basic' },
       post: { id: 'machine-post', method: 'client_secret_post' },
     },
+    deviceClients: {
+      firstParty: {
+        id: 'device-first',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: true,
+      },
+      thirdParty: {
+        id: 'device-third',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: true,
+        deviceGrantEnabled: true,
+      },
+      missingGrant: {
+        id: 'device-nogrant',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
+    },
     resources: {
       primary: { id: 'machine-resource', indicator: 'https://machine.example/api' },
       default: { id: 'machine-default', indicator: 'https://machine.example/default' },

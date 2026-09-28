@@ -124,6 +124,11 @@ describe('Phase 2 fixture lifecycle', () => {
   it('freezes the exact machine and confidential status client contract', () => {
     expect(phase2FixtureContract).toEqual({
       clients: { basic: 'phase2-m2m-basic', post: 'phase2-m2m-post' },
+      deviceClients: {
+        firstParty: 'phase2-device-first',
+        thirdParty: 'phase2-device-third',
+        missingGrant: 'phase2-device-nogrant',
+      },
       statusClient: {
         id: 'phase2-status',
         redirectUri: 'http://localhost:3001/demo-app',
@@ -149,6 +154,12 @@ describe('Phase 2 fixture lifecycle', () => {
     const fixture = await provisioner.provision();
     expect(fixture.public.boundary).toEqual({ primary: 'provisioned', foreign: 'unchanged' });
     await fixture.withSecretLease(async (lease) => {
+      expect(Object.keys(lease).toSorted()).toEqual([
+        'getClientSecret',
+        'getStatusClientSecret',
+        'getSubjectPassword',
+        'toJSON',
+      ]);
       expect(lease.getClientSecret('basic')).toBe('ReferenceSecretValue000000000001');
       expect(lease.getStatusClientSecret()).toBe('ReferenceSecretValue000000000001');
       expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
@@ -156,7 +167,7 @@ describe('Phase 2 fixture lifecycle', () => {
     });
     expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
-      client: { id: 'application-4', redirectUri: 'http://localhost:3001/demo-app' },
+      client: { id: 'application-7', redirectUri: 'http://localhost:3001/demo-app' },
       confidentialClient: {
         id: 'application-3',
         redirectUri: 'http://localhost:3001/demo-app',
@@ -164,14 +175,44 @@ describe('Phase 2 fixture lifecycle', () => {
       resource: { indicator: 'https://api.example.com', scopeName: 'read:profile' },
     });
     expect(Object.keys(fixture.public)).not.toContain('status');
+    expect(fixture.public.deviceClients).toEqual({
+      firstParty: {
+        id: 'application-4',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: true,
+      },
+      thirdParty: {
+        id: 'application-5',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: true,
+        deviceGrantEnabled: true,
+      },
+      missingGrant: {
+        id: 'application-6',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
+    });
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'POST',
-        path: 'applications/application-4/user-consent-scopes',
+        path: 'applications/application-7/user-consent-scopes',
         body: {
           userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
           resourceScopes: ['scope-4'],
         },
+      })
+    );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'organizations/organization-1/users',
+        body: { userIds: ['user-1'] },
       })
     );
     expect(admin.calls).toContainEqual(
@@ -181,17 +222,49 @@ describe('Phase 2 fixture lifecycle', () => {
         body: { enabled: true, fields: { session: 'Edit' } },
       })
     );
+    for (const [id, label, isThirdParty, isDeviceFlow] of [
+      ['application-4', 'first-party', false, true],
+      ['application-5', 'third-party', true, true],
+      ['application-6', 'missing-grant', false, undefined],
+    ] as const) {
+      expect(admin.calls).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path: 'applications',
+          body: expect.objectContaining({
+            name: expect.stringContaining(`${label} device client`),
+            type: 'Native',
+            isThirdParty,
+            customClientMetadata: isDeviceFlow ? { isDeviceFlow: true } : {},
+          }),
+        })
+      );
+      expect(admin.calls).toContainEqual(
+        expect.objectContaining({
+          method: 'POST',
+          path: `applications/${id}/user-consent-scopes`,
+          body: {
+            userScopes: ['profile', 'email', 'address', 'phone'],
+            resourceScopes: ['scope-4', 'scope-1', 'scope-2'],
+          },
+        })
+      );
+    }
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
-    expect(deletes.slice(0, 5)).toEqual([
+    expect(deletes.slice(0, 9)).toEqual([
+      'applications/application-7',
+      'applications/application-6',
+      'applications/application-5',
       'applications/application-4',
       'roles/role-2',
       'resources/resource-3/scopes/scope-4',
       'resources/resource-3',
+      'organizations/organization-1/users/user-1',
       'users/user-1',
     ]);
-    expect(deletes.slice(5, 10)).toEqual([
+    expect(deletes.slice(9, 14)).toEqual([
       'organizations/organization-1/applications/application-1/roles/organization-role-3',
       'organizations/organization-1/applications/application-1',
       'organization-roles/organization-role-3',
@@ -201,6 +274,13 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(deletes).toContain('applications/application-1');
     expect(deletes).toContain('applications/application-2');
     expect(deletes).toContain('applications/application-3');
+    expect(deletes).toEqual(
+      expect.arrayContaining([
+        'applications/application-4',
+        'applications/application-5',
+        'applications/application-6',
+      ])
+    );
     expect(admin.calls).toContainEqual(
       expect.objectContaining({
         method: 'PATCH',
@@ -254,6 +334,10 @@ describe('Phase 2 fixture lifecycle', () => {
     let posts = 0;
     admin.entityRows.set('applications', [
       { id: 'orphan-app', name: 'Phase 2 phase2-client-credentials-partial basic client' },
+      {
+        id: 'orphan-device-app',
+        name: 'Phase 2 phase2-client-credentials-partial third-party device client',
+      },
     ]);
     admin.entityRows.set('resources', [
       { id: 'previous-partial-default', name: 'existing default', isDefault: true },
@@ -276,6 +360,7 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(admin.calls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ method: 'DELETE', path: 'applications/orphan-app' }),
+        expect.objectContaining({ method: 'DELETE', path: 'applications/orphan-device-app' }),
       ])
     );
     expect(admin.calls).toEqual(
@@ -391,6 +476,29 @@ describe('Phase 2 fixture lifecycle', () => {
       basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
       post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
     });
+    expect(fixture.public.deviceClients).toEqual({
+      firstParty: {
+        id: 'phase2-device-first',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: true,
+      },
+      thirdParty: {
+        id: 'phase2-device-third',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: true,
+        deviceGrantEnabled: true,
+      },
+      missingGrant: {
+        id: 'phase2-device-nogrant',
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      },
+    });
     const suffix = createHash('sha256').update('candidate-fixture').digest('hex').slice(0, 16);
     expect(fixture.status).toMatchObject({
       user: { id: 'zdata-user', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
@@ -406,6 +514,12 @@ describe('Phase 2 fixture lifecycle', () => {
       },
     });
     await fixture.withSecretLease(async (lease) => {
+      expect(Object.keys(lease).toSorted()).toEqual([
+        'getClientSecret',
+        'getStatusClientSecret',
+        'getSubjectPassword',
+        'toJSON',
+      ]);
       expect(lease.getStatusClientSecret()).toBe('c'.repeat(32));
       expect(lease.getSubjectPassword?.()).toBe('d'.repeat(32));
     });
@@ -448,6 +562,35 @@ describe('Phase 2 fixture lifecycle', () => {
               ],
               resourceScopeIds: ['phase1-read-profile'],
             },
+            deviceClients: [
+              {
+                clientId: 'phase2-device-first',
+                applicationType: 'Native',
+                authenticationMethod: 'none',
+                isThirdParty: false,
+                grantTypes: ['urn:ietf:params:oauth:grant-type:device_code'],
+                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
+              },
+              {
+                clientId: 'phase2-device-third',
+                applicationType: 'Native',
+                authenticationMethod: 'none',
+                isThirdParty: true,
+                grantTypes: ['urn:ietf:params:oauth:grant-type:device_code'],
+                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
+              },
+              {
+                clientId: 'phase2-device-nogrant',
+                applicationType: 'Native',
+                authenticationMethod: 'none',
+                isThirdParty: false,
+                grantTypes: [],
+                userConsentScopes: ['profile', 'email', 'address', 'phone'],
+                resourceScopeIds: ['phase1-read-profile', 'read-scope', 'write-scope'],
+              },
+            ],
             defaultResourceId: 'phase2-resource',
           },
         },

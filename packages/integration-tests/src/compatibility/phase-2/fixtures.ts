@@ -22,6 +22,11 @@ export type Phase2FixturePublic = Readonly<{
     basic: Readonly<{ id: string; method: 'client_secret_basic' }>;
     post: Readonly<{ id: string; method: 'client_secret_post' }>;
   }>;
+  deviceClients: Readonly<{
+    firstParty: Phase2DeviceClientPublic;
+    thirdParty: Phase2DeviceClientPublic;
+    missingGrant: Phase2DeviceClientPublic;
+  }>;
   resources: Readonly<{
     primary: Readonly<{ id: string; indicator: string }>;
     default: Readonly<{ id: string; indicator: string }>;
@@ -36,6 +41,14 @@ export type Phase2FixturePublic = Readonly<{
     primary: 'provisioned';
     foreign: 'unchanged';
   }>;
+}>;
+
+type Phase2DeviceClientPublic = Readonly<{
+  id: string;
+  applicationType: 'Native';
+  authenticationMethod: 'none';
+  isThirdParty: boolean;
+  deviceGrantEnabled: boolean;
 }>;
 
 export type Phase2StatusPublic = Readonly<{
@@ -132,6 +145,14 @@ const statusIndicator = 'https://api.example.com';
 const statusRedirectUri = 'http://localhost:3001/demo-app';
 const statusConfidentialClientId = 'phase2-status';
 const logicalClientIds = Object.freeze({ basic: 'phase2-m2m-basic', post: 'phase2-m2m-post' });
+const deviceGrant = 'urn:ietf:params:oauth:grant-type:device_code';
+const logicalDeviceClientIds = Object.freeze({
+  firstParty: 'phase2-device-first',
+  thirdParty: 'phase2-device-third',
+  missingGrant: 'phase2-device-nogrant',
+});
+const deviceUserConsentScopes = Object.freeze(['profile', 'email', 'address', 'phone']);
+const deviceResourceScopeIds = Object.freeze(['phase1-read-profile', 'read-scope', 'write-scope']);
 const requestTimeoutMs = 10_000;
 
 const frozenCandidateFixtures = Object.freeze({
@@ -490,6 +511,9 @@ const referencePublicFixture = (
     writeId: string;
     unassignedId: string;
     organizationId: string;
+    deviceFirstPartyId: string;
+    deviceThirdPartyId: string;
+    deviceMissingGrantId: string;
   }>
 ): Phase2FixturePublic =>
   Object.freeze({
@@ -497,6 +521,29 @@ const referencePublicFixture = (
     clients: Object.freeze({
       basic: Object.freeze({ id: values.basicId, method: 'client_secret_basic' }),
       post: Object.freeze({ id: values.postId, method: 'client_secret_post' }),
+    }),
+    deviceClients: Object.freeze({
+      firstParty: Object.freeze({
+        id: values.deviceFirstPartyId,
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: true,
+      }),
+      thirdParty: Object.freeze({
+        id: values.deviceThirdPartyId,
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: true,
+        deviceGrantEnabled: true,
+      }),
+      missingGrant: Object.freeze({
+        id: values.deviceMissingGrantId,
+        applicationType: 'Native',
+        authenticationMethod: 'none',
+        isThirdParty: false,
+        deviceGrantEnabled: false,
+      }),
     }),
     resources: Object.freeze({
       primary: Object.freeze({ id: values.primaryId, indicator: primaryIndicator }),
@@ -533,6 +580,9 @@ const candidatePublicFixture = (allocationId: string): Phase2FixturePublic =>
     writeId: 'write-scope',
     unassignedId: 'unassigned-scope',
     organizationId: 'phase2-org',
+    deviceFirstPartyId: logicalDeviceClientIds.firstParty,
+    deviceThirdPartyId: logicalDeviceClientIds.thirdParty,
+    deviceMissingGrantId: logicalDeviceClientIds.missingGrant,
   });
 
 const referenceOwnedDefinitions = (allocationId: string) => {
@@ -548,7 +598,10 @@ const referenceOwnedDefinitions = (allocationId: string) => {
         own(row, 'name') === `Phase 2 ${marker} basic client` ||
         own(row, 'name') === `Phase 2 ${marker} post client` ||
         own(row, 'name') === `Phase 2 ${marker} confidential status client` ||
-        own(row, 'name') === `Phase 2 ${marker} status client`,
+        own(row, 'name') === `Phase 2 ${marker} status client` ||
+        own(row, 'name') === `Phase 2 ${marker} first-party device client` ||
+        own(row, 'name') === `Phase 2 ${marker} third-party device client` ||
+        own(row, 'name') === `Phase 2 ${marker} missing-grant device client`,
     }),
     Object.freeze({
       path: 'users',
@@ -981,6 +1034,18 @@ export const createReferencePhase2FixtureProvisioner = (
         );
         const statusUserId = safeId(own(user, 'id'));
         add('status-user', `users/${encodeURIComponent(statusUserId)}`);
+        add(
+          'organization-user-association',
+          `organizations/${encodeURIComponent(organizationId)}/users/${encodeURIComponent(statusUserId)}`
+        );
+        await referenceCall(
+          request,
+          'POST',
+          `organizations/${encodeURIComponent(organizationId)}/users`,
+          { userIds: [statusUserId] },
+          [201],
+          'status'
+        );
         const statusResource = exactRecord(
           await referenceCall(request, 'POST', 'resources', {
             name: `Phase 2 ${marker} status resource`,
@@ -1035,6 +1100,38 @@ export const createReferencePhase2FixtureProvisioner = (
           [201],
           'status'
         );
+        const createDeviceApplication = async (
+          label: 'first-party' | 'third-party' | 'missing-grant',
+          isThirdParty: boolean,
+          deviceGrantEnabled: boolean
+        ): Promise<string> => {
+          const application = exactRecord(
+            await referenceCall(request, 'POST', 'applications', {
+              name: `Phase 2 ${marker} ${label} device client`,
+              type: 'Native',
+              isThirdParty,
+              oidcClientMetadata: { redirectUris: [], postLogoutRedirectUris: [] },
+              customClientMetadata: deviceGrantEnabled ? { isDeviceFlow: true } : {},
+            })
+          );
+          const id = safeId(own(application, 'id'));
+          add(`device-client-${label}`, `applications/${encodeURIComponent(id)}`);
+          await referenceCall(
+            request,
+            'POST',
+            `applications/${encodeURIComponent(id)}/user-consent-scopes`,
+            {
+              userScopes: deviceUserConsentScopes,
+              resourceScopes: [statusScopeId, read.id, write.id],
+            },
+            [201],
+            'status'
+          );
+          return id;
+        };
+        const deviceFirstPartyId = await createDeviceApplication('first-party', false, true);
+        const deviceThirdPartyId = await createDeviceApplication('third-party', true, true);
+        const deviceMissingGrantId = await createDeviceApplication('missing-grant', false, false);
         const accountCenter = exactRecord(
           await referenceCall(request, 'GET', 'account-center', undefined, [200])
         );
@@ -1122,6 +1219,9 @@ export const createReferencePhase2FixtureProvisioner = (
           writeId: write.id,
           unassignedId: unassigned.id,
           organizationId,
+          deviceFirstPartyId,
+          deviceThirdPartyId,
+          deviceMissingGrantId,
         });
         const fixture = createFixture(publicFixture, state.secrets, state, {
           user: Object.freeze({ id: statusUserId, username }),
@@ -1458,6 +1558,35 @@ export const createCandidatePhase2FixtureProvisioner = (
           ]),
           resourceScopeIds: Object.freeze(['phase1-read-profile']),
         }),
+        deviceClients: Object.freeze([
+          Object.freeze({
+            clientId: logicalDeviceClientIds.firstParty,
+            applicationType: 'Native',
+            authenticationMethod: 'none',
+            isThirdParty: false,
+            grantTypes: Object.freeze([deviceGrant]),
+            userConsentScopes: deviceUserConsentScopes,
+            resourceScopeIds: deviceResourceScopeIds,
+          }),
+          Object.freeze({
+            clientId: logicalDeviceClientIds.thirdParty,
+            applicationType: 'Native',
+            authenticationMethod: 'none',
+            isThirdParty: true,
+            grantTypes: Object.freeze([deviceGrant]),
+            userConsentScopes: deviceUserConsentScopes,
+            resourceScopeIds: deviceResourceScopeIds,
+          }),
+          Object.freeze({
+            clientId: logicalDeviceClientIds.missingGrant,
+            applicationType: 'Native',
+            authenticationMethod: 'none',
+            isThirdParty: false,
+            grantTypes: Object.freeze([]),
+            userConsentScopes: deviceUserConsentScopes,
+            resourceScopeIds: deviceResourceScopeIds,
+          }),
+        ]),
       });
       const descriptor = Object.freeze({
         schemaVersion: 1,
@@ -1576,6 +1705,7 @@ export const runWithPhase2Fixture = async <Result>(
 
 export const phase2FixtureContract = Object.freeze({
   clients: logicalClientIds,
+  deviceClients: logicalDeviceClientIds,
   statusClient: Object.freeze({ id: statusConfidentialClientId, redirectUri: statusRedirectUri }),
   resources: Object.freeze({ primary: primaryIndicator, default: defaultIndicator }),
   organization: Object.freeze({ id: 'phase2-org', scope: 'organization:read' }),

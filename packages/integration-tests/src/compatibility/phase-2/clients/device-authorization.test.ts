@@ -49,6 +49,69 @@ const expectSanitized = (projection: DeviceAuthorizationProjection): void => {
 };
 
 describe('Phase 2 device authorization transport', () => {
+  it('encodes organization and locale context in form and JSON requests within the closed bounds', async () => {
+    const calls: RequestInit[] = [];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async (_input, init) => {
+        calls.push(init ?? {});
+        return jsonResponse({ error: 'invalid_request' }, 400);
+      }) as typeof fetch,
+    });
+
+    const form = await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [
+        ['client_id', 'device-client'],
+        ['organization_id', 'phase2-org'],
+        ['organization_id', 'phase2-org'],
+        ['ui_locales', 'ja en'],
+        ['ui_locales', 'en ja'],
+      ],
+    });
+    const json = await lease.requestAuthorization({
+      encoding: 'json',
+      fields: {
+        client_id: 'device-client',
+        organization_id: 'phase2-org',
+        ui_locales: 'ja en',
+      },
+    });
+
+    expect((calls[0]?.body as URLSearchParams).getAll('organization_id')).toEqual([
+      'phase2-org',
+      'phase2-org',
+    ]);
+    expect((calls[0]?.body as URLSearchParams).getAll('ui_locales')).toEqual(['ja en', 'en ja']);
+    expect(calls[1]?.body).toBe(
+      '{"client_id":"device-client","organization_id":"phase2-org","ui_locales":"ja en"}'
+    );
+    for (const projection of [form, json]) {
+      expectSanitized(projection);
+    }
+
+    const requestsBeforeRejection = calls.length;
+    await expect(
+      lease.requestAuthorization({
+        encoding: 'form',
+        fields: [['organization_id', 'x'.repeat(4097)]],
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (authorization-request)');
+    await expect(
+      lease.requestAuthorization({
+        encoding: 'json',
+        fields: { ui_locales: 'ja\u0000private-secret' },
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (authorization-request)');
+    await expect(
+      lease.requestAuthorization({
+        encoding: 'json',
+        fields: { client_id: 'device-client', organization: 'phase2-org' },
+      } as never)
+    ).rejects.toThrow('Invalid Phase 2 device authorization transport (authorization-request)');
+    expect(calls).toHaveLength(requestsBeforeRejection);
+  });
+
   it('encodes form duplicates, JSON objects and explicit raw negative requests', async () => {
     const calls: Array<readonly [string, RequestInit | undefined]> = [];
     const replies = [
