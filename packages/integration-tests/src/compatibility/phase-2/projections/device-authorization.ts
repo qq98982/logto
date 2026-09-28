@@ -1043,7 +1043,7 @@ export const publishDeviceLifecycleProjection = (
   return value;
 };
 
-const snapshotPublicJwks = (value: unknown, targetLabel: TargetConfig['label']): JSONWebKeySet => {
+const snapshotPublicJwks = (value: unknown): JSONWebKeySet => {
   const source = exactRecord(value, new Set(['keys']));
   const keys = snapshotDenseArray(own(source, 'keys'), 16);
   if (keys.length === 0) {
@@ -1096,7 +1096,7 @@ const snapshotPublicJwks = (value: unknown, targetLabel: TargetConfig['label']):
         ...(keyOperations === undefined ? {} : { key_ops: keyOperations }),
       });
     }
-    if (targetLabel !== 'oracle' || raw.kty !== 'RSA') {
+    if (raw.kty !== 'RSA') {
       return fail();
     }
     const key = exactRecordWithOptional(
@@ -1226,7 +1226,7 @@ const verifyJwt = async (
     verified = await jwtVerify(compact, jwks, {
       issuer,
       audience,
-      algorithms: targetLabel === 'candidate' ? ['ES384'] : ['RS256', 'ES384'],
+      algorithms: accessSemantics ? ['ES384'] : ['RS256', 'ES384'],
     });
   } catch {
     return fail();
@@ -1244,10 +1244,7 @@ const verifyJwt = async (
     Object.fromEntries(claimKeys.map((name) => [name, claimType(name, payload[name])]))
   ) as Readonly<Record<string, DeviceJwtClaimType>>;
   if (
-    !(
-      (targetLabel === 'candidate' && header.alg === 'ES384') ||
-      (targetLabel === 'oracle' && ['RS256', 'ES384'].includes(String(header.alg)))
-    ) ||
+    !(accessSemantics ? header.alg === 'ES384' : ['RS256', 'ES384'].includes(String(header.alg))) ||
     typeof header.kid !== 'string' ||
     !/^[A-Za-z0-9._~-]{1,256}$/u.test(header.kid) ||
     (accessSemantics
@@ -1449,7 +1446,7 @@ export const projectDeviceCredentials = async (
     return fail();
   }
   const targetLabel = target.label as TargetConfig['label'];
-  const localJwks = createLocalJWKSet(snapshotPublicJwks(own(source, 'jwks'), targetLabel));
+  const localJwks = createLocalJWKSet(snapshotPublicJwks(own(source, 'jwks')));
   const accessFormat =
     expected.accessFormat ?? (expected.resource === undefined ? 'opaque' : 'verified-jwt');
   const access =

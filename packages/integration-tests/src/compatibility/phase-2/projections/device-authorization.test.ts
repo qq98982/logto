@@ -579,8 +579,11 @@ describe('Phase 2 device authorization projection', () => {
   });
 
   it('normalizes the reference organization audience and rejects an organization_id claim', async () => {
-    const { privateKey, publicKey } = await generateKeyPair('RS256');
-    const publicJwk = await exportJWK(publicKey);
+    const { privateKey: accessPrivateKey, publicKey: accessPublicKey } =
+      await generateKeyPair('ES384');
+    const { privateKey: idPrivateKey, publicKey: idPublicKey } = await generateKeyPair('RS256');
+    const accessPublicJwk = await exportJWK(accessPublicKey);
+    const idPublicJwk = await exportJWK(idPublicKey);
     const now = Math.floor(Date.now() / 1000);
     const issuer = 'https://oracle.example/oidc';
     const accessToken = await new SignJWT({
@@ -592,8 +595,8 @@ describe('Phase 2 device authorization projection', () => {
       iat: now,
       exp: now + 3600,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key', typ: 'at+jwt' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'ES384', kid: 'oracle-access-signing-key', typ: 'at+jwt' })
+      .sign(accessPrivateKey);
     const idToken = await new SignJWT({
       iss: issuer,
       aud: 'device-client',
@@ -602,13 +605,16 @@ describe('Phase 2 device authorization projection', () => {
       iat: now,
       exp: now + 3600,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key', typ: 'JWT' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-id-signing-key', typ: 'JWT' })
+      .sign(idPrivateKey);
 
     const projection = await projectDeviceCredentials({
       target: oracleTarget,
       jwks: {
-        keys: [{ ...publicJwk, alg: 'RS256', kid: 'oracle-signing-key', use: 'sig' }],
+        keys: [
+          { ...accessPublicJwk, alg: 'ES384', kid: 'oracle-access-signing-key', use: 'sig' },
+          { ...idPublicJwk, alg: 'RS256', kid: 'oracle-id-signing-key', use: 'sig' },
+        ],
       },
       accessToken,
       idToken,
@@ -649,12 +655,16 @@ describe('Phase 2 device authorization projection', () => {
       iat: now,
       exp: now + 3600,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key', typ: 'at+jwt' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'ES384', kid: 'oracle-access-signing-key', typ: 'at+jwt' })
+      .sign(accessPrivateKey);
     await expect(
       projectDeviceCredentials({
         target: oracleTarget,
-        jwks: { keys: [{ ...publicJwk, alg: 'RS256', kid: 'oracle-signing-key', use: 'sig' }] },
+        jwks: {
+          keys: [
+            { ...accessPublicJwk, alg: 'ES384', kid: 'oracle-access-signing-key', use: 'sig' },
+          ],
+        },
         accessToken: incorrectAccessToken,
         expected: {
           clientId: 'device-client',
@@ -677,12 +687,12 @@ describe('Phase 2 device authorization projection', () => {
       iat: now,
       exp: now + 3600,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key', typ: 'at+jwt' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'ES384', kid: 'oracle-access-signing-key', typ: 'at+jwt' })
+      .sign(accessPrivateKey);
     const scopedProjection = await projectDeviceCredentials({
       target: oracleTarget,
       jwks: {
-        keys: [{ ...publicJwk, alg: 'RS256', kid: 'oracle-signing-key', use: 'sig' }],
+        keys: [{ ...accessPublicJwk, alg: 'ES384', kid: 'oracle-access-signing-key', use: 'sig' }],
       },
       accessToken: scopedAccessToken,
       expected: {
@@ -703,9 +713,12 @@ describe('Phase 2 device authorization projection', () => {
     });
   });
 
-  it('verifies oracle RSA tokens, preserves absent ID typ and rejects RSA for the candidate', async () => {
-    const { privateKey, publicKey } = await generateKeyPair('RS256');
-    const publicJwk = await exportJWK(publicKey);
+  it('verifies oracle RS256 ID tokens and preserves absent ID typ', async () => {
+    const { privateKey: accessPrivateKey, publicKey: accessPublicKey } =
+      await generateKeyPair('ES384');
+    const { privateKey: idPrivateKey, publicKey: idPublicKey } = await generateKeyPair('RS256');
+    const accessPublicJwk = await exportJWK(accessPublicKey);
+    const idPublicJwk = await exportJWK(idPublicKey);
     const now = Math.floor(Date.now() / 1000);
     const issuer = 'https://oracle.example/oidc';
     const accessToken = await new SignJWT({
@@ -718,8 +731,8 @@ describe('Phase 2 device authorization projection', () => {
       iat: now,
       exp: now + 3600,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key', typ: 'at+jwt' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'ES384', kid: 'oracle-access-signing-key', typ: 'at+jwt' })
+      .sign(accessPrivateKey);
     const idToken = await new SignJWT({
       iss: issuer,
       aud: 'device-client',
@@ -728,10 +741,13 @@ describe('Phase 2 device authorization projection', () => {
       exp: now + 3600,
       picture: null,
     })
-      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-signing-key' })
-      .sign(privateKey);
+      .setProtectedHeader({ alg: 'RS256', kid: 'oracle-id-signing-key' })
+      .sign(idPrivateKey);
     const jwks = {
-      keys: [{ ...publicJwk, alg: 'RS256', kid: 'oracle-signing-key', use: 'sig' }],
+      keys: [
+        { ...accessPublicJwk, alg: 'ES384', kid: 'oracle-access-signing-key', use: 'sig' },
+        { ...idPublicJwk, alg: 'RS256', kid: 'oracle-id-signing-key', use: 'sig' },
+      ],
     };
     const input = {
       target: oracleTarget,
@@ -758,14 +774,95 @@ describe('Phase 2 device authorization projection', () => {
     await expect(
       projectDeviceCredentials({
         ...input,
-        target,
+        jwks: {
+          keys: [{ ...idPublicJwk, alg: 'ES384', kid: 'oracle-id-signing-key', use: 'sig' }],
+        },
       })
     ).rejects.toThrow('Invalid Phase 2 device authorization projection');
+  });
+
+  it('verifies candidate RS256 ID tokens from a strictly validated RSA JWKS', async () => {
+    const { privateKey, publicKey } = await generateKeyPair('RS256');
+    const publicJwk = await exportJWK(publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await new SignJWT({
+      iss: 'https://candidate.example/oidc',
+      aud: 'device-client',
+      sub: 'subject-1',
+      iat: now,
+      exp: now + 3600,
+      picture: null,
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'candidate-rsa-signing-key', typ: 'JWT' })
+      .sign(privateKey);
+
     await expect(
       projectDeviceCredentials({
-        ...input,
+        target,
         jwks: {
-          keys: [{ ...publicJwk, alg: 'ES384', kid: 'oracle-signing-key', use: 'sig' }],
+          keys: [
+            {
+              ...publicJwk,
+              alg: 'RS256',
+              kid: 'candidate-rsa-signing-key',
+              use: 'sig',
+              key_ops: ['verify'],
+            },
+          ],
+        },
+        accessToken: 'opaque-access-token',
+        idToken,
+        expected: {
+          clientId: 'device-client',
+          subjectId: 'subject-1',
+          audience: 'resource-api',
+          accessFormat: 'opaque',
+          scopes: ['openid'],
+        },
+      })
+    ).resolves.toMatchObject({
+      access: { format: 'opaque', present: true },
+      id: {
+        header: {
+          algorithm: '<verified-signing-algorithm>',
+          keyId: '<verified-key>',
+          type: 'JWT',
+        },
+        signature: { verified: true },
+      },
+    });
+  });
+
+  it('rejects candidate RS256 resource access tokens', async () => {
+    const { privateKey, publicKey } = await generateKeyPair('RS256');
+    const publicJwk = await exportJWK(publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    const accessToken = await new SignJWT({
+      iss: 'https://candidate.example/oidc',
+      aud: 'resource-api',
+      sub: 'subject-1',
+      client_id: 'device-client',
+      scope: 'openid',
+      resource: 'resource-api',
+      iat: now,
+      exp: now + 3600,
+    })
+      .setProtectedHeader({ alg: 'RS256', kid: 'candidate-rsa-signing-key', typ: 'at+jwt' })
+      .sign(privateKey);
+
+    await expect(
+      projectDeviceCredentials({
+        target,
+        jwks: {
+          keys: [{ ...publicJwk, alg: 'RS256', kid: 'candidate-rsa-signing-key', use: 'sig' }],
+        },
+        accessToken,
+        expected: {
+          clientId: 'device-client',
+          subjectId: 'subject-1',
+          audience: 'resource-api',
+          scopes: ['openid'],
+          resource: 'resource-api',
         },
       })
     ).rejects.toThrow('Invalid Phase 2 device authorization projection');
