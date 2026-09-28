@@ -579,12 +579,40 @@ cleanup_project() {
 }
 
 remove_state_handle_root() {
-  local root=$1
-  [[ -z "$root" || ! -e "$root" ]] && return 0
+  local root=$1 root_identity entry name identity current_identity cleanup_path hash index current_uid
+  local -a entries=() identities=()
+  [[ -z "$root" || ( ! -e "$root" && ! -L "$root" ) ]] && return 0
   [[ -d "$root" && ! -L "$root" ]] || return 1
   [[ "$(/usr/bin/realpath -e -- "$root")" == "$root" ]] || return 1
   [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "$root")" == "$(/usr/bin/id -u)|700|directory" ]] || return 1
-  [[ -z "$(/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -print -quit)" ]] || return 1
+  current_uid=$(/usr/bin/id -u) || return 1
+  root_identity="$(capture_path_identity "$root")" || return 1
+  while IFS= read -r -d '' entry; do
+    name=${entry##*/}
+    [[ "$name" =~ ^\.quarantine\.[0-9a-f]{32}$ ]] || return 1
+    [[ -f "$entry" && ! -L "$entry" ]] || return 1
+    identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%F' -- "$entry" 2>/dev/null)" || return 1
+    [[ "$identity" =~ ^[0-9]+\|[0-9]+\|${current_uid}\|600\|1\|34\|regular\ file$ ]] || return 1
+    hash="$(/usr/bin/sha256sum -- "$entry")" || return 1
+    [[ "${hash%% *}" == 6345c4e1e6e25cbb82cf6f024cca960d61b3631bd85e1c2433de0a1d5a4e05a4 ]] || return 1
+    current_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%F' -- "$entry" 2>/dev/null)" || return 1
+    [[ "$current_identity" == "$identity" ]] || return 1
+    entries+=("$entry")
+    identities+=("$identity")
+  done < <(/usr/bin/find "$root" -mindepth 1 -maxdepth 1 -print0)
+  assert_path_identity "$root" "$root_identity" || return 1
+  for index in "${!entries[@]}"; do
+    entry=${entries[index]}
+    identity=${identities[index]}
+    name=${entry##*/}
+    cleanup_path="$root/.cleanup.${name#*.quarantine.}"
+    [[ ! -e "$cleanup_path" && ! -L "$cleanup_path" ]] || return 1
+    [[ "$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%F' -- "$entry" 2>/dev/null)" == "$identity" ]] || return 1
+    /usr/bin/mv --no-clobber --no-target-directory -- "$entry" "$cleanup_path" || return 1
+    [[ "$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%F' -- "$cleanup_path" 2>/dev/null)" == "$identity" ]] || return 1
+    /usr/bin/rm -- "$cleanup_path" || return 1
+  done
+  assert_path_identity "$root" "$root_identity" || return 1
   /usr/bin/rmdir -- "$root"
 }
 

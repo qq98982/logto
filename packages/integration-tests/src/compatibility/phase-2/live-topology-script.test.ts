@@ -1,7 +1,17 @@
 /* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types -- This contract test keeps the complete security-sensitive runner and cleanup retry harnesses together for source and behavioral auditing. */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 const repositoryRoot = path.resolve(process.cwd(), '../..');
@@ -617,6 +627,83 @@ assert_ports_released 3311 3411 3312 3412 3321 3421 3322 3422
 
     await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
   });
+
+  it('removes only verified retired state-handle tombstones and their private root', async () => {
+    const stateRoot = await mkdtemp(path.join(temporaryRoot, 'retired-state-root-'));
+    await chmod(stateRoot, 0o700);
+    await Promise.all(
+      ['a'.repeat(32), 'b'.repeat(32)].map(async (suffix) =>
+        writeFile(
+          path.join(stateRoot, `.quarantine.${suffix}`),
+          '{"schemaVersion":1,"retired":true}',
+          { mode: 0o600 }
+        )
+      )
+    );
+    const harnessPath = path.join(temporaryRoot, 'retired-state-root-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+remove_state_handle_root ${JSON.stringify(stateRoot)}
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(lstat(stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fails closed and preserves a dangling state-handle root symlink', async () => {
+    const stateRoot = path.join(temporaryRoot, 'dangling-state-root');
+    await symlink(path.join(temporaryRoot, 'missing-state-root-target'), stateRoot);
+    const harnessPath = path.join(temporaryRoot, 'dangling-state-root-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+if remove_state_handle_root ${JSON.stringify(stateRoot)}; then exit 19; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(lstat(stateRoot)).resolves.toBeDefined();
+  });
+
+  it.each(['unexpected', 'wrong-content', 'symlink', 'wrong-mode', 'multiple-links'] as const)(
+    'fails closed and preserves a %s state-handle entry',
+    async (kind) => {
+      const stateRoot = await mkdtemp(path.join(temporaryRoot, `invalid-state-root-${kind}-`));
+      await chmod(stateRoot, 0o700);
+      const entry = path.join(
+        stateRoot,
+        kind === 'unexpected' ? 'foreign-state' : `.quarantine.${'c'.repeat(32)}`
+      );
+      if (kind === 'symlink') {
+        const target = path.join(temporaryRoot, `symlink-target-${Date.now()}`);
+        await writeFile(target, '{"schemaVersion":1,"retired":true}', { mode: 0o600 });
+        await symlink(target, entry);
+      } else {
+        await writeFile(
+          entry,
+          kind === 'wrong-content'
+            ? '{"schemaVersion":1,"retired":false}'
+            : '{"schemaVersion":1,"retired":true}',
+          { mode: kind === 'wrong-mode' ? 0o640 : 0o600 }
+        );
+        if (kind === 'multiple-links') {
+          await link(entry, path.join(temporaryRoot, `linked-tombstone-${Date.now()}`));
+        }
+      }
+      const harnessPath = path.join(temporaryRoot, `invalid-state-root-${kind}-harness.sh`);
+      const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+if remove_state_handle_root ${JSON.stringify(stateRoot)}; then exit 19; fi
+`;
+      await writeFile(harnessPath, harness, { mode: 0o500 });
+
+      await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+      await expect(lstat(entry)).resolves.toBeDefined();
+    }
+  );
 
   it('fails closed when the port release query fails', async () => {
     const harnessPath = path.join(temporaryRoot, 'port-query-failure-harness.sh');
