@@ -9,6 +9,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const diagnostic = 'Phase 2 client credentials launcher failed.\n';
+const childDiagnostic = (failureClass) =>
+  `Phase 2 client credentials launcher child failed (${failureClass}).\n`;
 const batchFailureModes = new Set(['oracle', 'differential', 'candidate-invariants']);
 const closedScenarioIds = new Set([
   'basic-explicit-resource',
@@ -156,14 +158,24 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) return stderr;
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
-    /^Phase 2 client credentials command failed \(differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
       stderr
     )
     ? stderr
     : diagnostic;
+};
+export const diagnosticForPhase2ChildResult = (result) => {
+  if (result.timedOut) return childDiagnostic('timeout');
+  if (result.signal !== null) return childDiagnostic('signal');
+  if (result.code === 1) {
+    const named = diagnosticForPhase2Child(result.stderr);
+    if (named !== diagnostic) return named;
+  }
+  if (result.stderr !== '') return childDiagnostic('stderr');
+  return childDiagnostic('exit-code');
 };
 export const diagnosticForPhase2Batch = (error) =>
   error instanceof Error && batchFailureModes.has(error.message)
@@ -556,12 +568,7 @@ const defaultDependencies = Object.freeze({
       capability
     );
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
-      if (!result.timedOut && result.code === 1 && result.signal === null) {
-        const failure = diagnosticForPhase2Child(result.stderr);
-        if (failure !== diagnostic) {
-          process.stderr.write(failure);
-        }
-      }
+      process.stderr.write(diagnosticForPhase2ChildResult(result));
       return 1;
     }
     process.stdout.write(result.stdout);

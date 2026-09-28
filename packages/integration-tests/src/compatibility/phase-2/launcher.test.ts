@@ -11,6 +11,7 @@ import {
   createRuntimeHookImport,
   executeVerifiedPhase2Entry,
   diagnosticForPhase2Child,
+  diagnosticForPhase2ChildResult,
   diagnosticForPhase2Batch,
   launchPhase2,
   launchPhase2Batch,
@@ -166,6 +167,55 @@ describe('Phase 2 tracked launcher', () => {
     expect(
       diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-private).\n')
     ).toBe('Phase 2 client credentials launcher failed.\n');
+  });
+  it('classifies abnormal child results without forwarding child output', () => {
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: null,
+        signal: 'SIGTERM',
+        stdout: 'private stdout',
+        stderr: 'private stderr',
+        timedOut: true,
+      })
+    ).toBe('Phase 2 client credentials launcher child failed (timeout).\n');
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: null,
+        signal: 'SIGKILL',
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+      })
+    ).toBe('Phase 2 client credentials launcher child failed (signal).\n');
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: 'private stderr',
+        timedOut: false,
+      })
+    ).toBe('Phase 2 client credentials launcher child failed (stderr).\n');
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 7,
+        signal: null,
+        stdout: 'private stdout',
+        stderr: '',
+        timedOut: false,
+      })
+    ).toBe('Phase 2 client credentials launcher child failed (exit-code).\n');
+    const named =
+      'Phase 2 client credentials command failed (oracle/client-credentials.basic-explicit-resource).\n';
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: named,
+        timedOut: false,
+      })
+    ).toBe(named);
   });
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');

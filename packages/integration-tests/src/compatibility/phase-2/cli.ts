@@ -186,9 +186,9 @@ const runFailure = 'Phase 2 client credentials command failed.\n';
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)$/u;
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const commandFailurePattern =
-  /^Phase 2 command stage failed: differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish)$/u;
+  /^Phase 2 command stage failed: (oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
@@ -716,8 +716,12 @@ const runTargetScenarios = async (
     discovery,
     controls,
   });
-  assertClientCredentialsEvidenceIsSanitized(evidence);
-  assertDeviceAuthorizationEvidenceIsSanitized(evidence);
+  try {
+    assertClientCredentialsEvidenceIsSanitized(evidence);
+    assertDeviceAuthorizationEvidenceIsSanitized(evidence);
+  } catch {
+    throw new Error(`Phase 2 stage failed: ${descriptor.kind}-sanitizer`);
+  }
   return evidence;
 };
 
@@ -1060,33 +1064,47 @@ export const runPhase2Cli = async (
           candidate: publicTargetProvenance(candidateCapability),
         };
       }
-      const target = await dependencies.readTarget(await validateInputFile(command.targetPath));
-      const capability = await dependencies.verifyTarget(target);
-      const prepared = await dependencies.prepareTarget(
-        capability,
-        sessionRoot,
-        command.mode === 'oracle' ? 'oracle' : 'candidate'
-      );
-      const payload =
+      const role = command.mode === 'oracle' ? 'oracle' : 'candidate';
+      const targetPath = await validateInputFile(command.targetPath).catch(() => {
+        throw new Error(`Phase 2 command stage failed: ${role}-target-path`);
+      });
+      const target = await dependencies.readTarget(targetPath).catch(() => {
+        throw new Error(`Phase 2 command stage failed: ${role}-target-read`);
+      });
+      const capability = await dependencies.verifyTarget(target).catch(() => {
+        throw new Error(`Phase 2 command stage failed: ${role}-target-verify`);
+      });
+      const prepared = await dependencies.prepareTarget(capability, sessionRoot, role).catch(() => {
+        throw new Error(`Phase 2 command stage failed: ${role}-target-prepare`);
+      });
+      const payload = await (
         command.mode === 'oracle'
-          ? await dependencies.executeOracle({ profile, target: prepared, sessionRoot })
-          : await dependencies.executeCandidateInvariants({
-              profile,
-              target: prepared,
-              sessionRoot,
-            });
-      await prepared.fence.assertStable();
+          ? dependencies.executeOracle({ profile, target: prepared, sessionRoot })
+          : dependencies.executeCandidateInvariants({ profile, target: prepared, sessionRoot })
+      ).catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          (scenarioFailurePattern.test(error.message) || stageFailurePattern.test(error.message))
+        ) {
+          throw error;
+        }
+        throw new Error(`Phase 2 command stage failed: ${role}-execution`);
+      });
+      await prepared.fence.assertStable().catch(() => {
+        throw new Error(`Phase 2 command stage failed: ${role}-harness`);
+      });
       return command.mode === 'oracle'
         ? { payload, oracle: publicTargetProvenance(capability) }
         : { payload, candidate: publicTargetProvenance(capability) };
     })();
     try {
       await dependencies.recheckHarness(harness);
-    } catch (error: unknown) {
+    } catch {
       if (command.mode === 'differential') {
         throw new Error('Phase 2 command stage failed: differential-harness');
       }
-      throw error;
+      const role = command.mode === 'oracle' ? 'oracle' : 'candidate';
+      throw new Error(`Phase 2 command stage failed: ${role}-harness`);
     }
     try {
       evidence = createPhase2EvidenceEnvelope({
@@ -1099,33 +1117,44 @@ export const runPhase2Cli = async (
           ? { candidate: execution.candidate }
           : {}),
       });
-    } catch (error: unknown) {
+    } catch {
       if (command.mode === 'differential') {
         throw new Error('Phase 2 command stage failed: differential-evidence');
       }
-      throw error;
+      const role = command.mode === 'oracle' ? 'oracle' : 'candidate';
+      throw new Error(`Phase 2 command stage failed: ${role}-evidence`);
     }
   } catch (error: unknown) {
     executionError = error;
   }
   try {
     await dependencies.removeSessionRoot(sessionRoot);
-  } catch (cleanupError: unknown) {
+  } catch {
+    const role =
+      command.mode === 'oracle'
+        ? 'oracle'
+        : command.mode === 'differential'
+          ? 'differential'
+          : 'candidate';
     if (executionError !== undefined) {
-      throw new AggregateError([executionError, cleanupError], runFailure.trim());
+      throw new AggregateError(
+        [executionError, new Error(`Phase 2 command stage failed: ${role}-cleanup`)],
+        runFailure.trim()
+      );
     }
-    throw cleanupError;
+    throw new Error(`Phase 2 command stage failed: ${role}-cleanup`);
   }
   if (executionError !== undefined) {
     throw executionError instanceof Error ? executionError : new Error(runFailure.trim());
   }
   try {
     await dependencies.publish(outputPath, evidence as unknown as JsonValue);
-  } catch (error: unknown) {
+  } catch {
     if (command.mode === 'differential') {
       throw new Error('Phase 2 command stage failed: differential-publish');
     }
-    throw error;
+    const role = command.mode === 'oracle' ? 'oracle' : 'candidate';
+    throw new Error(`Phase 2 command stage failed: ${role}-publish`);
   }
   await safeWrite(dependencies.stdout, successMessages[command.mode]);
 };
@@ -1140,10 +1169,13 @@ export const runPhase2CliMain = async (
     return 0;
   } catch (error: unknown) {
     const original = error instanceof AggregateError ? (error.errors[0] as unknown) : error;
+    const cleanup = error instanceof AggregateError ? (error.errors[1] as unknown) : undefined;
     const match = original instanceof Error ? scenarioFailurePattern.exec(original.message) : null;
     const stage = original instanceof Error ? stageFailurePattern.exec(original.message) : null;
     const commandStage =
       original instanceof Error ? commandFailurePattern.exec(original.message) : null;
+    const cleanupStage =
+      cleanup instanceof Error ? commandFailurePattern.exec(cleanup.message) : null;
     await safeWrite(
       dependencies.stderr,
       error instanceof TypeError && error.message === invalidArguments.trim()
@@ -1152,10 +1184,10 @@ export const runPhase2CliMain = async (
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}).\n`
           : stage?.[1] && stage[2]
             ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-            : commandStage?.[1]
-              ? `Phase 2 client credentials command failed (differential-${commandStage[1]}).\n`
-              : error instanceof AggregateError
-                ? 'Phase 2 client credentials command failed (differential-cleanup).\n'
+            : commandStage?.[1] && commandStage[2]
+              ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
+              : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
+                ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
                 : runFailure
     );
     return 1;

@@ -546,7 +546,7 @@ describe('Phase 2 CLI', () => {
         oracleArguments().map((value) => (value === oracleTargetPath ? linkPath : value)),
         dependencies([])
       )
-    ).rejects.toThrow('Invalid Phase 2 arguments.');
+    ).rejects.toThrow('Phase 2 command stage failed: oracle-target-path');
 
     const duplicate = path.join(root, 'duplicate.json');
     await writeFile(duplicate, '{"schemaVersion":1,"schemaVersion":1}', { mode: 0o600 });
@@ -609,19 +609,68 @@ describe('Phase 2 CLI', () => {
       },
     });
     expect(code).toBe(1);
-    expect(calls).toContain('stderr:Phase 2 client credentials command failed.');
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-execution).');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(
       (await readdir(root)).filter((name) => name.startsWith('phase2-client-credentials-run-'))
     ).toEqual([]);
 
-    await expect(
-      runPhase2Cli(
+    const sanitizerCalls: string[] = [];
+    expect(
+      await runPhase2CliMain(
         oracleArguments(output),
-        dependencies([], { Authorization: 'Basic planted-secret' })
+        undefined,
+        dependencies(sanitizerCalls, { Authorization: 'Basic planted-secret' })
       )
-    ).rejects.toThrow('Invalid Phase 2 client credentials projection');
+    ).toBe(1);
+    expect(sanitizerCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-evidence).'
+    );
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('identifies generic oracle and candidate-invariant stage failures', async () => {
+    const oracleCalls: string[] = [];
+    const oracleBase = dependencies(oracleCalls);
+    expect(
+      await runPhase2CliMain(oracleArguments(), undefined, {
+        ...oracleBase,
+        verifyTarget: async () => {
+          throw new Error('private oracle verification detail');
+        },
+      })
+    ).toBe(1);
+    expect(oracleCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-target-verify).'
+    );
+
+    const candidateCalls: string[] = [];
+    const candidateBase = dependencies(candidateCalls);
+    const candidateArguments = [
+      'candidate-invariants',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--target',
+      candidateTargetPath,
+      '--output',
+      path.join(root, 'phase-2-client-credentials-candidate-invariants.json'),
+      '--temp-root',
+      root,
+    ];
+    expect(
+      await runPhase2CliMain(candidateArguments, undefined, {
+        ...candidateBase,
+        executeCandidateInvariants: async () => {
+          throw new Error('private candidate execution detail');
+        },
+      })
+    ).toBe(1);
+    expect(candidateCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate-execution).'
+    );
+    expect(candidateCalls.join(' ')).not.toContain('private candidate execution detail');
   });
 
   it('identifies the failed closed scenario without printing a credential-bearing exception', async () => {
@@ -834,9 +883,26 @@ describe('Phase 2 CLI', () => {
           throw new Error('planted rm failure');
         },
       })
-    ).rejects.toThrow('planted rm failure');
+    ).rejects.toThrow('Phase 2 command stage failed: oracle-cleanup');
     expect(calls.some((call) => call.startsWith('publish:'))).toBe(false);
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('uses the mode-specific cleanup stage when no earlier fixed diagnostic exists', async () => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      loadProfile: async () => {
+        throw new Error('private unclassified failure');
+      },
+      removeSessionRoot: async () => {
+        throw new Error('private cleanup failure');
+      },
+    });
+    expect(code).toBe(1);
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-cleanup).');
+    expect(calls.join(' ')).not.toContain('private');
   });
 });
 
