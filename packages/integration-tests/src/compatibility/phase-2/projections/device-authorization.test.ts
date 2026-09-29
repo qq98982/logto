@@ -421,7 +421,7 @@ describe('Phase 2 device authorization projection', () => {
       id: {
         format: 'verified-jwt',
         claims: {
-          audience: ['device-client'],
+          audience: ['<client>'],
           subject: '<subject>',
           issuedAt: '<issued-at>',
           lifetimeSeconds: 3600,
@@ -474,6 +474,64 @@ describe('Phase 2 device authorization projection', () => {
         claimTypes: { aud: 'string-array' },
       },
     });
+  });
+
+  it('normalizes only the verified ID audience and preserves additional audiences', async () => {
+    const { privateKey, publicKey } = await generateKeyPair('ES384');
+    const publicJwk = await exportJWK(publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    const projectId = async (
+      selectedTarget: typeof target | typeof oracleTarget,
+      clientId: string,
+      audience: string | string[]
+    ) => {
+      const issuer = new URL('/oidc', selectedTarget.coreUrl).href.replace(/\/$/u, '');
+      const idToken = await new SignJWT({
+        iss: issuer,
+        aud: audience,
+        sub: 'subject-1',
+        iat: now,
+        exp: now + 3600,
+      })
+        .setProtectedHeader({ alg: 'ES384', kid: 'signing-key', typ: 'JWT' })
+        .sign(privateKey);
+
+      return projectDeviceCredentials({
+        target: selectedTarget,
+        jwks: { keys: [{ ...publicJwk, alg: 'ES384', kid: 'signing-key', use: 'sig' }] },
+        accessToken: 'opaque-access',
+        idToken,
+        expected: {
+          clientId,
+          subjectId: 'subject-1',
+          audience: clientId,
+          accessFormat: 'opaque',
+        },
+      });
+    };
+
+    const candidate = await projectId(target, 'candidate-device-client', 'candidate-device-client');
+    const oracle = await projectId(oracleTarget, 'oracle-device-client', 'oracle-device-client');
+    expect(candidate.id?.claims.audience).toEqual(['<client>']);
+    expect(oracle.id?.claims.audience).toEqual(['<client>']);
+    expect(compareDeviceAuthorizationProjections(oracle, candidate)).toEqual([]);
+
+    const withAdditionalAudience = await projectId(target, 'candidate-device-client', [
+      'candidate-device-client',
+      'shared-additional-audience',
+    ]);
+    expect(withAdditionalAudience.id?.claims.audience).toEqual([
+      '<client>',
+      'shared-additional-audience',
+    ]);
+    expect(compareDeviceAuthorizationProjections(candidate, withAdditionalAudience)).toEqual([
+      '/id/claims/audience/1',
+      '/id/claims/claimTypes/aud',
+    ]);
+
+    await expect(
+      projectId(target, 'candidate-device-client', 'wrong-device-client')
+    ).rejects.toThrow('Invalid Phase 2 device authorization projection');
   });
 
   it('verifies the selected resource audience without requiring a resource claim', async () => {

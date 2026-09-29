@@ -1334,9 +1334,11 @@ const verifyJwt = async (
       issuer: '<target-issuer>' as const,
       audience: Object.freeze(
         tokenAudiences.map((value) =>
-          targetLabel === 'oracle' && value.startsWith('urn:logto:organization:')
-            ? `urn:aster:organization:${value.slice('urn:logto:organization:'.length)}`
-            : value
+          !accessSemantics && value === expected.clientId
+            ? '<client>'
+            : targetLabel === 'oracle' && value.startsWith('urn:logto:organization:')
+              ? `urn:aster:organization:${value.slice('urn:logto:organization:'.length)}`
+              : value
         )
       ),
       subject: '<subject>' as const,
