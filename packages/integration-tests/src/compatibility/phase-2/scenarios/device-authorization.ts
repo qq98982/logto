@@ -1785,11 +1785,35 @@ export const compareDeviceScenarioProjections = (
   }
   if (
     oracleKind === 'device-verification-follow' ||
-    candidateKind === 'device-verification-follow' ||
-    oracleKind === 'device-token-lifecycle' ||
-    candidateKind === 'device-token-lifecycle'
+    candidateKind === 'device-verification-follow'
   ) {
     return JSON.stringify(oracle) === JSON.stringify(candidate)
+      ? Object.freeze([])
+      : Object.freeze(['/sequence']);
+  }
+  if (oracleKind === 'device-token-lifecycle' || candidateKind === 'device-token-lifecycle') {
+    if (oracleKind !== 'device-token-lifecycle' || candidateKind !== 'device-token-lifecycle') {
+      return Object.freeze(['/sequence']);
+    }
+    const oracleSequence = oracle as DeviceTokenLifecycleProjection;
+    const candidateSequence = candidate as DeviceTokenLifecycleProjection;
+    if (oracleSequence.mode !== candidateSequence.mode) {
+      return Object.freeze(['/sequence/mode']);
+    }
+    for (const child of ['before', 'action', 'after', 'siblingBefore', 'siblingAfter'] as const) {
+      const oracleChild = oracleSequence[child];
+      const candidateChild = candidateSequence[child];
+      if ((oracleChild === undefined) !== (candidateChild === undefined)) {
+        return Object.freeze([`/sequence/${child}`]);
+      }
+      if (oracleChild !== undefined && candidateChild !== undefined) {
+        const difference = compareDeviceAuthorizationProjections(oracleChild, candidateChild)[0];
+        if (difference !== undefined) {
+          return Object.freeze([`/sequence/${child}${difference}`]);
+        }
+      }
+    }
+    return JSON.stringify(oracleSequence) === JSON.stringify(candidateSequence)
       ? Object.freeze([])
       : Object.freeze(['/sequence']);
   }

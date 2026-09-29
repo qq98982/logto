@@ -34,6 +34,7 @@ import {
   type DeviceConsentSequenceProjection,
   type DeviceScenarioProjection,
   type DeviceScenarioStateAction,
+  type DeviceTokenLifecycleProjection,
 } from './device-authorization.js';
 
 const target: TargetConfig = Object.freeze({
@@ -226,6 +227,7 @@ const lifecycleProjection = (
         return {
           marker: 'introspection',
           active: true,
+          credentialKind: 'access',
           subject: '<subject>',
           clientId: '<client>',
           issuer: '<target-issuer>',
@@ -1201,6 +1203,57 @@ describe('Phase 2 device authorization scenarios', () => {
         'device-consent.first-party-matching-grant-required'
       )
     ).toEqual(['/sequence/firstIssued', '/sequence/mode']);
+  });
+
+  it('reports the first token lifecycle child difference in fixed order', () => {
+    const sequence = (): DeviceTokenLifecycleProjection => ({
+      kind: 'device-token-lifecycle',
+      mode: 'refresh-revocation',
+      before: lifecycleProjection('introspection'),
+      action: lifecycleProjection('revocation'),
+      after: {
+        ...lifecycleProjection('introspection'),
+        facts: { marker: 'introspection', active: false },
+      } as DeviceLifecycleProjection,
+      siblingBefore: lifecycleProjection('introspection'),
+      siblingAfter: {
+        ...lifecycleProjection('introspection'),
+        facts: { marker: 'introspection', active: false },
+      } as DeviceLifecycleProjection,
+    });
+    const oracle = sequence();
+    const candidate = sequence();
+
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        {
+          ...candidate,
+          before: {
+            ...candidate.before,
+            headers: { 'cache-control': 'no-store' },
+          } as DeviceLifecycleProjection,
+          siblingAfter: {
+            ...candidate.siblingAfter,
+            headers: { 'cache-control': 'no-store' },
+          } as DeviceLifecycleProjection,
+        },
+        'device-token-status.access-revocation'
+      )
+    ).toEqual(['/sequence/before/headers/cache-control']);
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        {
+          ...candidate,
+          siblingAfter: {
+            ...candidate.siblingAfter,
+            headers: { 'cache-control': 'no-store' },
+          } as DeviceLifecycleProjection,
+        },
+        'device-token-status.access-revocation'
+      )
+    ).toEqual(['/sequence/siblingAfter/headers/cache-control']);
   });
 
   it('restores required undefined slots after public projection JSON round trips', () => {

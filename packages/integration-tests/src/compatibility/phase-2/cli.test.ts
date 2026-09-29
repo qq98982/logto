@@ -49,6 +49,12 @@ describe('device projection diagnostic fields', () => {
     expect(deviceProjectionDifferenceField('/sequence/completion/private-token/value')).toBe(
       'other'
     );
+    expect(deviceProjectionDifferenceField('/sequence/siblingAfter/headers/cache-control')).toBe(
+      'sequence-siblingAfter-headers'
+    );
+    expect(deviceProjectionDifferenceField('/sequence/private/headers/private-token')).toBe(
+      'other'
+    );
     expect(deviceProjectionDifferenceField('/private-token/value')).toBe('other');
     expect(deviceProjectionDifferenceField('/id/claims/claimKeys/0')).toBe('id-claimKeys');
     expect(deviceProjectionDifferenceField('/id/claims/claimTypes/email')).toBe(
@@ -1024,6 +1030,10 @@ describe('Phase 2 CLI', () => {
       'candidate/device-verification.already-used-code:projection-completion-cookies'
     );
     await runSuffix(
+      'projection-sequence-siblingAfter-headers',
+      'candidate/device-verification.already-used-code:projection-sequence-siblingAfter-headers'
+    );
+    await runSuffix(
       'projection-id-claimKeys',
       'candidate/device-verification.already-used-code:projection-id-claimKeys'
     );
@@ -1065,6 +1075,9 @@ describe('Phase 2 CLI', () => {
     await runSuffix('approval-password:private', 'differential-execution');
     await runSuffix('projection-cookies:private', 'differential-execution');
     await runSuffix('projection-completion-private', 'differential-execution');
+    await runSuffix('projection-sequence-private-headers', 'differential-execution');
+    await runSuffix('projection-sequence-siblingAfter-private', 'differential-execution');
+    await runSuffix('projection-sequence-siblingAfter-headers:private', 'differential-execution');
     await runSuffix('projection-id-claimTypes-private-token', 'differential-execution');
     await runSuffix('projection-id-signature:private', 'differential-execution');
   });

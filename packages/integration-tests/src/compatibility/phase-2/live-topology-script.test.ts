@@ -783,6 +783,38 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only closed token lifecycle child projection diagnostics', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('projection-sequence-') === true);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const accepted = [
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-headers).',
+      'Phase 2 client credentials command failed (oracle/device-token.session-bound-expiry:projection-sequence-after-oauthError).',
+    ];
+    const rejected = [
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-private-headers).',
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-private).',
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-headers:private-marker).',
+      'Phase 2 client credentials command failed (candidate/device-token.private-lifecycle:projection-sequence-after-oauthError).',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: accepted.length * patterns.length }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
+  });
+
   it('forwards only closed ID token projection diagnostics', async () => {
     const patterns = Array.from(
       source.matchAll(

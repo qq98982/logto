@@ -184,6 +184,21 @@ describe('Phase 2 tracked launcher', () => {
       const message = `Phase 2 client credentials command failed (candidate/device-verification.already-used-code:${stage}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
     }
+    const lifecycleMessage =
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-headers).\n';
+    expect(diagnosticForPhase2Child(lifecycleMessage)).toBe(lifecycleMessage);
+    expect(
+      diagnosticForPhase2ChildResult({
+        timedOut: false,
+        signal: null,
+        code: 1,
+        stdout: '',
+        stderr: lifecycleMessage,
+      })
+    ).toBe(lifecycleMessage);
+    const sessionExpiryMessage =
+      'Phase 2 client credentials command failed (oracle/device-token.session-bound-expiry:projection-sequence-after-oauthError).\n';
+    expect(diagnosticForPhase2Child(sessionExpiryMessage)).toBe(sessionExpiryMessage);
     for (const message of [
       'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:unknown-marker).\n',
       'Phase 2 client credentials command failed (oracle/device-token.refresh-resource-selection:credential-lease:private-marker).\n',
@@ -196,6 +211,9 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-id-signature:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval-password:private-marker).\n',
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-private-headers).\n',
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-private).\n',
+      'Phase 2 client credentials command failed (candidate/device-token-status.access-revocation:projection-sequence-siblingAfter-headers:private-marker).\n',
     ]) {
       expect(diagnosticForPhase2Child(message)).toBe(
         'Phase 2 client credentials launcher failed.\n'
