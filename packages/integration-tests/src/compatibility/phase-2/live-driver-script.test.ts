@@ -142,6 +142,7 @@ type Harness = Readonly<{
   expansionScanReached: string;
   normalizedInitialLeak: string;
   secretScanQueryFailure: string;
+  clearSchemaLeak: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -236,6 +237,7 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const expansionScanReached = path.join(root, 'expansion-scan-reached');
   const normalizedInitialLeak = path.join(root, 'normalized-initial-leak');
   const secretScanQueryFailure = path.join(root, 'secret-scan-query-failure');
+  const clearSchemaLeak = path.join(root, 'clear-schema-leak');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -396,6 +398,14 @@ if [[ "$1" == exec ]]; then
   fi
   if [[ "$input" == *"SELECT encode(sha256(convert_to(to_jsonb(row)::text"* ]]; then
     printf '%064d' 0 | tr '0' a
+    exit 0
+  fi
+  if [[ "$input" == *"information_schema.columns"* && "$input" == *"token_families"* ]]; then
+    if [[ -f '${clearSchemaLeak}' || "$input" != *"AND NOT (table_name='token_families' AND column_name='id_token_projection')"* ]]; then
+      printf '%s' 1
+    else
+      printf '%s' 0
+    fi
     exit 0
   fi
   if [[ "$input" == *"information_schema.columns"* && "$input" == *"device_authorizations"* ]]; then
@@ -625,6 +635,7 @@ exec /usr/bin/python3.12 "$@"
     expansionScanReached,
     normalizedInitialLeak,
     secretScanQueryFailure,
+    clearSchemaLeak,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -2321,7 +2332,42 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(sql).toContain("SET LOCAL statement_timeout='20s'");
     expect(sql).toContain("SET LOCAL lock_timeout='5s'");
     expect(sql).toContain("position(decode(variants.encoded,'base64')");
+    expect(sql).toContain(
+      "AND NOT (table_name='token_families' AND column_name='id_token_projection')"
+    );
     expect(sql).not.toContain('string_agg(body');
+  });
+
+  it('rejects a clear token column while allowing the closed ID projection selector', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.clearSchemaLeak, 'present', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-evidence.secret-material-absent',
+          'probe',
+          {
+            deviceCode: 'private-device-code-schema',
+            userCode: 'BCDF-GHJK',
+            xsrf: 'private-xsrf-schema',
+            password: 'private-password-schema',
+            clientSecrets: ['private-client-schema'],
+            tokens: ['private-token-schema'],
+          },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+
+    expect(result).toEqual({
+      code: 42,
+      stdout: '',
+      stderr:
+        'Phase 2 client credentials invariant driver failed (device-7-schema-clear-columns).\n',
+    });
   });
 
   it('scans secret variants when tenant database material exceeds the driver output cap', async () => {

@@ -1943,6 +1943,60 @@ describe('Phase 2 device authorization transport', () => {
     );
   });
 
+  it('retains cleared device XSRF for a scoped evidence lease after the final resume', async () => {
+    const replies = [
+      jsonResponse(authorizationBody),
+      new Response(null, {
+        status: 204,
+        headers: {
+          'set-cookie':
+            '_device_flow_xsrf=private-xsrf; Path=/; Max-Age=600; HttpOnly; SameSite=Lax',
+        },
+      }),
+      jsonResponse({ redirectTo: '/oidc/device/resume?ticket=private-consent-ticket' }),
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: '/device/success',
+          'set-cookie': '_device_flow_xsrf=; Path=/; Max-Age=0; HttpOnly',
+        },
+      }),
+    ];
+    const lease = createDeviceAuthorizationTransportLease({
+      target,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+    await lease.requestAuthorization({
+      encoding: 'form',
+      fields: [['client_id', 'device-client']],
+    });
+    await lease.requestLifecycle({ kind: 'experience-open', method: 'PUT' });
+    await lease.requestLifecycle({ kind: 'consent-write', method: 'POST' });
+
+    const resumed = await lease.requestLifecycle({ kind: 'resume', method: 'GET' });
+    expect(resumed).toMatchObject({
+      facts: { marker: 'device-success-redirect' },
+      cookies: [{ name: '_device_flow_xsrf', clearing: true }],
+    });
+
+    let readEscapedXsrf: (() => string) | undefined;
+    await expect(
+      lease.withEvidenceSecretLease!((secrets) => {
+        readEscapedXsrf = secrets.getAuditXsrf;
+        return { retained: secrets.getAuditXsrf() === 'private-xsrf' };
+      })
+    ).resolves.toEqual({ retained: true });
+    expect(() => readEscapedXsrf?.()).toThrow(
+      'Invalid Phase 2 device authorization transport (evidence-secret-lease)'
+    );
+
+    lease.clear();
+    await expect(lease.withEvidenceSecretLease!(() => ({ retained: true }))).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (cleared)'
+    );
+  });
+
   it('checks lifecycle projection string leaves without matching structural JSON', async () => {
     const lifecycleResponse = (location?: string): Response => {
       const headers = new Headers({ 'set-cookie': '_session={}; Path=/; SameSite=Lax' });

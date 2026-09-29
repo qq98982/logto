@@ -1053,7 +1053,8 @@ SQL
       clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='aster_tenant' AND table_name IN ('device_authorizations','interactions','grants','sessions','token_families','refresh_tokens','session_access_tokens')
-  AND column_name ~* '(^|_)(password|client_secret|device_code|user_code|xsrf|access_token|refresh_token|id_token)($|_)';
+  AND column_name ~* '(^|_)(password|client_secret|device_code|user_code|xsrf|access_token|refresh_token|id_token)($|_)'
+  AND NOT (table_name='token_families' AND column_name='id_token_projection');
 SQL
       )" || device_secret_fail schema-query
       [[ "$clear_columns" == 0 ]] || device_secret_fail schema-clear-columns

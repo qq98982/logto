@@ -2225,6 +2225,8 @@ const commitLifecycleState = (state: TransportState, next: TransportState): void
     'userCode',
     'codesExpireAt',
     'xsrf',
+    'auditXsrf',
+    'auditXsrfExpireAt',
     'xsrfCookieIdentity',
     'xsrfExpireAt',
     'verificationId',
