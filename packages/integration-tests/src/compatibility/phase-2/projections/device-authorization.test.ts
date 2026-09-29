@@ -690,7 +690,7 @@ describe('Phase 2 device authorization projection', () => {
     expect(projection.access).toMatchObject({
       format: 'verified-jwt',
       claims: {
-        audience: ['urn:aster:organization:org-1'],
+        audience: ['urn:aster:organization:<organization.primary>'],
         scopes: [],
       },
     });
@@ -759,16 +759,122 @@ describe('Phase 2 device authorization projection', () => {
         audience: 'urn:logto:organization:org-1',
         accessFormat: 'verified-jwt',
         scopes: ['urn:logto:scope:organizations'],
+        organizationId: 'org-1',
         accessOrganizationIdRequired: false,
       },
     });
     expect(scopedProjection.access).toMatchObject({
       format: 'verified-jwt',
       claims: {
-        audience: ['urn:aster:organization:org-1'],
+        audience: ['urn:aster:organization:<organization.primary>'],
         scopes: ['urn:aster:scope:organizations'],
       },
     });
+  });
+
+  it('normalizes only the verified expected organization audience across target fixture IDs', async () => {
+    const { privateKey, publicKey } = await generateKeyPair('ES384');
+    const publicJwk = await exportJWK(publicKey);
+    const now = Math.floor(Date.now() / 1000);
+    const extraAudience = 'https://shared.example/resource';
+    const projectOrganizationAccess = async (
+      selectedTarget: typeof target | typeof oracleTarget,
+      organizationId: string,
+      additionalAudiences: readonly string[] = [extraAudience]
+    ) => {
+      const issuer = new URL('/oidc', selectedTarget.coreUrl).href.replace(/\/$/u, '');
+      const organizationAudience = `${
+        selectedTarget.label === 'oracle' ? 'urn:logto' : 'urn:aster'
+      }:organization:${organizationId}`;
+      const accessToken = await new SignJWT({
+        iss: issuer,
+        aud: [organizationAudience, ...additionalAudiences],
+        sub: 'subject-1',
+        client_id: 'device-client',
+        scope: '',
+        iat: now,
+        exp: now + 3600,
+      })
+        .setProtectedHeader({ alg: 'ES384', kid: 'organization-signing-key', typ: 'at+jwt' })
+        .sign(privateKey);
+
+      return projectDeviceCredentials({
+        target: selectedTarget,
+        jwks: {
+          keys: [{ ...publicJwk, alg: 'ES384', kid: 'organization-signing-key', use: 'sig' }],
+        },
+        accessToken,
+        expected: {
+          clientId: 'device-client',
+          subjectId: 'subject-1',
+          audience: organizationAudience,
+          accessFormat: 'verified-jwt',
+          scopes: [],
+          organizationId,
+          accessOrganizationIdRequired: false,
+        },
+      });
+    };
+
+    const oracle = await projectOrganizationAccess(oracleTarget, 'oracle-org');
+    const candidate = await projectOrganizationAccess(target, 'candidate-org');
+    expect(oracle.access).toMatchObject({
+      format: 'verified-jwt',
+      claims: {
+        audience: [extraAudience, 'urn:aster:organization:<organization.primary>'],
+      },
+    });
+    expect(candidate.access).toMatchObject({
+      format: 'verified-jwt',
+      claims: {
+        audience: [extraAudience, 'urn:aster:organization:<organization.primary>'],
+      },
+    });
+    expect(compareDeviceAuthorizationProjections(oracle, candidate)).toEqual([]);
+
+    const unrelatedOrganizationAudience = 'urn:logto:organization:unrelated-org';
+    const oracleWithUnrelatedOrganizationAudience = await projectOrganizationAccess(
+      oracleTarget,
+      'oracle-org',
+      [unrelatedOrganizationAudience]
+    );
+    expect(oracleWithUnrelatedOrganizationAudience.access).toMatchObject({
+      format: 'verified-jwt',
+      claims: {
+        audience: ['urn:aster:organization:<organization.primary>', unrelatedOrganizationAudience],
+      },
+    });
+
+    const issuer = new URL('/oidc', target.coreUrl).href.replace(/\/$/u, '');
+    const wrongAudienceToken = await new SignJWT({
+      iss: issuer,
+      aud: 'urn:aster:organization:other-org',
+      sub: 'subject-1',
+      client_id: 'device-client',
+      scope: '',
+      iat: now,
+      exp: now + 3600,
+    })
+      .setProtectedHeader({ alg: 'ES384', kid: 'organization-signing-key', typ: 'at+jwt' })
+      .sign(privateKey);
+    await expect(
+      projectDeviceCredentials({
+        target,
+        jwks: {
+          keys: [{ ...publicJwk, alg: 'ES384', kid: 'organization-signing-key', use: 'sig' }],
+        },
+        accessToken: wrongAudienceToken,
+        expected: {
+          clientId: 'device-client',
+          subjectId: 'subject-1',
+          audience: 'urn:aster:organization:candidate-org',
+          accessFormat: 'verified-jwt',
+          scopes: [],
+          organizationId: 'candidate-org',
+          accessOrganizationIdRequired: false,
+        },
+      })
+    ).rejects.toThrow('Invalid Phase 2 device authorization projection');
   });
 
   it('verifies oracle RS256 ID tokens and preserves absent ID typ', async () => {

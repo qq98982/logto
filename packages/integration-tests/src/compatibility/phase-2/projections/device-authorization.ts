@@ -1321,6 +1321,10 @@ const verifyJwt = async (
   ) {
     return fail();
   }
+  const expectedOrganizationAudience =
+    expected.organizationId === undefined
+      ? undefined
+      : `${targetLabel === 'oracle' ? 'urn:logto' : 'urn:aster'}:organization:${expected.organizationId}`;
   const projection = Object.freeze({
     format: 'verified-jwt' as const,
     header: Object.freeze({
@@ -1334,11 +1338,17 @@ const verifyJwt = async (
       issuer: '<target-issuer>' as const,
       audience: Object.freeze(
         tokenAudiences.map((value) =>
-          !accessSemantics && value === expected.clientId
-            ? '<client>'
-            : targetLabel === 'oracle' && value.startsWith('urn:logto:organization:')
-              ? `urn:aster:organization:${value.slice('urn:logto:organization:'.length)}`
-              : value
+          accessSemantics &&
+          expected.audience === expectedOrganizationAudience &&
+          value === expectedOrganizationAudience
+            ? 'urn:aster:organization:<organization.primary>'
+            : !accessSemantics && value === expected.clientId
+              ? '<client>'
+              : !accessSemantics &&
+                  targetLabel === 'oracle' &&
+                  value.startsWith('urn:logto:organization:')
+                ? `urn:aster:organization:${value.slice('urn:logto:organization:'.length)}`
+                : value
         )
       ),
       subject: '<subject>' as const,
