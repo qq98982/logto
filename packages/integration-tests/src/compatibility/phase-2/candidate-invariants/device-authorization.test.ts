@@ -170,6 +170,9 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
     'prepare',
     'approval',
     'issuance',
+    'evidence-open',
+    'evidence-values',
+    'evidence-validation',
     'evidence-lease',
     'driver-unclassified',
   ] as const;
@@ -219,93 +222,113 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
     ).toBeUndefined();
   });
 
-  it('carries an authentic stage through the masking evidence lease and clears it', async () => {
-    let clearCount = 0;
-    let leaseOutcome: unknown;
-    const topology = Object.freeze({ projectName: 'test-topology' });
-    const target = Object.freeze({
-      label: 'candidate' as const,
-      coreUrl: 'https://candidate.example/',
-      adminUrl: 'https://candidate-admin.example/',
-    });
-    const executor = await createLiveDeviceCandidateInvariantExecutor({
-      profile: profile(),
-      target,
-      foreignTarget: Object.freeze({
+  it.each([
+    ['authentic', 'normalized-match'],
+    ['generic', 'evidence-validation'],
+    ['forged', 'evidence-validation'],
+  ] as const)(
+    'classifies combined %s driver and post-callback lease failures and clears the lease',
+    async (driverFailure, expectedStage) => {
+      let clearCount = 0;
+      let leaseOutcome: unknown;
+      const topology = Object.freeze({ projectName: 'test-topology' });
+      const target = Object.freeze({
         label: 'candidate' as const,
-        coreUrl: 'https://foreign.example/',
-        adminUrl: 'https://foreign-admin.example/',
-      }),
-      fixture: {
-        public: {
-          deviceClients: { firstParty: { id: 'device-client' } },
-        },
-        status: { user: { id: 'subject-id', username: 'subject@example.test' } },
-        withSecretLease: async (use: (secrets: unknown) => Promise<unknown>) =>
-          use({
-            getSubjectPassword: () => 'private-password',
-            getClientSecret: () => 'private-client-secret',
-            getStatusClientSecret: () => 'private-status-secret',
-          }),
-      } as never,
-      driverPath: path.resolve(
-        process.cwd(),
-        '../..',
-        '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
-      ),
-      controlSocket: '/var/tmp/henry-build/device-evidence-diagnostic-test.sock',
-      topology: topology as never,
-      state: {} as never,
-      jwks: { keys: [] },
-      createTransport: (() => ({
-        requestAuthorization: async () => ({ status: 200, deviceCodeShape: 'opaque' }),
-        requestVerification: async () => ({ status: 200 }),
-        requestLifecycle: async () => ({ status: 200 }),
-        pollToken: async () => ({ status: 200 }),
-        withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
-          try {
-            leaseOutcome = await use({
-              getDeviceCode: () => 'private-device-code',
-              getUserCode: () => 'BCDF-GHJK',
-              getAuditXsrf: () => 'private-xsrf',
-              getAccessToken: () => 'private-access-token',
-              getRefreshToken: () => 'private-refresh-token',
-              getIdToken: () => 'private-id-token',
-            });
-            if (
-              typeof leaseOutcome !== 'object' ||
-              leaseOutcome === null ||
-              !Object.isFrozen(leaseOutcome) ||
-              JSON.stringify(leaseOutcome).includes('private-')
-            ) {
-              throw new TypeError('invalid evidence lease callback outcome');
+        coreUrl: 'https://candidate.example/',
+        adminUrl: 'https://candidate-admin.example/',
+      });
+      const executor = await createLiveDeviceCandidateInvariantExecutor({
+        profile: profile(),
+        target,
+        foreignTarget: Object.freeze({
+          label: 'candidate' as const,
+          coreUrl: 'https://foreign.example/',
+          adminUrl: 'https://foreign-admin.example/',
+        }),
+        fixture: {
+          public: {
+            deviceClients: { firstParty: { id: 'device-client' } },
+          },
+          status: { user: { id: 'subject-id', username: 'subject@example.test' } },
+          withSecretLease: async (use: (secrets: unknown) => Promise<unknown>) =>
+            use({
+              getSubjectPassword: () => 'private-password',
+              getClientSecret: () => 'private-client-secret',
+              getStatusClientSecret: () => 'private-status-secret',
+            }),
+        } as never,
+        driverPath: path.resolve(
+          process.cwd(),
+          '../..',
+          '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
+        ),
+        controlSocket: '/var/tmp/henry-build/device-evidence-diagnostic-test.sock',
+        topology: topology as never,
+        state: {} as never,
+        jwks: { keys: [] },
+        createTransport: (() => ({
+          requestAuthorization: async () => ({ status: 200, deviceCodeShape: 'opaque' }),
+          requestVerification: async () => ({ status: 200 }),
+          requestLifecycle: async () => ({ status: 200 }),
+          pollToken: async () => ({ status: 200 }),
+          withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+            try {
+              leaseOutcome = await use({
+                getDeviceCode: () => 'private-device-code',
+                getUserCode: () => 'BCDF-GHJK',
+                getAuditXsrf: () => 'private-xsrf',
+                getAccessToken: () => 'private-access-token',
+                getRefreshToken: () => 'private-refresh-token',
+                getIdToken: () => 'private-id-token',
+              });
+              if (
+                typeof leaseOutcome !== 'object' ||
+                leaseOutcome === null ||
+                !Object.isFrozen(leaseOutcome) ||
+                JSON.stringify(leaseOutcome).includes('private-')
+              ) {
+                throw new TypeError('invalid evidence lease callback outcome');
+              }
+              throw new TypeError('private post-callback lease rejection');
+            } catch {
+              throw new TypeError('masked evidence lease failure');
             }
-            return leaseOutcome;
-          } catch {
-            throw new TypeError('masked evidence lease failure');
+          },
+          clear: () => {
+            clearCount += 1;
+          },
+        })) as never,
+        runner: async () => {
+          if (driverFailure === 'generic') {
+            throw new TypeError('private raw driver detail');
           }
+          return {
+            exitCode: 42,
+            signal: null,
+            stdout: '',
+            stderr:
+              driverFailure === 'authentic'
+                ? 'Phase 2 client credentials invariant driver failed (device-7-normalized-match).\n'
+                : 'Phase 2 client credentials invariant driver failed (device-7-normalized-match).\nprivate\n',
+            timedOut: false,
+            killed: false,
+            reaped: true,
+          };
         },
-        clear: () => {
-          clearCount += 1;
-        },
-      })) as never,
-      runner: async () => ({
-        exitCode: 42,
-        signal: null,
-        stdout: '',
-        stderr: 'Phase 2 client credentials invariant driver failed (device-7-normalized-match).\n',
-        timedOut: false,
-        killed: false,
-        reaped: true,
-      }),
-    });
+      });
 
-    await expect(executor.execute('device-evidence.secret-material-absent')).rejects.toMatchObject({
-      message: 'Phase 2 stage failed: candidate-invariant-device-7-normalized-match',
-    });
-    expect(leaseOutcome).toEqual({ kind: 'evidence-failure', stage: 'normalized-match' });
-    expect(clearCount).toBe(1);
-  });
+      await expect(
+        executor.execute('device-evidence.secret-material-absent')
+      ).rejects.toMatchObject({
+        message: `Phase 2 stage failed: candidate-invariant-device-7-${expectedStage}`,
+      });
+      expect(leaseOutcome).toEqual({
+        kind: 'evidence-failure',
+        stage: driverFailure === 'authentic' ? 'normalized-match' : 'driver-unclassified',
+      });
+      expect(clearCount).toBe(1);
+    }
+  );
 
   it.each(preDriverStages)(
     'classifies %s without exposing details and clears the lease',
@@ -331,7 +354,7 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
           status: { user: { id: 'subject-id', username: 'subject@example.test' } },
           withSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
             fixtureLeaseCount += 1;
-            if (stage === 'evidence-lease' && fixtureLeaseCount > 1) {
+            if (stage === 'evidence-open' && fixtureLeaseCount > 1) {
               throw new TypeError('private fixture lease detail');
             }
             return use({
@@ -371,20 +394,40 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
             }
             return { status: 200 };
           },
-          withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) =>
-            use({
-              getDeviceCode: () => 'private-device-code',
+          withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+            const secrets = {
+              getDeviceCode: () => {
+                if (stage === 'evidence-values') {
+                  throw new TypeError('private evidence value detail');
+                }
+                return 'private-device-code';
+              },
               getUserCode: () => 'BCDF-GHJK',
               getAuditXsrf: () => 'private-xsrf',
               getAccessToken: () => 'private-access-token',
               getRefreshToken: () => 'private-refresh-token',
               getIdToken: () => 'private-id-token',
-            }),
+            };
+            if (stage === 'evidence-lease') {
+              void use(secrets);
+              throw new TypeError('private evidence lease detail');
+            }
+            const result = await use(secrets);
+            if (stage === 'evidence-validation') {
+              throw new TypeError('private evidence validation detail');
+            }
+            return result;
+          },
           clear: () => {
             clearCount += 1;
           },
         })) as never,
         runner: async () => {
+          if (stage === 'evidence-lease') {
+            return new Promise<never>(() => {
+              expect(stage).toBe('evidence-lease');
+            });
+          }
           throw new TypeError('private raw driver detail');
         },
       });

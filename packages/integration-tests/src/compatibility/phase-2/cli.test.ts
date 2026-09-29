@@ -849,6 +849,9 @@ describe('Phase 2 CLI', () => {
         'candidate-invariant-device-7-prepare',
         'candidate-invariant-device-7-approval',
         'candidate-invariant-device-7-issuance',
+        'candidate-invariant-device-7-evidence-open',
+        'candidate-invariant-device-7-evidence-values',
+        'candidate-invariant-device-7-evidence-validation',
         'candidate-invariant-device-7-evidence-lease',
         'candidate-invariant-device-7-driver-unclassified',
       ].map(async (stage) => {

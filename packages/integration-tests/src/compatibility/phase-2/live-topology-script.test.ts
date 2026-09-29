@@ -1037,6 +1037,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'prepare',
       'approval',
       'issuance',
+      'evidence-open',
+      'evidence-values',
+      'evidence-validation',
       'evidence-lease',
       'driver-unclassified',
     ].map(
@@ -1051,7 +1054,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       Promise.all(
         accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
       )
-    ).resolves.toEqual(Array.from({ length: 10 }, () => true));
+    ).resolves.toEqual(Array.from({ length: 16 }, () => true));
     await expect(
       Promise.all(
         rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))

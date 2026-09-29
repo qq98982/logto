@@ -464,6 +464,9 @@ type DeviceEvidenceFailureStage =
   | 'prepare'
   | 'approval'
   | 'issuance'
+  | 'evidence-open'
+  | 'evidence-values'
+  | 'evidence-validation'
   | 'evidence-lease'
   | 'driver-unclassified'
   | 'private-extraction'
@@ -1178,10 +1181,21 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
               throw new DeviceEvidenceDriverError('issuance');
             }
             let outcome;
+            const evidenceLifecycle: {
+              callbackEntered: boolean;
+              valuesRead: boolean;
+              callbackResultReady: boolean;
+              trustedDriverFailureStage?: DeviceEvidenceFailureStage;
+            } = {
+              callbackEntered: false,
+              valuesRead: false,
+              callbackResultReady: false,
+            };
             try {
               const withEvidence = lease.withEvidenceSecretLease ?? fail();
               outcome = await options.fixture.withSecretLease(async (fixtureSecrets) =>
                 withEvidence(async (secrets) => {
+                  evidenceLifecycle.callbackEntered = true;
                   const privateValues = Object.freeze({
                     deviceCode: secrets.getDeviceCode(),
                     userCode: secrets.getUserCode(),
@@ -1200,23 +1214,43 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
                       ].filter((value): value is string => typeof value === 'string')
                     ),
                   });
+                  evidenceLifecycle.valuesRead = true;
                   try {
                     const projection = (await driver(id, 'probe', privateValues, undefined, {
                       issuedStatus: issued.status,
                     })) as DeviceCandidateInvariantProjection;
-                    return Object.freeze({ kind: 'projection' as const, projection });
+                    const result = Object.freeze({ kind: 'projection' as const, projection });
+                    evidenceLifecycle.callbackResultReady = true;
+                    return result;
                   } catch (error: unknown) {
-                    return Object.freeze({
+                    if (error instanceof DeviceEvidenceDriverError) {
+                      evidenceLifecycle.trustedDriverFailureStage = error.stage;
+                    }
+                    const result = Object.freeze({
                       kind: 'evidence-failure' as const,
                       stage:
                         error instanceof DeviceEvidenceDriverError
                           ? error.stage
                           : ('driver-unclassified' as const),
                     });
+                    evidenceLifecycle.callbackResultReady = true;
+                    return result;
                   }
                 })
               );
             } catch {
+              if (!evidenceLifecycle.callbackEntered) {
+                throw new DeviceEvidenceDriverError('evidence-open');
+              }
+              if (!evidenceLifecycle.valuesRead) {
+                throw new DeviceEvidenceDriverError('evidence-values');
+              }
+              if (evidenceLifecycle.callbackResultReady) {
+                if (evidenceLifecycle.trustedDriverFailureStage !== undefined) {
+                  throw new DeviceEvidenceDriverError(evidenceLifecycle.trustedDriverFailureStage);
+                }
+                throw new DeviceEvidenceDriverError('evidence-validation');
+              }
               throw new DeviceEvidenceDriverError('evidence-lease');
             }
             if (outcome.kind === 'evidence-failure') {

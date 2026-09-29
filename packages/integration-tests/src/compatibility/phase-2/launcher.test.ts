@@ -61,6 +61,9 @@ describe('Phase 2 tracked launcher', () => {
       'prepare',
       'approval',
       'issuance',
+      'evidence-open',
+      'evidence-values',
+      'evidence-validation',
       'evidence-lease',
       'driver-unclassified',
     ]) {
