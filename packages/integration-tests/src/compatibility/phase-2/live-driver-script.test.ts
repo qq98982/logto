@@ -1895,9 +1895,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       harness.env
     );
     expect(result).toEqual({
-      code: 1,
+      code: 41,
       stdout: '',
-      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-1-row-facts).\n',
     });
   });
 

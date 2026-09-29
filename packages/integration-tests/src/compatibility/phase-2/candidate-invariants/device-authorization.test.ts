@@ -1,10 +1,14 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, unicorn/consistent-function-scoping -- The mutation controls deliberately exercise hostile evidence shapes and ordered invocation counts. */
+/* eslint-disable max-lines, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, unicorn/consistent-function-scoping -- The mutation controls deliberately exercise hostile evidence shapes and ordered invocation counts. */
+import path from 'node:path';
+
 import type { DeviceAuthorizationProjection } from '../clients/device-authorization.js';
 import { createDeviceAuthorizationTransportLease } from '../clients/device-authorization.js';
 import type { Phase2ProfileRegistries } from '../profile.js';
 
 import {
   createDeviceCandidateInvariantRegistry,
+  createLiveDeviceCandidateInvariantExecutor,
+  deviceDigestFailureStage,
   deviceCandidateInvariantExpectedProjection,
   deviceCandidateInvariantIds,
   observeConsumedReplayRevocation,
@@ -12,6 +16,153 @@ import {
   runDeviceCandidateInvariantControls,
   runDeviceCandidateInvariants,
 } from './device-authorization.js';
+
+describe('Phase 2 digest-only invariant diagnostics', () => {
+  it.each([
+    'private-code-extraction',
+    'row-sql',
+    'row-missing',
+    'row-facts',
+    'schema-query',
+    'schema-clear-columns',
+  ])('accepts the exact value-free %s driver signal', (substage) => {
+    expect(
+      deviceDigestFailureStage({
+        exitCode: 41,
+        signal: null,
+        stdout: '',
+        stderr: `Phase 2 client credentials invariant driver failed (device-1-${substage}).\n`,
+        timedOut: false,
+        killed: false,
+        reaped: true,
+      })
+    ).toBe(substage);
+  });
+
+  it.each([
+    'Phase 2 client credentials invariant driver failed (device-1-row-sql).\nsecret\n',
+    'Phase 2 client credentials invariant driver failed (device-1-unknown).\n',
+    'Phase 2 client credentials invariant driver failed (oracle-device-1-row-sql).\n',
+  ])('rejects a non-exact or unclosed driver signal', (stderr) => {
+    expect(
+      deviceDigestFailureStage({
+        exitCode: 41,
+        signal: null,
+        stdout: '',
+        stderr,
+        timedOut: false,
+        killed: false,
+        reaped: true,
+      })
+    ).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'exact signal',
+      'Phase 2 client credentials invariant driver failed (device-1-row-sql).\n',
+      'Phase 2 stage failed: candidate-invariant-device-1-row-sql',
+    ],
+    [
+      'signal with trailing child detail',
+      'Phase 2 client credentials invariant driver failed (device-1-row-sql).\nprivate detail\n',
+      'Phase 2 stage failed: candidate-invariant-device-1',
+    ],
+  ])('wires %s through the live executor', async (_name, stderr, expectedMessage) => {
+    let clearCount = 0;
+    const topology = Object.freeze({ projectName: 'test-topology' });
+    const target = Object.freeze({
+      label: 'candidate' as const,
+      coreUrl: 'https://candidate.example/',
+      adminUrl: 'https://candidate-admin.example/',
+    });
+    const foreignTarget = Object.freeze({
+      label: 'candidate' as const,
+      coreUrl: 'https://foreign.example/',
+      adminUrl: 'https://foreign-admin.example/',
+    });
+    const success = (invariantId: string) => ({
+      exitCode: 0,
+      signal: null,
+      stdout: JSON.stringify({
+        schemaVersion: 1,
+        kind: 'phase2-client-credentials-candidate-invariant',
+        invariantId,
+        projection: deviceCandidateInvariantExpectedProjection(
+          'device-authorization.forced-rls-isolation'
+        ),
+        attestation: topology,
+      }),
+      stderr: '',
+      timedOut: false,
+      killed: false,
+      reaped: true,
+    });
+    const executor = await createLiveDeviceCandidateInvariantExecutor({
+      profile: profile(),
+      target,
+      foreignTarget,
+      fixture: {
+        public: { deviceClients: { firstParty: { id: 'device-client' } } },
+      } as never,
+      driverPath: path.resolve(
+        process.cwd(),
+        '../..',
+        '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
+      ),
+      controlSocket: '/var/tmp/henry-build/device-diagnostic-test.sock',
+      topology: topology as never,
+      state: {} as never,
+      jwks: { keys: [] },
+      createTransport: (() => ({
+        requestAuthorization: async () => ({ status: 200, deviceCodeShape: 'opaque' }),
+        requestVerification: async () => ({ status: 200 }),
+        withAuthorizationSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+          try {
+            const outcome = await use({
+              getDeviceCode: () => 'private-device-code',
+              getUserCode: () => 'BCDF-GHJK',
+              getXsrf: () => 'private-xsrf',
+            });
+            if (
+              typeof outcome !== 'object' ||
+              outcome === null ||
+              !('kind' in outcome) ||
+              (outcome.kind !== 'projection' && outcome.kind !== 'digest-failure')
+            ) {
+              throw new TypeError('invalid lease callback outcome');
+            }
+            return outcome;
+          } catch {
+            throw new TypeError('masked credential lease failure');
+          }
+        },
+        clear: () => {
+          clearCount += 1;
+        },
+      })) as never,
+      runner: async (request) => {
+        const descriptor = JSON.parse(request.stdin) as { invariantId: string };
+        return descriptor.invariantId === 'device-authorization.forced-rls-isolation'
+          ? success(descriptor.invariantId)
+          : {
+              exitCode: 41,
+              signal: null,
+              stdout: '',
+              stderr,
+              timedOut: false,
+              killed: false,
+              reaped: true,
+            };
+      },
+    });
+
+    await expect(runDeviceCandidateInvariants(profile(), executor)).rejects.toMatchObject({
+      message: expectedMessage,
+    });
+    expect(clearCount).toBe(1);
+  });
+});
 
 const legacyIds = [
   'client-credentials.cross-tenant-authority-rejected',
@@ -157,6 +308,21 @@ describe('Phase 2 device candidate invariant registry', () => {
     });
   });
 
+  it('does not accept a forged digest-only substage from an executor', async () => {
+    await expect(
+      runDeviceCandidateInvariants(profile(), {
+        execute: async (id) => {
+          if (id === deviceCandidateInvariantIds[1]) {
+            throw new Error('Phase 2 stage failed: candidate-invariant-device-1-row-sql');
+          }
+          return deviceCandidateInvariantExpectedProjection(id);
+        },
+      })
+    ).rejects.toMatchObject({
+      message: 'Phase 2 stage failed: candidate-invariant-device-1',
+    });
+  });
+
   it('projects exactly three independent candidate one-winner trials', async () => {
     let calls = 0;
     const response = (winner: boolean): DeviceAuthorizationProjection =>
@@ -285,4 +451,4 @@ describe('Phase 2 device candidate invariant registry', () => {
   });
 });
 
-/* eslint-enable @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, unicorn/consistent-function-scoping */
+/* eslint-enable max-lines, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, unicorn/consistent-function-scoping */

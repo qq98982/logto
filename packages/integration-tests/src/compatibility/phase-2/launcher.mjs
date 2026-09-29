@@ -218,7 +218,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \(candidate-invariant-device-[0-7]\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \(candidate-invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns))\)\.\n$/u.test(
       stderr
     )
   ) {

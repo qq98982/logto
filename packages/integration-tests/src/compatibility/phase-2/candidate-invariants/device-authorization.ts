@@ -403,7 +403,10 @@ export const runDeviceCandidateInvariants = async (
     try {
       const projection = await executor.execute(invariant.id);
       evidence.push(runDeviceCandidateInvariantControls(invariant.id, projection));
-    } catch {
+    } catch (error: unknown) {
+      if (index === 1 && error instanceof DeviceDigestDriverError) {
+        throw error;
+      }
       throw new Error(`Phase 2 stage failed: candidate-invariant-device-${index}`);
     }
   }
@@ -436,6 +439,49 @@ const invariantTerminalKind = 'phase2-client-credentials-candidate-invariant';
 const maximumDriverBytes = 65_536;
 const driverTimeoutMs = 120_000;
 const handlePattern = /^[0-9a-f]{32}$/u;
+const deviceDigestDriverFailurePattern =
+  /^Phase 2 client credentials invariant driver failed \(device-1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)\)\.\n$/u;
+type DeviceDigestFailureStage =
+  | 'private-code-extraction'
+  | 'row-sql'
+  | 'row-missing'
+  | 'row-facts'
+  | 'schema-query'
+  | 'schema-clear-columns';
+class DeviceDigestDriverError extends Error {
+  constructor(readonly stage: DeviceDigestFailureStage) {
+    super(`Phase 2 stage failed: candidate-invariant-device-1-${stage}`);
+  }
+}
+
+export const deviceDigestFailureStage = (value: unknown): DeviceDigestFailureStage | undefined => {
+  if (!plainRecord(value)) {
+    return undefined;
+  }
+  if (
+    !isDeepStrictEqual(Object.keys(value), [
+      'exitCode',
+      'signal',
+      'stdout',
+      'stderr',
+      'timedOut',
+      'killed',
+      'reaped',
+    ]) ||
+    value.exitCode !== 41 ||
+    value.signal !== null ||
+    value.stdout !== '' ||
+    typeof value.stderr !== 'string' ||
+    value.timedOut !== false ||
+    value.killed !== false ||
+    value.reaped !== true
+  ) {
+    return undefined;
+  }
+  return deviceDigestDriverFailurePattern.exec(value.stderr)?.[1] as
+    | DeviceDigestFailureStage
+    | undefined;
+};
 
 const sensitiveStrings = (value: unknown): readonly string[] => {
   const output: string[] = [];
@@ -560,19 +606,25 @@ const createDriver = async (options: LiveDeviceCandidateInvariantOptions) => {
       observation,
     });
     const secrets = sensitiveStrings(privateValues);
-    const invoke = async () =>
-      requireDriverResult(
-        await runner({
-          command: executable,
-          args: Object.freeze([]),
-          stdin: JSON.stringify(descriptor),
-          env: environment,
-          timeoutMs: driverTimeoutMs,
-          maxStdoutBytes: maximumDriverBytes,
-          maxStderrBytes: maximumDriverBytes,
-          shell: false,
-        })
-      );
+    const invoke = async () => {
+      const rawResult = await runner({
+        command: executable,
+        args: Object.freeze([]),
+        stdin: JSON.stringify(descriptor),
+        env: environment,
+        timeoutMs: driverTimeoutMs,
+        maxStdoutBytes: maximumDriverBytes,
+        maxStderrBytes: maximumDriverBytes,
+        shell: false,
+      });
+      if (id === 'device-authorization.credentials-digest-only') {
+        const substage = deviceDigestFailureStage(rawResult);
+        if (substage !== undefined) {
+          throw new DeviceDigestDriverError(substage);
+        }
+      }
+      return requireDriverResult(rawResult);
+    };
     const result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
     assertNoSecretReflection({ stdout: result.stdout, stderr: result.stderr }, secrets);
     const terminal = exactJson(result.stdout);
@@ -812,11 +864,25 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
         case 'device-authorization.credentials-digest-only': {
           return executeWithLease(async (lease) => {
             await prepareAuthorizationSecrets(lease, runtime);
-            return withAuthorizationSecrets(
-              lease,
-              async (codes) =>
-                driver(id, 'probe', codes) as Promise<DeviceCandidateInvariantProjection>
-            );
+            const outcome = await withAuthorizationSecrets(lease, async (codes) => {
+              try {
+                const projection = (await driver(
+                  id,
+                  'probe',
+                  codes
+                )) as DeviceCandidateInvariantProjection;
+                return Object.freeze({ kind: 'projection' as const, projection });
+              } catch (error: unknown) {
+                if (error instanceof DeviceDigestDriverError) {
+                  return Object.freeze({ kind: 'digest-failure' as const, stage: error.stage });
+                }
+                throw error;
+              }
+            });
+            if (outcome.kind === 'digest-failure') {
+              throw new DeviceDigestDriverError(outcome.stage);
+            }
+            return outcome.projection;
           });
         }
         case 'device-authorization.cross-tenant-lookup-rejected': {

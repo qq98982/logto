@@ -17,6 +17,7 @@ readonly FLOCK_BIN=/usr/bin/flock
 signing_corrupted=false
 primary_postgres_id=''
 device_failure_armed=false
+device_digest_failure_substage=''
 handle_fd=''
 handle_path=''
 handle_identity=''
@@ -33,6 +34,11 @@ trap early_cleanup EXIT HUP INT TERM
 
 die() {
   return 1
+}
+
+device_digest_fail() {
+  device_digest_failure_substage=$1
+  return 41
 }
 
 trusted_root_binary() {
@@ -213,7 +219,15 @@ SQL
   if [[ -n "$handle_fd" ]]; then
     exec {handle_fd}>&- || true
   fi
-  if [[ "$status" -ne 0 || "$restore_status" -ne 0 ]]; then
+  if [[ "$restore_status" -ne 0 ]]; then
+    printf '%s\n' "$FAILURE" >&2
+    exit 1
+  fi
+  if [[ "$status" == 41 && "$device_digest_failure_substage" =~ ^(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)$ ]]; then
+    printf 'Phase 2 client credentials invariant driver failed (device-1-%s).\n' "$device_digest_failure_substage" >&2
+    exit 41
+  fi
+  if [[ "$status" -ne 0 ]]; then
     printf '%s\n' "$FAILURE" >&2
     exit 1
   fi
@@ -796,17 +810,19 @@ SQL
       terminal '{"invariant":"forced-rls-isolation","catalog":{"rowSecurity":true,"forcedRowSecurity":true},"privileges":{"request":"select-insert-update-delete","admin":"none","worker":"none"},"requestRole":{"primaryVisible":true,"foreignVisible":false,"foreignUpdate":"rejected"},"adminRole":"rejected","workerRole":"rejected"}'
       ;;
     device-authorization.credentials-digest-only:probe)
-      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
-      row="$(device_row "$device_code" "$user_code")" || die
+      device_code="$(value '.private.deviceCode')" || device_digest_fail private-code-extraction
+      user_code="$(value '.private.userCode')" || device_digest_fail private-code-extraction
+      row="$(device_row "$device_code" "$user_code")" || device_digest_fail row-sql
+      [[ -n "$row" ]] || device_digest_fail row-missing
       printf '%s' "$row" | "$JQ_BIN" -e '
-        .status=="pending" and .deviceBytes==32 and .userBytes==32 and .clearAbsent==true' >/dev/null || die
+        .status=="pending" and .deviceBytes==32 and .userBytes==32 and .clearAbsent==true' >/dev/null 2>&1 || device_digest_fail row-facts
       clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='aster_tenant' AND table_name='device_authorizations'
   AND column_name ~* '(device|user).*(code|credential)|clear|secret|token';
 SQL
-      )" || die
-      [[ "$clear_columns" == 0 ]] || die
+      )" || device_digest_fail schema-query
+      [[ "$clear_columns" == 0 ]] || device_digest_fail schema-clear-columns
       terminal '{"invariant":"credentials-digest-only","schemaClearColumns":"absent","row":{"deviceDigestBytes":32,"userDigestBytes":32,"clearMaterial":"absent","structuredContextClearMaterial":"absent"}}'
       ;;
     device-authorization.cross-tenant-lookup-rejected:arm)

@@ -962,7 +962,15 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           ),
           grepMatches(
             pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-1-row-sql).'
+          ),
+          grepMatches(
+            pattern,
             'Phase 2 client credentials command failed (candidate-invariant-device-8).'
+          ),
+          grepMatches(
+            pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-1-unknown).'
           ),
           grepMatches(
             pattern,
@@ -970,7 +978,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           ),
         ])
       )
-    ).resolves.toEqual([true, false, false, true, false, false]);
+    ).resolves.toEqual([true, true, false, false, false, true, true, false, false, false]);
   });
 
   it('publishes results only after successful topology cleanup', () => {

@@ -827,7 +827,12 @@ describe('Phase 2 CLI', () => {
       root,
     ];
     await Promise.all(
-      ['candidate-invariant-device-0', 'candidate-invariant-device-7'].map(async (stage) => {
+      [
+        'candidate-invariant-device-0',
+        'candidate-invariant-device-1-row-sql',
+        'candidate-invariant-device-1-schema-clear-columns',
+        'candidate-invariant-device-7',
+      ].map(async (stage) => {
         const calls: string[] = [];
         const base = dependencies(calls);
         expect(
@@ -856,6 +861,27 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (candidate-execution).'
     );
     expect(rejectedCalls.join(' ')).not.toContain('oracle-invariant-device-0');
+
+    for (const stage of [
+      'candidate-invariant-device-1-unknown',
+      'oracle-invariant-device-1-row-sql',
+      'candidate-invariant-device-1-row-sql: private credential',
+    ]) {
+      const calls: string[] = [];
+      const base = dependencies(calls);
+      // eslint-disable-next-line no-await-in-loop -- CLI fixtures share one output path.
+      const status = await runPhase2CliMain(candidateArguments, undefined, {
+        ...base,
+        executeCandidateInvariants: async () => {
+          throw new Error(`Phase 2 stage failed: ${stage}`);
+        },
+      });
+      expect(status).toBe(1);
+      expect(calls).toContain(
+        'stderr:Phase 2 client credentials command failed (candidate-execution).'
+      );
+      expect(calls.join(' ')).not.toContain(stage);
+    }
 
     const oracleCalls: string[] = [];
     const oracleBase = dependencies(oracleCalls);
