@@ -415,9 +415,15 @@ describe('Phase 2 client-credentials live topology runner', () => {
     );
     expect(source).not.toContain("printf 'Host: localhost\\r\\nConnection: close\\r\\n\\r\\n'");
     expect(source).toContain('wait_for_fixture_socket');
+    expect(source).toMatch(/deadline=\$\(\(SECONDS \+ 180\)\)/u);
     expect(source).toMatch(
-      /libpod\/containers\/\$\{id\}\/healthcheck[\s\S]*\/usr\/bin\/sleep 1\n\s*continue/u
+      /if \[\[ "\$status" == running && -n "\$health" && "\$health" != healthy \]\]; then\n\s*\/usr\/bin\/sleep 1\n\s*continue/u
     );
+    expect(source).toMatch(
+      /\[\[ "\$status\|\$exit_code\|\$health" == 'running\|0\|healthy' \]\] && return 0/u
+    );
+    expect(source).toContain('[[ "$status" != exited || "$exit_code" == 0 ]] || return 1');
+    expect(source).not.toMatch(/libpod\/containers\/\$\{id\}\/healthcheck/u);
     expect(source).not.toContain('assert_driver_discovery_port');
     expect(source).not.toMatch(/--filter\s+"publish=\$\{?port/u);
     expect(source).not.toMatch(

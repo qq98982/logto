@@ -298,7 +298,7 @@ project_name_for() {
 }
 
 wait_for_service() {
-  local role=$1 service=$2 deadline=$((SECONDS + 180)) id metadata status exit_code health project label http_status
+  local role=$1 service=$2 deadline=$((SECONDS + 180)) id metadata status exit_code health project label
   while ((SECONDS < deadline)); do
     id="$(compose_for "$role" ps --all -q "$service" 2>/dev/null || true)"
     if [[ "$id" =~ ^[0-9a-f]{12,64}$ ]]; then
@@ -306,10 +306,6 @@ wait_for_service() {
       IFS='|' read -r id status exit_code health project label <<<"$metadata"
       [[ "$id" =~ ^[0-9a-f]{64}$ && "$project" == "$(project_name_for "$role")" && "$label" == "$service" ]] || return 1
       if [[ "$status" == running && -n "$health" && "$health" != healthy ]]; then
-        http_status="$($CURL_BIN --silent --show-error --max-time 20 --output /dev/null \
-          --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" \
-          "http://localhost/v${PODMAN_API_VERSION}/libpod/containers/${id}/healthcheck" 2>/dev/null || true)"
-        [[ "$http_status" == 200 ]] || return 1
         /usr/bin/sleep 1
         continue
       fi
@@ -1129,12 +1125,11 @@ main() {
 
   failure_stage='podman-api'
   [[ "$($CURL_BIN --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" http://localhost/libpod/_ping)" == 200 ]] || { fail; return 1; }
-  PODMAN_API_VERSION="$($CURL_BIN --fail --silent --show-error --max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
+  "$CURL_BIN" --fail --silent --show-error --max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
     let s=""; process.stdin.on("data", c => s += c).on("end", () => {
       const v=JSON.parse(s).Components?.find(c => c.Name === "Podman Engine")?.Details?.APIVersion;
-      if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1); process.stdout.write(v);
-    });')" || { fail; return 1; }
-  readonly PODMAN_API_VERSION
+      if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1);
+    });' || { fail; return 1; }
   docker_cli compose version >/dev/null 2>&1 || { failure_stage='compose-provider'; fail; return 1; }
 
   failure_stage='images'
