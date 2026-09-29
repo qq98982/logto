@@ -423,6 +423,30 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
+  it('publishes the full 139-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 139 }, (_, index) => ({
+      scenarioId: `comparison-${index}`,
+      differenceCount: 0,
+    }));
+    const value = createPhase2EvidenceEnvelope({
+      mode: 'differential',
+      profile,
+      harness,
+      oracle: target('oracle'),
+      candidate: target('candidate'),
+      payload: {
+        schemaVersion: 1,
+        mode: 'differential',
+        oracle: {},
+        candidate: {},
+        comparisons,
+      },
+    });
+
+    expect(value.payload).toMatchObject({ comparisons });
+    expect(value.sanitizerSuccess).toBe(true);
+  });
+
   it('publishes only semantic provenance and enforces mode bindings', () => {
     const value = createPhase2EvidenceEnvelope({
       mode: 'differential',
