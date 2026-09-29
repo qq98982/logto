@@ -99,6 +99,15 @@ const oracleForeignTarget = {
 } as const;
 const basicSecret = 'basic-secret-0123456789abcdef';
 const postSecret = 'post-secret-0123456789abcdef';
+const jsonEscapedSecret = 'private-"quoted"-\\backslash';
+const encodedJsonEscapedSecret = Buffer.from(
+  JSON.stringify(jsonEscapedSecret).slice(1, -1)
+).toString('base64');
+const expansionSecrets = Array.from({ length: 12 }, (_, index) => {
+  const size = index < 4 ? 3500 : 5500;
+  return `${index}-${'  >%'.repeat(Math.floor((size - 2) / 4))}`;
+});
+const encodedExpansionLeak = Buffer.from(expansionSecrets[11] ?? '').toString('base64');
 
 type Invocation = Readonly<{ code: number | undefined; stdout: string; stderr: string }>;
 type Harness = Readonly<{
@@ -127,6 +136,10 @@ type Harness = Readonly<{
   postVerifyEvidence: string;
   deviceStatus: string;
   secretLeak: string;
+  largeDatabaseMaterial: string;
+  jsonEscapedLeak: string;
+  expansionLeak: string;
+  expansionScanReached: string;
   normalizedInitialLeak: string;
   env: Readonly<Record<string, string>>;
 }>;
@@ -216,6 +229,10 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const postVerifyEvidence = path.join(root, 'post-verify-evidence');
   const deviceStatus = path.join(root, 'device-status');
   const secretLeak = path.join(root, 'secret-leak');
+  const largeDatabaseMaterial = path.join(root, 'large-database-material');
+  const jsonEscapedLeak = path.join(root, 'json-escaped-leak');
+  const expansionLeak = path.join(root, 'expansion-leak');
+  const expansionScanReached = path.join(root, 'expansion-scan-reached');
   const normalizedInitialLeak = path.join(root, 'normalized-initial-leak');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
@@ -279,7 +296,8 @@ if [[ "$1" == exec ]]; then
       --command=*) command_query+="${'$'}{argument#--command=}"$'\n' ;;
     esac
   done
-  input="$(cat)"
+  copy_data="$(cat)"
+  input="$copy_data"
   if [[ -n "$command_query" ]]; then
     input="$command_query"
     printf '%s\n[COPY DATA OMITTED]\n-- invocation --\n' "$input" >>'${sql}'
@@ -416,11 +434,21 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$input" == *'octet_length(body)<=49152'* && "$input" == *"encode(convert_to(body,'UTF8'),'base64')"* ]]; then
+    if [[ -f '${largeDatabaseMaterial}' ]]; then
+      exit 0
+    fi
     if [[ -f '${secretLeak}' ]]; then
       printf '%s' 'eyJlbWJlZGRlZCI6IkJDREZHSEpLIn0='
     else
       printf '%s' 'e30='
     fi
+    exit 0
+  fi
+  if [[ "$input" == *'CREATE TEMP TABLE phase2_private_secret_variants'* && "$input" == *'position(decode(variants.encoded'* ]]; then
+    if [[ -f '${expansionLeak}' && ${'$'}{#copy_data} -gt 1048576 && "$copy_data" == *'${encodedExpansionLeak}'* ]]; then
+      : >'${expansionScanReached}'
+      printf '%s' 1
+    elif [[ -f '${secretLeak}' || ( -f '${jsonEscapedLeak}' && "$copy_data" == *'${encodedJsonEscapedSecret}'* ) ]]; then printf '%s' 1; else printf '%s' 0; fi
     exit 0
   fi
   if [[ "$input" == *'SELECT count(*) FROM aster_tenant.device_authorizations'* && "$*" == *'aster_phase1_candidate_foreign'* ]]; then
@@ -588,6 +616,10 @@ exec /usr/bin/python3.12 "$@"
     postVerifyEvidence,
     deviceStatus,
     secretLeak,
+    largeDatabaseMaterial,
+    jsonEscapedLeak,
+    expansionLeak,
+    expansionScanReached,
     normalizedInitialLeak,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
@@ -2280,6 +2312,42 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       expect(result.stdout).not.toContain(secret);
       expect(result.stderr).not.toContain(secret);
     }
+    expect(sql).toContain('CREATE TEMP TABLE phase2_private_secret_variants');
+    expect(sql).toContain('COPY phase2_private_secret_variants FROM STDIN');
+    expect(sql).toContain("SET LOCAL statement_timeout='20s'");
+    expect(sql).toContain("SET LOCAL lock_timeout='5s'");
+    expect(sql).toContain("position(decode(variants.encoded,'base64')");
+    expect(sql).not.toContain('string_agg(body');
+  });
+
+  it('scans secret variants when tenant database material exceeds the driver output cap', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.largeDatabaseMaterial, 'present', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-evidence.secret-material-absent',
+          'probe',
+          {
+            deviceCode: 'private-device-code-large-database',
+            userCode: 'BCDF-GHJK',
+            xsrf: 'private-xsrf-large-database',
+            password: 'private-password-large-database',
+            clientSecrets: ['private-client-large-database'],
+            tokens: ['private-token-large-database'],
+          },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      projection: { invariant: 'secret-material-absent', database: 'clear-material-absent' },
+    });
   });
 
   it('rejects a normalized clear user code planted in final-state material', async () => {
@@ -2310,6 +2378,85 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       stdout: '',
       stderr: 'Phase 2 client credentials invariant driver failed.\n',
     });
+  });
+
+  it('rejects JSON-escaped quote and backslash secret material without logging it', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.jsonEscapedLeak, 'present', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-evidence.secret-material-absent',
+          'probe',
+          {
+            deviceCode: 'private-device-code-json-escape',
+            userCode: 'BCDF-GHJK',
+            xsrf: 'private-xsrf-json-escape',
+            password: jsonEscapedSecret,
+            clientSecrets: ['private-client-json-escape'],
+            tokens: ['private-token-json-escape'],
+          },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+
+    expect(result).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    const calls = await readFile(harness.calls, 'utf8');
+    const sql = await readFile(harness.sql, 'utf8');
+    for (const value of [jsonEscapedSecret, encodedJsonEscapedSecret]) {
+      expect(calls).not.toContain(value);
+      expect(sql).not.toContain(value);
+      expect(result.stdout).not.toContain(value);
+      expect(result.stderr).not.toContain(value);
+    }
+  });
+
+  it('scans max-cardinality expansion-heavy material and rejects the planted value', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.expansionLeak, 'present', { mode: 0o600 });
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest(
+          'device-evidence.secret-material-absent',
+          'probe',
+          {
+            deviceCode: expansionSecrets[0],
+            userCode: expansionSecrets[1],
+            xsrf: expansionSecrets[2],
+            password: expansionSecrets[3],
+            clientSecrets: expansionSecrets.slice(4, 8),
+            tokens: expansionSecrets.slice(8, 12),
+          },
+          { issuedStatus: 200 }
+        )
+      ),
+      harness.env
+    );
+
+    expect(result).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await expect(stat(harness.expansionScanReached)).resolves.toBeDefined();
+    const calls = await readFile(harness.calls, 'utf8');
+    const sql = await readFile(harness.sql, 'utf8');
+    for (const value of [expansionSecrets[11] ?? '', encodedExpansionLeak]) {
+      expect(calls).not.toContain(value);
+      expect(sql).not.toContain(value);
+      expect(result.stdout).not.toContain(value);
+      expect(result.stderr).not.toContain(value);
+    }
   });
 
   it('executes all five invariant probes, restores faults, and keeps secrets out of argv', async () => {

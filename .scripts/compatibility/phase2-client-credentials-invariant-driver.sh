@@ -598,87 +598,72 @@ device_row_by_device_code() {
 
 secret_variants() {
   "$PYTHON_BIN" -c '
-import base64, sys, urllib.parse
+import base64, json, sys, urllib.parse
 raw=sys.stdin.buffer.read(16385)
 if not raw or len(raw)>16384 or any(value in raw for value in (b"\x00",b"\n",b"\r",b"\t")): raise SystemExit(1)
 text=raw.decode("utf-8")
 encoded=base64.b64encode(raw).decode("ascii")
 urlsafe=base64.urlsafe_b64encode(raw).decode("ascii")
-variants={text,raw.hex(),raw.hex().upper(),encoded,encoded.rstrip("="),urlsafe,urlsafe.rstrip("="),urllib.parse.quote(text,safe=""),urllib.parse.quote_plus(text,safe="")}
+json_escaped=json.dumps(text,ensure_ascii=False)[1:-1]
+variants={text,json_escaped,raw.hex(),raw.hex().upper(),encoded,encoded.rstrip("="),urlsafe,urlsafe.rstrip("="),urllib.parse.quote(text,safe=""),urllib.parse.quote_plus(text,safe="")}
 for value in sorted(variants): print(value)
 '
 }
 
 assert_secret_material_absent() {
-  local expression=$1 secret_count secret_index planted descriptors
-  descriptors='[]'
+  local expression=$1 secret_count secret_index planted encoded_variants variants
+  encoded_variants=''
   secret_count="$(value "$expression | length")" || die
   for ((secret_index=0; secret_index<secret_count; secret_index+=1)); do
     planted="$(value "$expression | .[$secret_index]")" || die
-    descriptors="$(printf '%s\n' "$descriptors" "$(printf '%s' "$planted" | secret_variants | secret_variant_descriptors)" | "$JQ_BIN" -sc 'add|unique_by([.byteLength,.sha256])')" || die
+    variants="$(printf '%s' "$planted" | secret_variants | encode_secret_variants)" || die
+    encoded_variants+="${encoded_variants:+$'\n'}$variants"
   done
-  assert_secret_descriptors_absent "$descriptors"
+  assert_secret_variants_absent "$encoded_variants"
 }
 
 assert_normalized_user_code_absent() {
-  local user_code descriptors
+  local user_code encoded_variants
   user_code="$(value '.private.userCode')" || die
-  descriptors="$(printf '%s' "$user_code" | "$PYTHON_BIN" -c '
+  encoded_variants="$(printf '%s' "$user_code" | "$PYTHON_BIN" -c '
 import sys
 normalized=sys.stdin.read().replace("-","").upper()
 if not normalized or len(normalized)>4096: raise SystemExit(1)
 sys.stdout.write(normalized)
-' | secret_variants | secret_variant_descriptors)" || die
-  assert_secret_descriptors_absent "$descriptors"
+' | secret_variants | encode_secret_variants)" || die
+  assert_secret_variants_absent "$encoded_variants"
 }
 
-secret_variant_descriptors() {
+encode_secret_variants() {
   "$PYTHON_BIN" -c '
-import hashlib,json,sys
+import base64,sys
 values={line.rstrip(b"\n") for line in sys.stdin.buffer.readlines()}
 if not values or any(not value or len(value)>65536 for value in values): raise SystemExit(1)
-print(json.dumps([{"byteLength":len(value),"sha256":hashlib.sha256(value).hexdigest()} for value in sorted(values)],separators=(",",":")))
+for value in sorted(values): print(base64.b64encode(value).decode("ascii"))
 '
 }
 
-database_secret_material() {
-  run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
-WITH material AS (
-  SELECT COALESCE(string_agg(body,''),'') body FROM (
-    SELECT to_jsonb(row)::text body FROM aster_tenant.device_authorizations row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.interactions row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.grants row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.sessions row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id='default'
-    UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.session_access_tokens row WHERE tenant_id='default'
-  ) rows
-)
-SELECT CASE WHEN octet_length(body)<=49152 THEN encode(convert_to(body,'UTF8'),'base64') ELSE NULL END
-FROM material;
-SQL
-}
-
-assert_secret_descriptors_absent() {
-  local descriptors=$1 material
-  material="$(database_secret_material)" || die
-  [[ -n "$material" && ${#material} -le $MAX_OUTPUT_BYTES ]] || die
-  printf '%s\n%s' "$descriptors" "$material" | "$PYTHON_BIN" -c '
-import base64,hashlib,json,re,sys
-descriptor_line=sys.stdin.buffer.readline(65537)
-encoded=sys.stdin.buffer.read(65537)
-if not descriptor_line.endswith(b"\n") or not encoded or len(encoded)>65536: raise SystemExit(1)
-try:
-    descriptors=json.loads(descriptor_line)
-    material=base64.b64decode(re.sub(rb"\s+",b"",encoded),validate=True)
-except Exception: raise SystemExit(1)
-if not isinstance(descriptors,list) or not descriptors or len(descriptors)>128 or len(material)>49152: raise SystemExit(1)
-for item in descriptors:
-    if set(item)!={"byteLength","sha256"} or not isinstance(item["byteLength"],int) or not 1<=item["byteLength"]<=65536 or not re.fullmatch(r"[0-9a-f]{64}",item["sha256"]): raise SystemExit(1)
-    size=item["byteLength"]
-    for start in range(0,len(material)-size+1):
-        if hashlib.sha256(material[start:start+size]).hexdigest()==item["sha256"]: raise SystemExit(1)
-' || die
+assert_secret_variants_absent() {
+  local encoded_variants=$1 matches
+  [[ -n "$encoded_variants" ]] || die
+  matches="$(printf '%s\n' "$encoded_variants" | "$PYTHON_BIN" -c '
+import base64,binascii,sys
+payload=sys.stdin.buffer.read(4194305)
+if not payload or len(payload)>4194304: raise SystemExit(1)
+lines=payload.splitlines()
+# The 64 KiB request admits twelve secrets and up to eleven forms per secret.
+# Keep conservative headroom for deduplication changes and base64-wrapped expansion.
+if not 1<=len(lines)<=256 or any(not line or len(line)>87384 for line in lines): raise SystemExit(1)
+try: decoded=[base64.b64decode(line,validate=True) for line in lines]
+except binascii.Error: raise SystemExit(1)
+if any(not value or len(value)>65536 or base64.b64encode(value)!=line for value,line in zip(decoded,lines)): raise SystemExit(1)
+sys.stdout.buffer.write(b"\n".join(sorted(set(lines)))+b"\n")
+' | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+    --command=$'SET LOCAL statement_timeout=\'20s\';\nSET LOCAL lock_timeout=\'5s\';' \
+    --command='CREATE TEMP TABLE phase2_private_secret_variants(encoded text) ON COMMIT DROP;' \
+    --command='COPY phase2_private_secret_variants FROM STDIN;' \
+    --command=$'WITH material(body) AS (\n  SELECT to_jsonb(row)::text FROM aster_tenant.device_authorizations row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.interactions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.grants row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.sessions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.session_access_tokens row WHERE tenant_id=\'default\'\n)\nSELECT count(*) FROM phase2_private_secret_variants variants\nWHERE EXISTS (SELECT 1 FROM material WHERE position(decode(variants.encoded,\'base64\') in convert_to(material.body,\'UTF8\'))>0);')" || die
+  [[ "$matches" == 0 ]] || die
 }
 
 drop_device_failure() {
@@ -1049,7 +1034,7 @@ SQL
       ;;
     device-evidence.secret-material-absent:probe)
       [[ "$(value '.observation.issuedStatus')" == 200 ]] || die
-      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"; xsrf="$(value '.private.xsrf')"
+      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
       row="$(device_row "$device_code" "$user_code")" || die
       printf '%s' "$row" | "$JQ_BIN" -e '.status=="consumed" and .deviceBytes==32 and .userBytes==32' >/dev/null || die
       clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
