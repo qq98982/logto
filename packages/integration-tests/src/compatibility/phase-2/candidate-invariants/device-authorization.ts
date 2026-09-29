@@ -406,7 +406,8 @@ export const runDeviceCandidateInvariants = async (
     } catch (error: unknown) {
       if (
         (index === 1 && error instanceof DeviceDigestDriverError) ||
-        (index === 2 && error instanceof DeviceCrossTenantDriverError)
+        (index === 2 && error instanceof DeviceCrossTenantDriverError) ||
+        (index === 7 && error instanceof DeviceEvidenceDriverError)
       ) {
         throw error;
       }
@@ -457,6 +458,26 @@ class DeviceDigestDriverError extends Error {
   }
 }
 
+const deviceEvidenceDriverFailurePattern =
+  /^Phase 2 client credentials invariant driver failed \(device-7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-input|scan-query|scan-match|normalized-input|normalized-query|normalized-match)\)\.\n$/u;
+type DeviceEvidenceFailureStage =
+  | 'private-extraction'
+  | 'row-sql'
+  | 'row-facts'
+  | 'schema-query'
+  | 'schema-clear-columns'
+  | 'scan-input'
+  | 'scan-query'
+  | 'scan-match'
+  | 'normalized-input'
+  | 'normalized-query'
+  | 'normalized-match';
+class DeviceEvidenceDriverError extends Error {
+  constructor(readonly stage: DeviceEvidenceFailureStage) {
+    super(`Phase 2 stage failed: candidate-invariant-device-7-${stage}`);
+  }
+}
+
 type DeviceCrossTenantFailureStage =
   | 'arm'
   | 'abort'
@@ -498,6 +519,37 @@ export const deviceDigestFailureStage = (value: unknown): DeviceDigestFailureSta
   }
   return deviceDigestDriverFailurePattern.exec(value.stderr)?.[1] as
     | DeviceDigestFailureStage
+    | undefined;
+};
+
+export const deviceEvidenceFailureStage = (
+  value: unknown
+): DeviceEvidenceFailureStage | undefined => {
+  if (!plainRecord(value)) {
+    return undefined;
+  }
+  if (
+    !isDeepStrictEqual(Object.keys(value), [
+      'exitCode',
+      'signal',
+      'stdout',
+      'stderr',
+      'timedOut',
+      'killed',
+      'reaped',
+    ]) ||
+    value.exitCode !== 42 ||
+    value.signal !== null ||
+    value.stdout !== '' ||
+    typeof value.stderr !== 'string' ||
+    value.timedOut !== false ||
+    value.killed !== false ||
+    value.reaped !== true
+  ) {
+    return undefined;
+  }
+  return deviceEvidenceDriverFailurePattern.exec(value.stderr)?.[1] as
+    | DeviceEvidenceFailureStage
     | undefined;
 };
 
@@ -639,6 +691,12 @@ const createDriver = async (options: LiveDeviceCandidateInvariantOptions) => {
         const substage = deviceDigestFailureStage(rawResult);
         if (substage !== undefined) {
           throw new DeviceDigestDriverError(substage);
+        }
+      }
+      if (id === 'device-evidence.secret-material-absent') {
+        const substage = deviceEvidenceFailureStage(rawResult);
+        if (substage !== undefined) {
+          throw new DeviceEvidenceDriverError(substage);
         }
       }
       return requireDriverResult(rawResult);
@@ -1102,7 +1160,7 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
               return fail();
             }
             const withEvidence = lease.withEvidenceSecretLease ?? fail();
-            return options.fixture.withSecretLease(async (fixtureSecrets) =>
+            const outcome = await options.fixture.withSecretLease(async (fixtureSecrets) =>
               withEvidence(async (secrets) => {
                 const privateValues = Object.freeze({
                   deviceCode: secrets.getDeviceCode(),
@@ -1122,11 +1180,26 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
                     ].filter((value): value is string => typeof value === 'string')
                   ),
                 });
-                return driver(id, 'probe', privateValues, undefined, {
-                  issuedStatus: issued.status,
-                }) as Promise<DeviceCandidateInvariantProjection>;
+                try {
+                  const projection = (await driver(id, 'probe', privateValues, undefined, {
+                    issuedStatus: issued.status,
+                  })) as DeviceCandidateInvariantProjection;
+                  return Object.freeze({ kind: 'projection' as const, projection });
+                } catch (error: unknown) {
+                  if (error instanceof DeviceEvidenceDriverError) {
+                    return Object.freeze({
+                      kind: 'evidence-failure' as const,
+                      stage: error.stage,
+                    });
+                  }
+                  throw error;
+                }
               })
             );
+            if (outcome.kind === 'evidence-failure') {
+              throw new DeviceEvidenceDriverError(outcome.stage);
+            }
+            return outcome.projection;
           });
         }
       }

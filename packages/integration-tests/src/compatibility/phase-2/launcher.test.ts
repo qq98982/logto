@@ -319,6 +319,8 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-invariant-device-2-abort',
       'candidate-invariant-device-2-response',
       'candidate-invariant-device-7',
+      'candidate-invariant-device-7-scan-query',
+      'candidate-invariant-device-7-normalized-match',
     ]) {
       const message = `Phase 2 client credentials command failed (${stage}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
@@ -328,6 +330,8 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-invariant-device-private',
       'candidate-invariant-device-1-unknown',
       'candidate-invariant-device-2-unknown',
+      'candidate-invariant-device-7-unknown',
+      'candidate-invariant-device-7-normalized-match:private-marker',
       'oracle-invariant-device-1-row-missing',
       'oracle-invariant-device-0',
     ]) {

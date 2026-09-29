@@ -18,6 +18,7 @@ signing_corrupted=false
 primary_postgres_id=''
 device_failure_armed=false
 device_digest_failure_substage=''
+device_secret_failure_substage=''
 handle_fd=''
 handle_path=''
 handle_identity=''
@@ -39,6 +40,11 @@ die() {
 device_digest_fail() {
   device_digest_failure_substage=$1
   return 41
+}
+
+device_secret_fail() {
+  device_secret_failure_substage=$1
+  return 42
 }
 
 trusted_root_binary() {
@@ -226,6 +232,10 @@ SQL
   if [[ "$status" == 41 && "$device_digest_failure_substage" =~ ^(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)$ ]]; then
     printf 'Phase 2 client credentials invariant driver failed (device-1-%s).\n' "$device_digest_failure_substage" >&2
     exit 41
+  fi
+  if [[ "$status" == 42 && "$device_secret_failure_substage" =~ ^(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-input|scan-query|scan-match|normalized-input|normalized-query|normalized-match)$ ]]; then
+    printf 'Phase 2 client credentials invariant driver failed (device-7-%s).\n' "$device_secret_failure_substage" >&2
+    exit 42
   fi
   if [[ "$status" -ne 0 ]]; then
     printf '%s\n' "$FAILURE" >&2
@@ -613,25 +623,25 @@ for value in sorted(variants): print(value)
 assert_secret_material_absent() {
   local expression=$1 secret_count secret_index planted encoded_variants variants
   encoded_variants=''
-  secret_count="$(value "$expression | length")" || die
+  secret_count="$(value "$expression | length")" || device_secret_fail private-extraction
   for ((secret_index=0; secret_index<secret_count; secret_index+=1)); do
-    planted="$(value "$expression | .[$secret_index]")" || die
-    variants="$(printf '%s' "$planted" | secret_variants | encode_secret_variants)" || die
+    planted="$(value "$expression | .[$secret_index]")" || device_secret_fail private-extraction
+    variants="$(printf '%s' "$planted" | secret_variants | encode_secret_variants)" || device_secret_fail scan-input
     encoded_variants+="${encoded_variants:+$'\n'}$variants"
   done
-  assert_secret_variants_absent "$encoded_variants"
+  assert_secret_variants_absent "$encoded_variants" scan
 }
 
 assert_normalized_user_code_absent() {
   local user_code encoded_variants
-  user_code="$(value '.private.userCode')" || die
+  user_code="$(value '.private.userCode')" || device_secret_fail normalized-input
   encoded_variants="$(printf '%s' "$user_code" | "$PYTHON_BIN" -c '
 import sys
 normalized=sys.stdin.read().replace("-","").upper()
 if not normalized or len(normalized)>4096: raise SystemExit(1)
 sys.stdout.write(normalized)
-' | secret_variants | encode_secret_variants)" || die
-  assert_secret_variants_absent "$encoded_variants"
+' | secret_variants | encode_secret_variants)" || device_secret_fail normalized-input
+  assert_secret_variants_absent "$encoded_variants" normalized
 }
 
 encode_secret_variants() {
@@ -644,9 +654,10 @@ for value in sorted(values): print(base64.b64encode(value).decode("ascii"))
 }
 
 assert_secret_variants_absent() {
-  local encoded_variants=$1 matches
-  [[ -n "$encoded_variants" ]] || die
-  matches="$(printf '%s\n' "$encoded_variants" | "$PYTHON_BIN" -c '
+  local encoded_variants=$1 context=$2 normalized_variants matches
+  [[ "$context" == scan || "$context" == normalized ]] || die
+  [[ -n "$encoded_variants" ]] || device_secret_fail "$context-input"
+  normalized_variants="$(printf '%s\n' "$encoded_variants" | "$PYTHON_BIN" -c '
 import base64,binascii,sys
 payload=sys.stdin.buffer.read(4194305)
 if not payload or len(payload)>4194304: raise SystemExit(1)
@@ -658,12 +669,13 @@ try: decoded=[base64.b64decode(line,validate=True) for line in lines]
 except binascii.Error: raise SystemExit(1)
 if any(not value or len(value)>65536 or base64.b64encode(value)!=line for value,line in zip(decoded,lines)): raise SystemExit(1)
 sys.stdout.buffer.write(b"\n".join(sorted(set(lines)))+b"\n")
-' | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+')" || device_secret_fail "$context-input"
+  matches="$(printf '%s\n' "$normalized_variants" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
     --command=$'SET LOCAL statement_timeout=\'20s\';\nSET LOCAL lock_timeout=\'5s\';' \
     --command='CREATE TEMP TABLE phase2_private_secret_variants(encoded text) ON COMMIT DROP;' \
     --command='COPY phase2_private_secret_variants FROM STDIN;' \
-    --command=$'WITH material(body) AS (\n  SELECT to_jsonb(row)::text FROM aster_tenant.device_authorizations row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.interactions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.grants row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.sessions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.session_access_tokens row WHERE tenant_id=\'default\'\n)\nSELECT count(*) FROM phase2_private_secret_variants variants\nWHERE EXISTS (SELECT 1 FROM material WHERE position(decode(variants.encoded,\'base64\') in convert_to(material.body,\'UTF8\'))>0);')" || die
-  [[ "$matches" == 0 ]] || die
+    --command=$'WITH material(body) AS (\n  SELECT to_jsonb(row)::text FROM aster_tenant.device_authorizations row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.interactions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.grants row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.sessions row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id=\'default\'\n  UNION ALL SELECT to_jsonb(row)::text FROM aster_tenant.session_access_tokens row WHERE tenant_id=\'default\'\n)\nSELECT count(*) FROM phase2_private_secret_variants variants\nWHERE EXISTS (SELECT 1 FROM material WHERE position(decode(variants.encoded,\'base64\') in convert_to(material.body,\'UTF8\'))>0);')" || device_secret_fail "$context-query"
+  [[ "$matches" == 0 ]] || device_secret_fail "$context-match"
 }
 
 drop_device_failure() {
@@ -1034,16 +1046,17 @@ SQL
       ;;
     device-evidence.secret-material-absent:probe)
       [[ "$(value '.observation.issuedStatus')" == 200 ]] || die
-      device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
-      row="$(device_row "$device_code" "$user_code")" || die
-      printf '%s' "$row" | "$JQ_BIN" -e '.status=="consumed" and .deviceBytes==32 and .userBytes==32' >/dev/null || die
+      device_code="$(value '.private.deviceCode')" || device_secret_fail private-extraction
+      user_code="$(value '.private.userCode')" || device_secret_fail private-extraction
+      row="$(device_row "$device_code" "$user_code")" || device_secret_fail row-sql
+      printf '%s' "$row" | "$JQ_BIN" -e '.status=="consumed" and .deviceBytes==32 and .userBytes==32' >/dev/null || device_secret_fail row-facts
       clear_columns="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='aster_tenant' AND table_name IN ('device_authorizations','interactions','grants','sessions','token_families','refresh_tokens','session_access_tokens')
   AND column_name ~* '(^|_)(password|client_secret|device_code|user_code|xsrf|access_token|refresh_token|id_token)($|_)';
 SQL
-      )" || die
-      [[ "$clear_columns" == 0 ]] || die
+      )" || device_secret_fail schema-query
+      [[ "$clear_columns" == 0 ]] || device_secret_fail schema-clear-columns
       assert_secret_material_absent '.private | [.deviceCode,.userCode,.xsrf,.password]+.clientSecrets+.tokens'
       assert_normalized_user_code_absent
       terminal '{"invariant":"secret-material-absent","database":"clear-material-absent","schema":"closed","evidence":"sanitized","driverOutput":"sanitized"}'

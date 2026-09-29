@@ -9,6 +9,7 @@ import {
   createDeviceCandidateInvariantRegistry,
   createLiveDeviceCandidateInvariantExecutor,
   deviceDigestFailureStage,
+  deviceEvidenceFailureStage,
   deviceCandidateInvariantExpectedProjection,
   deviceCandidateInvariantIds,
   observeConsumedReplayRevocation,
@@ -161,6 +162,156 @@ describe('Phase 2 digest-only invariant diagnostics', () => {
       message: expectedMessage,
     });
     expect(clearCount).toBe(1);
+  });
+});
+
+describe('Phase 2 secret-material invariant diagnostics', () => {
+  it.each([
+    'private-extraction',
+    'row-sql',
+    'row-facts',
+    'schema-query',
+    'schema-clear-columns',
+    'scan-input',
+    'scan-query',
+    'scan-match',
+    'normalized-input',
+    'normalized-query',
+    'normalized-match',
+  ])('accepts the exact value-free %s driver signal', (substage) => {
+    expect(
+      deviceEvidenceFailureStage({
+        exitCode: 42,
+        signal: null,
+        stdout: '',
+        stderr: `Phase 2 client credentials invariant driver failed (device-7-${substage}).\n`,
+        timedOut: false,
+        killed: false,
+        reaped: true,
+      })
+    ).toBe(substage);
+  });
+
+  it.each([
+    [41, 'Phase 2 client credentials invariant driver failed (device-7-row-sql).\n'],
+    [42, 'Phase 2 client credentials invariant driver failed (device-7-unknown).\n'],
+    [42, 'Phase 2 client credentials invariant driver failed (device-7-row-sql).\nsecret\n'],
+    [42, 'Phase 2 client credentials invariant driver failed (device-1-row-sql).\n'],
+  ])('rejects a forged or non-exact driver signal', (exitCode, stderr) => {
+    expect(
+      deviceEvidenceFailureStage({
+        exitCode,
+        signal: null,
+        stdout: '',
+        stderr,
+        timedOut: false,
+        killed: false,
+        reaped: true,
+      })
+    ).toBeUndefined();
+  });
+
+  it('carries an authentic stage through the masking evidence lease and clears it', async () => {
+    let clearCount = 0;
+    let leaseOutcome: unknown;
+    const topology = Object.freeze({ projectName: 'test-topology' });
+    const target = Object.freeze({
+      label: 'candidate' as const,
+      coreUrl: 'https://candidate.example/',
+      adminUrl: 'https://candidate-admin.example/',
+    });
+    const executor = await createLiveDeviceCandidateInvariantExecutor({
+      profile: profile(),
+      target,
+      foreignTarget: Object.freeze({
+        label: 'candidate' as const,
+        coreUrl: 'https://foreign.example/',
+        adminUrl: 'https://foreign-admin.example/',
+      }),
+      fixture: {
+        public: {
+          deviceClients: { firstParty: { id: 'device-client' } },
+        },
+        status: { user: { id: 'subject-id', username: 'subject@example.test' } },
+        withSecretLease: async (use: (secrets: unknown) => Promise<unknown>) =>
+          use({
+            getSubjectPassword: () => 'private-password',
+            getClientSecret: () => 'private-client-secret',
+            getStatusClientSecret: () => 'private-status-secret',
+          }),
+      } as never,
+      driverPath: path.resolve(
+        process.cwd(),
+        '../..',
+        '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
+      ),
+      controlSocket: '/var/tmp/henry-build/device-evidence-diagnostic-test.sock',
+      topology: topology as never,
+      state: {} as never,
+      jwks: { keys: [] },
+      createTransport: (() => ({
+        requestAuthorization: async () => ({ status: 200, deviceCodeShape: 'opaque' }),
+        requestVerification: async () => ({ status: 200 }),
+        requestLifecycle: async () => ({ status: 200 }),
+        pollToken: async () => ({ status: 200 }),
+        withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+          try {
+            leaseOutcome = await use({
+              getDeviceCode: () => 'private-device-code',
+              getUserCode: () => 'BCDF-GHJK',
+              getAuditXsrf: () => 'private-xsrf',
+              getAccessToken: () => 'private-access-token',
+              getRefreshToken: () => 'private-refresh-token',
+              getIdToken: () => 'private-id-token',
+            });
+            if (
+              typeof leaseOutcome !== 'object' ||
+              leaseOutcome === null ||
+              !Object.isFrozen(leaseOutcome) ||
+              JSON.stringify(leaseOutcome).includes('private-')
+            ) {
+              throw new TypeError('invalid evidence lease callback outcome');
+            }
+            return leaseOutcome;
+          } catch {
+            throw new TypeError('masked evidence lease failure');
+          }
+        },
+        clear: () => {
+          clearCount += 1;
+        },
+      })) as never,
+      runner: async () => ({
+        exitCode: 42,
+        signal: null,
+        stdout: '',
+        stderr: 'Phase 2 client credentials invariant driver failed (device-7-normalized-match).\n',
+        timedOut: false,
+        killed: false,
+        reaped: true,
+      }),
+    });
+
+    await expect(executor.execute('device-evidence.secret-material-absent')).rejects.toMatchObject({
+      message: 'Phase 2 stage failed: candidate-invariant-device-7-normalized-match',
+    });
+    expect(leaseOutcome).toEqual({ kind: 'evidence-failure', stage: 'normalized-match' });
+    expect(clearCount).toBe(1);
+  });
+
+  it('does not accept a forged secret-material substage from an executor', async () => {
+    await expect(
+      runDeviceCandidateInvariants(profile(), {
+        execute: async (id) => {
+          if (id === deviceCandidateInvariantIds[7]) {
+            throw new Error('Phase 2 stage failed: candidate-invariant-device-7-normalized-match');
+          }
+          return deviceCandidateInvariantExpectedProjection(id);
+        },
+      })
+    ).rejects.toMatchObject({
+      message: 'Phase 2 stage failed: candidate-invariant-device-7',
+    });
   });
 });
 

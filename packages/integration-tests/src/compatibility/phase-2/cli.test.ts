@@ -844,6 +844,8 @@ describe('Phase 2 CLI', () => {
         'candidate-invariant-device-2-abort',
         'candidate-invariant-device-2-finish',
         'candidate-invariant-device-7',
+        'candidate-invariant-device-7-private-extraction',
+        'candidate-invariant-device-7-normalized-match',
       ].map(async (stage) => {
         const calls: string[] = [];
         const base = dependencies(calls);
@@ -880,6 +882,8 @@ describe('Phase 2 CLI', () => {
       'candidate-invariant-device-1-row-sql: private credential',
       'candidate-invariant-device-2-unknown',
       'candidate-invariant-device-2-finish: private credential',
+      'candidate-invariant-device-7-unknown',
+      'candidate-invariant-device-7-normalized-match: private credential',
     ]) {
       const calls: string[] = [];
       const base = dependencies(calls);

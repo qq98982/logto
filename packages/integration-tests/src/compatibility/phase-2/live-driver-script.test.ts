@@ -141,6 +141,7 @@ type Harness = Readonly<{
   expansionLeak: string;
   expansionScanReached: string;
   normalizedInitialLeak: string;
+  secretScanQueryFailure: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -234,6 +235,7 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const expansionLeak = path.join(root, 'expansion-leak');
   const expansionScanReached = path.join(root, 'expansion-scan-reached');
   const normalizedInitialLeak = path.join(root, 'normalized-initial-leak');
+  const secretScanQueryFailure = path.join(root, 'secret-scan-query-failure');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -445,6 +447,7 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$input" == *'CREATE TEMP TABLE phase2_private_secret_variants'* && "$input" == *'position(decode(variants.encoded'* ]]; then
+    if [[ -f '${secretScanQueryFailure}' ]]; then exit 1; fi
     if [[ -f '${expansionLeak}' && ${'$'}{#copy_data} -gt 1048576 && "$copy_data" == *'${encodedExpansionLeak}'* ]]; then
       : >'${expansionScanReached}'
       printf '%s' 1
@@ -621,6 +624,7 @@ exec /usr/bin/python3.12 "$@"
     expansionLeak,
     expansionScanReached,
     normalizedInitialLeak,
+    secretScanQueryFailure,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -2350,6 +2354,68 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     });
   });
 
+  it('reports the closed device-7 row-facts stage without exposing private material', async () => {
+    const harness = await createHarness();
+    const privateValues = {
+      deviceCode: 'private-device-code-device-7-row-facts',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-device-7-row-facts',
+      password: 'private-password-device-7-row-facts',
+      clientSecrets: ['private-client-device-7-row-facts'],
+      tokens: ['private-token-device-7-row-facts'],
+    };
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-evidence.secret-material-absent', 'probe', privateValues, {
+          issuedStatus: 200,
+        })
+      ),
+      harness.env
+    );
+
+    expect(result).toEqual({
+      code: 42,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-7-row-facts).\n',
+    });
+    for (const secret of Object.values(privateValues).flat()) {
+      expect(result.stderr).not.toContain(secret);
+    }
+  });
+
+  it('reports the closed device-7 scan-query stage without exposing private material', async () => {
+    const harness = await createHarness();
+    await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
+    await writeFile(harness.secretScanQueryFailure, 'present', { mode: 0o600 });
+    const privateValues = {
+      deviceCode: 'private-device-code-device-7-scan-query',
+      userCode: 'BCDF-GHJK',
+      xsrf: 'private-xsrf-device-7-scan-query',
+      password: 'private-password-device-7-scan-query',
+      clientSecrets: ['private-client-device-7-scan-query'],
+      tokens: ['private-token-device-7-scan-query'],
+    };
+    const result = await invoke(
+      harness.invariant,
+      JSON.stringify(
+        deviceInvariantRequest('device-evidence.secret-material-absent', 'probe', privateValues, {
+          issuedStatus: 200,
+        })
+      ),
+      harness.env
+    );
+
+    expect(result).toEqual({
+      code: 42,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-7-scan-query).\n',
+    });
+    for (const secret of Object.values(privateValues).flat()) {
+      expect(result.stderr).not.toContain(secret);
+    }
+  });
+
   it('rejects a normalized clear user code planted in final-state material', async () => {
     const harness = await createHarness();
     await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
@@ -2374,9 +2440,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       harness.env
     );
     expect(finish).toEqual({
-      code: 1,
+      code: 42,
       stdout: '',
-      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-7-scan-match).\n',
     });
   });
 
@@ -2405,9 +2471,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     );
 
     expect(result).toEqual({
-      code: 1,
+      code: 42,
       stdout: '',
-      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-7-scan-match).\n',
     });
     const calls = await readFile(harness.calls, 'utf8');
     const sql = await readFile(harness.sql, 'utf8');
@@ -2444,9 +2510,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     );
 
     expect(result).toEqual({
-      code: 1,
+      code: 42,
       stdout: '',
-      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+      stderr: 'Phase 2 client credentials invariant driver failed (device-7-scan-match).\n',
     });
     await expect(stat(harness.expansionScanReached)).resolves.toBeDefined();
     const calls = await readFile(harness.calls, 'utf8');
