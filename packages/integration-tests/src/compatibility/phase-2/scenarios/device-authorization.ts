@@ -1786,14 +1786,41 @@ export const compareDeviceScenarioProjections = (
   if (
     oracleKind === 'device-verification-follow' ||
     candidateKind === 'device-verification-follow' ||
-    oracleKind === 'device-consent-sequence' ||
-    candidateKind === 'device-consent-sequence' ||
     oracleKind === 'device-token-lifecycle' ||
     candidateKind === 'device-token-lifecycle'
   ) {
     return JSON.stringify(oracle) === JSON.stringify(candidate)
       ? Object.freeze([])
       : Object.freeze(['/sequence']);
+  }
+  if (oracleKind === 'device-consent-sequence' || candidateKind === 'device-consent-sequence') {
+    if (oracleKind !== 'device-consent-sequence' || candidateKind !== 'device-consent-sequence') {
+      return Object.freeze(['/sequence']);
+    }
+    const oracleSequence = oracle as DeviceConsentSequenceProjection;
+    const candidateSequence = candidate as DeviceConsentSequenceProjection;
+    const differences = [
+      ...(oracleSequence.mode === candidateSequence.mode ? [] : ['/sequence/mode']),
+      ...((oracleSequence.firstIssued === undefined) ===
+      (candidateSequence.firstIssued === undefined)
+        ? []
+        : ['/sequence/firstIssued']),
+      ...(oracleSequence.firstIssued === undefined || candidateSequence.firstIssued === undefined
+        ? []
+        : compareDeviceAuthorizationProjections(
+            oracleSequence.firstIssued,
+            candidateSequence.firstIssued
+          ).map((path) => `/sequence/firstIssued${path}`)),
+      ...compareDeviceAuthorizationProjections(
+        oracleSequence.consent,
+        candidateSequence.consent
+      ).map((path) => `/sequence/consent${path}`),
+      ...compareDeviceAuthorizationProjections(
+        oracleSequence.completion,
+        candidateSequence.completion
+      ).map((path) => `/sequence/completion${path}`),
+    ];
+    return Object.freeze([...new Set(differences)].sort());
   }
   return compareDeviceAuthorizationProjections(
     oracle as

@@ -40,6 +40,13 @@ import { validatePhase2TargetDescriptor } from './runtime.js';
 describe('device projection diagnostic fields', () => {
   it('maps a nested cookie difference to its closed root field', () => {
     expect(deviceProjectionDifferenceField('/cookies/0/name')).toBe('cookies');
+    expect(deviceProjectionDifferenceField('/sequence/completion/cookies/0/options/0')).toBe(
+      'completion-cookies'
+    );
+    expect(deviceProjectionDifferenceField('/sequence/private/cookies/0/name')).toBe('other');
+    expect(deviceProjectionDifferenceField('/sequence/completion/private-token/value')).toBe(
+      'other'
+    );
     expect(deviceProjectionDifferenceField('/private-token/value')).toBe('other');
   });
 });
@@ -903,6 +910,10 @@ describe('Phase 2 CLI', () => {
       'projection-cookies',
       'candidate/device-verification.already-used-code:projection-cookies'
     );
+    await runSuffix(
+      'projection-completion-cookies',
+      'candidate/device-verification.already-used-code:projection-completion-cookies'
+    );
     await Promise.all(
       [
         'approval',
@@ -928,6 +939,7 @@ describe('Phase 2 CLI', () => {
     await runSuffix('approval:private', 'differential-execution');
     await runSuffix('approval-password:private', 'differential-execution');
     await runSuffix('projection-cookies:private', 'differential-execution');
+    await runSuffix('projection-completion-private', 'differential-execution');
   });
 
   it('reports a bounded public status stage without printing its private exception', async () => {

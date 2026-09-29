@@ -31,6 +31,7 @@ import {
   runUsedCodeStep,
   type DeviceAuthorizationScenarioRuntime,
   type DeviceAuthorizationScenarioId,
+  type DeviceConsentSequenceProjection,
   type DeviceScenarioProjection,
   type DeviceScenarioStateAction,
 } from './device-authorization.js';
@@ -1136,6 +1137,70 @@ describe('Phase 2 device authorization scenarios', () => {
         )
       ).toThrow('Invalid Phase 2 device authorization scenario');
     }
+  });
+
+  it('reports child paths for device consent sequence differences', () => {
+    const sequence = (
+      mode: DeviceConsentSequenceProjection['mode'] = 'first-party-matching-grant'
+    ): DeviceConsentSequenceProjection => ({
+      kind: 'device-consent-sequence',
+      mode,
+      ...(mode === 'first-party-matching-grant' ? { firstIssued: authorizationResponse() } : {}),
+      consent: lifecycleProjection('consent-read'),
+      completion: lifecycleProjection('resume'),
+    });
+    const oracle = sequence();
+
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        sequence(),
+        'device-consent.first-party-matching-grant-required'
+      )
+    ).toEqual([]);
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        {
+          ...sequence(),
+          firstIssued: { ...authorizationResponse(), keys: ['device_code'] },
+        },
+        'device-consent.first-party-matching-grant-required'
+      )
+    ).toEqual(['/sequence/firstIssued/keys/0']);
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        {
+          ...sequence(),
+          consent: {
+            ...lifecycleProjection('consent-read'),
+            cookies: [{ name: '_aster', options: ['httpOnly'], clearing: false }],
+          },
+        },
+        'device-consent.first-party-matching-grant-required'
+      )
+    ).toEqual(['/sequence/consent/cookies/0']);
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        {
+          ...sequence(),
+          completion: {
+            ...lifecycleProjection('resume'),
+            cookies: [{ name: '_aster', options: ['httpOnly'], clearing: false }],
+          },
+        },
+        'device-consent.first-party-matching-grant-required'
+      )
+    ).toEqual(['/sequence/completion/cookies/0']);
+    expect(
+      compareDeviceScenarioProjections(
+        oracle,
+        sequence('third-party'),
+        'device-consent.first-party-matching-grant-required'
+      )
+    ).toEqual(['/sequence/firstIssued', '/sequence/mode']);
   });
 
   it('restores required undefined slots after public projection JSON round trips', () => {

@@ -209,16 +209,35 @@ const deviceProjectionDifferenceFields = Object.freeze([
 ] as const);
 type DeviceProjectionDifferenceField = (typeof deviceProjectionDifferenceFields)[number];
 const deviceProjectionDifferenceFieldSet = new Set<string>(deviceProjectionDifferenceFields);
+const deviceConsentSequenceChildren = Object.freeze([
+  'firstIssued',
+  'consent',
+  'completion',
+] as const);
+type DeviceConsentSequenceChild = (typeof deviceConsentSequenceChildren)[number];
+const deviceConsentSequenceChildSet = new Set<string>(deviceConsentSequenceChildren);
+type DeviceConsentSequenceDifferenceField =
+  `${DeviceConsentSequenceChild}-${DeviceProjectionDifferenceField}`;
 export const deviceProjectionDifferenceField = (
   pointer: unknown
-): DeviceProjectionDifferenceField => {
-  const root = typeof pointer === 'string' ? /^\/([^/]+)(?:\/|$)/u.exec(pointer)?.[1] : undefined;
+): DeviceProjectionDifferenceField | DeviceConsentSequenceDifferenceField => {
+  const parts = typeof pointer === 'string' ? pointer.split('/').slice(1) : [];
+  const [root, child, childField] = parts;
+  if (
+    root === 'sequence' &&
+    child &&
+    deviceConsentSequenceChildSet.has(child) &&
+    childField &&
+    deviceProjectionDifferenceFieldSet.has(childField)
+  ) {
+    return `${child as DeviceConsentSequenceChild}-${childField as DeviceProjectionDifferenceField}`;
+  }
   return root && deviceProjectionDifferenceFieldSet.has(root)
     ? (root as DeviceProjectionDifferenceField)
     : 'other';
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
