@@ -417,17 +417,66 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).toContain('wait_for_fixture_socket');
     expect(source).toMatch(/deadline=\$\(\(SECONDS \+ 180\)\)/u);
     expect(source).toMatch(
-      /if \[\[ "\$status" == running && -n "\$health" && "\$health" != healthy \]\]; then\n\s*\/usr\/bin\/sleep 1\n\s*continue/u
+      /if \[\[ "\$status" == running && -n "\$health" && "\$health" != healthy \]\]; then[\s\S]*--connect-timeout 3 --max-time 3[\s\S]*libpod\/containers\/\$\{id\}\/healthcheck[\s\S]*\/usr\/bin\/sleep 3\n\s*continue/u
     );
     expect(source).toMatch(
       /\[\[ "\$status\|\$exit_code\|\$health" == 'running\|0\|healthy' \]\] && return 0/u
     );
     expect(source).toContain('[[ "$status" != exited || "$exit_code" == 0 ]] || return 1');
-    expect(source).not.toMatch(/libpod\/containers\/\$\{id\}\/healthcheck/u);
+    expect(source).toContain('PODMAN_API_VERSION="$("$CURL_BIN"');
+    expect(source).toContain('readonly PODMAN_API_VERSION');
     expect(source).not.toContain('assert_driver_discovery_port');
     expect(source).not.toMatch(/--filter\s+"publish=\$\{?port/u);
     expect(source).not.toMatch(
       /CANDIDATE_SERVICES=\([\s\S]*candidate-(?:phase0|connector-host|saml-host|script-host)/u
+    );
+  });
+
+  it('retries a failed active health probe while the matching container stays running', async () => {
+    const tracePath = path.join(temporaryRoot, 'healthcheck-retry.trace');
+    const counterPath = path.join(temporaryRoot, 'healthcheck-retry.count');
+    const harnessPath = path.join(temporaryRoot, 'healthcheck-retry-harness.sh');
+    const containerId = 'a'.repeat(64);
+    const project = 'aster-phase2-client-credentials-1111111111111111';
+    const harness = `#!/usr/bin/env bash
+set -euo pipefail
+source ${JSON.stringify(runnerPath)}
+TRACE=${JSON.stringify(tracePath)}
+COUNTER=${JSON.stringify(counterPath)}
+ORACLE_PROJECT_NAME=aster-phase2-client-credentials-0000000000000000
+CANDIDATE_PROJECT_NAME=${project}
+ENGINE_SOCKET=/var/tmp/henry-build/fake-podman.sock
+PODMAN_API_VERSION=5.4.0
+CURL_BIN=curl_stub
+printf '0\n' >"$COUNTER"
+compose_for() {
+  [[ "$1 $2 $3 $4 $5" == 'candidate ps --all -q candidate-primary-postgres' ]] || return 1
+  printf '%s\\n' ${containerId}
+}
+docker_cli() {
+  [[ "$1" == inspect ]] || return 1
+  inspect_count="$(<"$COUNTER")"
+  inspect_count=$((inspect_count + 1))
+  printf '%s\n' "$inspect_count" >"$COUNTER"
+  if [[ "$inspect_count" == 1 ]]; then
+    printf '%s|running|0|starting|%s|candidate-primary-postgres\\n' ${containerId} ${project}
+  else
+    printf '%s|running|0|healthy|%s|candidate-primary-postgres\\n' ${containerId} ${project}
+  fi
+}
+curl_stub() {
+  printf 'curl:%s\\n' "$*" >>"$TRACE"
+  return 28
+}
+export -f curl_stub
+wait_for_service candidate candidate-primary-postgres
+[[ "$(<"$COUNTER")" == 2 ]]
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(readFile(tracePath, 'utf8')).resolves.toBe(
+      `curl:--silent --show-error --connect-timeout 3 --max-time 3 --output /dev/null --write-out %{http_code} --unix-socket /var/tmp/henry-build/fake-podman.sock http://localhost/v5.4.0/libpod/containers/${containerId}/healthcheck\n`
     );
   });
 

@@ -306,7 +306,11 @@ wait_for_service() {
       IFS='|' read -r id status exit_code health project label <<<"$metadata"
       [[ "$id" =~ ^[0-9a-f]{64}$ && "$project" == "$(project_name_for "$role")" && "$label" == "$service" ]] || return 1
       if [[ "$status" == running && -n "$health" && "$health" != healthy ]]; then
-        /usr/bin/sleep 1
+        "$CURL_BIN" --silent --show-error --connect-timeout 3 --max-time 3 --output /dev/null \
+          --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" \
+          "http://localhost/v${PODMAN_API_VERSION}/libpod/containers/${id}/healthcheck" \
+          >/dev/null 2>&1 || true
+        /usr/bin/sleep 3
         continue
       fi
       case "$service" in
@@ -1125,11 +1129,12 @@ main() {
 
   failure_stage='podman-api'
   [[ "$($CURL_BIN --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' --unix-socket "$ENGINE_SOCKET" http://localhost/libpod/_ping)" == 200 ]] || { fail; return 1; }
-  "$CURL_BIN" --fail --silent --show-error --max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
+  PODMAN_API_VERSION="$("$CURL_BIN" --fail --silent --show-error --max-time 30 --unix-socket "$ENGINE_SOCKET" http://localhost/version | "$NODE_BIN" -e '
     let s=""; process.stdin.on("data", c => s += c).on("end", () => {
       const v=JSON.parse(s).Components?.find(c => c.Name === "Podman Engine")?.Details?.APIVersion;
-      if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1);
-    });' || { fail; return 1; }
+      if (!/^\d+\.\d+\.\d+$/.test(v ?? "")) process.exit(1); process.stdout.write(v);
+    });')" || { fail; return 1; }
+  readonly PODMAN_API_VERSION
   docker_cli compose version >/dev/null 2>&1 || { failure_stage='compose-provider'; fail; return 1; }
 
   failure_stage='images'
