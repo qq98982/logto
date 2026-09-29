@@ -99,6 +99,8 @@ type ReferenceProvisionerOptions = Readonly<{
   createAllocationId?: () => string;
 }>;
 
+export type Phase2CandidateFixtureRecipe = 'dataProtocol' | 'phase2CandidateInvariants';
+
 type CandidateProvisionerOptions = Readonly<{
   target: TargetConfig;
   foreignTarget: TargetConfig;
@@ -108,6 +110,7 @@ type CandidateProvisionerOptions = Readonly<{
   identityFence?: Phase2InvocationFence;
   createAllocationId?: () => string;
   createSecret?: () => string;
+  recipe?: Phase2CandidateFixtureRecipe;
 }>;
 
 type FixtureState = {
@@ -164,6 +167,34 @@ const candidateDeviceUserConsentScopes = Object.freeze([
 ]);
 const deviceResourceScopeIds = Object.freeze(['phase1-read-profile', 'read-scope', 'write-scope']);
 const requestTimeoutMs = 10_000;
+
+const phase2PrimaryCoordinatorEntities = Object.freeze([
+  ['tenant', 'default', 'default'],
+  ['user', 'phase1-user', 'zdata-user'],
+  ['application', 'phase1-app', 'phase1-app'],
+  ['application', 'phase1-browser', 'phase1-browser'],
+  ['resource', 'phase1-api', 'phase1-api'],
+  ['scope', 'phase1-read-profile', 'phase1-read-profile'],
+  ['role', 'phase1-reader', 'phase1-reader'],
+  ['application', 'phase2-m2m-basic', 'phase2-m2m-basic'],
+  ['application', 'phase2-m2m-post', 'phase2-m2m-post'],
+  ['application', 'phase2-status', 'phase2-status'],
+  ['application', 'phase2-device-first', 'phase2-device-first'],
+  ['application', 'phase2-device-third', 'phase2-device-third'],
+  ['application', 'phase2-device-nogrant', 'phase2-device-nogrant'],
+  ['application', 'phase2-device-web', 'phase2-device-web'],
+  ['resource', 'phase2-resource-primary', 'p2-resource-primary'],
+  ['scope', 'read-scope', 'read-scope'],
+  ['scope', 'write-scope', 'write-scope'],
+  ['scope', 'unassigned-scope', 'unassigned-scope'],
+  ['resource', 'phase2-resource', 'phase2-resource'],
+  ['scope', 'default-scope', 'default-scope'],
+  ['organization', 'phase2-org', 'phase2-org'],
+] as const);
+const phase2ForeignCoordinatorEntities = Object.freeze([
+  ['tenant', 'default', 'default'],
+  ['application', 'phase2-device-first', 'phase2-device-first'],
+] as const);
 
 const frozenCandidateFixtures = Object.freeze({
   adminTenant: Object.freeze({
@@ -1428,27 +1459,80 @@ const parseCommandOutput = (
 
 const validateCoordinatorPublic = (
   value: unknown,
-  allocationId: string
+  allocationId: string,
+  recipe: Phase2CandidateFixtureRecipe
 ): Readonly<Record<string, unknown>> => {
   const publicMap = exactRecord(value, ['schemaVersion', 'recipe', 'allocations']);
   const allocations = own(publicMap, 'allocations');
+  const expectedAllocations =
+    recipe === 'phase2CandidateInvariants'
+      ? ([
+          {
+            role: 'data',
+            target: 'primary',
+            entities: phase2PrimaryCoordinatorEntities,
+          },
+          {
+            role: 'foreign',
+            target: 'foreign',
+            entities: phase2ForeignCoordinatorEntities,
+          },
+        ] as const)
+      : ([
+          {
+            role: 'data',
+            target: 'primary',
+            entities: phase2PrimaryCoordinatorEntities,
+          },
+        ] as const);
   if (
     own(publicMap, 'schemaVersion') !== 1 ||
-    own(publicMap, 'recipe') !== 'dataProtocol' ||
+    own(publicMap, 'recipe') !== recipe ||
     !Array.isArray(allocations) ||
-    allocations.length !== 1
+    allocations.length !== expectedAllocations.length
   ) {
     return fail();
   }
-  const allocation = exactRecord(allocations[0]);
-  if (
-    own(allocation, 'allocationId') !== allocationId ||
-    own(allocation, 'role') !== 'data' ||
-    own(allocation, 'target') !== 'primary'
-  ) {
-    return fail();
-  }
-  return Object.freeze({ ...publicMap });
+  const closedAllocations = expectedAllocations.map((expected, index) => {
+    const allocation = exactRecord(allocations[index], [
+      'allocationId',
+      'role',
+      'target',
+      'entities',
+    ]);
+    const entities = own(allocation, 'entities');
+    if (
+      own(allocation, 'allocationId') !== allocationId ||
+      own(allocation, 'role') !== expected.role ||
+      own(allocation, 'target') !== expected.target ||
+      !Array.isArray(entities) ||
+      entities.length !== expected.entities.length
+    ) {
+      return fail();
+    }
+    const closedEntities = expected.entities.map(([kind, logicalId, runtimeId], entityIndex) => {
+      const entity = exactRecord(entities[entityIndex], ['kind', 'logicalId', 'runtimeId']);
+      if (
+        own(entity, 'kind') !== kind ||
+        own(entity, 'logicalId') !== logicalId ||
+        own(entity, 'runtimeId') !== runtimeId
+      ) {
+        return fail();
+      }
+      return Object.freeze({ kind, logicalId, runtimeId });
+    });
+    return Object.freeze({
+      allocationId,
+      role: expected.role,
+      target: expected.target,
+      entities: Object.freeze(closedEntities),
+    });
+  });
+  return Object.freeze({
+    schemaVersion: 1,
+    recipe,
+    allocations: Object.freeze(closedAllocations),
+  });
 };
 
 export const createCandidatePhase2FixtureProvisioner = (
@@ -1461,6 +1545,7 @@ export const createCandidatePhase2FixtureProvisioner = (
   const runner = options.runner ?? runPhase1FixtureCommand;
   const createAllocationId = options.createAllocationId ?? randomUUID;
   const createSecret = options.createSecret ?? (() => randomBytes(16).toString('hex'));
+  const recipe = options.recipe ?? 'dataProtocol';
   const states = new WeakMap<object, FixtureState>();
 
   const run = async (
@@ -1514,7 +1599,7 @@ export const createCandidatePhase2FixtureProvisioner = (
       const descriptor = Object.freeze({
         schemaVersion: 1,
         operation: 'cleanup',
-        recipe: 'dataProtocol',
+        recipe,
         allocationId: state.allocationId,
         ...(state.coordinatorPublic && { public: state.coordinatorPublic }),
       });
@@ -1659,7 +1744,7 @@ export const createCandidatePhase2FixtureProvisioner = (
       const descriptor = Object.freeze({
         schemaVersion: 1,
         operation: 'provision',
-        recipe: 'dataProtocol',
+        recipe,
         allocationId,
         profile: Object.freeze({
           fixtures: Object.freeze({ ...frozenCandidateFixtures, phase2 }),
@@ -1685,7 +1770,11 @@ export const createCandidatePhase2FixtureProvisioner = (
           await cleanupAllocation(state);
           result = await run(descriptor, 'provision', state.sensitiveValues);
         }
-        state.coordinatorPublic = validateCoordinatorPublic(own(result, 'public'), allocationId);
+        state.coordinatorPublic = validateCoordinatorPublic(
+          own(result, 'public'),
+          allocationId,
+          recipe
+        );
         const publicFixture = candidatePublicFixture(allocationId);
         const fixture = createFixture(publicFixture, secrets, state, {
           user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
@@ -1724,7 +1813,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         Object.freeze({
           schemaVersion: 1,
           operation: 'projectState',
-          recipe: 'dataProtocol',
+          recipe,
           allocationId: state.allocationId,
           public: state.coordinatorPublic ?? fail(),
         }),

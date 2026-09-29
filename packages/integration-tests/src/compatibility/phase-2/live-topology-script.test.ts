@@ -995,6 +995,34 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(publish).toBeGreaterThan(cleanup);
   });
 
+  it('rejects a pre-existing invariant-handle root and fences only the root created by this run', () => {
+    expect(source).toContain("INVARIANT_HANDLE_ROOT=''");
+    expect(source).toContain("INVARIANT_HANDLE_ROOT_IDENTITY=''");
+    expect(source).toContain(
+      'INVARIANT_HANDLE_ROOT="$(/usr/bin/dirname -- "$ENGINE_SOCKET")/phase2-device-invariants"'
+    );
+    const rejectExisting = source.indexOf(
+      '[[ ! -e "$INVARIANT_HANDLE_ROOT" && ! -L "$INVARIANT_HANDLE_ROOT" ]]'
+    );
+    const main = source.indexOf('\nmain() {');
+    const create = source.indexOf('/usr/bin/mkdir -m 700 -- "$INVARIANT_HANDLE_ROOT"');
+    const identity = source.indexOf(
+      'INVARIANT_HANDLE_ROOT_IDENTITY="$(capture_path_identity "$INVARIANT_HANDLE_ROOT")"'
+    );
+    expect(main).toBeGreaterThan(0);
+    expect(rejectExisting).toBeGreaterThan(0);
+    expect(rejectExisting).toBeGreaterThan(main);
+    expect(create).toBeGreaterThan(rejectExisting);
+    expect(identity).toBeGreaterThan(create);
+    expect(source.slice(main, create)).not.toContain(
+      'remove_invariant_handle_root "$INVARIANT_HANDLE_ROOT"'
+    );
+    expect(source).toContain(
+      ['[[ -n "$', '{INVARIANT_HANDLE_ROOT_IDENTITY:-}" ]] || return 1'].join('')
+    );
+    expect(source).toContain('assert_path_identity "$root" "$INVARIANT_HANDLE_ROOT_IDENTITY"');
+  });
+
   it('accepts cleanup when every fixed port is already released', async () => {
     const harnessPath = path.join(temporaryRoot, 'released-ports-harness.sh');
     const harness = `#!/usr/bin/env bash
@@ -1030,6 +1058,102 @@ remove_state_handle_root ${JSON.stringify(stateRoot)}
 
     await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(lstat(stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    ['armed', 'a'.repeat(32), '{"private":"opaque"}'],
+    ['retired', `.quarantine.${'b'.repeat(32)}`, '{"schemaVersion":1,"retired":true}'],
+  ] as const)(
+    'removes a verified %s invariant handle without inspecting its payload',
+    async (_, name, payload) => {
+      const invariantRoot = await mkdtemp(path.join(temporaryRoot, 'invariant-root-'));
+      await chmod(invariantRoot, 0o700);
+      await writeFile(path.join(invariantRoot, name), payload, { mode: 0o600 });
+      const harnessPath = path.join(temporaryRoot, `invariant-root-${name.slice(0, 8)}.sh`);
+      const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+remove_invariant_handle_root ${JSON.stringify(invariantRoot)}
+`;
+      await writeFile(harnessPath, harness, { mode: 0o500 });
+
+      await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+      await expect(lstat(invariantRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  );
+
+  it.each(['unexpected', 'symlink', 'wrong-mode', 'multiple-links', 'empty', 'oversize'] as const)(
+    'fails closed and preserves a %s invariant-handle entry',
+    async (kind) => {
+      const invariantRoot = await mkdtemp(path.join(temporaryRoot, `invalid-invariant-${kind}-`));
+      await chmod(invariantRoot, 0o700);
+      const entry = path.join(invariantRoot, kind === 'unexpected' ? 'foreign' : 'c'.repeat(32));
+      if (kind === 'symlink') {
+        const target = path.join(temporaryRoot, `invariant-target-${Date.now()}`);
+        await writeFile(target, 'private', { mode: 0o600 });
+        await symlink(target, entry);
+      } else {
+        const payload =
+          kind === 'empty' ? '' : kind === 'oversize' ? 'x'.repeat(65_537) : 'private';
+        await writeFile(entry, payload, { mode: kind === 'wrong-mode' ? 0o640 : 0o600 });
+        if (kind === 'multiple-links') {
+          await link(entry, path.join(temporaryRoot, `linked-invariant-${Date.now()}`));
+        }
+      }
+      const harnessPath = path.join(temporaryRoot, `invalid-invariant-${kind}.sh`);
+      const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+if remove_invariant_handle_root ${JSON.stringify(invariantRoot)}; then exit 19; fi
+`;
+      await writeFile(harnessPath, harness, { mode: 0o500 });
+
+      await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+      await expect(lstat(entry)).resolves.toBeDefined();
+    }
+  );
+
+  it('refuses to adopt a configured invariant root without this run identity', async () => {
+    const invariantRoot = await mkdtemp(path.join(temporaryRoot, 'unowned-invariant-root-'));
+    await chmod(invariantRoot, 0o700);
+    const entry = path.join(invariantRoot, 'f'.repeat(32));
+    await writeFile(entry, 'private', { mode: 0o600 });
+    const harnessPath = path.join(temporaryRoot, 'unowned-invariant-root.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+INVARIANT_HANDLE_ROOT=${JSON.stringify(invariantRoot)}
+INVARIANT_HANDLE_ROOT_IDENTITY=''
+if remove_invariant_handle_root "$INVARIANT_HANDLE_ROOT"; then exit 19; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(lstat(entry)).resolves.toBeDefined();
+  });
+
+  it('keeps state-handle cleanup independent from invariant-handle cleanup', async () => {
+    const stateRoot = await mkdtemp(path.join(temporaryRoot, 'independent-state-root-'));
+    const invariantRoot = await mkdtemp(path.join(temporaryRoot, 'independent-invariant-root-'));
+    await Promise.all([chmod(stateRoot, 0o700), chmod(invariantRoot, 0o700)]);
+    const stateEntry = path.join(stateRoot, `.quarantine.${'d'.repeat(32)}`);
+    await Promise.all([
+      writeFile(stateEntry, '{"schemaVersion":1,"retired":true}', { mode: 0o600 }),
+      writeFile(path.join(invariantRoot, 'e'.repeat(32)), 'private', { mode: 0o600 }),
+    ]);
+    const harnessPath = path.join(temporaryRoot, 'independent-handle-roots.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+remove_invariant_handle_root ${JSON.stringify(invariantRoot)}
+[[ -f ${JSON.stringify(stateEntry)} ]]
+remove_state_handle_root ${JSON.stringify(stateRoot)}
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(lstat(stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(invariantRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('fails closed and preserves a dangling state-handle root symlink', async () => {

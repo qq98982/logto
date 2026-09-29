@@ -30,6 +30,7 @@ import {
   createCandidatePhase2FixtureProvisioner,
   createReferencePhase2FixtureProvisioner,
   runWithPhase2Fixture,
+  type Phase2CandidateFixtureRecipe,
   type Phase2FixtureProvisioner,
   type ProvisionedPhase2Fixture,
 } from './fixtures.js';
@@ -801,7 +802,15 @@ const projectDiscovery = async (
   });
 };
 
-const provisionerFor = (prepared: PreparedPhase2Target): Phase2FixtureProvisioner => {
+export const phase2FixtureRecipeForMode = (
+  mode: Phase2CliCommand['mode']
+): Phase2CandidateFixtureRecipe =>
+  mode === 'candidate-invariants' ? 'phase2CandidateInvariants' : 'dataProtocol';
+
+const provisionerFor = (
+  prepared: PreparedPhase2Target,
+  recipe: Phase2CandidateFixtureRecipe
+): Phase2FixtureProvisioner => {
   const { descriptor } = prepared;
   return descriptor.kind === 'oracle'
     ? createReferencePhase2FixtureProvisioner({
@@ -816,6 +825,7 @@ const provisionerFor = (prepared: PreparedPhase2Target): Phase2FixtureProvisione
           ASTER_FIXTURE_SOCKET: descriptor.fixtureSocket,
         },
         identityFence: prepared.fence,
+        recipe,
       });
 };
 
@@ -854,7 +864,7 @@ const runTargetScenarios = async (
     identityFence: prepared.fence,
   });
   const jwtAudit = createClientCredentialsJwtAudit();
-  const provisioner = provisionerFor(prepared);
+  const provisioner = provisionerFor(prepared, phase2FixtureRecipeForMode('differential'));
   const scenarios = await runWithPhase2Fixture(provisioner, async (fixture) => {
     await waitForClientCredentialsFixtureReady(descriptor.target, fixture.public);
     const jwks = await fetchPhase2PublicJwks(descriptor.target);
@@ -1147,7 +1157,7 @@ const executeCandidateInvariants = async (
     return fail();
   }
   const { invariantDriver } = target;
-  const provisioner = provisionerFor(prepared);
+  const provisioner = provisionerFor(prepared, phase2FixtureRecipeForMode('candidate-invariants'));
   const state = await createCommandPhase2ScenarioStateDriver({
     descriptor: target,
     identityFence: prepared.fence,

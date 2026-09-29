@@ -46,6 +46,8 @@ ORACLE_PROJECT_STARTED=0
 CANDIDATE_PROJECT_STARTED=0
 EXTRACTION_CONTAINER_ID=''
 STATE_HANDLE_ROOT=''
+INVARIANT_HANDLE_ROOT=''
+INVARIANT_HANDLE_ROOT_IDENTITY=''
 PROXY_PIDS=()
 PROXY_PGIDS=()
 PROXY_TOKENS=()
@@ -616,6 +618,84 @@ remove_state_handle_root() {
   /usr/bin/rmdir -- "$root"
 }
 
+capture_invariant_handle_identity() {
+  local entry=$1 identity device inode owner mode links size type current_uid
+  [[ -f "$entry" && ! -L "$entry" ]] || return 1
+  current_uid=$(/usr/bin/id -u) || return 1
+  identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%F' -- "$entry" 2>/dev/null)" || return 1
+  IFS='|' read -r device inode owner mode links size type <<<"$identity"
+  [[ "$device" =~ ^[0-9]+$ && "$inode" =~ ^[0-9]+$ && "$owner" == "$current_uid" && \
+     "$mode" == 600 && "$links" == 1 && "$size" =~ ^[0-9]+$ && "$type" == 'regular file' ]] || return 1
+  ((10#$size >= 1 && 10#$size <= 65536)) || return 1
+  printf '%s' "$identity"
+}
+
+assert_invariant_handle_root_owned() {
+  local root=$1 entry name
+  local -a entries=()
+  [[ -n "$root" && -d "$root" && ! -L "$root" ]] || return 1
+  [[ "$(/usr/bin/realpath -e -- "$root" 2>/dev/null || true)" == "$root" ]] || return 1
+  [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "$root" 2>/dev/null || true)" == "$(/usr/bin/id -u)|700|directory" ]] || return 1
+  if [[ -n "${INVARIANT_HANDLE_ROOT:-}" && "$root" == "$INVARIANT_HANDLE_ROOT" ]]; then
+    [[ -n "${INVARIANT_HANDLE_ROOT_IDENTITY:-}" ]] || return 1
+    assert_path_identity "$root" "$INVARIANT_HANDLE_ROOT_IDENTITY" || return 1
+  fi
+  shopt -s nullglob dotglob
+  entries=("$root"/*)
+  shopt -u nullglob dotglob
+  ((${#entries[@]} <= 64)) || return 1
+  for entry in "${entries[@]}"; do
+    name=${entry##*/}
+    [[ "$name" =~ ^[0-9a-f]{32}$ || "$name" =~ ^\.quarantine\.[0-9a-f]{32}$ ]] || return 1
+    capture_invariant_handle_identity "$entry" >/dev/null || return 1
+  done
+}
+
+remove_invariant_handle_root() {
+  local root=$1 root_identity entry name identity full_identity cleanup_path cleanup_identity index
+  local -a entries=() identities=() full_identities=() cleanup_paths=()
+  [[ -z "$root" || ( ! -e "$root" && ! -L "$root" ) ]] && return 0
+  assert_invariant_handle_root_owned "$root" || return 1
+  root_identity="$(capture_path_identity "$root")" || return 1
+  shopt -s nullglob dotglob
+  entries=("$root"/*)
+  shopt -u nullglob dotglob
+  for index in "${!entries[@]}"; do
+    entry=${entries[index]}
+    name=${entry##*/}
+    identity="$(capture_invariant_handle_identity "$entry")" || return 1
+    full_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%y|%z|%F' -- "$entry" 2>/dev/null || true)" || return 1
+    if [[ "$name" =~ ^[0-9a-f]{32}$ ]]; then
+      cleanup_path="$root/.cleanup.armed.$name"
+    else
+      cleanup_path="$root/.cleanup.retired.${name#*.quarantine.}"
+    fi
+    [[ ! -e "$cleanup_path" && ! -L "$cleanup_path" ]] || return 1
+    identities+=("$identity")
+    full_identities+=("$full_identity")
+    cleanup_paths+=("$cleanup_path")
+  done
+  assert_path_identity "$root" "$root_identity" || return 1
+  for index in "${!entries[@]}"; do
+    entry=${entries[index]}
+    identity=${identities[index]}
+    full_identity=${full_identities[index]}
+    cleanup_path=${cleanup_paths[index]}
+    assert_path_identity "$root" "$root_identity" || return 1
+    [[ "$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%y|%z|%F' -- "$entry" 2>/dev/null || true)" == "$full_identity" ]] || return 1
+    /usr/bin/mv --no-clobber --no-target-directory -- "$entry" "$cleanup_path" || return 1
+    [[ ! -e "$entry" && ! -L "$entry" ]] || return 1
+    cleanup_identity="$(capture_invariant_handle_identity "$cleanup_path")" || return 1
+    [[ "$cleanup_identity" == "$identity" ]] || return 1
+    full_identity="$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%y|%z|%F' -- "$cleanup_path" 2>/dev/null || true)" || return 1
+    [[ "$(/usr/bin/stat -c '%d|%i|%u|%a|%h|%s|%y|%z|%F' -- "$cleanup_path" 2>/dev/null || true)" == "$full_identity" ]] || return 1
+    /usr/bin/rm -- "$cleanup_path" || return 1
+    assert_path_identity "$root" "$root_identity" || return 1
+  done
+  assert_path_identity "$root" "$root_identity" || return 1
+  /usr/bin/rmdir -- "$root"
+}
+
 assert_ports_released() {
   local port attempt state released
   for port in "$@"; do
@@ -711,6 +791,7 @@ cleanup_resources() {
       fi
     fi
     if [[ -z "$EXTRACTION_CONTAINER_ID" && ${#PROXY_PIDS[@]} == 0 && "$CANDIDATE_PROJECT_STARTED" == 0 && "$ORACLE_PROJECT_STARTED" == 0 ]]; then
+      remove_invariant_handle_root "$INVARIANT_HANDLE_ROOT" || cleanup_failed=1
       remove_state_handle_root "$STATE_HANDLE_ROOT" || cleanup_failed=1
       assert_ports_released "${PORTS[@]}" || cleanup_failed=1
       if [[ -n "$RUN_DIR" ]]; then
@@ -836,6 +917,7 @@ assert_runtime_identity_unchanged() {
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
+  assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || return 1
   assert_state_handle_root_clean || return 1
   assert_path_identity "$BUILD_ROOT" "$BUILD_ROOT_IDENTITY" || return 1
   assert_path_identity "$RUN_DIR" "$RUN_DIR_IDENTITY"
@@ -1056,8 +1138,10 @@ main() {
   verify_private_socket "$ENGINE_SOCKET" || { failure_stage='engine-socket'; fail; return 1; }
   ENGINE_SOCKET_IDENTITY="$(socket_identity "$ENGINE_SOCKET")"
   STATE_HANDLE_ROOT="$(/usr/bin/dirname -- "$ENGINE_SOCKET")/phase2-client-credentials-state"
+  INVARIANT_HANDLE_ROOT="$(/usr/bin/dirname -- "$ENGINE_SOCKET")/phase2-device-invariants"
   [[ ! -e "$STATE_HANDLE_ROOT" && ! -L "$STATE_HANDLE_ROOT" ]] || { failure_stage='state-handle-root'; fail; return 1; }
-  readonly ENGINE_SOCKET ENGINE_SOCKET_IDENTITY STATE_HANDLE_ROOT
+  [[ ! -e "$INVARIANT_HANDLE_ROOT" && ! -L "$INVARIANT_HANDLE_ROOT" ]] || { failure_stage='invariant-handle-root'; fail; return 1; }
+  readonly ENGINE_SOCKET ENGINE_SOCKET_IDENTITY STATE_HANDLE_ROOT INVARIANT_HANDLE_ROOT
 
   ASTER_ROOT="$ASTER_PHASE2_ASTER_ROOT"
   [[ "$ASTER_ROOT" == /* && -d "$ASTER_ROOT" && ! -L "$ASTER_ROOT" ]] || { failure_stage='aster-root'; fail; return 1; }
@@ -1123,6 +1207,9 @@ main() {
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
 
   trap cleanup_trap EXIT
+  /usr/bin/mkdir -m 700 -- "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
+  INVARIANT_HANDLE_ROOT_IDENTITY="$(capture_path_identity "$INVARIANT_HANDLE_ROOT")" || { failure_stage='invariant-handle-root'; fail; return 1; }
+  assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP

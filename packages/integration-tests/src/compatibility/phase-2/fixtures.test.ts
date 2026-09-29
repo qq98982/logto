@@ -38,6 +38,38 @@ const candidateForeign: TargetConfig = Object.freeze({
   adminUrl: 'http://127.0.0.1:4204/',
 });
 
+const primaryCoordinatorEntities = [
+  ['tenant', 'default', 'default'],
+  ['user', 'phase1-user', 'zdata-user'],
+  ['application', 'phase1-app', 'phase1-app'],
+  ['application', 'phase1-browser', 'phase1-browser'],
+  ['resource', 'phase1-api', 'phase1-api'],
+  ['scope', 'phase1-read-profile', 'phase1-read-profile'],
+  ['role', 'phase1-reader', 'phase1-reader'],
+  ['application', 'phase2-m2m-basic', 'phase2-m2m-basic'],
+  ['application', 'phase2-m2m-post', 'phase2-m2m-post'],
+  ['application', 'phase2-status', 'phase2-status'],
+  ['application', 'phase2-device-first', 'phase2-device-first'],
+  ['application', 'phase2-device-third', 'phase2-device-third'],
+  ['application', 'phase2-device-nogrant', 'phase2-device-nogrant'],
+  ['application', 'phase2-device-web', 'phase2-device-web'],
+  ['resource', 'phase2-resource-primary', 'p2-resource-primary'],
+  ['scope', 'read-scope', 'read-scope'],
+  ['scope', 'write-scope', 'write-scope'],
+  ['scope', 'unassigned-scope', 'unassigned-scope'],
+  ['resource', 'phase2-resource', 'phase2-resource'],
+  ['scope', 'default-scope', 'default-scope'],
+  ['organization', 'phase2-org', 'phase2-org'],
+].map(([kind, logicalId, runtimeId]) => ({ kind, logicalId, runtimeId }));
+const foreignCoordinatorEntities = [
+  { kind: 'tenant', logicalId: 'default', runtimeId: 'default' },
+  {
+    kind: 'application',
+    logicalId: 'phase2-device-first',
+    runtimeId: 'phase2-device-first',
+  },
+];
+
 const commandResult = (stdout: string): CommandRunnerResult => ({
   exitCode: 0,
   signal: null,
@@ -497,7 +529,7 @@ describe('Phase 2 fixture lifecycle', () => {
                   allocationId: 'candidate-fixture',
                   role: 'data',
                   target: 'primary',
-                  entities: [],
+                  entities: primaryCoordinatorEntities,
                 },
               ],
             },
@@ -743,6 +775,196 @@ describe('Phase 2 fixture lifecycle', () => {
     }
   });
 
+  it('uses one phase2CandidateInvariants composite allocation for provision, projection, and cleanup', async () => {
+    const requests: CommandRunnerRequest[] = [];
+    let cleanupCalls = 0;
+    const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
+      requests.push(request);
+      const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
+      if (descriptor.operation === 'provision') {
+        return commandResult(
+          JSON.stringify({
+            schemaVersion: 1,
+            operation: 'provision',
+            public: {
+              schemaVersion: 1,
+              recipe: 'phase2CandidateInvariants',
+              allocations: [
+                {
+                  allocationId: 'candidate-invariants-fixture',
+                  role: 'data',
+                  target: 'primary',
+                  entities: primaryCoordinatorEntities,
+                },
+                {
+                  allocationId: 'candidate-invariants-fixture',
+                  role: 'foreign',
+                  target: 'foreign',
+                  entities: foreignCoordinatorEntities,
+                },
+              ],
+            },
+          })
+        );
+      }
+      if (descriptor.operation === 'projectState') {
+        return commandResult(
+          JSON.stringify({
+            schemaVersion: 1,
+            operation: 'projectState',
+            projection: { allocations: [] },
+          })
+        );
+      }
+      cleanupCalls += 1;
+      return cleanupCalls === 1
+        ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+        : rejectedCommandResult();
+    };
+    const sensitiveValues = ['e'.repeat(32), 'f'.repeat(32), '1'.repeat(32), '2'.repeat(32)];
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      runner,
+      recipe: 'phase2CandidateInvariants',
+      createAllocationId: () => 'candidate-invariants-fixture',
+      createSecret: () => sensitiveValues.shift() ?? 'unexpected',
+    });
+
+    const fixture = await provisioner.provision();
+    await provisioner.projectState(fixture);
+    await provisioner.cleanup(fixture);
+
+    const descriptors = requests.map(({ stdin }) => JSON.parse(stdin) as Record<string, unknown>);
+    expect(descriptors.map(({ recipe }) => recipe)).toEqual([
+      'phase2CandidateInvariants',
+      'phase2CandidateInvariants',
+      'phase2CandidateInvariants',
+      'phase2CandidateInvariants',
+    ]);
+    for (const descriptor of descriptors.slice(1)) {
+      expect(descriptor.public).toEqual({
+        schemaVersion: 1,
+        recipe: 'phase2CandidateInvariants',
+        allocations: [
+          {
+            allocationId: 'candidate-invariants-fixture',
+            role: 'data',
+            target: 'primary',
+            entities: primaryCoordinatorEntities,
+          },
+          {
+            allocationId: 'candidate-invariants-fixture',
+            role: 'foreign',
+            target: 'foreign',
+            entities: foreignCoordinatorEntities,
+          },
+        ],
+      });
+      expect(JSON.stringify(descriptor)).not.toMatch(/[ef]{32}|1{32}|2{32}/u);
+    }
+  });
+
+  it.each([
+    [
+      'an extra allocation field',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        entities: primaryCoordinatorEntities,
+        privateValue: 'not-public',
+      },
+    ],
+    [
+      'missing entities',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+      },
+    ],
+    [
+      'the wrong entities',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        entities: [],
+      },
+    ],
+    [
+      'a malformed entity',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        entities: [
+          { ...primaryCoordinatorEntities[0], privateValue: 'not-public' },
+          ...primaryCoordinatorEntities.slice(1),
+        ],
+      },
+    ],
+    [
+      'a secret-bearing entity',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        entities: [
+          { ...primaryCoordinatorEntities[0], runtimeId: 'a'.repeat(32) },
+          ...primaryCoordinatorEntities.slice(1),
+        ],
+      },
+    ],
+  ])('rejects coordinator public output with %s', async (_label, primaryAllocation) => {
+    let cleanupCalls = 0;
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      recipe: 'phase2CandidateInvariants',
+      createAllocationId: () => 'invalid-public-fixture',
+      createSecret: (() => {
+        const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+        return () => secrets.shift() ?? 'unexpected';
+      })(),
+      runner: async (request) => {
+        const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
+        if (descriptor.operation === 'provision') {
+          return commandResult(
+            JSON.stringify({
+              schemaVersion: 1,
+              operation: 'provision',
+              public: {
+                schemaVersion: 1,
+                recipe: 'phase2CandidateInvariants',
+                allocations: [
+                  primaryAllocation,
+                  {
+                    allocationId: 'invalid-public-fixture',
+                    role: 'foreign',
+                    target: 'foreign',
+                    entities: foreignCoordinatorEntities,
+                  },
+                ],
+              },
+            })
+          );
+        }
+        cleanupCalls += 1;
+        return cleanupCalls === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+  });
+
   it('reconciles one failed candidate provision and retries the exact descriptor once', async () => {
     const requests: CommandRunnerRequest[] = [];
     let provisionAttempts = 0;
@@ -771,7 +993,7 @@ describe('Phase 2 fixture lifecycle', () => {
                   allocationId: 'candidate-retry',
                   role: 'data',
                   target: 'primary',
-                  entities: [],
+                  entities: primaryCoordinatorEntities,
                 },
               ],
             },
@@ -882,7 +1104,7 @@ describe('Phase 2 fixture lifecycle', () => {
                     allocationId: 'production-secrets',
                     role: 'data',
                     target: 'primary',
-                    entities: [],
+                    entities: primaryCoordinatorEntities,
                   },
                 ],
               },
@@ -970,7 +1192,7 @@ describe('Phase 2 fixture lifecycle', () => {
                     allocationId: 'noop-candidate',
                     role: 'data',
                     target: 'primary',
-                    entities: [],
+                    entities: primaryCoordinatorEntities,
                   },
                 ],
               },
