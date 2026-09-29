@@ -831,6 +831,36 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only closed ID claim-key structural diagnostics', async () => {
+    const claimName = /readonly id_claim_name='([^'\n]+)'/u.exec(source)?.[1];
+    expect(claimName).toBeDefined();
+    const claimSet = `(none|${claimName}(,${claimName})*)`;
+    const shellClaimSetReference = ['$', '{id_claim_set}'].join('');
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? "([^"\n]*Phase 2 device ID claimKeys differ[^"\n]+)" "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]?.replaceAll(shellClaimSetReference, claimSet)
+    ).filter((pattern): pattern is string => pattern !== undefined);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const accepted =
+      'Phase 2 device ID claimKeys differ (only on oracle: acr,amr,organizations; only on candidate: none).';
+    const rejected = [
+      accepted.replace('organizations', 'private-token'),
+      accepted + ' private-value',
+    ];
+    await expect(
+      Promise.all(patterns.map(async (pattern) => grepMatches(pattern, accepted)))
+    ).resolves.toEqual([true, true]);
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual([false, false, false, false]);
+  });
+
   it('executes both command diagnostic allowlists against closed sanitizer substages', async () => {
     const patterns = Array.from(
       source.matchAll(

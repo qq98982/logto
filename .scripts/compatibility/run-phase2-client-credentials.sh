@@ -1400,6 +1400,11 @@ NODE
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)/device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+:projection-id-(claimKeys|claimTypes-(aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+:projection-id-(claimKeys|claimTypes-(aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
+    readonly id_claim_name='(iss|aud|sub|iat|exp|nbf|auth_time|sid|jti|client_id|acr|amr|name|picture|username|email|email_verified|phone_number|phone_number_verified|family_name|given_name|middle_name|nickname|preferred_username|profile|website|gender|birthdate|zoneinfo|locale|address|created_at|updated_at|roles|organizations|organization_roles|organization_id|permissions)'
+    readonly id_claim_set="(none|${id_claim_name}(,${id_claim_name})*)"
+    if /usr/bin/grep -Eq "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr" >&2
+    fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi

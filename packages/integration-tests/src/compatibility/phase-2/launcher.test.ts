@@ -142,6 +142,28 @@ describe('Phase 2 tracked launcher', () => {
       const message = `Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-${stage}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
     }
+    const claimKeysDifference =
+      'Phase 2 client credentials command failed (candidate/device-token.refresh-organization-selection:projection-id-claimKeys).\n' +
+      'Phase 2 device ID claimKeys differ (only on oracle: acr,amr,organizations; only on candidate: none).\n';
+    expect(diagnosticForPhase2Child(claimKeysDifference)).toBe(claimKeysDifference);
+    expect(
+      diagnosticForPhase2ChildResult({
+        timedOut: false,
+        signal: null,
+        code: 1,
+        stdout: '',
+        stderr: claimKeysDifference,
+      })
+    ).toBe(claimKeysDifference);
+    for (const message of [
+      claimKeysDifference.replace('organizations', 'private-token'),
+      claimKeysDifference.replace('projection-id-claimKeys', 'projection-id-signature'),
+      claimKeysDifference + 'private-value\n',
+    ]) {
+      expect(diagnosticForPhase2Child(message)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+    }
     for (const stage of [
       'approval',
       'approval-authorize',

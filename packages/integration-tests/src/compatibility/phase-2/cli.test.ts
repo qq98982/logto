@@ -26,7 +26,9 @@ import {
 } from './candidate-invariants/device-authorization.js';
 import {
   closedDeviceFailureStage,
+  deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
+  deviceScenarioProjectionFailure,
   parsePhase2Arguments,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
@@ -60,6 +62,47 @@ describe('device projection diagnostic fields', () => {
     expect(deviceProjectionDifferenceField('/id/lifetimeSeconds')).toBe('id-other');
     expect(deviceProjectionDifferenceField('/id/claims/claimTypes/private-token')).toBe('id-other');
     expect(deviceProjectionDifferenceField('/id/private-token/value')).toBe('id-other');
+  });
+
+  it('reports sorted allowlisted ID claim-key differences without claim values', () => {
+    expect(
+      deviceIdClaimKeysDifferenceDiagnostic(
+        {
+          id: {
+            claims: {
+              claimKeys: [
+                'sub',
+                'iss',
+                'email',
+                'auth_time',
+                'organizations',
+                'organization_roles',
+              ],
+              claimTypes: { private: 'oracle-secret' },
+            },
+          },
+        },
+        {
+          id: {
+            claims: {
+              claimKeys: ['iss', 'sub', 'jti', 'client_id'],
+              claimTypes: { private: 'candidate-secret' },
+            },
+          },
+        }
+      )
+    ).toBe(
+      'Phase 2 device ID claimKeys differ (only on oracle: auth_time,email,organization_roles,organizations; only on candidate: client_id,jti).'
+    );
+  });
+
+  it('refuses an ID claim-key diagnostic outside the closed claim-name allowlist', () => {
+    expect(
+      deviceIdClaimKeysDifferenceDiagnostic(
+        { id: { claims: { claimKeys: ['iss', 'private-token'] } } },
+        { id: { claims: { claimKeys: ['iss'] } } }
+      )
+    ).toBeUndefined();
   });
 });
 
@@ -834,6 +877,60 @@ describe('Phase 2 CLI', () => {
       'Phase 2 client credentials command failed (candidate/device-token.concurrent-reference-multi-winner).';
     expect(calls).toContain(`stderr:${exact}`);
     expect(calls.join(' ')).not.toContain('private');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports only closed ID claim-key structure beside the fixed scenario failure', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw deviceScenarioProjectionFailure(
+            'device-token.refresh-organization-selection',
+            '/id/claims/claimKeys/0',
+            {
+              id: {
+                claims: {
+                  claimKeys: [
+                    'iss',
+                    'sub',
+                    'email',
+                    'auth_time',
+                    'organizations',
+                    'organization_roles',
+                  ],
+                },
+              },
+            },
+            { id: { claims: { claimKeys: ['iss', 'sub', 'client_id', 'jti'] } } }
+          );
+        },
+      }
+    );
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate/device-token.refresh-organization-selection:projection-id-claimKeys).\n' +
+        'Phase 2 device ID claimKeys differ (only on oracle: auth_time,email,organization_roles,organizations; only on candidate: client_id,jti).'
+    );
+    expect(calls.join(' ')).not.toContain('token-value');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

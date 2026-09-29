@@ -239,6 +239,8 @@ const deviceIdClaimTypes = Object.freeze([
 ] as const);
 type DeviceIdClaimType = (typeof deviceIdClaimTypes)[number];
 const deviceIdClaimTypeSet = new Set<string>(deviceIdClaimTypes);
+const deviceIdClaimKeyPattern =
+  /^(?:iss|aud|sub|iat|exp|nbf|auth_time|sid|jti|client_id|acr|amr|name|picture|username|email|email_verified|phone_number|phone_number_verified|family_name|given_name|middle_name|nickname|preferred_username|profile|website|gender|birthdate|zoneinfo|locale|address|created_at|updated_at|roles|organizations|organization_roles|organization_id|permissions)$/u;
 const deviceIdDifferenceFields = Object.freeze([
   'issuer',
   'audience',
@@ -297,6 +299,69 @@ export const deviceProjectionDifferenceField = (
   return root && deviceProjectionDifferenceFieldSet.has(root)
     ? (root as DeviceProjectionDifferenceField)
     : 'other';
+};
+const claimKeysFromDeviceProjection = (projection: unknown): readonly string[] | undefined => {
+  if (typeof projection !== 'object' || projection === null) {
+    return undefined;
+  }
+  const id = Object.getOwnPropertyDescriptor(projection, 'id')?.value as unknown;
+  if (typeof id !== 'object' || id === null) {
+    return undefined;
+  }
+  const claims = Object.getOwnPropertyDescriptor(id, 'claims')?.value as unknown;
+  if (typeof claims !== 'object' || claims === null) {
+    return undefined;
+  }
+  const claimKeys = Object.getOwnPropertyDescriptor(claims, 'claimKeys')?.value as unknown;
+  if (
+    !Array.isArray(claimKeys) ||
+    claimKeys.some((name) => typeof name !== 'string' || !deviceIdClaimKeyPattern.test(name)) ||
+    new Set(claimKeys).size !== claimKeys.length
+  ) {
+    return undefined;
+  }
+  return claimKeys as readonly string[];
+};
+export const deviceIdClaimKeysDifferenceDiagnostic = (
+  oracleProjection: unknown,
+  candidateProjection: unknown
+): string | undefined => {
+  const oracle = claimKeysFromDeviceProjection(oracleProjection);
+  const candidate = claimKeysFromDeviceProjection(candidateProjection);
+  if (!oracle || !candidate) {
+    return undefined;
+  }
+  const oracleSet = new Set(oracle);
+  const candidateSet = new Set(candidate);
+  const onlyOracle = oracle.filter((name) => !candidateSet.has(name)).sort();
+  const onlyCandidate = candidate.filter((name) => !oracleSet.has(name)).sort();
+  return `Phase 2 device ID claimKeys differ (only on oracle: ${onlyOracle.join(',') || 'none'}; only on candidate: ${onlyCandidate.join(',') || 'none'}).`;
+};
+
+class DeviceScenarioProjectionFailure extends Error {
+  public constructor(
+    message: string,
+    public readonly structuralDiagnostic?: string
+  ) {
+    super(message);
+  }
+}
+
+export const deviceScenarioProjectionFailure = (
+  scenarioId: DeviceAuthorizationScenarioId,
+  pointer: unknown,
+  oracleProjection: unknown,
+  candidateProjection: unknown
+): Error => {
+  const field = deviceProjectionDifferenceField(pointer);
+  const structuralDiagnostic =
+    field === 'id-claimKeys'
+      ? deviceIdClaimKeysDifferenceDiagnostic(oracleProjection, candidateProjection)
+      : undefined;
+  return new DeviceScenarioProjectionFailure(
+    `Phase 2 scenario failed: candidate/${scenarioId}:projection-${field}`,
+    structuralDiagnostic
+  );
 };
 const scenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
@@ -1017,11 +1082,15 @@ const executeDifferential = async (
         }
       }
       if (isLogoutSession || isDevice) {
-        throw new Error(
-          `Phase 2 scenario failed: candidate/${oracleScenario.id}${
-            isDevice ? `:projection-${deviceProjectionDifferenceField(found[0])}` : ''
-          }`
-        );
+        if (isDevice) {
+          throw deviceScenarioProjectionFailure(
+            oracleScenario.id as DeviceAuthorizationScenarioId,
+            found[0],
+            oracleScenario.projection,
+            candidateScenario.projection
+          );
+        }
+        throw new Error(`Phase 2 scenario failed: candidate/${oracleScenario.id}`);
       }
       throw new Error('Phase 2 stage failed: candidate-comparison');
     }
@@ -1346,12 +1415,16 @@ export const runPhase2CliMain = async (
       original instanceof Error ? commandFailurePattern.exec(original.message) : null;
     const cleanupStage =
       cleanup instanceof Error ? commandFailurePattern.exec(cleanup.message) : null;
+    const structuralDiagnostic =
+      original instanceof DeviceScenarioProjectionFailure
+        ? original.structuralDiagnostic
+        : undefined;
     await safeWrite(
       dependencies.stderr,
       error instanceof TypeError && error.message === invalidArguments.trim()
         ? invalidArguments
         : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
-          ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n`
+          ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n${structuralDiagnostic ? `${structuralDiagnostic}\n` : ''}`
           : stage?.[1] && stage[2]
             ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
             : commandStage?.[1] && commandStage[2]
