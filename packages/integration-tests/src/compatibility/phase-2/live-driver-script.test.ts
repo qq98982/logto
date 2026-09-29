@@ -872,6 +872,24 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(source).not.toContain("RAISE EXCEPTION USING ERRCODE='42501'");
   });
 
+  it('passes private command-query identifiers through COPY instead of psql variables', async () => {
+    const source = await readFile(invariantDriver, 'utf8');
+    const commandLines = source.split('\n').filter((line) => line.includes('--command='));
+
+    expect(commandLines).not.toEqual([]);
+    expect(commandLines.every((line) => !line.includes(":\\'"))).toBe(true);
+    expect(source).toContain(
+      'CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text,client_id text)'
+    );
+    expect(source).toContain(
+      'CREATE TEMP TABLE phase2_private_device_code(device_code text,client_id text)'
+    );
+    expect(source).toContain(
+      'CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text,prefix text)'
+    );
+    expect(source).toContain('CREATE TEMP TABLE phase2_private_code(device_code text,prefix text)');
+  });
+
   it('persists a private baseline, publishes DB-derived facts, and keeps abort idempotent', async () => {
     const harness = await createHarness();
     const stateEnv = {
@@ -1870,6 +1888,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     const copyInvocation = calls.split('\n').find((line) => line.includes('phase2_private_codes'));
     expect(copyInvocation?.match(/--command=/gu)).toHaveLength(3);
     expect(copyInvocation).toContain('COPY');
+    expect(copyInvocation).toContain('phase2_private_codes');
+    expect(copyInvocation).toContain('client_id\\ text');
+    expect(copyInvocation).not.toContain('--set=client_id');
     for (const secret of [deviceCode, userCode, xsrf]) {
       expect(calls).not.toContain(secret);
       expect(calls).not.toContain(Buffer.from(secret).toString('base64'));
@@ -2037,6 +2058,16 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     await expect(stat(path.join(handleRoot, handle))).rejects.toThrow();
     const cleanupTombstones = await retiredTombstones(handleRoot);
     expect(cleanupTombstones.length).toBe(1);
+    const calls = await readFile(harness.calls, 'utf8');
+    expect(calls).toContain('phase2_private_codes');
+    expect(calls).toContain('phase2_private_code');
+    expect(calls.match(/prefix\\ text/gu)).toHaveLength(2);
+    expect(
+      calls
+        .split('\n')
+        .filter((line) => line.includes('phase2_private_code'))
+        .every((line) => !line.includes('--set=prefix'))
+    ).toBe(true);
   });
 
   it('proves forced RLS with live catalog, ACL, and bound-role SQL observations', async () => {

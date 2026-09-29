@@ -581,21 +581,19 @@ new_device_handle() {
 device_row() {
   local device_code=$1 user_code=$2 client_id
   client_id="$(value '.fixture.deviceClients.firstParty.id')" || die
-  printf '%s\t%s\n' "$device_code" "$user_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
-    --set="client_id=$client_id" \
-    --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text) ON COMMIT DROP;' \
+  printf '%s\t%s\t%s\n' "$device_code" "$user_code" "$client_id" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+    --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text,client_id text) ON COMMIT DROP;' \
     --command='COPY phase2_private_codes FROM STDIN;' \
-    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0\n    AND position(codes.user_code in to_jsonb(device_authorizations)::text)=0\n    AND position(upper(replace(codes.user_code,\'-\',\'\')) in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes\nWHERE tenant_id=\'default\' AND client_id=:\'client_id\'\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'))\n  AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\'));'
+    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0\n    AND position(codes.user_code in to_jsonb(device_authorizations)::text)=0\n    AND position(upper(replace(codes.user_code,\'-\',\'\')) in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes\nWHERE tenant_id=\'default\' AND device_authorizations.client_id=codes.client_id\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'))\n  AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\'));'
 }
 
 device_row_by_device_code() {
   local device_code=$1 client_id
   client_id="$(value '.fixture.deviceClients.firstParty.id')" || die
-  printf '%s\n' "$device_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
-    --set="client_id=$client_id" \
-    --command='CREATE TEMP TABLE phase2_private_device_code(device_code text) ON COMMIT DROP;' \
+  printf '%s\t%s\n' "$device_code" "$client_id" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+    --command='CREATE TEMP TABLE phase2_private_device_code(device_code text,client_id text) ON COMMIT DROP;' \
     --command='COPY phase2_private_device_code FROM STDIN;' \
-    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_device_code codes\nWHERE tenant_id=\'default\' AND client_id=:\'client_id\'\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'));'
+    --command=$'SELECT jsonb_build_object(\n  \'uid\',device_uid,\'status\',status,\'grantId\',grant_id,\n  \'deviceBytes\',octet_length(device_digest),\'userBytes\',octet_length(user_digest),\n  \'clearAbsent\',position(codes.device_code in to_jsonb(device_authorizations)::text)=0,\n  \'row\',to_jsonb(device_authorizations)\n)\nFROM aster_tenant.device_authorizations CROSS JOIN phase2_private_device_code codes\nWHERE tenant_id=\'default\' AND device_authorizations.client_id=codes.client_id\n  AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\'));'
 }
 
 secret_variants() {
@@ -1032,22 +1030,20 @@ SQL
       printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="seeded"' >/dev/null || die
       prefix="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.prefix')"; foreign_before="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.foreignCount')"
       device_code="$(value '.private.deviceCode')"; user_code="$(value '.private.userCode')"
-      cleanup_state="$(printf '%s\t%s\n' "$device_code" "$user_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
-        --set="prefix=$prefix" \
-        --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text) ON COMMIT DROP;' \
+      cleanup_state="$(printf '%s\t%s\t%s\n' "$device_code" "$user_code" "$prefix" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_codes(device_code text,user_code text,prefix text) ON COMMIT DROP;' \
         --command='COPY phase2_private_codes FROM STDIN;' \
-        --command=$'SELECT jsonb_build_object(\n  \'expired\',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id=\'default\' AND device_uid LIKE :\'prefix\'||\'-%\' AND device_uid<>:\'prefix\'||\'-sentinel\' AND expires_at<extract(epoch from now())::bigint),\n  \'sentinel\',(SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id=\'default\' AND device_uid=:\'prefix\'||\'-sentinel\' AND expires_at>=extract(epoch from now())::bigint),\n  \'newRow\',(SELECT count(*) FROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes WHERE tenant_id=\'default\' AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\')) AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\')))\n);')" || die
+        --command=$'SELECT jsonb_build_object(\n  \'expired\',(SELECT count(*) FROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes WHERE tenant_id=\'default\' AND device_uid LIKE codes.prefix||\'-%\' AND device_uid<>codes.prefix||\'-sentinel\' AND expires_at<extract(epoch from now())::bigint),\n  \'sentinel\',(SELECT count(*) FROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes WHERE tenant_id=\'default\' AND device_uid=codes.prefix||\'-sentinel\' AND expires_at>=extract(epoch from now())::bigint),\n  \'newRow\',(SELECT count(*) FROM aster_tenant.device_authorizations CROSS JOIN phase2_private_codes codes WHERE tenant_id=\'default\' AND device_digest=sha256(convert_to(codes.device_code,\'UTF8\')) AND user_digest=sha256(convert_to(upper(replace(codes.user_code,\'-\',\'\')),\'UTF8\')))\n);')" || die
       printf '%s' "$cleanup_state" | "$JQ_BIN" -e '.=={expired:1,sentinel:1,newRow:1}' >/dev/null || die
       foreign_after="$(run_sql "$foreign_postgres_id" aster_phase1_candidate_foreign postgres <<'SQL'
 SELECT count(*) FROM aster_tenant.device_authorizations WHERE tenant_id='default';
 SQL
       )" || die
       [[ "$foreign_after" == "$foreign_before" ]] || die
-      printf '%s\n' "$device_code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
-        --set="prefix=$prefix" \
-        --command='CREATE TEMP TABLE phase2_private_code(device_code text) ON COMMIT DROP;' \
+      printf '%s\t%s\n' "$device_code" "$prefix" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_code(device_code text,prefix text) ON COMMIT DROP;' \
         --command='COPY phase2_private_code FROM STDIN;' \
-        --command=$'DELETE FROM aster_tenant.device_authorizations\nWHERE tenant_id=\'default\' AND (device_uid LIKE :\'prefix\'||\'-%\' OR device_digest=(SELECT sha256(convert_to(device_code,\'UTF8\')) FROM phase2_private_code));' >/dev/null || die
+        --command=$'DELETE FROM aster_tenant.device_authorizations\nWHERE tenant_id=\'default\' AND (device_uid LIKE (SELECT prefix||\'-%\' FROM phase2_private_code) OR device_digest=(SELECT sha256(convert_to(device_code,\'UTF8\')) FROM phase2_private_code));' >/dev/null || die
       retire_handle
       terminal '{"invariant":"expired-cleanup-bounded","cleanup":{"seededExpired":65,"deletedExpired":64,"remainingExpired":1,"sentinel":"preserved","foreignTenant":"unchanged","newAuthorization":"published"}}'
       ;;
