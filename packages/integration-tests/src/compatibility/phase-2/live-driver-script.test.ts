@@ -1977,6 +1977,14 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       );
     }
     expect(JSON.parse(restore.stdout)).toMatchObject({ operation: 'restore', ok: true });
+    expect(Object.keys(JSON.parse(restore.stdout) as Record<string, unknown>)).toEqual([
+      'schemaVersion',
+      'kind',
+      'invariantId',
+      'operation',
+      'ok',
+      'attestation',
+    ]);
 
     await writeFile(harness.deviceStatus, 'consumed', { mode: 0o600 });
     const finish = await invoke(
@@ -2128,6 +2136,14 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       );
     }
     expect(armed).toMatchObject({ code: 0, stderr: '' });
+    expect(Object.keys(JSON.parse(armed.stdout) as Record<string, unknown>)).toEqual([
+      'schemaVersion',
+      'kind',
+      'invariantId',
+      'operation',
+      'handle',
+      'attestation',
+    ]);
     const { handle } = JSON.parse(armed.stdout) as { handle: string };
     const result = await invoke(
       harness.invariant,

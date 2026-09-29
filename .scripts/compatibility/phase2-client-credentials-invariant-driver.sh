@@ -553,7 +553,7 @@ control_terminal() {
   local extra=$1
   "$JQ_BIN" -cn --arg invariantId "$invariant_id" --arg operation "$operation" \
     --argjson extra "$extra" --argjson attestation "$attestation" \
-    '$extra + {schemaVersion:1,kind:"phase2-device-candidate-invariant-control",invariantId:$invariantId,operation:$operation,attestation:$attestation}' | /usr/bin/tr -d '\n'
+    '{schemaVersion:1,kind:"phase2-device-candidate-invariant-control",invariantId:$invariantId,operation:$operation} + $extra + {attestation:$attestation}' | /usr/bin/tr -d '\n'
 }
 
 device_handle_document() {
