@@ -44,6 +44,28 @@ const authorizationBody = Object.freeze({
   interval: 5,
   tokenType: undefined,
 });
+const oracleDiscoveryBody = Object.freeze({
+  issuer: 'https://oracle.example/oidc',
+  authorization_endpoint: 'https://oracle.example/oidc/auth',
+  token_endpoint: 'https://oracle.example/oidc/token',
+  jwks_uri: 'https://oracle.example/oidc/jwks',
+  userinfo_endpoint: 'https://oracle.example/oidc/me',
+  device_authorization_endpoint: 'https://oracle.example/oidc/device/auth',
+  introspection_endpoint: 'https://oracle.example/oidc/token/introspection',
+  revocation_endpoint: 'https://oracle.example/oidc/token/revocation',
+  end_session_endpoint: 'https://oracle.example/oidc/session/end',
+  backchannel_logout_session_supported: true,
+  backchannel_logout_supported: true,
+  pushed_authorization_request_endpoint: 'https://oracle.example/oidc/request',
+  token_endpoint_auth_signing_alg_values_supported: Object.freeze([
+    'ES256',
+    'Ed25519',
+    'EdDSA',
+    'HS256',
+    'PS256',
+    'RS256',
+  ]),
+});
 
 const expectSanitized = (projection: DeviceAuthorizationProjection): void => {
   const rendered = JSON.stringify(projection);
@@ -2499,6 +2521,131 @@ describe('Phase 2 device authorization transport', () => {
       logout: 'yes',
     });
     expect(JSON.stringify([opened, confirmed, oidc, oauth])).not.toMatch(/private-(?:id|logout)/u);
+  });
+
+  it('validates and preserves the exact oracle-only discovery capabilities', async () => {
+    const replies = [jsonResponse(oracleDiscoveryBody), jsonResponse(oracleDiscoveryBody)];
+    const lease = createDeviceAuthorizationTransportLease({
+      target: oracleTarget,
+      fetch: (async () =>
+        replies.shift() ?? Promise.reject(new TypeError('unexpected fetch'))) as typeof fetch,
+    });
+
+    const oidc = await lease.requestLifecycle({ kind: 'oidc-discovery', method: 'GET' });
+    const oauth = await lease.requestLifecycle({ kind: 'oauth-discovery', method: 'GET' });
+    const expectedKeys = [
+      'authorization_endpoint',
+      'backchannel_logout_session_supported',
+      'backchannel_logout_supported',
+      'device_authorization_endpoint',
+      'end_session_endpoint',
+      'introspection_endpoint',
+      'issuer',
+      'jwks_uri',
+      'pushed_authorization_request_endpoint',
+      'revocation_endpoint',
+      'token_endpoint',
+      'token_endpoint_auth_signing_alg_values_supported',
+      'userinfo_endpoint',
+    ];
+
+    expect((oidc.facts as { keys: readonly string[] }).keys).toEqual(expectedKeys);
+    expect((oauth.facts as { keys: readonly string[] }).keys).toEqual(expectedKeys);
+  });
+
+  it.each([
+    ['missing backchannel session support', { omit: 'backchannel_logout_session_supported' }],
+    ['missing backchannel support', { omit: 'backchannel_logout_supported' }],
+    ['missing pushed authorization endpoint', { omit: 'pushed_authorization_request_endpoint' }],
+    [
+      'missing token endpoint signing algorithms',
+      { omit: 'token_endpoint_auth_signing_alg_values_supported' },
+    ],
+    ['false backchannel session support', { backchannel_logout_session_supported: false }],
+    ['false backchannel support', { backchannel_logout_supported: false }],
+    ['wrong-type backchannel session support', { backchannel_logout_session_supported: 'true' }],
+    ['wrong-type backchannel support', { backchannel_logout_supported: 1 }],
+    ['wrong-type pushed authorization endpoint', { pushed_authorization_request_endpoint: true }],
+    [
+      'wrong-type token endpoint signing algorithms',
+      { token_endpoint_auth_signing_alg_values_supported: 'ES256' },
+    ],
+    [
+      'foreign pushed authorization endpoint',
+      { pushed_authorization_request_endpoint: 'https://foreign.example/oidc/request' },
+    ],
+    [
+      'query-bearing pushed authorization endpoint',
+      { pushed_authorization_request_endpoint: 'https://oracle.example/oidc/request?x=1' },
+    ],
+    [
+      'reordered token endpoint signing algorithms',
+      {
+        token_endpoint_auth_signing_alg_values_supported: [
+          'Ed25519',
+          'ES256',
+          'EdDSA',
+          'HS256',
+          'PS256',
+          'RS256',
+        ],
+      },
+    ],
+    [
+      'extra token endpoint signing algorithm',
+      {
+        token_endpoint_auth_signing_alg_values_supported: [
+          'ES256',
+          'Ed25519',
+          'EdDSA',
+          'HS256',
+          'PS256',
+          'RS256',
+          'RS512',
+        ],
+      },
+    ],
+    [
+      'duplicate token endpoint signing algorithm',
+      {
+        token_endpoint_auth_signing_alg_values_supported: [
+          'ES256',
+          'Ed25519',
+          'EdDSA',
+          'HS256',
+          'PS256',
+          'RS256',
+          'RS256',
+        ],
+      },
+    ],
+    [
+      'wrong-type token endpoint signing algorithm entry',
+      {
+        token_endpoint_auth_signing_alg_values_supported: [
+          'ES256',
+          'Ed25519',
+          'EdDSA',
+          'HS256',
+          'PS256',
+          256,
+        ],
+      },
+    ],
+  ])('rejects an incorrect oracle discovery %s value', async (_name, invalid) => {
+    const body = Object.fromEntries(
+      Object.entries({ ...oracleDiscoveryBody, ...invalid }).filter(
+        ([key]) => !('omit' in invalid && key === invalid.omit) && key !== 'omit'
+      )
+    );
+    const lease = createDeviceAuthorizationTransportLease({
+      target: oracleTarget,
+      fetch: async () => jsonResponse(body),
+    });
+
+    await expect(lease.requestLifecycle({ kind: 'oidc-discovery', method: 'GET' })).rejects.toThrow(
+      'Invalid Phase 2 device authorization transport (lifecycle-response)'
+    );
   });
 
   it('projects direct logout redirects and rejects unlisted 400 responses', async () => {

@@ -1141,6 +1141,109 @@ describe('Phase 2 device authorization scenarios', () => {
     }
   });
 
+  it.each(['device-discovery.oidc', 'device-discovery.oauth'] as const)(
+    'normalizes only the four validated oracle discovery capabilities for %s',
+    (scenarioId) => {
+      const candidate = lifecycleProjection(
+        scenarioId === 'device-discovery.oidc' ? 'oidc-discovery' : 'oauth-discovery'
+      );
+      const candidateFacts = candidate.facts as Readonly<{ keys: readonly string[] }>;
+      const oracle = {
+        ...candidate,
+        facts: {
+          ...candidateFacts,
+          keys: [
+            ...candidateFacts.keys,
+            'backchannel_logout_session_supported',
+            'backchannel_logout_supported',
+            'pushed_authorization_request_endpoint',
+            'token_endpoint_auth_signing_alg_values_supported',
+          ].sort(),
+        },
+      } as unknown as DeviceLifecycleProjection;
+
+      expect(compareDeviceScenarioProjections(oracle, candidate, scenarioId)).toEqual([]);
+
+      for (const oracleOnlyKey of [
+        'backchannel_logout_session_supported',
+        'backchannel_logout_supported',
+        'pushed_authorization_request_endpoint',
+        'token_endpoint_auth_signing_alg_values_supported',
+      ]) {
+        const candidateWithOracleKey = {
+          ...candidate,
+          facts: {
+            ...candidateFacts,
+            keys: [...candidateFacts.keys, oracleOnlyKey].sort(),
+          },
+        } as unknown as DeviceLifecycleProjection;
+        const differences = compareDeviceScenarioProjections(
+          oracle,
+          candidateWithOracleKey,
+          scenarioId
+        );
+        expect(differences.length).toBeGreaterThan(0);
+        expect(differences.every((difference) => difference.startsWith('/facts/keys/'))).toBe(true);
+      }
+
+      const candidateMissingOrdinaryKey = {
+        ...candidate,
+        facts: {
+          ...candidateFacts,
+          keys: candidateFacts.keys.filter((key) => key !== 'issuer'),
+        },
+      } as unknown as DeviceLifecycleProjection;
+      expect(
+        compareDeviceScenarioProjections(oracle, candidateMissingOrdinaryKey, scenarioId)
+      ).toEqual(expect.arrayContaining(['/facts/keys/0']));
+    }
+  );
+
+  it.each([
+    ['device-discovery.oidc', 'oauth-discovery'],
+    ['device-discovery.oauth', 'oidc-discovery'],
+  ] as const)('does not normalize a cross-kind projection for %s', (scenarioId, wrongKind) => {
+    const candidate = lifecycleProjection(wrongKind);
+    const candidateFacts = candidate.facts as Readonly<{ keys: readonly string[] }>;
+    const oracle = {
+      ...candidate,
+      facts: {
+        ...candidateFacts,
+        keys: [...candidateFacts.keys, 'backchannel_logout_supported'].sort(),
+      },
+    } as unknown as DeviceLifecycleProjection;
+
+    const differences = compareDeviceScenarioProjections(oracle, candidate, scenarioId);
+    expect(differences.length).toBeGreaterThan(0);
+    expect(differences.every((difference) => difference.startsWith('/facts/keys/'))).toBe(true);
+  });
+
+  it('does not normalize oracle discovery keys for an unrelated scenario', () => {
+    const candidate = lifecycleProjection('oidc-discovery');
+    const candidateFacts = candidate.facts as Readonly<{ keys: readonly string[] }>;
+    const oracle = {
+      ...candidate,
+      facts: {
+        ...candidateFacts,
+        keys: [...candidateFacts.keys, 'backchannel_logout_supported'].sort(),
+      },
+    } as unknown as DeviceLifecycleProjection;
+
+    expect(
+      compareDeviceScenarioProjections(oracle, candidate, 'device-authorization.urlencoded-success')
+    ).toEqual(expect.arrayContaining(['/facts/keys/0']));
+  });
+
+  it('compares non-discovery projections without entering discovery normalization', () => {
+    expect(
+      compareDeviceScenarioProjections(
+        authorizationResponse(),
+        authorizationResponse(),
+        'device-authorization.urlencoded-success'
+      )
+    ).toEqual([]);
+  });
+
   it('reports child paths for device consent sequence differences', () => {
     const sequence = (
       mode: DeviceConsentSequenceProjection['mode'] = 'first-party-matching-grant'

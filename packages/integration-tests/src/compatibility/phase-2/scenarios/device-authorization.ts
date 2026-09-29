@@ -1846,6 +1846,39 @@ export const compareDeviceScenarioProjections = (
     ];
     return Object.freeze([...new Set(differences)].sort());
   }
+  const expectedDiscoveryKind =
+    scenarioId === 'device-discovery.oidc'
+      ? 'oidc-discovery'
+      : scenarioId === 'device-discovery.oauth'
+        ? 'oauth-discovery'
+        : undefined;
+  if (
+    expectedDiscoveryKind !== undefined &&
+    oracleKind === expectedDiscoveryKind &&
+    candidateKind === expectedDiscoveryKind
+  ) {
+    const oracleDiscovery = oracle as DeviceLifecycleProjection;
+    const oracleDiscoveryFacts = oracleDiscovery.facts as Readonly<{
+      keys: readonly string[];
+    }>;
+    const oracleOnlyKeys = new Set([
+      'backchannel_logout_session_supported',
+      'backchannel_logout_supported',
+      'pushed_authorization_request_endpoint',
+      'token_endpoint_auth_signing_alg_values_supported',
+    ]);
+    const comparableOracle = Object.freeze({
+      ...oracleDiscovery,
+      facts: Object.freeze({
+        ...oracleDiscoveryFacts,
+        keys: Object.freeze(oracleDiscoveryFacts.keys.filter((key) => !oracleOnlyKeys.has(key))),
+      }),
+    }) as DeviceLifecycleProjection;
+    return compareDeviceAuthorizationProjections(
+      comparableOracle,
+      candidate as DeviceLifecycleProjection
+    );
+  }
   return compareDeviceAuthorizationProjections(
     oracle as
       | DeviceAuthorizationProjection

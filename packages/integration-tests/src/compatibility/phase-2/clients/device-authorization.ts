@@ -2462,6 +2462,16 @@ const projectLifecycleResponse = async (
     if (issuer !== new URL('/oidc', base).href.replace(/\/$/u, '')) {
       return fail(stage);
     }
+    if (
+      state.targetLabel === 'oracle' &&
+      (parsed?.backchannel_logout_session_supported !== true ||
+        parsed.backchannel_logout_supported !== true ||
+        parsed.pushed_authorization_request_endpoint !== `${issuer}/request` ||
+        JSON.stringify(parsed.token_endpoint_auth_signing_alg_values_supported) !==
+          JSON.stringify(['ES256', 'Ed25519', 'EdDSA', 'HS256', 'PS256', 'RS256']))
+    ) {
+      return fail(stage);
+    }
     const endpointPaths = Object.freeze({
       authorization_endpoint: '/oidc/auth',
       token_endpoint: '/oidc/token',
