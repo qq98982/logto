@@ -138,7 +138,23 @@ describe('Phase 2 device candidate invariant registry', () => {
             ? ({ ...deviceCandidateInvariantExpectedProjection(id), retry: 'failed' } as never)
             : deviceCandidateInvariantExpectedProjection(id),
       })
-    ).rejects.toThrow('Invalid Phase 2 device candidate invariant');
+    ).rejects.toThrow('Phase 2 stage failed: candidate-invariant-device-3');
+  });
+
+  it('reports only the closed registry position when device execution fails', async () => {
+    const privateDetail = 'private-device-credential';
+    await expect(
+      runDeviceCandidateInvariants(profile(), {
+        execute: async (id) => {
+          if (id === deviceCandidateInvariantIds[7]) {
+            throw new Error(privateDetail);
+          }
+          return deviceCandidateInvariantExpectedProjection(id);
+        },
+      })
+    ).rejects.toMatchObject({
+      message: 'Phase 2 stage failed: candidate-invariant-device-7',
+    });
   });
 
   it('projects exactly three independent candidate one-winner trials', async () => {

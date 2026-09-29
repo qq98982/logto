@@ -941,6 +941,38 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('allows only closed device candidate-invariant stages in final output', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter(
+      (pattern): pattern is string =>
+        pattern?.startsWith('^Phase 2 client credentials command failed ') === true &&
+        pattern.includes('lifecycle-request')
+    );
+    expect(patterns).toHaveLength(2);
+    await expect(
+      Promise.all(
+        patterns.flatMap((pattern) => [
+          grepMatches(
+            pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-7).'
+          ),
+          grepMatches(
+            pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-8).'
+          ),
+          grepMatches(
+            pattern,
+            'Phase 2 client credentials command failed (oracle-invariant-device-0).'
+          ),
+        ])
+      )
+    ).resolves.toEqual([true, false, false, true, false, false]);
+  });
+
   it('publishes results only after successful topology cleanup', () => {
     expect(source).toContain('.staging.XXXXXX');
     expect(source).toContain('RESULT_STAGING_IDENTITY');

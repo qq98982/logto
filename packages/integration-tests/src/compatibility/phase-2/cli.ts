@@ -414,6 +414,8 @@ type DeviceFailureStage =
   | 'verification-post';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-2][0-9]|13[0-8])))?|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+const candidateInvariantStageFailurePattern =
+  /^Phase 2 stage failed: (candidate)-(invariant-device-[0-7])$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: (oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>
@@ -1344,7 +1346,10 @@ export const runPhase2Cli = async (
       ).catch((error: unknown) => {
         if (
           error instanceof Error &&
-          (scenarioFailurePattern.test(error.message) || stageFailurePattern.test(error.message))
+          (scenarioFailurePattern.test(error.message) ||
+            stageFailurePattern.test(error.message) ||
+            (command.mode === 'candidate-invariants' &&
+              candidateInvariantStageFailurePattern.test(error.message)))
         ) {
           throw error;
         }
@@ -1432,6 +1437,10 @@ export const runPhase2CliMain = async (
     const cleanup = error instanceof AggregateError ? (error.errors[1] as unknown) : undefined;
     const match = original instanceof Error ? scenarioFailurePattern.exec(original.message) : null;
     const stage = original instanceof Error ? stageFailurePattern.exec(original.message) : null;
+    const candidateInvariantStage =
+      original instanceof Error
+        ? candidateInvariantStageFailurePattern.exec(original.message)
+        : null;
     const commandStage =
       original instanceof Error ? commandFailurePattern.exec(original.message) : null;
     const cleanupStage =
@@ -1446,13 +1455,15 @@ export const runPhase2CliMain = async (
         ? invalidArguments
         : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n${structuralDiagnostic ? `${structuralDiagnostic}\n` : ''}`
-          : stage?.[1] && stage[2]
-            ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-            : commandStage?.[1] && commandStage[2]
-              ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
-              : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
-                ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
-                : runFailure
+          : candidateInvariantStage?.[1] && candidateInvariantStage[2]
+            ? `Phase 2 client credentials command failed (${candidateInvariantStage[1]}-${candidateInvariantStage[2]}).\n`
+            : stage?.[1] && stage[2]
+              ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
+              : commandStage?.[1] && commandStage[2]
+                ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
+                : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
+                  ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
+                  : runFailure
     );
     return 1;
   }

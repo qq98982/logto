@@ -310,6 +310,21 @@ describe('Phase 2 tracked launcher', () => {
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
   });
+  it('forwards only closed device candidate-invariant stages from the child', () => {
+    for (const index of [0, 7]) {
+      const message = `Phase 2 client credentials command failed (candidate-invariant-device-${index}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    for (const stage of [
+      'candidate-invariant-device-8',
+      'candidate-invariant-device-private',
+      'oracle-invariant-device-0',
+    ]) {
+      expect(
+        diagnosticForPhase2Child(`Phase 2 client credentials command failed (${stage}).\n`)
+      ).toBe('Phase 2 client credentials launcher failed.\n');
+    }
+  });
   it('classifies abnormal child results without forwarding child output', () => {
     expect(
       diagnosticForPhase2ChildResult({

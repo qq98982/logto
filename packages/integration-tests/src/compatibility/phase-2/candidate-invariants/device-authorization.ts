@@ -399,9 +399,13 @@ export const runDeviceCandidateInvariants = async (
     return fail();
   }
   const evidence: DeviceCandidateInvariantControlEvidence[] = [];
-  for (const invariant of registry) {
-    const projection = await executor.execute(invariant.id);
-    evidence.push(runDeviceCandidateInvariantControls(invariant.id, projection));
+  for (const [index, invariant] of registry.entries()) {
+    try {
+      const projection = await executor.execute(invariant.id);
+      evidence.push(runDeviceCandidateInvariantControls(invariant.id, projection));
+    } catch {
+      throw new Error(`Phase 2 stage failed: candidate-invariant-device-${index}`);
+    }
   }
   return Object.freeze(evidence);
 };

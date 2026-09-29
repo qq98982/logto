@@ -812,6 +812,67 @@ describe('Phase 2 CLI', () => {
     expect(candidateCalls.join(' ')).not.toContain('private candidate execution detail');
   });
 
+  it('forwards only closed device candidate-invariant stages', async () => {
+    const candidateArguments = [
+      'candidate-invariants',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--target',
+      candidateTargetPath,
+      '--output',
+      path.join(root, 'phase-2-client-credentials-candidate-invariants.json'),
+      '--temp-root',
+      root,
+    ];
+    await Promise.all(
+      ['candidate-invariant-device-0', 'candidate-invariant-device-7'].map(async (stage) => {
+        const calls: string[] = [];
+        const base = dependencies(calls);
+        expect(
+          await runPhase2CliMain(candidateArguments, undefined, {
+            ...base,
+            executeCandidateInvariants: async () => {
+              throw new Error(`Phase 2 stage failed: ${stage}`);
+            },
+          })
+        ).toBe(1);
+        expect(calls).toContain(`stderr:Phase 2 client credentials command failed (${stage}).`);
+      })
+    );
+
+    const rejectedCalls: string[] = [];
+    const rejectedBase = dependencies(rejectedCalls);
+    expect(
+      await runPhase2CliMain(candidateArguments, undefined, {
+        ...rejectedBase,
+        executeCandidateInvariants: async () => {
+          throw new Error('Phase 2 stage failed: oracle-invariant-device-0');
+        },
+      })
+    ).toBe(1);
+    expect(rejectedCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate-execution).'
+    );
+    expect(rejectedCalls.join(' ')).not.toContain('oracle-invariant-device-0');
+
+    const oracleCalls: string[] = [];
+    const oracleBase = dependencies(oracleCalls);
+    expect(
+      await runPhase2CliMain(oracleArguments(), undefined, {
+        ...oracleBase,
+        executeOracle: async () => {
+          throw new Error('Phase 2 stage failed: candidate-invariant-device-0');
+        },
+      })
+    ).toBe(1);
+    expect(oracleCalls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-execution).'
+    );
+    expect(oracleCalls.join(' ')).not.toContain('candidate-invariant-device-0');
+  });
+
   it('identifies the failed closed scenario without printing a credential-bearing exception', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');
     const calls: string[] = [];
