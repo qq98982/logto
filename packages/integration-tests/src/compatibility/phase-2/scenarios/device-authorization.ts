@@ -1874,10 +1874,22 @@ export const compareDeviceScenarioProjections = (
         keys: Object.freeze(oracleDiscoveryFacts.keys.filter((key) => !oracleOnlyKeys.has(key))),
       }),
     }) as DeviceLifecycleProjection;
-    return compareDeviceAuthorizationProjections(
-      comparableOracle,
-      candidate as DeviceLifecycleProjection
-    );
+    const candidateDiscovery = candidate as DeviceLifecycleProjection;
+    const comparableCandidate =
+      !Object.hasOwn(oracleDiscovery.headers, 'cache-control') &&
+      candidateDiscovery.headers['cache-control'] === 'no-cache, max-age=0, must-revalidate'
+        ? (Object.freeze({
+            ...candidateDiscovery,
+            headers: Object.freeze(
+              Object.fromEntries(
+                Object.entries(candidateDiscovery.headers).filter(
+                  ([header]) => header !== 'cache-control'
+                )
+              )
+            ),
+          }) as DeviceLifecycleProjection)
+        : candidateDiscovery;
+    return compareDeviceAuthorizationProjections(comparableOracle, comparableCandidate);
   }
   return compareDeviceAuthorizationProjections(
     oracle as

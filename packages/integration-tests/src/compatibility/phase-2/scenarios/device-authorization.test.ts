@@ -1199,14 +1199,80 @@ describe('Phase 2 device authorization scenarios', () => {
     }
   );
 
+  it.each(['device-discovery.oidc', 'device-discovery.oauth'] as const)(
+    'accepts only the approved candidate discovery cache header for %s without changing evidence',
+    (scenarioId) => {
+      const kind = scenarioId === 'device-discovery.oidc' ? 'oidc-discovery' : 'oauth-discovery';
+      const oracle = lifecycleProjection(kind);
+      const acceptedCacheControl = 'no-cache, max-age=0, must-revalidate';
+      const candidate = {
+        ...lifecycleProjection(kind),
+        headers: { 'cache-control': acceptedCacheControl },
+      } as DeviceLifecycleProjection;
+
+      expect(compareDeviceScenarioProjections(oracle, candidate, scenarioId)).toEqual([]);
+      expect(oracle.headers).toEqual({});
+      expect(candidate.headers).toEqual({ 'cache-control': acceptedCacheControl });
+
+      const oracleWithCache = {
+        ...oracle,
+        headers: { 'cache-control': 'no-store' },
+      } as DeviceLifecycleProjection;
+      expect(compareDeviceScenarioProjections(oracleWithCache, candidate, scenarioId)).toEqual([
+        '/headers/cache-control',
+      ]);
+
+      for (const cacheControl of [
+        'no-cache',
+        'no-cache, max-age=0',
+        'no-cache, max-age=0, must-revalidate, no-store',
+      ]) {
+        const candidateWithUnexpectedCache = {
+          ...candidate,
+          headers: { 'cache-control': cacheControl },
+        } as DeviceLifecycleProjection;
+        expect(
+          compareDeviceScenarioProjections(oracle, candidateWithUnexpectedCache, scenarioId)
+        ).toEqual(['/headers/cache-control']);
+      }
+
+      const candidateWithExtraHeader = {
+        ...candidate,
+        headers: {
+          ...candidate.headers,
+          pragma: 'no-cache',
+        },
+      } as DeviceLifecycleProjection;
+      expect(
+        compareDeviceScenarioProjections(oracle, candidateWithExtraHeader, scenarioId)
+      ).toEqual(['/headers/pragma']);
+    }
+  );
+
+  it('keeps the approved discovery cache header strict for unrelated scenarios', () => {
+    const oracle = lifecycleProjection('oidc-discovery');
+    const candidate = {
+      ...oracle,
+      headers: { 'cache-control': 'no-cache, max-age=0, must-revalidate' },
+    } as DeviceLifecycleProjection;
+
+    expect(
+      compareDeviceScenarioProjections(oracle, candidate, 'device-authorization.urlencoded-success')
+    ).toEqual(['/headers/cache-control']);
+  });
+
   it.each([
     ['device-discovery.oidc', 'oauth-discovery'],
     ['device-discovery.oauth', 'oidc-discovery'],
   ] as const)('does not normalize a cross-kind projection for %s', (scenarioId, wrongKind) => {
-    const candidate = lifecycleProjection(wrongKind);
-    const candidateFacts = candidate.facts as Readonly<{ keys: readonly string[] }>;
+    const projection = lifecycleProjection(wrongKind);
+    const candidate = {
+      ...projection,
+      headers: { 'cache-control': 'no-cache, max-age=0, must-revalidate' },
+    } as DeviceLifecycleProjection;
+    const candidateFacts = projection.facts as Readonly<{ keys: readonly string[] }>;
     const oracle = {
-      ...candidate,
+      ...projection,
       facts: {
         ...candidateFacts,
         keys: [...candidateFacts.keys, 'backchannel_logout_supported'].sort(),
@@ -1214,8 +1280,8 @@ describe('Phase 2 device authorization scenarios', () => {
     } as unknown as DeviceLifecycleProjection;
 
     const differences = compareDeviceScenarioProjections(oracle, candidate, scenarioId);
-    expect(differences.length).toBeGreaterThan(0);
-    expect(differences.every((difference) => difference.startsWith('/facts/keys/'))).toBe(true);
+    expect(differences).toContain('/headers/cache-control');
+    expect(differences.some((difference) => difference.startsWith('/facts/keys/'))).toBe(true);
   });
 
   it('does not normalize oracle discovery keys for an unrelated scenario', () => {
