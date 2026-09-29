@@ -1155,7 +1155,10 @@ export const createReferencePhase2FixtureProvisioner = (
               name: `Phase 2 ${marker} ${label} device client`,
               type: applicationType,
               isThirdParty,
-              oidcClientMetadata: { redirectUris: [], postLogoutRedirectUris: [] },
+              oidcClientMetadata: {
+                redirectUris: label === 'ineligible-web' ? [statusRedirectUri] : [],
+                postLogoutRedirectUris: [],
+              },
               customClientMetadata: deviceGrantEnabled ? { isDeviceFlow: true } : {},
             })
           );

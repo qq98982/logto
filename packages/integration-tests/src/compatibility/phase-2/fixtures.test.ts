@@ -272,6 +272,7 @@ describe('Phase 2 fixture lifecycle', () => {
             name: expect.stringContaining(`${label} device client`),
             type: 'Native',
             isThirdParty,
+            oidcClientMetadata: { redirectUris: [], postLogoutRedirectUris: [] },
             customClientMetadata: isDeviceFlow ? { isDeviceFlow: true } : {},
           }),
         })
@@ -304,6 +305,10 @@ describe('Phase 2 fixture lifecycle', () => {
           name: expect.stringContaining('ineligible-web device client'),
           type: 'SPA',
           isThirdParty: false,
+          oidcClientMetadata: {
+            redirectUris: ['http://localhost:3001/demo-app'],
+            postLogoutRedirectUris: [],
+          },
           customClientMetadata: {},
         }),
       })
