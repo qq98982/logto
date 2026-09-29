@@ -630,7 +630,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       (match) => match[1]
     ).filter(
       (pattern): pattern is string =>
-        pattern?.startsWith('^Phase 2 client credentials command failed ') === true
+        pattern?.startsWith('^Phase 2 client credentials command failed ') === true &&
+        pattern.includes('lifecycle-request')
     );
     expect(patterns).toHaveLength(2);
     expect(patterns[0]).toBe(patterns[1]);
@@ -688,6 +689,45 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only closed consent composite projection diagnostics', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter(
+      (pattern): pattern is string =>
+        pattern?.includes('projection-(firstIssued|consent|completion)-') === true
+    );
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const acceptedLines = ['oracle', 'candidate'].flatMap((target) =>
+      ['firstIssued', 'consent', 'completion'].flatMap((stage) =>
+        ['status', 'cookies', 'terminal'].map(
+          (field) =>
+            `Phase 2 client credentials command failed (${target}/device-consent.first-party-matching-grant-required:projection-${stage}-${field}).`
+        )
+      )
+    );
+    const rejectedLines = [
+      'Phase 2 client credentials command failed (candidate/device-consent.first-party-matching-grant-required:projection-completion-private).',
+      'Phase 2 client credentials command failed (candidate/device-consent.first-party-matching-grant-required:projection-unknown-cookies).',
+      'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-completion-cookies).',
+      'Phase 2 client credentials command failed (candidate/device-consent.first-party-matching-grant-required:projection-completion-cookies:private-marker).',
+    ];
+    const matchesFor = async (lines: readonly string[]) =>
+      Promise.all(
+        lines.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      );
+    await expect(matchesFor(acceptedLines)).resolves.toEqual(
+      Array.from({ length: acceptedLines.length * patterns.length }, () => true)
+    );
+    await expect(matchesFor(rejectedLines)).resolves.toEqual(
+      Array.from({ length: rejectedLines.length * patterns.length }, () => false)
+    );
+  });
+
   it('executes both command diagnostic allowlists against closed sanitizer substages', async () => {
     const patterns = Array.from(
       source.matchAll(
@@ -696,7 +736,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       (match) => match[1]
     ).filter(
       (pattern): pattern is string =>
-        pattern?.startsWith('^Phase 2 client credentials command failed ') === true
+        pattern?.startsWith('^Phase 2 client credentials command failed ') === true &&
+        pattern.includes('lifecycle-request')
     );
     expect(patterns).toHaveLength(2);
     expect(patterns[0]).toBe(patterns[1]);
