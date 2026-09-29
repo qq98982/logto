@@ -1581,6 +1581,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         revoked: false,
       };
       const phase2 = Object.freeze({
+        subjectPrimaryEmail: null,
         subjectResourceScopeIds: Object.freeze(['read-scope']),
         machineClients: Object.freeze([
           Object.freeze({

@@ -609,6 +609,7 @@ describe('Phase 2 fixture lifecycle', () => {
       profile: {
         fixtures: {
           phase2: {
+            subjectPrimaryEmail: null,
             subjectResourceScopeIds: ['read-scope'],
             machineClients: [
               {
@@ -816,6 +817,10 @@ describe('Phase 2 fixture lifecycle', () => {
     const provisions = requests.filter(({ stdin }) => JSON.parse(stdin).operation === 'provision');
     expect(provisions).toHaveLength(2);
     expect(provisions[0]?.stdin).toBe(provisions[1]?.stdin);
+    expect(JSON.parse(provisions[0]?.stdin ?? '{}')).toHaveProperty(
+      'profile.fixtures.phase2.subjectPrimaryEmail',
+      null
+    );
     expect(JSON.parse(requests[1]?.stdin ?? '{}')).not.toHaveProperty('public');
     expect(JSON.parse(requests[2]?.stdin ?? '{}')).not.toHaveProperty('public');
     expect(JSON.parse(requests[4]?.stdin ?? '{}')).toHaveProperty('public');
