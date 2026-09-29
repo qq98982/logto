@@ -69,6 +69,18 @@ const foreignCoordinatorEntities = [
     runtimeId: 'phase2-device-first',
   },
 ];
+const primaryCoordinatorIsolation = {
+  persistenceId: 'postgresql:1:aster_phase1_candidate_primary',
+  cookieKeyId: '1'.repeat(32),
+  signingKeyId: '2'.repeat(32),
+};
+const foreignCoordinatorIsolation = {
+  persistenceId: 'postgresql:2:aster_phase1_candidate_foreign',
+  cookieKeyId: '3'.repeat(32),
+  signingKeyId: '4'.repeat(32),
+};
+const phase2ForeignAllocationId = (allocationId: string) =>
+  `phase2-foreign-${createHash('sha256').update(allocationId).digest('hex')}`;
 
 const commandResult = (stdout: string): CommandRunnerResult => ({
   exitCode: 0,
@@ -529,6 +541,7 @@ describe('Phase 2 fixture lifecycle', () => {
                   allocationId: 'candidate-fixture',
                   role: 'data',
                   target: 'primary',
+                  isolation: primaryCoordinatorIsolation,
                   entities: primaryCoordinatorEntities,
                 },
               ],
@@ -794,12 +807,14 @@ describe('Phase 2 fixture lifecycle', () => {
                   allocationId: 'candidate-invariants-fixture',
                   role: 'data',
                   target: 'primary',
+                  isolation: primaryCoordinatorIsolation,
                   entities: primaryCoordinatorEntities,
                 },
                 {
-                  allocationId: 'candidate-invariants-fixture',
+                  allocationId: phase2ForeignAllocationId('candidate-invariants-fixture'),
                   role: 'foreign',
                   target: 'foreign',
+                  isolation: foreignCoordinatorIsolation,
                   entities: foreignCoordinatorEntities,
                 },
               ],
@@ -821,7 +836,7 @@ describe('Phase 2 fixture lifecycle', () => {
         ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
         : rejectedCommandResult();
     };
-    const sensitiveValues = ['e'.repeat(32), 'f'.repeat(32), '1'.repeat(32), '2'.repeat(32)];
+    const sensitiveValues = ['e'.repeat(32), 'f'.repeat(32), 'g'.repeat(32), 'h'.repeat(32)];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -853,17 +868,19 @@ describe('Phase 2 fixture lifecycle', () => {
             allocationId: 'candidate-invariants-fixture',
             role: 'data',
             target: 'primary',
+            isolation: primaryCoordinatorIsolation,
             entities: primaryCoordinatorEntities,
           },
           {
-            allocationId: 'candidate-invariants-fixture',
+            allocationId: phase2ForeignAllocationId('candidate-invariants-fixture'),
             role: 'foreign',
             target: 'foreign',
+            isolation: foreignCoordinatorIsolation,
             entities: foreignCoordinatorEntities,
           },
         ],
       });
-      expect(JSON.stringify(descriptor)).not.toMatch(/[ef]{32}|1{32}|2{32}/u);
+      expect(JSON.stringify(descriptor)).not.toMatch(/e{32}|f{32}|g{32}|h{32}/u);
     }
   });
 
@@ -874,6 +891,7 @@ describe('Phase 2 fixture lifecycle', () => {
         allocationId: 'invalid-public-fixture',
         role: 'data',
         target: 'primary',
+        isolation: primaryCoordinatorIsolation,
         entities: primaryCoordinatorEntities,
         privateValue: 'not-public',
       },
@@ -884,6 +902,7 @@ describe('Phase 2 fixture lifecycle', () => {
         allocationId: 'invalid-public-fixture',
         role: 'data',
         target: 'primary',
+        isolation: primaryCoordinatorIsolation,
       },
     ],
     [
@@ -892,6 +911,7 @@ describe('Phase 2 fixture lifecycle', () => {
         allocationId: 'invalid-public-fixture',
         role: 'data',
         target: 'primary',
+        isolation: primaryCoordinatorIsolation,
         entities: [],
       },
     ],
@@ -901,6 +921,7 @@ describe('Phase 2 fixture lifecycle', () => {
         allocationId: 'invalid-public-fixture',
         role: 'data',
         target: 'primary',
+        isolation: primaryCoordinatorIsolation,
         entities: [
           { ...primaryCoordinatorEntities[0], privateValue: 'not-public' },
           ...primaryCoordinatorEntities.slice(1),
@@ -913,10 +934,134 @@ describe('Phase 2 fixture lifecycle', () => {
         allocationId: 'invalid-public-fixture',
         role: 'data',
         target: 'primary',
+        isolation: primaryCoordinatorIsolation,
         entities: [
           { ...primaryCoordinatorEntities[0], runtimeId: 'a'.repeat(32) },
           ...primaryCoordinatorEntities.slice(1),
         ],
+      },
+    ],
+    [
+      'wrong isolation',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: {
+          persistenceId: 'postgresql:1:aster_phase1_candidate_primary',
+          cookieKeyId: '1'.repeat(32),
+          signingKeyId: '1'.repeat(32),
+        },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'an uppercase primary key ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: { ...primaryCoordinatorIsolation, cookieKeyId: 'A'.repeat(32) },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a short primary key ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: { ...primaryCoordinatorIsolation, signingKeyId: 'a'.repeat(31) },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a wrong primary persistence prefix',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: {
+          ...primaryCoordinatorIsolation,
+          persistenceId: 'mysql:1:aster_phase1_candidate_primary',
+        },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a foreign suffix on primary persistence',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: {
+          ...primaryCoordinatorIsolation,
+          persistenceId: 'postgresql:1:aster_phase1_candidate_foreign',
+        },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'an overflowing primary persistence ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: {
+          ...primaryCoordinatorIsolation,
+          persistenceId: 'postgresql:18446744073709551616:aster_phase1_candidate_primary',
+        },
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a primary suffix on foreign persistence',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: primaryCoordinatorIsolation,
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'an uppercase foreign key ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: primaryCoordinatorIsolation,
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a short foreign key ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: primaryCoordinatorIsolation,
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'a wrong foreign persistence prefix',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: primaryCoordinatorIsolation,
+        entities: primaryCoordinatorEntities,
+      },
+    ],
+    [
+      'wrong foreign allocation ID',
+      {
+        allocationId: 'invalid-public-fixture',
+        role: 'data',
+        target: 'primary',
+        isolation: primaryCoordinatorIsolation,
+        entities: primaryCoordinatorEntities,
       },
     ],
   ])('rejects coordinator public output with %s', async (_label, primaryAllocation) => {
@@ -935,6 +1080,22 @@ describe('Phase 2 fixture lifecycle', () => {
       runner: async (request) => {
         const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
         if (descriptor.operation === 'provision') {
+          const foreignIsolation =
+            _label === 'a primary suffix on foreign persistence'
+              ? {
+                  ...foreignCoordinatorIsolation,
+                  persistenceId: 'postgresql:2:aster_phase1_candidate_primary',
+                }
+              : _label === 'an uppercase foreign key ID'
+                ? { ...foreignCoordinatorIsolation, signingKeyId: 'F'.repeat(32) }
+                : _label === 'a short foreign key ID'
+                  ? { ...foreignCoordinatorIsolation, cookieKeyId: 'f'.repeat(31) }
+                  : _label === 'a wrong foreign persistence prefix'
+                    ? {
+                        ...foreignCoordinatorIsolation,
+                        persistenceId: 'mysql:2:aster_phase1_candidate_foreign',
+                      }
+                    : foreignCoordinatorIsolation;
           return commandResult(
             JSON.stringify({
               schemaVersion: 1,
@@ -945,9 +1106,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 allocations: [
                   primaryAllocation,
                   {
-                    allocationId: 'invalid-public-fixture',
+                    allocationId:
+                      _label === 'wrong foreign allocation ID'
+                        ? 'phase2-foreign-wrong'
+                        : phase2ForeignAllocationId('invalid-public-fixture'),
                     role: 'foreign',
                     target: 'foreign',
+                    isolation: foreignIsolation,
                     entities: foreignCoordinatorEntities,
                   },
                 ],
@@ -993,6 +1158,7 @@ describe('Phase 2 fixture lifecycle', () => {
                   allocationId: 'candidate-retry',
                   role: 'data',
                   target: 'primary',
+                  isolation: primaryCoordinatorIsolation,
                   entities: primaryCoordinatorEntities,
                 },
               ],
@@ -1104,6 +1270,7 @@ describe('Phase 2 fixture lifecycle', () => {
                     allocationId: 'production-secrets',
                     role: 'data',
                     target: 'primary',
+                    isolation: primaryCoordinatorIsolation,
                     entities: primaryCoordinatorEntities,
                   },
                 ],
@@ -1192,6 +1359,7 @@ describe('Phase 2 fixture lifecycle', () => {
                     allocationId: 'noop-candidate',
                     role: 'data',
                     target: 'primary',
+                    isolation: primaryCoordinatorIsolation,
                     entities: primaryCoordinatorEntities,
                   },
                 ],

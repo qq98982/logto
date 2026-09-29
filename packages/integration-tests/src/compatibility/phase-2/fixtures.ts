@@ -380,6 +380,22 @@ const exactRecord = (value: unknown, keys?: readonly string[]): Record<string, u
   return value as Record<string, unknown>;
 };
 
+const coordinatorKeyIdPattern = /^[0-9a-f]{32}$/u;
+const coordinatorPersistenceIdPattern =
+  /^postgresql:([0-9]{1,20}):aster_phase1_candidate_(primary|foreign)$/u;
+const maximumU64 = 18_446_744_073_709_551_615n;
+
+const isCoordinatorPersistenceId = (
+  candidate: unknown,
+  target: 'primary' | 'foreign'
+): candidate is string => {
+  if (typeof candidate !== 'string') {
+    return false;
+  }
+  const match = coordinatorPersistenceIdPattern.exec(candidate);
+  return Boolean(match && match[2] === target && BigInt(match[1] ?? maximumU64 + 1n) <= maximumU64);
+};
+
 const own = (value: Record<string, unknown>, key: string): unknown =>
   Object.getOwnPropertyDescriptor(value, key)?.value;
 
@@ -1464,17 +1480,22 @@ const validateCoordinatorPublic = (
 ): Readonly<Record<string, unknown>> => {
   const publicMap = exactRecord(value, ['schemaVersion', 'recipe', 'allocations']);
   const allocations = own(publicMap, 'allocations');
+  const foreignAllocationId = `phase2-foreign-${createHash('sha256')
+    .update(allocationId)
+    .digest('hex')}`;
   const expectedAllocations =
     recipe === 'phase2CandidateInvariants'
       ? ([
           {
             role: 'data',
             target: 'primary',
+            allocationId,
             entities: phase2PrimaryCoordinatorEntities,
           },
           {
             role: 'foreign',
             target: 'foreign',
+            allocationId: foreignAllocationId,
             entities: phase2ForeignCoordinatorEntities,
           },
         ] as const)
@@ -1482,6 +1503,7 @@ const validateCoordinatorPublic = (
           {
             role: 'data',
             target: 'primary',
+            allocationId,
             entities: phase2PrimaryCoordinatorEntities,
           },
         ] as const);
@@ -1498,11 +1520,12 @@ const validateCoordinatorPublic = (
       'allocationId',
       'role',
       'target',
+      'isolation',
       'entities',
     ]);
     const entities = own(allocation, 'entities');
     if (
-      own(allocation, 'allocationId') !== allocationId ||
+      own(allocation, 'allocationId') !== expected.allocationId ||
       own(allocation, 'role') !== expected.role ||
       own(allocation, 'target') !== expected.target ||
       !Array.isArray(entities) ||
@@ -1521,13 +1544,42 @@ const validateCoordinatorPublic = (
       }
       return Object.freeze({ kind, logicalId, runtimeId });
     });
+    const isolation = exactRecord(own(allocation, 'isolation'), [
+      'persistenceId',
+      'cookieKeyId',
+      'signingKeyId',
+    ]);
+    const persistenceId = own(isolation, 'persistenceId');
+    const cookieKeyId = own(isolation, 'cookieKeyId');
+    const signingKeyId = own(isolation, 'signingKeyId');
+    if (
+      !isCoordinatorPersistenceId(persistenceId, expected.target) ||
+      typeof cookieKeyId !== 'string' ||
+      !coordinatorKeyIdPattern.test(cookieKeyId) ||
+      typeof signingKeyId !== 'string' ||
+      !coordinatorKeyIdPattern.test(signingKeyId) ||
+      new Set([persistenceId, cookieKeyId, signingKeyId]).size !== 3
+    ) {
+      return fail();
+    }
     return Object.freeze({
-      allocationId,
+      allocationId: expected.allocationId,
       role: expected.role,
       target: expected.target,
+      isolation: Object.freeze({ persistenceId, cookieKeyId, signingKeyId }),
       entities: Object.freeze(closedEntities),
     });
   });
+  const persistenceIds = closedAllocations.map(({ isolation }) => isolation.persistenceId);
+  const cookieKeyIds = closedAllocations.map(({ isolation }) => isolation.cookieKeyId);
+  const signingKeyIds = closedAllocations.map(({ isolation }) => isolation.signingKeyId);
+  if (
+    new Set(persistenceIds).size !== persistenceIds.length ||
+    new Set(cookieKeyIds).size !== cookieKeyIds.length ||
+    new Set(signingKeyIds).size !== signingKeyIds.length
+  ) {
+    return fail();
+  }
   return Object.freeze({
     schemaVersion: 1,
     recipe,
