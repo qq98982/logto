@@ -404,7 +404,10 @@ export const runDeviceCandidateInvariants = async (
       const projection = await executor.execute(invariant.id);
       evidence.push(runDeviceCandidateInvariantControls(invariant.id, projection));
     } catch (error: unknown) {
-      if (index === 1 && error instanceof DeviceDigestDriverError) {
+      if (
+        (index === 1 && error instanceof DeviceDigestDriverError) ||
+        (index === 2 && error instanceof DeviceCrossTenantDriverError)
+      ) {
         throw error;
       }
       throw new Error(`Phase 2 stage failed: candidate-invariant-device-${index}`);
@@ -451,6 +454,21 @@ type DeviceDigestFailureStage =
 class DeviceDigestDriverError extends Error {
   constructor(readonly stage: DeviceDigestFailureStage) {
     super(`Phase 2 stage failed: candidate-invariant-device-1-${stage}`);
+  }
+}
+
+type DeviceCrossTenantFailureStage =
+  | 'arm'
+  | 'abort'
+  | 'foreign-poll-error'
+  | 'foreign-poll-invalid-client'
+  | 'foreign-poll-authorization-pending'
+  | 'foreign-poll-status'
+  | 'response'
+  | 'finish';
+class DeviceCrossTenantDriverError extends Error {
+  constructor(readonly stage: DeviceCrossTenantFailureStage) {
+    super(`Phase 2 stage failed: candidate-invariant-device-2-${stage}`);
   }
 }
 
@@ -888,35 +906,85 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
         case 'device-authorization.cross-tenant-lookup-rejected': {
           return executeWithLease(async (lease) => {
             await prepareAuthorizationSecrets(lease, runtime);
-            return withAuthorizationSecrets(lease, async (codes) => {
-              const armed = (await driver(id, 'arm', codes)) as DriverControl;
-              const handle = armed.handle ?? fail();
+            const outcome = await withAuthorizationSecrets(lease, async (codes) => {
+              let armed: DriverControl;
+              try {
+                armed = (await driver(id, 'arm', codes)) as DriverControl;
+              } catch {
+                return Object.freeze({ kind: 'failure' as const, stage: 'arm' as const });
+              }
+              const { handle } = armed;
+              if (handle === undefined) {
+                return Object.freeze({ kind: 'failure' as const, stage: 'arm' as const });
+              }
               const foreign = createTransport({
                 target: options.foreignTarget,
                 fetch: options.fetch,
               });
-              try {
-                const response = await foreign.pollToken({
-                  proof: {
-                    method: 'public',
-                    clientId: options.fixture.public.deviceClients.firstParty.id,
-                  },
-                  deviceCode: codes.deviceCode,
-                });
-                if (response.status !== 400 || oauthCategory(response) !== 'invalid_grant') {
-                  return fail();
+              const abort = async (): Promise<DeviceCrossTenantFailureStage | undefined> => {
+                try {
+                  await driver(id, 'abort', {}, handle);
+                } catch {
+                  return 'abort';
                 }
-                return await (driver(id, 'finish', {}, handle, {
-                  foreignStatus: response.status,
-                  foreignError: oauthCategory(response),
-                }) as Promise<DeviceCandidateInvariantProjection>);
+              };
+              try {
+                let response: DeviceAuthorizationProjection;
+                try {
+                  response = await foreign.pollToken({
+                    proof: {
+                      method: 'public',
+                      clientId: options.fixture.public.deviceClients.firstParty.id,
+                    },
+                    deviceCode: codes.deviceCode,
+                  });
+                } catch {
+                  const abortStage = await abort();
+                  return Object.freeze({
+                    kind: 'failure' as const,
+                    stage: abortStage ?? ('foreign-poll-error' as const),
+                  });
+                }
+                const category = oauthCategory(response);
+                if (response.status !== 400 || category !== 'invalid_grant') {
+                  const abortStage = await abort();
+                  const stage =
+                    category === 'invalid_client'
+                      ? 'foreign-poll-invalid-client'
+                      : category === 'authorization_pending'
+                        ? 'foreign-poll-authorization-pending'
+                        : response.status === 400
+                          ? 'response'
+                          : 'foreign-poll-status';
+                  return Object.freeze({ kind: 'failure' as const, stage: abortStage ?? stage });
+                }
+                try {
+                  const projection = await (driver(id, 'finish', {}, handle, {
+                    foreignStatus: response.status,
+                    foreignError: category,
+                  }) as Promise<DeviceCandidateInvariantProjection>);
+                  return Object.freeze({ kind: 'projection' as const, projection });
+                } catch {
+                  const abortStage = await abort();
+                  return Object.freeze({
+                    kind: 'failure' as const,
+                    stage: abortStage ?? ('finish' as const),
+                  });
+                }
               } catch (error: unknown) {
-                await driver(id, 'abort', {}, handle).catch(() => {});
+                const abortStage = await abort();
+                if (abortStage !== undefined) {
+                  return Object.freeze({ kind: 'failure' as const, stage: abortStage });
+                }
                 throw error;
               } finally {
                 foreign.clear();
               }
             });
+            if (outcome.kind === 'failure') {
+              throw new DeviceCrossTenantDriverError(outcome.stage);
+            }
+            return outcome.projection;
           });
         }
         case 'device-authorization.transition-failure-rolls-back': {

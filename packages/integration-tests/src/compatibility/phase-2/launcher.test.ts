@@ -315,6 +315,9 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-invariant-device-0',
       'candidate-invariant-device-1-row-missing',
       'candidate-invariant-device-1-schema-query',
+      'candidate-invariant-device-2-foreign-poll-authorization-pending',
+      'candidate-invariant-device-2-abort',
+      'candidate-invariant-device-2-response',
       'candidate-invariant-device-7',
     ]) {
       const message = `Phase 2 client credentials command failed (${stage}).\n`;
@@ -324,6 +327,7 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-invariant-device-8',
       'candidate-invariant-device-private',
       'candidate-invariant-device-1-unknown',
+      'candidate-invariant-device-2-unknown',
       'oracle-invariant-device-1-row-missing',
       'oracle-invariant-device-0',
     ]) {

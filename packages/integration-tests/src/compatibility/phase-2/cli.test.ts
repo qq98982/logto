@@ -840,6 +840,9 @@ describe('Phase 2 CLI', () => {
         'candidate-invariant-device-0',
         'candidate-invariant-device-1-row-sql',
         'candidate-invariant-device-1-schema-clear-columns',
+        'candidate-invariant-device-2-foreign-poll-invalid-client',
+        'candidate-invariant-device-2-abort',
+        'candidate-invariant-device-2-finish',
         'candidate-invariant-device-7',
       ].map(async (stage) => {
         const calls: string[] = [];
@@ -875,6 +878,8 @@ describe('Phase 2 CLI', () => {
       'candidate-invariant-device-1-unknown',
       'oracle-invariant-device-1-row-sql',
       'candidate-invariant-device-1-row-sql: private credential',
+      'candidate-invariant-device-2-unknown',
+      'candidate-invariant-device-2-finish: private credential',
     ]) {
       const calls: string[] = [];
       const base = dependencies(calls);

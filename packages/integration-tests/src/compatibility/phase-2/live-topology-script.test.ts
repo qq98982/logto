@@ -966,6 +966,14 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           ),
           grepMatches(
             pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-2-foreign-poll-invalid-client).'
+          ),
+          grepMatches(
+            pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-2-abort).'
+          ),
+          grepMatches(
+            pattern,
             'Phase 2 client credentials command failed (candidate-invariant-device-8).'
           ),
           grepMatches(
@@ -974,11 +982,32 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           ),
           grepMatches(
             pattern,
+            'Phase 2 client credentials command failed (candidate-invariant-device-2-unknown).'
+          ),
+          grepMatches(
+            pattern,
             'Phase 2 client credentials command failed (oracle-invariant-device-0).'
           ),
         ])
       )
-    ).resolves.toEqual([true, true, false, false, false, true, true, false, false, false]);
+    ).resolves.toEqual([
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it('publishes results only after successful topology cleanup', () => {

@@ -164,6 +164,150 @@ describe('Phase 2 digest-only invariant diagnostics', () => {
   });
 });
 
+describe('Phase 2 cross-tenant invariant diagnostics', () => {
+  it.each([
+    ['foreign response', false, 'foreign-poll-invalid-client'],
+    ['abort', true, 'abort'],
+  ])(
+    'carries the closed %s stage through a masking authorization lease',
+    async (_name, abortFails, expectedStage) => {
+      const topology = Object.freeze({ projectName: 'test-topology' });
+      const target = Object.freeze({
+        label: 'candidate' as const,
+        coreUrl: 'https://candidate.example/',
+        adminUrl: 'https://candidate-admin.example/',
+      });
+      const foreignTarget = Object.freeze({
+        label: 'candidate' as const,
+        coreUrl: 'https://foreign.example/',
+        adminUrl: 'https://foreign-admin.example/',
+      });
+      const operations: string[] = [];
+      let clearCount = 0;
+      const executor = await createLiveDeviceCandidateInvariantExecutor({
+        profile: profile(),
+        target,
+        foreignTarget,
+        fixture: {
+          public: { deviceClients: { firstParty: { id: 'device-client' } } },
+        } as never,
+        driverPath: path.resolve(
+          process.cwd(),
+          '../..',
+          '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
+        ),
+        controlSocket: '/var/tmp/henry-build/device-cross-tenant-diagnostic-test.sock',
+        topology: topology as never,
+        state: {} as never,
+        jwks: { keys: [] },
+        createTransport: (({ target: selectedTarget }: { target: { coreUrl: string } }) => ({
+          requestAuthorization: async () => ({ status: 200, deviceCodeShape: 'opaque' }),
+          requestVerification: async () => ({ status: 200 }),
+          pollToken: async () => ({
+            status: selectedTarget.coreUrl === foreignTarget.coreUrl ? 400 : 200,
+            oauthError: {
+              category:
+                selectedTarget.coreUrl === foreignTarget.coreUrl ? 'invalid_client' : undefined,
+            },
+          }),
+          withAuthorizationSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+            try {
+              const outcome = await use({
+                getDeviceCode: () => 'private-device-code',
+                getUserCode: () => 'BCDF-GHJK',
+                getXsrf: () => 'private-xsrf',
+              });
+              if (
+                typeof outcome !== 'object' ||
+                outcome === null ||
+                !Object.isFrozen(outcome) ||
+                JSON.stringify(outcome).includes('private-')
+              ) {
+                throw new TypeError('invalid lease callback outcome');
+              }
+              return outcome;
+            } catch {
+              throw new TypeError('masked credential lease failure');
+            }
+          },
+          clear: () => {
+            clearCount += 1;
+          },
+        })) as never,
+        runner: async (request) => {
+          const descriptor = JSON.parse(request.stdin) as {
+            invariantId: string;
+            operation: string;
+          };
+          operations.push(descriptor.operation);
+          const terminal =
+            descriptor.operation === 'arm'
+              ? {
+                  schemaVersion: 1,
+                  kind: 'phase2-device-candidate-invariant-control',
+                  invariantId: descriptor.invariantId,
+                  operation: 'arm',
+                  handle: 'a'.repeat(32),
+                  attestation: topology,
+                }
+              : {
+                  schemaVersion: 1,
+                  kind: 'phase2-device-candidate-invariant-control',
+                  invariantId: descriptor.invariantId,
+                  operation: 'abort',
+                  ok: true,
+                  attestation: topology,
+                };
+          return descriptor.operation === 'abort' && abortFails
+            ? {
+                exitCode: 1,
+                signal: null,
+                stdout: '',
+                stderr: 'private abort failure',
+                timedOut: false,
+                killed: false,
+                reaped: true,
+              }
+            : {
+                exitCode: 0,
+                signal: null,
+                stdout: JSON.stringify(terminal),
+                stderr: '',
+                timedOut: false,
+                killed: false,
+                reaped: true,
+              };
+        },
+      });
+
+      await expect(
+        executor.execute('device-authorization.cross-tenant-lookup-rejected')
+      ).rejects.toMatchObject({
+        message: `Phase 2 stage failed: candidate-invariant-device-2-${expectedStage}`,
+      });
+      expect(operations).toEqual(['arm', 'abort']);
+      expect(clearCount).toBe(2);
+    }
+  );
+
+  it('does not accept a forged cross-tenant substage from an executor', async () => {
+    await expect(
+      runDeviceCandidateInvariants(profile(), {
+        execute: async (id) => {
+          if (id === deviceCandidateInvariantIds[2]) {
+            throw new Error(
+              'Phase 2 stage failed: candidate-invariant-device-2-foreign-poll-invalid-client'
+            );
+          }
+          return deviceCandidateInvariantExpectedProjection(id);
+        },
+      })
+    ).rejects.toMatchObject({
+      message: 'Phase 2 stage failed: candidate-invariant-device-2',
+    });
+  });
+});
+
 const legacyIds = [
   'client-credentials.cross-tenant-authority-rejected',
   'client-credentials.request-role-write-rejected',
