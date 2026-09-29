@@ -48,6 +48,18 @@ describe('device projection diagnostic fields', () => {
       'other'
     );
     expect(deviceProjectionDifferenceField('/private-token/value')).toBe('other');
+    expect(deviceProjectionDifferenceField('/id/claims/claimKeys/0')).toBe('id-claimKeys');
+    expect(deviceProjectionDifferenceField('/id/claims/claimTypes/email')).toBe(
+      'id-claimTypes-email'
+    );
+    expect(deviceProjectionDifferenceField('/id/header/alg')).toBe('id-header');
+    expect(deviceProjectionDifferenceField('/id/claims/issuer')).toBe('id-issuer');
+    expect(deviceProjectionDifferenceField('/id/claims/lifetimeSeconds')).toBe(
+      'id-lifetimeSeconds'
+    );
+    expect(deviceProjectionDifferenceField('/id/lifetimeSeconds')).toBe('id-other');
+    expect(deviceProjectionDifferenceField('/id/claims/claimTypes/private-token')).toBe('id-other');
+    expect(deviceProjectionDifferenceField('/id/private-token/value')).toBe('id-other');
   });
 });
 
@@ -914,6 +926,22 @@ describe('Phase 2 CLI', () => {
       'projection-completion-cookies',
       'candidate/device-verification.already-used-code:projection-completion-cookies'
     );
+    await runSuffix(
+      'projection-id-claimKeys',
+      'candidate/device-verification.already-used-code:projection-id-claimKeys'
+    );
+    await runSuffix(
+      'projection-id-claimTypes-email_verified',
+      'candidate/device-verification.already-used-code:projection-id-claimTypes-email_verified'
+    );
+    await runSuffix(
+      'projection-id-signature',
+      'candidate/device-verification.already-used-code:projection-id-signature'
+    );
+    await runSuffix(
+      'projection-id-other',
+      'candidate/device-verification.already-used-code:projection-id-other'
+    );
     await Promise.all(
       [
         'approval',
@@ -940,6 +968,8 @@ describe('Phase 2 CLI', () => {
     await runSuffix('approval-password:private', 'differential-execution');
     await runSuffix('projection-cookies:private', 'differential-execution');
     await runSuffix('projection-completion-private', 'differential-execution');
+    await runSuffix('projection-id-claimTypes-private-token', 'differential-execution');
+    await runSuffix('projection-id-signature:private', 'differential-execution');
   });
 
   it('reports a bounded public status stage without printing its private exception', async () => {

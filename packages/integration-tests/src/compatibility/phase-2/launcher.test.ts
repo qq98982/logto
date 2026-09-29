@@ -134,6 +134,15 @@ describe('Phase 2 tracked launcher', () => {
       consentSequenceProjectionField
     );
     for (const stage of [
+      'id-claimKeys',
+      'id-claimTypes-email_verified',
+      'id-signature',
+      'id-other',
+    ]) {
+      const message = `Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-${stage}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    for (const stage of [
       'approval',
       'approval-authorize',
       'approval-capture',
@@ -161,6 +170,8 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-private).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:projection-cookies:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-consent.first-party-matching-grant-required:projection-completion-private).\n',
+      'Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-id-claimTypes-private-token).\n',
+      'Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-id-signature:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval:private-marker).\n',
       'Phase 2 client credentials command failed (candidate/device-verification.already-used-code:approval-password:private-marker).\n',
     ]) {

@@ -218,9 +218,50 @@ type DeviceConsentSequenceChild = (typeof deviceConsentSequenceChildren)[number]
 const deviceConsentSequenceChildSet = new Set<string>(deviceConsentSequenceChildren);
 type DeviceConsentSequenceDifferenceField =
   `${DeviceConsentSequenceChild}-${DeviceProjectionDifferenceField}`;
+const deviceIdClaimTypes = Object.freeze([
+  'aud',
+  'created_at',
+  'email',
+  'email_verified',
+  'exp',
+  'iat',
+  'iss',
+  'name',
+  'picture',
+  'preferred_username',
+  'sub',
+  'updated_at',
+  'username',
+  'auth_time',
+  'acr',
+  'amr',
+  'sid',
+] as const);
+type DeviceIdClaimType = (typeof deviceIdClaimTypes)[number];
+const deviceIdClaimTypeSet = new Set<string>(deviceIdClaimTypes);
+const deviceIdDifferenceFields = Object.freeze([
+  'issuer',
+  'audience',
+  'subject',
+  'issuedAt',
+  'lifetimeSeconds',
+] as const);
+type DeviceIdDifferenceField = (typeof deviceIdDifferenceFields)[number];
+const deviceIdDifferenceFieldSet = new Set<string>(deviceIdDifferenceFields);
+type DeviceIdProjectionDifferenceField =
+  | 'id-claimKeys'
+  | `id-claimTypes-${DeviceIdClaimType}`
+  | `id-${DeviceIdDifferenceField}`
+  | 'id-header'
+  | 'id-signature'
+  | 'id-format'
+  | 'id-other';
 export const deviceProjectionDifferenceField = (
   pointer: unknown
-): DeviceProjectionDifferenceField | DeviceConsentSequenceDifferenceField => {
+):
+  | DeviceProjectionDifferenceField
+  | DeviceConsentSequenceDifferenceField
+  | DeviceIdProjectionDifferenceField => {
   const parts = typeof pointer === 'string' ? pointer.split('/').slice(1) : [];
   const [root, child, childField] = parts;
   if (
@@ -232,12 +273,33 @@ export const deviceProjectionDifferenceField = (
   ) {
     return `${child as DeviceConsentSequenceChild}-${childField as DeviceProjectionDifferenceField}`;
   }
+  if (root === 'id') {
+    if (child === 'claims' && childField === 'claimKeys') {
+      return 'id-claimKeys';
+    }
+    const claimType = parts[3];
+    if (
+      child === 'claims' &&
+      childField === 'claimTypes' &&
+      claimType &&
+      deviceIdClaimTypeSet.has(claimType)
+    ) {
+      return `id-claimTypes-${claimType as DeviceIdClaimType}`;
+    }
+    if (child === 'claims' && childField && deviceIdDifferenceFieldSet.has(childField)) {
+      return `id-${childField as DeviceIdDifferenceField}`;
+    }
+    if (child === 'header' || child === 'signature' || child === 'format') {
+      return `id-${child}`;
+    }
+    return 'id-other';
+  }
   return root && deviceProjectionDifferenceFieldSet.has(root)
     ? (root as DeviceProjectionDifferenceField)
     : 'other';
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =

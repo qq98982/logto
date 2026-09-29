@@ -186,6 +186,11 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) return stderr;
+  const deviceIdMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+):projection-id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)\)\.\n$/u.exec(
+      stderr
+    );
+  if (deviceIdMatch && closedDeviceScenarioIds.has(deviceIdMatch[2])) return stderr;
   const deviceMatch =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(?:lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?\)\.\n$/u.exec(
       stderr

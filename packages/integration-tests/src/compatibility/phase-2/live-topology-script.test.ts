@@ -783,6 +783,54 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only closed ID token projection diagnostics', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter(
+      (pattern): pattern is string =>
+        pattern?.includes(':projection-id-') === true && pattern.includes('claimTypes-')
+    );
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+
+    const prefix =
+      'Phase 2 client credentials command failed (candidate/device-token.id-token-signature-and-claims:projection-id-';
+    const acceptedLines = [
+      'claimKeys',
+      'claimTypes-aud',
+      'claimTypes-email_verified',
+      'claimTypes-auth_time',
+      'header',
+      'signature',
+      'format',
+      'issuer',
+      'audience',
+      'subject',
+      'issuedAt',
+      'lifetimeSeconds',
+      'other',
+    ].map((stage) => `${prefix}${stage}).`);
+    const rejectedLines = [
+      `${prefix}claimTypes-private-token).`,
+      `${prefix}claimTypes-email:private-marker).`,
+      `${prefix}private-token).`,
+      `${prefix}signature:private-marker).`,
+    ];
+    const matchesFor = async (lines: readonly string[]) =>
+      Promise.all(
+        lines.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      );
+    await expect(matchesFor(acceptedLines)).resolves.toEqual(
+      Array.from({ length: acceptedLines.length * patterns.length }, () => true)
+    );
+    await expect(matchesFor(rejectedLines)).resolves.toEqual(
+      Array.from({ length: rejectedLines.length * patterns.length }, () => false)
+    );
+  });
+
   it('executes both command diagnostic allowlists against closed sanitizer substages', async () => {
     const patterns = Array.from(
       source.matchAll(
