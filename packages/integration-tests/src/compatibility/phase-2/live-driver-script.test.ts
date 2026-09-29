@@ -1003,6 +1003,50 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(calls).not.toContain('--filter publish=');
   });
 
+  it('expires the oracle DeviceCode payload and catalog row together', async () => {
+    const harness = await createHarness('oracle');
+    const scenarioId = 'device-verification.expired-code';
+    const begun = await invoke(
+      harness.state,
+      JSON.stringify(stateRequest('device-begin', { scenarioId }, 'oracle')),
+      harness.env
+    );
+    expect(begun).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    for (const operation of ['device-capture', 'device-transition', 'device-abort'] as const) {
+      const result = await invoke(
+        harness.state,
+        JSON.stringify(
+          stateRequest(
+            operation,
+            {
+              scenarioId,
+              handle,
+              ...(operation === 'device-transition' ? { action: 'expire' } : {}),
+            },
+            'oracle'
+          )
+        ),
+        harness.env
+      );
+      expect(result).toMatchObject({ code: 0, stderr: '' });
+    }
+    const calls = await readFile(harness.sql, 'utf8');
+    expect({
+      selectedDevice: calls.includes("model_name='DeviceCode' AND id=:'selected_id'"),
+      payloadExpired: calls.includes(
+        "payload=pg_catalog.jsonb_set(payload,'{exp}','0'::jsonb,false)"
+      ),
+      typedPayload: calls.includes("pg_catalog.jsonb_typeof(payload->'exp')='number'"),
+      bothExpiriesChecked: calls.includes("bool_and(expires_at<now() AND payload_exp='0')"),
+    }).toEqual({
+      selectedDevice: true,
+      payloadExpired: true,
+      typedPayload: true,
+      bothExpiriesChecked: true,
+    });
+  });
+
   it.each(['oracle', 'candidate'] as const)(
     'ignores a preexisting expired %s row when capturing one new live authorization',
     async (kind) => {

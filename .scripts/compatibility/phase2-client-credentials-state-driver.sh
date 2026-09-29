@@ -966,11 +966,14 @@ SQL
     if [[ "$action" == expire && "$target_kind" == oracle ]]; then
       transition_result="$(run_primary_sql --set="selected_id=$selected_id" <<'SQL'
 WITH changed AS (
-  UPDATE oidc_model_instances SET expires_at=to_timestamp(0)
+  UPDATE oidc_model_instances
+  SET expires_at=to_timestamp(0),
+      payload=pg_catalog.jsonb_set(payload,'{exp}','0'::jsonb,false)
   WHERE tenant_id='default' AND model_name='DeviceCode' AND id=:'selected_id'
-  RETURNING expires_at
+    AND pg_catalog.jsonb_typeof(payload->'exp')='number'
+  RETURNING expires_at,payload->>'exp' AS payload_exp
 )
-SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now()) THEN 'ok' ELSE 'invalid' END FROM changed;
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now() AND payload_exp='0') THEN 'ok' ELSE 'invalid' END FROM changed;
 SQL
       )" || die
     elif [[ "$action" == expire ]]; then
