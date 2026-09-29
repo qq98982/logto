@@ -57,6 +57,19 @@ describe('Phase 2 tracked launcher', () => {
     expect(calls).toEqual(['build', 'oracle', 'differential']);
   });
   it('forwards only closed scenario failure identifiers from the child', () => {
+    for (const stage of [
+      'prepare',
+      'approval',
+      'issuance',
+      'evidence-lease',
+      'driver-unclassified',
+    ]) {
+      const message = `Phase 2 client credentials command failed (candidate-invariant-device-7-${stage}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+      expect(diagnosticForPhase2Child(`${message}private-value`)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+    }
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).\n'

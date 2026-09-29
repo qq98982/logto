@@ -166,6 +166,14 @@ describe('Phase 2 digest-only invariant diagnostics', () => {
 });
 
 describe('Phase 2 secret-material invariant diagnostics', () => {
+  const preDriverStages = [
+    'prepare',
+    'approval',
+    'issuance',
+    'evidence-lease',
+    'driver-unclassified',
+  ] as const;
+
   it.each([
     'private-extraction',
     'row-sql',
@@ -299,6 +307,97 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
     expect(clearCount).toBe(1);
   });
 
+  it.each(preDriverStages)(
+    'classifies %s without exposing details and clears the lease',
+    async (stage) => {
+      let clearCount = 0;
+      let fixtureLeaseCount = 0;
+      let verificationCount = 0;
+      const target = Object.freeze({
+        label: 'candidate' as const,
+        coreUrl: 'https://candidate.example/',
+        adminUrl: 'https://candidate-admin.example/',
+      });
+      const executor = await createLiveDeviceCandidateInvariantExecutor({
+        profile: profile(),
+        target,
+        foreignTarget: Object.freeze({
+          label: 'candidate' as const,
+          coreUrl: 'https://foreign.example/',
+          adminUrl: 'https://foreign-admin.example/',
+        }),
+        fixture: {
+          public: { deviceClients: { firstParty: { id: 'device-client' } } },
+          status: { user: { id: 'subject-id', username: 'subject@example.test' } },
+          withSecretLease: async (use: (secrets: unknown) => Promise<unknown>) => {
+            fixtureLeaseCount += 1;
+            if (stage === 'evidence-lease' && fixtureLeaseCount > 1) {
+              throw new TypeError('private fixture lease detail');
+            }
+            return use({
+              getSubjectPassword: () => 'private-password',
+              getClientSecret: () => 'private-client-secret',
+              getStatusClientSecret: () => 'private-status-secret',
+            });
+          },
+        } as never,
+        driverPath: path.resolve(
+          process.cwd(),
+          '../..',
+          '.scripts/compatibility/phase2-client-credentials-invariant-driver.sh'
+        ),
+        controlSocket: '/var/tmp/henry-build/device-evidence-pre-driver-test.sock',
+        topology: Object.freeze({ projectName: 'test-topology' }) as never,
+        state: {} as never,
+        jwks: { keys: [] },
+        createTransport: (() => ({
+          requestAuthorization: async () => {
+            if (stage === 'prepare') {
+              throw new TypeError('private preparation detail');
+            }
+            return { status: 200, deviceCodeShape: 'opaque' };
+          },
+          requestVerification: async () => {
+            verificationCount += 1;
+            if (stage === 'approval' && verificationCount > 1) {
+              throw new TypeError('private approval detail');
+            }
+            return { status: 200 };
+          },
+          requestLifecycle: async () => ({ status: 200 }),
+          pollToken: async () => {
+            if (stage === 'issuance') {
+              throw new TypeError('private issuance detail');
+            }
+            return { status: 200 };
+          },
+          withEvidenceSecretLease: async (use: (secrets: unknown) => Promise<unknown>) =>
+            use({
+              getDeviceCode: () => 'private-device-code',
+              getUserCode: () => 'BCDF-GHJK',
+              getAuditXsrf: () => 'private-xsrf',
+              getAccessToken: () => 'private-access-token',
+              getRefreshToken: () => 'private-refresh-token',
+              getIdToken: () => 'private-id-token',
+            }),
+          clear: () => {
+            clearCount += 1;
+          },
+        })) as never,
+        runner: async () => {
+          throw new TypeError('private raw driver detail');
+        },
+      });
+
+      await expect(
+        executor.execute('device-evidence.secret-material-absent')
+      ).rejects.toMatchObject({
+        message: `Phase 2 stage failed: candidate-invariant-device-7-${stage}`,
+      });
+      expect(clearCount).toBe(1);
+    }
+  );
+
   it('does not accept a forged secret-material substage from an executor', async () => {
     await expect(
       runDeviceCandidateInvariants(profile(), {
@@ -312,6 +411,19 @@ describe('Phase 2 secret-material invariant diagnostics', () => {
     ).rejects.toMatchObject({
       message: 'Phase 2 stage failed: candidate-invariant-device-7',
     });
+  });
+
+  it.each(preDriverStages)('does not accept a forged %s stage from an executor', async (stage) => {
+    await expect(
+      runDeviceCandidateInvariants(profile(), {
+        execute: async (id) => {
+          if (id === deviceCandidateInvariantIds[7]) {
+            throw new Error(`Phase 2 stage failed: candidate-invariant-device-7-${stage}`);
+          }
+          return deviceCandidateInvariantExpectedProjection(id);
+        },
+      })
+    ).rejects.toMatchObject({ message: 'Phase 2 stage failed: candidate-invariant-device-7' });
   });
 });
 

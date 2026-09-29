@@ -1024,6 +1024,41 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only fixed device-7 pre-driver diagnostics', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]*candidate-invariant-device-7-\(prepare[^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern !== undefined);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+    const accepted = [
+      'prepare',
+      'approval',
+      'issuance',
+      'evidence-lease',
+      'driver-unclassified',
+    ].map(
+      (stage) =>
+        `Phase 2 client credentials command failed (candidate-invariant-device-7-${stage}).`
+    );
+    const rejected = [
+      'Phase 2 client credentials command failed (candidate-invariant-device-7-unknown).',
+      'Phase 2 client credentials command failed (candidate-invariant-device-7-prepare:private).',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: 10 }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: 4 }, () => false));
+  });
+
   it('publishes results only after successful topology cleanup', () => {
     expect(source).toContain('.staging.XXXXXX');
     expect(source).toContain('RESULT_STAGING_IDENTITY');

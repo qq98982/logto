@@ -461,6 +461,11 @@ class DeviceDigestDriverError extends Error {
 const deviceEvidenceDriverFailurePattern =
   /^Phase 2 client credentials invariant driver failed \(device-7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-input|scan-query|scan-match|normalized-input|normalized-query|normalized-match)\)\.\n$/u;
 type DeviceEvidenceFailureStage =
+  | 'prepare'
+  | 'approval'
+  | 'issuance'
+  | 'evidence-lease'
+  | 'driver-unclassified'
   | 'private-extraction'
   | 'row-sql'
   | 'row-facts'
@@ -1148,54 +1153,72 @@ export const createLiveDeviceCandidateInvariantExecutor = async (
         }
         case 'device-evidence.secret-material-absent': {
           return executeWithLease(async (lease) => {
-            await prepareAuthorizationSecrets(lease, runtime);
-            await completeDeviceApproval(lease, runtime);
-            const issued = await lease.pollToken({
-              proof: {
-                method: 'public',
-                clientId: options.fixture.public.deviceClients.firstParty.id,
-              },
-            });
-            if (issued.status !== 200) {
-              return fail();
+            try {
+              await prepareAuthorizationSecrets(lease, runtime);
+            } catch {
+              throw new DeviceEvidenceDriverError('prepare');
             }
-            const withEvidence = lease.withEvidenceSecretLease ?? fail();
-            const outcome = await options.fixture.withSecretLease(async (fixtureSecrets) =>
-              withEvidence(async (secrets) => {
-                const privateValues = Object.freeze({
-                  deviceCode: secrets.getDeviceCode(),
-                  userCode: secrets.getUserCode(),
-                  xsrf: secrets.getAuditXsrf(),
-                  password: fixtureSecrets.getSubjectPassword?.() ?? fail(),
-                  clientSecrets: Object.freeze([
-                    fixtureSecrets.getClientSecret('basic'),
-                    fixtureSecrets.getClientSecret('post'),
-                    fixtureSecrets.getStatusClientSecret(),
-                  ]),
-                  tokens: Object.freeze(
-                    [
-                      secrets.getAccessToken(),
-                      secrets.getRefreshToken(),
-                      secrets.getIdToken(),
-                    ].filter((value): value is string => typeof value === 'string')
-                  ),
-                });
-                try {
-                  const projection = (await driver(id, 'probe', privateValues, undefined, {
-                    issuedStatus: issued.status,
-                  })) as DeviceCandidateInvariantProjection;
-                  return Object.freeze({ kind: 'projection' as const, projection });
-                } catch (error: unknown) {
-                  if (error instanceof DeviceEvidenceDriverError) {
+            try {
+              await completeDeviceApproval(lease, runtime);
+            } catch {
+              throw new DeviceEvidenceDriverError('approval');
+            }
+            let issued: DeviceAuthorizationProjection;
+            try {
+              issued = await lease.pollToken({
+                proof: {
+                  method: 'public',
+                  clientId: options.fixture.public.deviceClients.firstParty.id,
+                },
+              });
+            } catch {
+              throw new DeviceEvidenceDriverError('issuance');
+            }
+            if (issued.status !== 200) {
+              throw new DeviceEvidenceDriverError('issuance');
+            }
+            let outcome;
+            try {
+              const withEvidence = lease.withEvidenceSecretLease ?? fail();
+              outcome = await options.fixture.withSecretLease(async (fixtureSecrets) =>
+                withEvidence(async (secrets) => {
+                  const privateValues = Object.freeze({
+                    deviceCode: secrets.getDeviceCode(),
+                    userCode: secrets.getUserCode(),
+                    xsrf: secrets.getAuditXsrf(),
+                    password: fixtureSecrets.getSubjectPassword?.() ?? fail(),
+                    clientSecrets: Object.freeze([
+                      fixtureSecrets.getClientSecret('basic'),
+                      fixtureSecrets.getClientSecret('post'),
+                      fixtureSecrets.getStatusClientSecret(),
+                    ]),
+                    tokens: Object.freeze(
+                      [
+                        secrets.getAccessToken(),
+                        secrets.getRefreshToken(),
+                        secrets.getIdToken(),
+                      ].filter((value): value is string => typeof value === 'string')
+                    ),
+                  });
+                  try {
+                    const projection = (await driver(id, 'probe', privateValues, undefined, {
+                      issuedStatus: issued.status,
+                    })) as DeviceCandidateInvariantProjection;
+                    return Object.freeze({ kind: 'projection' as const, projection });
+                  } catch (error: unknown) {
                     return Object.freeze({
                       kind: 'evidence-failure' as const,
-                      stage: error.stage,
+                      stage:
+                        error instanceof DeviceEvidenceDriverError
+                          ? error.stage
+                          : ('driver-unclassified' as const),
                     });
                   }
-                  throw error;
-                }
-              })
-            );
+                })
+              );
+            } catch {
+              throw new DeviceEvidenceDriverError('evidence-lease');
+            }
             if (outcome.kind === 'evidence-failure') {
               throw new DeviceEvidenceDriverError(outcome.stage);
             }

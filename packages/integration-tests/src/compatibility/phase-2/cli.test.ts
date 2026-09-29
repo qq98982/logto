@@ -846,6 +846,11 @@ describe('Phase 2 CLI', () => {
         'candidate-invariant-device-7',
         'candidate-invariant-device-7-private-extraction',
         'candidate-invariant-device-7-normalized-match',
+        'candidate-invariant-device-7-prepare',
+        'candidate-invariant-device-7-approval',
+        'candidate-invariant-device-7-issuance',
+        'candidate-invariant-device-7-evidence-lease',
+        'candidate-invariant-device-7-driver-unclassified',
       ].map(async (stage) => {
         const calls: string[] = [];
         const base = dependencies(calls);
@@ -884,6 +889,7 @@ describe('Phase 2 CLI', () => {
       'candidate-invariant-device-2-finish: private credential',
       'candidate-invariant-device-7-unknown',
       'candidate-invariant-device-7-normalized-match: private credential',
+      'candidate-invariant-device-7-driver-unclassified: private credential',
     ]) {
       const calls: string[] = [];
       const base = dependencies(calls);
