@@ -58,12 +58,12 @@ const oracleDiscoveryBody = Object.freeze({
   backchannel_logout_supported: true,
   pushed_authorization_request_endpoint: 'https://oracle.example/oidc/request',
   token_endpoint_auth_signing_alg_values_supported: Object.freeze([
+    'HS256',
+    'RS256',
+    'PS256',
     'ES256',
     'Ed25519',
     'EdDSA',
-    'HS256',
-    'PS256',
-    'RS256',
   ]),
 });
 
@@ -2582,12 +2582,12 @@ describe('Phase 2 device authorization transport', () => {
       'reordered token endpoint signing algorithms',
       {
         token_endpoint_auth_signing_alg_values_supported: [
-          'Ed25519',
-          'ES256',
-          'EdDSA',
+          'RS256',
           'HS256',
           'PS256',
-          'RS256',
+          'ES256',
+          'Ed25519',
+          'EdDSA',
         ],
       },
     ],
@@ -2595,12 +2595,12 @@ describe('Phase 2 device authorization transport', () => {
       'extra token endpoint signing algorithm',
       {
         token_endpoint_auth_signing_alg_values_supported: [
+          'HS256',
+          'RS256',
+          'PS256',
           'ES256',
           'Ed25519',
           'EdDSA',
-          'HS256',
-          'PS256',
-          'RS256',
           'RS512',
         ],
       },
@@ -2609,13 +2609,13 @@ describe('Phase 2 device authorization transport', () => {
       'duplicate token endpoint signing algorithm',
       {
         token_endpoint_auth_signing_alg_values_supported: [
+          'HS256',
+          'RS256',
+          'PS256',
           'ES256',
           'Ed25519',
           'EdDSA',
-          'HS256',
-          'PS256',
-          'RS256',
-          'RS256',
+          'EdDSA',
         ],
       },
     ],
@@ -2623,11 +2623,11 @@ describe('Phase 2 device authorization transport', () => {
       'wrong-type token endpoint signing algorithm entry',
       {
         token_endpoint_auth_signing_alg_values_supported: [
+          'HS256',
+          'RS256',
+          'PS256',
           'ES256',
           'Ed25519',
-          'EdDSA',
-          'HS256',
-          'PS256',
           256,
         ],
       },
