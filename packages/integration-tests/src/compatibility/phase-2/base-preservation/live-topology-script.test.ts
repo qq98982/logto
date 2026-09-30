@@ -139,6 +139,7 @@ describe('Phase 2 base-preservation live runner', () => {
       failure_stage="base-preservation-runtime-scenario-\${scenario_index}-\${scenario_phase}"
       ;;
     17[0-9]) failure_stage="base-preservation-runtime-scenario-1-compare-step-$((node_run_status - 170))" ;;
+    18[0-9]|19[0-9]|20[0-7]) failure_stage="base-preservation-runtime-scenario-1-compare-step-5-field-$((node_run_status - 180))" ;;
   esac
   fail
 }`;

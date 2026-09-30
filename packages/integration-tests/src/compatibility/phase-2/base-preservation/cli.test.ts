@@ -242,7 +242,11 @@ class ForgedPhase2BaseScenarioFailure extends Error {
   }
 
   get stepIndex(): number {
-    return 0;
+    return 5;
+  }
+
+  get fieldIndex(): number {
+    return 11;
   }
 
   constructor() {
@@ -466,6 +470,67 @@ describe('Phase 2 base-preservation CLI', () => {
 
     expect(code).toBe(1);
     expect(stderr).toEqual(['Phase 2 base-preservation failed (runtime-scenario-1-compare).\n']);
+    expect(stderr.join('')).not.toContain('private');
+  });
+
+  it.each([
+    ['status', 11],
+    ['body/user', 19],
+    ['headers/cache-control', 20],
+    ['headers/etag', 21],
+    ['headers/content-length', 22],
+    ['headers/content-type', 23],
+    ['headers/vary', 24],
+    ['headers/set-cookie', 25],
+    ['headers/www-authenticate', 26],
+    ['headers/access-control-expose-headers', 27],
+  ] as const)('reports consent-get field %s as field index %i', async (fieldPath, fieldIndex) => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () =>
+          runAuthenticScenarioFailure('compare', 1, {
+            path: `/steps/consent-get/value/${fieldPath}/private`,
+            oracle: 'private oracle value',
+            candidate: 'private candidate value',
+          }),
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      `Phase 2 base-preservation failed (runtime-scenario-1-compare-step-5-field-${fieldIndex}).\n`,
+    ]);
+    expect(stderr.join('')).not.toContain('private oracle value');
+    expect(stderr.join('')).not.toContain('private candidate value');
+  });
+
+  it('falls back to the consent-get step for an unknown field', async () => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () =>
+          runAuthenticScenarioFailure('compare', 1, {
+            path: '/steps/consent-get/value/private',
+            oracle: 'private oracle value',
+          }),
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      'Phase 2 base-preservation failed (runtime-scenario-1-compare-step-5).\n',
+    ]);
     expect(stderr.join('')).not.toContain('private');
   });
 

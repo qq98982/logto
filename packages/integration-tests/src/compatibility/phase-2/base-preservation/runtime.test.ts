@@ -406,6 +406,167 @@ describe('Phase 2 base-preservation runtime', () => {
     }
   });
 
+  it.each([
+    ['body', 0],
+    ['cookies', 1],
+    ['error', 2],
+    ['generatedIds', 3],
+    ['headers', 4],
+    ['mediaType', 5],
+    ['outcomes', 6],
+    ['persistedState', 7],
+    ['redirect', 8],
+    ['semanticState', 9],
+    ['sideEffects', 10],
+    ['status', 11],
+    ['tokens', 12],
+    ['urls', 13],
+    ['body/privateUnknown', 0],
+    ['body/application', 14],
+    ['body/missingOIDCScope', 15],
+    ['body/missingResourceScopes', 16],
+    ['body/organizations', 17],
+    ['body/redirectUri', 18],
+    ['body/user', 19],
+    ['headers/cache-control', 20],
+    ['headers/etag', 21],
+    ['headers/content-length', 22],
+    ['headers/content-type', 23],
+    ['headers/vary', 24],
+    ['headers/set-cookie', 25],
+    ['headers/www-authenticate', 26],
+    ['headers/access-control-expose-headers', 27],
+  ] as const)(
+    'classifies scenario 1 consent-get first difference field %s as index %i',
+    async (fieldPath, fieldIndex) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      let comparisonIndex = 0;
+
+      await expect(
+        runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          compare: () => {
+            const differences =
+              comparisonIndex === 1
+                ? Object.freeze([
+                    {
+                      path: `/steps/consent-get/value/${fieldPath}${fieldPath.includes('/') ? '/private' : ''}`,
+                      oracle: 'private oracle',
+                      candidate: 'private candidate',
+                    },
+                  ])
+                : Object.freeze([]);
+            comparisonIndex += 1;
+
+            return differences;
+          },
+        })
+      ).rejects.toMatchObject({
+        scenarioIndex: 1,
+        stage: 'compare',
+        stepIndex: 5,
+        fieldIndex,
+      });
+    }
+  );
+
+  it.each(['/steps/consent-get/value/headers/private-header/private'])(
+    'classifies an unknown or hostile consent-get header as root headers for %s',
+    async (path) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      let comparisonIndex = 0;
+
+      try {
+        await runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          compare: () => {
+            const differences =
+              comparisonIndex === 1
+                ? Object.freeze([
+                    { path, oracle: 'private oracle', candidate: 'private candidate' },
+                  ])
+                : Object.freeze([]);
+            comparisonIndex += 1;
+
+            return differences;
+          },
+        });
+        throw new Error('expected runtime failure');
+      } catch (error: unknown) {
+        expect(error).toMatchObject({
+          scenarioIndex: 1,
+          stage: 'compare',
+          stepIndex: 5,
+          fieldIndex: 4,
+        });
+        expect(JSON.stringify(error)).not.toContain('private');
+      }
+    }
+  );
+
+  it.each(['/steps/consent-get/value/private', '/steps/consent-get/value'])(
+    'falls back to the consent-get step for unclassified field pointer %s',
+    async (path) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      let comparisonIndex = 0;
+
+      try {
+        await runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          compare: () => {
+            const differences =
+              comparisonIndex === 1
+                ? Object.freeze([
+                    { path, oracle: 'private oracle', candidate: 'private candidate' },
+                  ])
+                : Object.freeze([]);
+            comparisonIndex += 1;
+
+            return differences;
+          },
+        });
+        throw new Error('expected runtime failure');
+      } catch (error: unknown) {
+        expect(error).toMatchObject({ scenarioIndex: 1, stage: 'compare', stepIndex: 5 });
+        expect(error).not.toHaveProperty('fieldIndex');
+        expect(JSON.stringify(error)).not.toContain('private');
+      }
+    }
+  );
+
+  it.each([
+    '/steps/consent-get/value/body~2user/private',
+    '/steps/consent-get/value/headers/content-type~2/private',
+  ])('rejects malformed consent-get pointer %s before step classification', async (path) => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const dependencies = createDependencies(calls);
+    let comparisonIndex = 0;
+
+    try {
+      await runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+        ...dependencies,
+        compare: () => {
+          const differences =
+            comparisonIndex === 1
+              ? Object.freeze([{ path, oracle: 'private oracle', candidate: 'private candidate' }])
+              : Object.freeze([]);
+          comparisonIndex += 1;
+
+          return differences;
+        },
+      });
+      throw new Error('expected runtime failure');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ scenarioIndex: 1, stage: 'compare' });
+      expect(error).not.toHaveProperty('stepIndex');
+      expect(error).not.toHaveProperty('fieldIndex');
+      expect(JSON.stringify(error)).not.toContain('private');
+    }
+  });
+
   it('reuses all accepted Phase 1 runners and adapts only candidate discovery', async () => {
     const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
     const result = await runPhase2BasePreservationRuntime(

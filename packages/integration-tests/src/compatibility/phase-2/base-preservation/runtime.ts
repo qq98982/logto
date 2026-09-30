@@ -102,14 +102,21 @@ export type Phase2BaseScenarioFailure = Error &
     scenarioIndex: number;
     stage: Phase2BaseScenarioStage;
     stepIndex?: number;
+    fieldIndex?: number;
   }>;
 
 class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScenarioFailure {
   readonly scenarioIndex: number;
   readonly stage: Phase2BaseScenarioStage;
   readonly stepIndex?: number;
+  readonly fieldIndex?: number;
 
-  constructor(scenarioIndex: number, stage: Phase2BaseScenarioStage, stepIndex?: number) {
+  constructor(
+    scenarioIndex: number,
+    stage: Phase2BaseScenarioStage,
+    stepIndex?: number,
+    fieldIndex?: number
+  ) {
     super(scenarioFailureMessage);
     if (
       !Number.isInteger(scenarioIndex) ||
@@ -121,7 +128,14 @@ class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScen
           stage !== 'compare' ||
           !Number.isInteger(stepIndex) ||
           stepIndex < 0 ||
-          stepIndex > 9))
+          stepIndex > 9)) ||
+      (fieldIndex !== undefined &&
+        (scenarioIndex !== 1 ||
+          stage !== 'compare' ||
+          stepIndex !== 5 ||
+          !Number.isInteger(fieldIndex) ||
+          fieldIndex < 0 ||
+          fieldIndex > 27))
     ) {
       throw new TypeError(scenarioFailureMessage);
     }
@@ -130,6 +144,9 @@ class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScen
     this.stage = stage;
     if (stepIndex !== undefined) {
       this.stepIndex = stepIndex;
+    }
+    if (fieldIndex !== undefined) {
+      this.fieldIndex = fieldIndex;
     }
     phase2BaseScenarioFailures.add(this);
     Object.freeze(this);
@@ -226,6 +243,80 @@ const scenarioOneDifferenceStepIndex = (difference: Difference | undefined): num
   const stepIndex = scenarioOneStepIds.indexOf(segments[1] ?? '');
 
   return stepIndex === -1 ? undefined : stepIndex;
+};
+
+const consentGetRootFields: readonly string[] = Object.freeze([
+  'body',
+  'cookies',
+  'error',
+  'generatedIds',
+  'headers',
+  'mediaType',
+  'outcomes',
+  'persistedState',
+  'redirect',
+  'semanticState',
+  'sideEffects',
+  'status',
+  'tokens',
+  'urls',
+]);
+const consentGetBodyFields: readonly string[] = Object.freeze([
+  'application',
+  'missingOIDCScope',
+  'missingResourceScopes',
+  'organizations',
+  'redirectUri',
+  'user',
+]);
+const consentGetHeaderFields: readonly string[] = Object.freeze([
+  'cache-control',
+  'etag',
+  'content-length',
+  'content-type',
+  'vary',
+  'set-cookie',
+  'www-authenticate',
+  'access-control-expose-headers',
+]);
+const consentGetValuePrefix = '/steps/consent-get/value/';
+
+const scenarioOneConsentGetFieldIndex = (
+  difference: Difference | undefined
+): number | undefined => {
+  if (!difference?.path.startsWith(consentGetValuePrefix)) {
+    return undefined;
+  }
+  const segments = difference.path
+    .slice(consentGetValuePrefix.length)
+    .split('/')
+    .map((segment) => decodeJsonPointerSegment(segment));
+  if (segments.includes(undefined)) {
+    return undefined;
+  }
+  const root = segments[0];
+
+  if (root === undefined) {
+    return undefined;
+  }
+  const rootIndex = consentGetRootFields.indexOf(root);
+
+  if (rootIndex !== 0 && rootIndex !== 4) {
+    return rootIndex === -1 ? undefined : rootIndex;
+  }
+  const child = segments[1];
+
+  if (child === undefined) {
+    return rootIndex;
+  }
+  const childFields = rootIndex === 0 ? consentGetBodyFields : consentGetHeaderFields;
+  const childIndex = childFields.indexOf(child);
+
+  return childIndex === -1
+    ? rootIndex
+    : consentGetRootFields.length +
+        (rootIndex === 0 ? 0 : consentGetBodyFields.length) +
+        childIndex;
 };
 
 const assertRawDiscoveryControl = (
@@ -561,10 +652,13 @@ export const runPhase2BasePreservationRuntime = async (
         const result = Object.freeze([...dependencies.compare(oracle, candidate)]);
 
         if (result.length > 0) {
+          const stepIndex =
+            scenarioIndex === 1 ? scenarioOneDifferenceStepIndex(result[0]) : undefined;
           throw new AuthenticPhase2BaseScenarioFailure(
             scenarioIndex,
             'compare',
-            scenarioIndex === 1 ? scenarioOneDifferenceStepIndex(result[0]) : undefined
+            stepIndex,
+            stepIndex === 5 ? scenarioOneConsentGetFieldIndex(result[0]) : undefined
           );
         }
 

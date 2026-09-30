@@ -78,6 +78,7 @@ type BaseFailureStage =
   | 'runtime'
   | `runtime-scenario-${number}-${'oracle' | 'candidate' | 'artifact' | 'projection' | 'compare'}`
   | `runtime-scenario-1-compare-step-${number}`
+  | `runtime-scenario-1-compare-step-5-field-${number}`
   | 'harness-recheck'
   | 'publish';
 const success = 'Phase 2 base-preservation completed.\n';
@@ -364,7 +365,9 @@ export const runPhase2BasePreservationCli = async (
                   error.scenarioIndex === 1 &&
                   error.stage === 'compare' &&
                   error.stepIndex !== undefined
-                    ? `runtime-scenario-1-compare-step-${error.stepIndex}`
+                    ? error.stepIndex === 5 && error.fieldIndex !== undefined
+                      ? `runtime-scenario-1-compare-step-5-field-${error.fieldIndex}`
+                      : `runtime-scenario-1-compare-step-${error.stepIndex}`
                     : `runtime-scenario-${error.scenarioIndex}-${error.stage}`;
               }
 
