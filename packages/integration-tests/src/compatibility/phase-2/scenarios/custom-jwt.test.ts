@@ -8,12 +8,18 @@ import {
 
 const jwt = (payload: Record<string, unknown>) =>
   ['header', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'signature'].join('.');
+const verifyJwt = async (token: string) =>
+  JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
 
 describe('Phase 2 custom JWT scenarios', () => {
   it('collects the fixed management and M2M contract without credential or script material', async () => {
     let configured = false;
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
+      verifyAccessToken: verifyJwt,
       request: async ({ method, path, body }): ReturnType<CustomJwtTargetPort['request']> => {
         calls.push(`${method} ${path}`);
         if (method === 'DELETE') {
@@ -150,6 +156,7 @@ describe('Phase 2 custom JWT scenarios', () => {
   it('cleans the customizer when target collection fails', async () => {
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
+      verifyAccessToken: verifyJwt,
       request: async ({ method, path }) => {
         calls.push(`${method} ${path}`);
         if (method === 'DELETE') {
@@ -185,6 +192,7 @@ describe('Phase 2 custom JWT scenarios', () => {
     let jtiMismatch = false;
     let configured = false;
     const port: CustomJwtTargetPort = {
+      verifyAccessToken: verifyJwt,
       request: async ({ method, path, body }) => {
         if (method === 'DELETE') {
           deleteCount += 1;

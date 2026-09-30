@@ -165,9 +165,10 @@ describe('Phase 2 Admin Management bearer transport', () => {
     const result = await withPhase2AdminManagementBearer(
       target,
       fixture(leaseState),
-      async (bearer) => {
+      async (bearer, lease) => {
         expect(leaseState.active).toBe(true);
         expect(bearer.split('.')).toHaveLength(3);
+        expect(lease.getClientSecret('basic')).toBe('unused');
         return 'used';
       },
       { fetch: fake.fetch, codeVerifier: () => verifier, state: () => state }

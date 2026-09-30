@@ -4,6 +4,7 @@ import { chmod, lstat, mkdtemp, open, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createLocalJWKSet, jwtVerify } from 'jose';
 import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import type { JsonValue } from '../normalize.js';
@@ -18,6 +19,8 @@ import {
   runDeviceCandidateInvariants,
   type DeviceCandidateInvariantControlEvidence,
 } from './candidate-invariants/device-authorization.js';
+import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
+import { createCustomJwtHttpPort } from './clients/custom-jwt.js';
 import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
@@ -52,6 +55,7 @@ import {
   fetchPhase2Discovery,
   fetchPhase2PublicJwks,
   preparePhase2TargetForExecution,
+  requestPhase2Json,
   validatePhase2TargetDescriptor,
   verifyPhase2Target,
   type Phase2TargetDescriptor,
@@ -72,6 +76,7 @@ import {
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
+import { runCustomJwtScenarios, type CustomJwtScenarioEvidence } from './scenarios/custom-jwt.js';
 import {
   createDeviceAuthorizationScenarioRegistry,
   compareDeviceScenarioProjections,
@@ -170,6 +175,7 @@ type TargetScenarioEvidence = Readonly<{
     | TokenStatusScenarioResult
     | LogoutSessionScenarioResult
     | DeviceAuthorizationScenarioResult
+    | CustomJwtScenarioEvidence
   >;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
@@ -414,7 +420,7 @@ type DeviceFailureStage =
   | 'verification-get'
   | 'verification-post';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-2][0-9]|13[0-8])))?|comparison|logout-session|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-4][0-9]|15[0-4])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -928,11 +934,100 @@ const runTargetScenarios = async (
         );
       }
     }
+    let customJwtScenarios: readonly CustomJwtScenarioEvidence[];
+    try {
+      const collect = async (
+        authorizationHeaders: Readonly<Record<string, string>>,
+        clientSecret: string
+      ) => {
+        const port = createCustomJwtHttpPort({
+          assertInvocationFence: async () => prepared.fence.assertStable(),
+          managementRequest: async ({ method, path: requestPath, body, signal }) => {
+            if (
+              ![
+                'configs/jwt-customizer',
+                'configs/jwt-customizer/client-credentials',
+                'configs/jwt-customizer/test',
+                'configs/jwt-customizer/unknown-token-type',
+              ].includes(requestPath)
+            ) {
+              return fail();
+            }
+            return requestPhase2Json({
+              url: new URL(`/api/${requestPath}`, descriptor.target.coreUrl),
+              method,
+              headers: {
+                ...authorizationHeaders,
+                ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+              },
+              ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+              signal,
+            });
+          },
+          withM2MSecret: async (use) => use(clientSecret),
+          issueClientCredentials: async ({ clientSecret, signal }) => {
+            const body = new URLSearchParams({
+              grant_type: 'client_credentials',
+              resource: fixture.public.resources.primary.indicator,
+              scope: 'read write',
+            });
+            return requestPhase2Json({
+              url: new URL('oidc/token', descriptor.target.coreUrl),
+              method: 'POST',
+              headers: {
+                authorization: `Basic ${Buffer.from(
+                  `${fixture.public.clients.basic.id}:${clientSecret}`
+                ).toString('base64')}`,
+                'content-type': 'application/x-www-form-urlencoded',
+              },
+              body,
+              signal,
+            });
+          },
+          verifyAccessToken: async (token) => {
+            const verified = await jwtVerify(token, createLocalJWKSet(jwks));
+            return Object.freeze({ ...verified.payload });
+          },
+        });
+        return runCustomJwtScenarios(port, {
+          expected: {
+            issuer: new URL('oidc', descriptor.target.coreUrl).toString(),
+            subject: fixture.public.clients.basic.id,
+            audience: fixture.public.resources.primary.indicator,
+            clientId: fixture.public.clients.basic.id,
+            scope: 'read write',
+          },
+        });
+      };
+      customJwtScenarios =
+        descriptor.kind === 'candidate'
+          ? await withPhase2AdminManagementBearer(
+              descriptor.target,
+              fixture,
+              async (bearer, lease) =>
+                collect({ authorization: `Bearer ${bearer}` }, lease.getClientSecret('basic'))
+            )
+          : await fixture.withSecretLease(async (lease) =>
+              collect(
+                { 'development-user-id': 'integration-test-admin-user' },
+                lease.getClientSecret('basic')
+              )
+            );
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith('Phase 2 custom JWT scenario failed')
+      ) {
+        throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
+      }
+      throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
+    }
     return Object.freeze([
       ...results,
       ...statusScenarios,
       ...logoutSessionScenarios,
       ...deviceScenarios,
+      ...customJwtScenarios,
     ]);
   }).catch((error: unknown) => {
     if (

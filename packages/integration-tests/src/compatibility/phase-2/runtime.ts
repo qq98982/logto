@@ -771,6 +771,45 @@ const readJsonResponse = async (url: URL, requestFetch: typeof fetch): Promise<u
   }
 };
 
+export const requestPhase2Json = async (
+  input: Readonly<{
+    url: URL;
+    method: 'GET' | 'PUT' | 'PATCH' | 'POST' | 'DELETE';
+    headers?: HeadersInit;
+    body?: BodyInit;
+    signal: AbortSignal;
+  }>,
+  requestFetch: typeof fetch = fetch
+): Promise<
+  Readonly<{ status: number; headers: Readonly<Record<string, string>>; body: unknown }>
+> => {
+  const response = await requestFetch(input.url, {
+    method: input.method,
+    headers: input.headers,
+    body: input.body,
+    redirect: 'manual',
+    signal: input.signal,
+  });
+  if (response.redirected) {
+    return fail();
+  }
+  const bytes = await readBoundedResponseBody(response, maximumHttpBytes);
+  const text = new TextDecoder('utf8', { fatal: true }).decode(bytes);
+  let body: unknown = null;
+  if (text.length > 0) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      return fail();
+    }
+  }
+  return Object.freeze({
+    status: response.status,
+    headers: Object.freeze(Object.fromEntries(response.headers.entries())),
+    body,
+  });
+};
+
 export const fetchPhase2PublicJwks = async (
   target: TargetConfig,
   requestFetch: typeof fetch = fetch

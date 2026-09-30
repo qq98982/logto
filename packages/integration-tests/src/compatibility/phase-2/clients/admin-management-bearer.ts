@@ -6,7 +6,7 @@ import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'jose';
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
 import { getPhase1FixtureRuntimeUsername } from '../../phase-1/fixture-map.js';
-import type { ProvisionedPhase2Fixture } from '../fixtures.js';
+import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 const diagnostic = 'Invalid Phase 2 Admin Management bearer flow';
 const managementResource = 'urn:aster:resource:management';
@@ -131,7 +131,7 @@ const callbackCode = (
 export const withPhase2AdminManagementBearer = async <Result>(
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'public' | 'withSecretLease'>,
-  use: (bearer: string) => Promise<Result>,
+  use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>,
   options: Phase2AdminManagementBearerOptions = {}
 ): Promise<Result> => {
   let stage = 'admission';
@@ -337,7 +337,7 @@ export const withPhase2AdminManagementBearer = async <Result>(
           return fail();
         }
         stage = 'consumer';
-        return use(bearer);
+        return use(bearer, lease);
       });
     } finally {
       cookies.clear();

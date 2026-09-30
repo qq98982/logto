@@ -18,6 +18,7 @@ describe('custom JWT HTTP port', () => {
         calls.push(clientSecret === 'private-secret' && !signal.aborted ? 'issue' : 'bad');
         return { status: 200, body: { access_token: 'opaque' } };
       },
+      verifyAccessToken: async () => ({ verified: true }),
     });
     await expect(
       port.request({ method: 'GET', path: 'configs/jwt-customizer' })
@@ -34,6 +35,7 @@ describe('custom JWT HTTP port', () => {
       assertInvocationFence: async () => {},
       withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
       issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
     };
     const oversized = createCustomJwtHttpPort({
       ...base,
@@ -56,6 +58,17 @@ describe('custom JWT HTTP port', () => {
     });
     await expect(header.request({ method: 'GET', path: 'x' })).rejects.toThrow(
       'Invalid Phase 2 custom JWT HTTP observation'
+    );
+
+    const invalidSignature = createCustomJwtHttpPort({
+      ...base,
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      verifyAccessToken: async () => {
+        throw new TypeError('invalid signature');
+      },
+    });
+    await expect(invalidSignature.verifyAccessToken('forged.jwt.signature')).rejects.toThrow(
+      'invalid signature'
     );
   });
 });

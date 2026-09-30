@@ -27,6 +27,7 @@ export type CustomJwtHttpCapabilities = Readonly<{
       signal: AbortSignal;
     }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
+  verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
   timeoutMs?: number;
 }>;
 
@@ -105,6 +106,12 @@ export const createCustomJwtHttpPort = (
         }
         return Object.freeze({ status: response.status, body: boundedClone(response.body) });
       }),
+    verifyAccessToken: async (token) => {
+      if (typeof token !== 'string' || token.length === 0 || Buffer.byteLength(token) > 16 * 1024) {
+        return fail();
+      }
+      return Object.freeze(boundedClone(await capabilities.verifyAccessToken(token)));
+    },
   });
 };
 

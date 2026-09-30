@@ -41,6 +41,7 @@ export type CustomJwtTargetPort = Readonly<{
       caseId: Extract<CustomJwtScenarioId, `custom-jwt.m2m-${string}`>;
     }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
+  verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
 }>;
 export type CustomJwtExpectedClaims = Readonly<{
   issuer: string;
@@ -116,20 +117,6 @@ const configuration = (script: string, blockIssuanceOnError: boolean) =>
       clientId: 'sample',
     }),
   });
-const decodeJwtPayload = (value: unknown): Record<string, unknown> => {
-  if (typeof value !== 'string' || value.length > 16 * 1024) {
-    return fail();
-  }
-  const parts = value.split('.');
-  if (parts.length !== 3 || !parts[1]) {
-    return fail();
-  }
-  try {
-    return record(JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')));
-  } catch {
-    return fail();
-  }
-};
 const tokenBody = (value: unknown): Record<string, unknown> => record(value);
 const assertStatus = (response: Readonly<{ status: number }>, expected: number): void => {
   if (response.status !== expected) {
@@ -254,7 +241,9 @@ export const runCustomJwtScenarios = async (
     await configure(scripts.success, false);
     const success = await port.issueClientCredentials({ caseId: customJwtScenarioIds[11] });
     assertStatus(success, 200);
-    const successPayload = decodeJwtPayload(tokenBody(success.body).access_token);
+    const successTokenValue = tokenBody(success.body).access_token;
+    const successToken = typeof successTokenValue === 'string' ? successTokenValue : fail();
+    const successPayload = await port.verifyAccessToken(successToken);
     push(customJwtScenarioIds[11], {
       status: success.status,
       customClaimMerged: successPayload.probe_claim === 'merged',
@@ -297,7 +286,9 @@ export const runCustomJwtScenarios = async (
     const issuedAfter = Math.floor(Date.now() / 1000);
     assertStatus(protectedResult, 200);
     const protectedBody = tokenBody(protectedResult.body);
-    const claims = decodeJwtPayload(protectedBody.access_token);
+    const protectedToken =
+      typeof protectedBody.access_token === 'string' ? protectedBody.access_token : fail();
+    const claims = await port.verifyAccessToken(protectedToken);
     push(customJwtScenarioIds[15], {
       status: protectedResult.status,
       customClaimMerged: claims.probe_claim === 'merged',

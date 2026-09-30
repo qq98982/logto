@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(139);
+    expect(registries.differentialScenarios).toHaveLength(155);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -79,6 +79,24 @@ describe('Phase 2 profile loader', () => {
       'device-token.concurrent-reference-multi-winner'
     );
     expect(registries.differentialScenarios[138]).toBe('device-discovery.oauth');
+    expect(registries.differentialScenarios.slice(139)).toEqual([
+      'custom-jwt.management-missing-get',
+      'custom-jwt.management-missing-delete',
+      'custom-jwt.management-put',
+      'custom-jwt.management-get',
+      'custom-jwt.management-list',
+      'custom-jwt.management-patch',
+      'custom-jwt.management-patch-missing-script',
+      'custom-jwt.management-patch-nonstring-script',
+      'custom-jwt.management-test',
+      'custom-jwt.management-unknown-token-type',
+      'custom-jwt.management-delete',
+      'custom-jwt.m2m-success',
+      'custom-jwt.m2m-deny',
+      'custom-jwt.m2m-throw-block',
+      'custom-jwt.m2m-throw-open',
+      'custom-jwt.m2m-protected-claims',
+    ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
       'client-credentials.cross-tenant-authority-rejected',
@@ -119,10 +137,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '4909ecbaa2ab3df663a3f636a963e639500ca7cd7c54cdc3d6516403bb60931a'
+      'd2c34d0454fa355100afdd9e2dafa8c205a9226b87a155f5ff12255462832d57'
     );
     expect(registries.schemaSha256).toBe(
-      '098dd83ca25333c50681bc2bd6b87b23fe0e41fa24c949541a877347858025d3'
+      '55bdab12f4b5a0b843c2e95c783ca53eaf29e4e062d0e07e897f8fd73411a941'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'
