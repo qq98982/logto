@@ -27,6 +27,7 @@ import {
   cleanupBasePreservationBridgeEntry,
   createBasePreservationBridgeEntry,
   diagnosticForBasePreservationChild,
+  exitCodeForBasePreservationChild,
   launchPhase2BasePreservation,
   selectBasePreservationEnvironment,
 } from './launcher.mjs';
@@ -83,21 +84,23 @@ const removeBridgeFixture = async (fixture: Awaited<ReturnType<typeof createBrid
 
 describe('Phase 2 base-preservation launcher', () => {
   it.each([
-    'arguments',
-    'paths',
-    'profile',
-    'harness',
-    'closure',
-    'phase1',
-    'runtime',
-    'harness-recheck',
-    'publish',
-  ])('forwards only an authenticated %s child stage', (stage) => {
+    ['arguments', 40],
+    ['paths', 41],
+    ['profile', 42],
+    ['harness', 43],
+    ['closure', 44],
+    ['phase1', 45],
+    ['runtime', 46],
+    ['harness-recheck', 47],
+    ['publish', 48],
+  ])('maps only an authenticated %s child stage to reserved exit code %i', (stage, exitCode) => {
     const message = `Phase 2 base-preservation failed (${stage}).\n`;
     const result = { timedOut: false, code: 1, signal: null, stdout: '', stderr: message };
     expect(diagnosticForBasePreservationChild(result)).toBe(message);
+    expect(exitCodeForBasePreservationChild(result)).toBe(exitCode);
     for (const hostile of [
       { ...result, code: 0 },
+      { ...result, code: exitCode },
       { ...result, timedOut: true },
       { ...result, signal: 'SIGTERM' },
       { ...result, stdout: 'private credential' },
@@ -107,6 +110,7 @@ describe('Phase 2 base-preservation launcher', () => {
       expect(diagnosticForBasePreservationChild(hostile)).toBe(
         'Phase 2 base-preservation launcher failed.\n'
       );
+      expect(exitCodeForBasePreservationChild(hostile)).toBe(1);
     }
   });
 

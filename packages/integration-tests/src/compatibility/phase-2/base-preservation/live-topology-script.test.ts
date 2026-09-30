@@ -114,6 +114,25 @@ describe('Phase 2 base-preservation live runner', () => {
       '--harness-commit "83d08f0821345d1bdc01491152949cc6f044ecfb"'
     );
     expect(generatedSource).not.toContain('raw-phase1-negative-control');
+    const mappedWait = `wait "\${NODE_RUN_PID}" || {
+  node_run_status=$?
+  case "\${node_run_status}" in
+    40) failure_stage=base-preservation-arguments ;;
+    41) failure_stage=base-preservation-paths ;;
+    42) failure_stage=base-preservation-profile ;;
+    43) failure_stage=base-preservation-harness ;;
+    44) failure_stage=base-preservation-closure ;;
+    45) failure_stage=base-preservation-phase1 ;;
+    46) failure_stage=base-preservation-runtime ;;
+    47) failure_stage=base-preservation-harness-recheck ;;
+    48) failure_stage=base-preservation-publish ;;
+  esac
+  fail
+}`;
+    expect(generatedSource).toContain(mappedWait);
+    expect(generatedSource).toContain('>/dev/null 2>&1 &');
+    expect(generatedSource).not.toContain('base-preservation.stderr');
+    expect(generatedSource).not.toMatch(/(?:cat|read|grep).*stderr/u);
     const phase1Root = ['$', '{ASTER_ROOT}'].join('');
     const phase2Root = ['$', '{PHASE2_ASTER_ROOT}'].join('');
     const gitAuthority = ['$', '{GIT_AUTHORITY[@]}'].join('');

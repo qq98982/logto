@@ -16,15 +16,44 @@ import {
 const diagnostic = 'Phase 2 base-preservation launcher failed.\n';
 const childFailurePattern =
   /^Phase 2 base-preservation failed \((arguments|paths|profile|harness|closure|phase1|runtime|harness-recheck|publish)\)\.\n$/u;
-class BasePreservationChildFailure extends Error {}
+const childFailureExitCodes = Object.freeze({
+  arguments: 40,
+  paths: 41,
+  profile: 42,
+  harness: 43,
+  closure: 44,
+  phase1: 45,
+  runtime: 46,
+  'harness-recheck': 47,
+  publish: 48,
+});
+class BasePreservationChildFailure extends Error {
+  constructor(message, exitCode) {
+    super(message);
+    this.exitCode = exitCode;
+  }
+}
+const parseBasePreservationChildFailure = (result) => {
+  if (
+    result.timedOut !== false ||
+    result.code !== 1 ||
+    result.signal !== null ||
+    result.stdout !== ''
+  ) {
+    return;
+  }
+  const match = childFailurePattern.exec(result.stderr);
+  const stage = match?.[1];
+  const exitCode = childFailureExitCodes[stage];
+  if (!Number.isSafeInteger(exitCode)) {
+    return;
+  }
+  return Object.freeze({ diagnostic: result.stderr, exitCode });
+};
 export const diagnosticForBasePreservationChild = (result) =>
-  result.timedOut === false &&
-  result.code === 1 &&
-  result.signal === null &&
-  result.stdout === '' &&
-  childFailurePattern.test(result.stderr)
-    ? result.stderr
-    : diagnostic;
+  parseBasePreservationChildFailure(result)?.diagnostic ?? diagnostic;
+export const exitCodeForBasePreservationChild = (result) =>
+  parseBasePreservationChildFailure(result)?.exitCode ?? 1;
 const failure = 'Invalid Phase 2 base-preservation launcher';
 export const basePreservationBridgeSource =
   "export { runPhase2CliMain } from './base-preservation/cli.js';\n";
@@ -415,9 +444,9 @@ const defaultDependencies = Object.freeze({
   cleanupEntry: cleanupBasePreservationBridgeEntry,
   async execute(entry, args, environment, manifest, capability) {
     const result = await executeVerifiedPhase2Entry(entry, args, environment, manifest, capability);
-    const childDiagnostic = diagnosticForBasePreservationChild(result);
-    if (childDiagnostic !== diagnostic) {
-      throw new BasePreservationChildFailure(childDiagnostic);
+    const childFailure = parseBasePreservationChildFailure(result);
+    if (childFailure) {
+      throw new BasePreservationChildFailure(childFailure.diagnostic, childFailure.exitCode);
     }
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
       return 1;
@@ -532,7 +561,7 @@ if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
       selectBasePreservationEnvironment(process.env)
     );
   } catch (error) {
-    process.exitCode = 1;
+    process.exitCode = error instanceof BasePreservationChildFailure ? error.exitCode : 1;
     process.stderr.write(
       error instanceof BasePreservationChildFailure ? error.message : diagnostic
     );

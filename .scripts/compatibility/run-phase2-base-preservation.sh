@@ -422,7 +422,21 @@ ASTER_PHASE1_PROCESS_TOKEN="\${NODE_RUN_TOKEN}" "\${SETSID_BIN}" "\${PUBLIC_ENV[
   >/dev/null 2>&1 &
 NODE_RUN_PID=$!
 NODE_RUN_PGID="\${NODE_RUN_PID}"
-wait "\${NODE_RUN_PID}" || fail
+wait "\${NODE_RUN_PID}" || {
+  node_run_status=$?
+  case "\${node_run_status}" in
+    40) failure_stage=base-preservation-arguments ;;
+    41) failure_stage=base-preservation-paths ;;
+    42) failure_stage=base-preservation-profile ;;
+    43) failure_stage=base-preservation-harness ;;
+    44) failure_stage=base-preservation-closure ;;
+    45) failure_stage=base-preservation-phase1 ;;
+    46) failure_stage=base-preservation-runtime ;;
+    47) failure_stage=base-preservation-harness-recheck ;;
+    48) failure_stage=base-preservation-publish ;;
+  esac
+  fail
+}
 NODE_RUN_PID=''
 NODE_RUN_PGID=''
 NODE_RUN_TOKEN=''
