@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed scenario collector validates hostile JSON shapes, owns one ordered evidence journal, and preserves fixed primary and cleanup failure classes. */
-import { types as nodeTypes } from 'node:util';
+import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import type { JsonValue } from '../../normalize.js';
 
@@ -54,6 +54,11 @@ export type CustomJwtScenarioEvidence = Readonly<{
   id: CustomJwtScenarioId;
   projection: Readonly<Record<string, JsonValue>>;
 }>;
+
+export const compareCustomJwtProjections = (
+  expected: CustomJwtScenarioEvidence['projection'],
+  actual: CustomJwtScenarioEvidence['projection']
+): boolean => isDeepStrictEqual(expected, actual);
 
 const path = 'configs/jwt-customizer/client-credentials';
 const expectedConfigKeys = Object.freeze([

@@ -1,6 +1,7 @@
 /* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The stateful fake target proves ordering, lifecycle changes, cleanup, and evidence redaction through one bounded in-memory contract. */
 
 import {
+  compareCustomJwtProjections,
   customJwtScenarioIds,
   runCustomJwtScenarios,
   type CustomJwtTargetPort,
@@ -15,6 +16,18 @@ const verifyJwt = async (token: string) =>
   >;
 
 describe('Phase 2 custom JWT scenarios', () => {
+  it('compares custom JWT status, denial and protected-claim evidence exactly', () => {
+    const denied = { status: 400, error: 'access_denied' };
+    expect(compareCustomJwtProjections(denied, { ...denied })).toBe(true);
+    expect(compareCustomJwtProjections(denied, { status: 200, error: null })).toBe(false);
+    expect(
+      compareCustomJwtProjections(
+        { status: 200, protectedClaimsPreserved: true },
+        { status: 200, protectedClaimsPreserved: false }
+      )
+    ).toBe(false);
+  });
+
   it('collects the fixed management and M2M contract without credential or script material', async () => {
     let configured = false;
     const calls: string[] = [];

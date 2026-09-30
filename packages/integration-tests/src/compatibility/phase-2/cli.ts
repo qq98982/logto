@@ -76,7 +76,12 @@ import {
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
-import { runCustomJwtScenarios, type CustomJwtScenarioEvidence } from './scenarios/custom-jwt.js';
+import {
+  compareCustomJwtProjections,
+  customJwtScenarioIds,
+  runCustomJwtScenarios,
+  type CustomJwtScenarioEvidence,
+} from './scenarios/custom-jwt.js';
 import {
   createDeviceAuthorizationScenarioRegistry,
   compareDeviceScenarioProjections,
@@ -1135,6 +1140,17 @@ const executeDifferential = async (
     const candidateScenario = candidate.scenarios[index];
     if (!candidateScenario || candidateScenario.id !== oracleScenario.id) {
       return fail();
+    }
+    if ((customJwtScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+      if (
+        !compareCustomJwtProjections(
+          oracleScenario.projection as CustomJwtScenarioEvidence['projection'],
+          candidateScenario.projection as CustomJwtScenarioEvidence['projection']
+        )
+      ) {
+        throw new Error(`Phase 2 stage failed: candidate-custom-jwt:${oracleScenario.id}`);
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
     }
     const isTokenStatus = (tokenStatusScenarioIds as readonly string[]).includes(oracleScenario.id);
     const isLogoutSession = (logoutSessionScenarioIds as readonly string[]).includes(
