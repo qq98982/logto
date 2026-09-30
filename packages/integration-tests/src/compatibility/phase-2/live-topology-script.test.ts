@@ -8,6 +8,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -551,10 +552,20 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).not.toContain('compatibility:phase2 --');
     const oracle = source.indexOf("Object.freeze(['oracle'");
     const differential = source.indexOf("Object.freeze(['differential'");
-    const invariants = source.indexOf("Object.freeze(['candidate-invariants'");
+    const invariants = source.indexOf("await runBatch('candidate-invariants', invariantCommand)");
+    const invariantArtifactVerification = source.indexOf(
+      'await immutableArtifact(invariantOutput)'
+    );
+    const stateSweep = source.indexOf(
+      'remove_state_handle_root "$STATE_HANDLE_ROOT" || { failure_stage=\'state-handle-sweep-after-evidence\''
+    );
+    const afterEvidenceFence = source.indexOf("failure_stage='runtime-fence-after-evidence'");
     expect(oracle).toBeGreaterThan(0);
     expect(differential).toBeGreaterThan(oracle);
     expect(invariants).toBeGreaterThan(differential);
+    expect(invariantArtifactVerification).toBeGreaterThan(invariants);
+    expect(stateSweep).toBeGreaterThan(invariantArtifactVerification);
+    expect(afterEvidenceFence).toBeGreaterThan(stateSweep);
     expect(source).toContain("'--oracle-evidence', oracleOutput");
     expect(source).not.toContain("'--oracle-target', oracleTarget");
     expect(source).toContain('immutableArtifact');
@@ -1139,6 +1150,54 @@ remove_state_handle_root ${JSON.stringify(stateRoot)}
 
     await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(lstat(stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('resumes a verified state tombstone cleanup after interruption following rename', async () => {
+    const stateRoot = await mkdtemp(path.join(temporaryRoot, 'interrupted-state-root-'));
+    await chmod(stateRoot, 0o700);
+    const suffix = '9'.repeat(32);
+    const quarantineEntry = path.join(stateRoot, `.quarantine.${suffix}`);
+    const cleanupEntry = path.join(stateRoot, `.cleanup.${suffix}`);
+    await writeFile(quarantineEntry, '{"schemaVersion":1,"retired":true}', { mode: 0o600 });
+    const harnessPath = path.join(temporaryRoot, 'interrupted-state-root-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+original_function=$(declare -f remove_state_handle_root)
+faulted_function=\${original_function/'    /usr/bin/rm -- "$cleanup_path" || return 1'/'    return 97'}
+[[ "$faulted_function" != "$original_function" ]]
+eval "$faulted_function"
+if remove_state_handle_root ${JSON.stringify(stateRoot)}; then exit 19; fi
+[[ ! -e ${JSON.stringify(quarantineEntry)} && -f ${JSON.stringify(cleanupEntry)} ]]
+eval "$original_function"
+remove_state_handle_root ${JSON.stringify(stateRoot)}
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(lstat(stateRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fails closed and preserves a replaced interrupted state cleanup entry', async () => {
+    const stateRoot = await mkdtemp(path.join(temporaryRoot, 'replaced-cleanup-state-root-'));
+    await chmod(stateRoot, 0o700);
+    const cleanupEntry = path.join(stateRoot, `.cleanup.${'8'.repeat(32)}`);
+    const replacement = path.join(temporaryRoot, 'replacement-state-cleanup-entry');
+    await writeFile(cleanupEntry, '{"schemaVersion":1,"retired":true}', { mode: 0o600 });
+    await writeFile(replacement, '{"schemaVersion":1,"retired":false}', { mode: 0o600 });
+    await rename(replacement, cleanupEntry);
+    const harnessPath = path.join(temporaryRoot, 'replaced-cleanup-state-root-harness.sh');
+    const harness = `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+if remove_state_handle_root ${JSON.stringify(stateRoot)}; then exit 19; fi
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(readFile(cleanupEntry, 'utf8')).resolves.toBe(
+      '{"schemaVersion":1,"retired":false}'
+    );
   });
 
   it.each([
