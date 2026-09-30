@@ -747,6 +747,143 @@
       }
     }
   },
+  "x-phase2-services": {
+    "oracle-fetch-observer": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "entrypoint": ["node"],
+      "command": ["/opt/aster-fixture/phase2-fetch-observer.mjs"],
+      "environment": {
+        "ASTER_FETCH_OBSERVER_CERTIFICATE_FILE": "/run/aster-fetch-observer/tls/server.pem",
+        "ASTER_FETCH_OBSERVER_PRIVATE_KEY_FILE": "/run/aster-fetch-observer/tls/server.key",
+        "ASTER_FETCH_OBSERVER_RECEIPT_FILE": "/run/aster-fetch-observer/receipts/observations.ndjson",
+        "ASTER_FETCH_OBSERVER_CA_FILE": "/run/aster-fetch-observer/tls/ca.pem"
+      },
+      "healthcheck": {
+        "test": ["CMD", "node", "-e", "const fs=require('node:fs'),https=require('node:https');const r=https.get({hostname:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:fs.readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
+        "interval": "1s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "oracle-primary": { "aliases": ["fetch-observer.aster.test"] }
+      },
+      "volumes": [
+        "${ASTER_PHASE2_FETCH_OBSERVER_SCRIPT:-/dev/null}:/opt/aster-fixture/phase2-fetch-observer.mjs:ro",
+        "${ASTER_PHASE2_ORACLE_OBSERVER_CERT:-/dev/null}:/run/aster-fetch-observer/tls/server.pem:ro",
+        "${ASTER_PHASE2_ORACLE_OBSERVER_KEY:-/dev/null}:/run/aster-fetch-observer/tls/server.key:ro",
+        "${ASTER_PHASE2_ORACLE_OBSERVER_CA:-/dev/null}:/run/aster-fetch-observer/tls/ca.pem:ro",
+        "${ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT:-/dev/null}:/run/aster-fetch-observer/receipts/observations.ndjson:rw"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "pids_limit": 32,
+      "mem_limit": "192m",
+      "cpus": 0.25,
+      "cap_drop": ["ALL"],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "restart": "no"
+    },
+    "candidate-fetch-observer": {
+      "image": "${ASTER_PHASE1_ORACLE_IMAGE:?required}",
+      "entrypoint": ["node"],
+      "command": ["/opt/aster-fixture/phase2-fetch-observer.mjs"],
+      "environment": {
+        "ASTER_FETCH_OBSERVER_CERTIFICATE_FILE": "/run/aster-fetch-observer/tls/server.pem",
+        "ASTER_FETCH_OBSERVER_PRIVATE_KEY_FILE": "/run/aster-fetch-observer/tls/server.key",
+        "ASTER_FETCH_OBSERVER_RECEIPT_FILE": "/run/aster-fetch-observer/receipts/observations.ndjson",
+        "ASTER_FETCH_OBSERVER_CA_FILE": "/run/aster-fetch-observer/tls/ca.pem"
+      },
+      "healthcheck": {
+        "test": ["CMD", "node", "-e", "const fs=require('node:fs'),https=require('node:https');const r=https.get({hostname:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:fs.readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
+        "interval": "1s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-primary": {
+          "ipv4_address": "172.30.241.50",
+          "aliases": ["fetch-observer.aster.test"]
+        }
+      },
+      "volumes": [
+        "${ASTER_PHASE2_FETCH_OBSERVER_SCRIPT:-/dev/null}:/opt/aster-fixture/phase2-fetch-observer.mjs:ro",
+        "${ASTER_PHASE2_CANDIDATE_OBSERVER_CERT:-/dev/null}:/run/aster-fetch-observer/tls/server.pem:ro",
+        "${ASTER_PHASE2_CANDIDATE_OBSERVER_KEY:-/dev/null}:/run/aster-fetch-observer/tls/server.key:ro",
+        "${ASTER_PHASE2_CANDIDATE_OBSERVER_CA:-/dev/null}:/run/aster-fetch-observer/tls/ca.pem:ro",
+        "${ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT:-/dev/null}:/run/aster-fetch-observer/receipts/observations.ndjson:rw"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "pids_limit": 32,
+      "mem_limit": "192m",
+      "cpus": 0.25,
+      "cap_drop": ["ALL"],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "restart": "no"
+    },
+    "candidate-script-supervisor": {
+      "image": "${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:-${ASTER_PHASE1_CANDIDATE_IMAGE:?required}}",
+      "environment": {
+        "ASTER_SCRIPT_HOST_ADDRESS": "0.0.0.0:50051",
+        "ASTER_SCRIPT_SIDECAR_ADDRESS": "127.0.0.1:50052",
+        "ASTER_SCRIPT_TLS_ROOT_DIRECTORY": "/run/aster-script-host/tls",
+        "ASTER_SCRIPT_CA_FILE": "/run/aster-script-host/tls/ca.pem",
+        "ASTER_SCRIPT_CERTIFICATE_FILE": "/run/aster-script-host/tls/server.pem",
+        "ASTER_SCRIPT_PRIVATE_KEY_FILE": "/run/aster-script-host/tls/server.key",
+        "ASTER_SCRIPT_EXPECTED_CLIENT_URI": "spiffe://aster.test/server"
+      },
+      "healthcheck": {
+        "test": ["CMD", "node", "-e", "const net=require('node:net');const s=net.connect(50051,'127.0.0.1',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));s.setTimeout(2000,()=>{s.destroy();process.exit(1)});"],
+        "interval": "1s",
+        "timeout": "3s",
+        "retries": 60
+      },
+      "networks": {
+        "candidate-primary": { "aliases": ["candidate-script-supervisor"] }
+      },
+      "volumes": [
+        "${ASTER_PHASE2_SCRIPT_HOST_CA:-/dev/null}:/run/aster-script-host/tls/ca.pem:ro",
+        "${ASTER_PHASE2_SCRIPT_HOST_SERVER_CERT:-/dev/null}:/run/aster-script-host/tls/server.pem:ro",
+        "${ASTER_PHASE2_SCRIPT_HOST_SERVER_KEY:-/dev/null}:/run/aster-script-host/tls/server.key:ro",
+        "${ASTER_PHASE2_SCRIPT_HOST_STATE:-/dev/null}:/run/aster-script-host-supervisor:rw"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "pids_limit": 32,
+      "mem_limit": "192m",
+      "cpus": 0.25,
+      "cap_drop": ["ALL"],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "restart": "no"
+    },
+    "candidate-script-executor": {
+      "image": "${ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE:-${ASTER_PHASE1_CANDIDATE_IMAGE:?required}}",
+      "depends_on": {
+        "candidate-script-supervisor": { "condition": "service_healthy" }
+      },
+      "network_mode": "service:candidate-script-supervisor",
+      "environment": {
+        "ASTER_SCRIPT_SUPERVISOR_ADDRESS": "127.0.0.1:50052"
+      },
+      "healthcheck": {
+        "test": ["CMD", "node", "-e", "process.kill(1,0)"],
+        "interval": "1s",
+        "timeout": "2s",
+        "retries": 30
+      },
+      "user": "10001:10001",
+      "pids_limit": 32,
+      "mem_limit": "256m",
+      "cpus": 1,
+      "cap_drop": ["ALL"],
+      "read_only": true,
+      "security_opt": ["no-new-privileges:true"],
+      "restart": "no"
+    }
+  },
   "networks": {
     "oracle-primary": {
       "internal": true

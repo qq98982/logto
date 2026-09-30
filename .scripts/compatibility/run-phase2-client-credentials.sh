@@ -11,10 +11,12 @@ readonly REDIS_IMAGE='docker.io/library/redis:6-alpine@sha256:d0c875bdacfb5c4d2c
 readonly EXPECTED_ASTER_SOURCE='https://github.com/qq98982/aster.git'
 readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
+  oracle-fetch-observer
   oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core
 )
 readonly CANDIDATE_SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core
+  candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator
 )
@@ -45,6 +47,7 @@ CANDIDATE_PROJECT_NAME=''
 ORACLE_PROJECT_STARTED=0
 CANDIDATE_PROJECT_STARTED=0
 EXTRACTION_CONTAINER_ID=''
+PROBE_CONTAINER_ID=''
 STATE_HANDLE_ROOT=''
 INVARIANT_HANDLE_ROOT=''
 INVARIANT_HANDLE_ROOT_IDENTITY=''
@@ -53,6 +56,8 @@ PROXY_PGIDS=()
 PROXY_TOKENS=()
 ORACLE_CONTAINER_IDS=()
 CANDIDATE_CONTAINER_IDS=()
+SCRIPT_SUPERVISOR_IMAGE_ID=''
+SCRIPT_EXECUTOR_IMAGE_ID=''
 
 fail() {
   printf 'Aster Phase 2 client credentials live topology failed (%s)\n' "$failure_stage" >&2
@@ -140,6 +145,67 @@ random_uuid() {
   printf '%s-%s-%s-%s-%s' "${value:0:8}" "${value:8:4}" "${value:12:4}" "${value:16:4}" "${value:20:12}"
 }
 
+generate_fetch_and_script_host_pki() {
+  local serial
+  serial="$(random_hex 16)" || return 1
+  "$OPENSSL_BIN" req -x509 -newkey rsa:2048 -nodes -days 1 -sha256 \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -subj '/CN=Aster Phase 2 Fetch Observer CA' -keyout "$OBSERVER_CA_KEY" \
+    -out "$FETCH_OBSERVER_CA" >/dev/null 2>&1 || return 1
+  "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=fetch-observer.aster.test' \
+    -keyout "$OBSERVER_SERVER_KEY" -out "$OBSERVER_SERVER_CSR" >/dev/null 2>&1 || return 1
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
+  "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$serial" \
+    -in "$OBSERVER_SERVER_CSR" -CA "$FETCH_OBSERVER_CA" -CAkey "$OBSERVER_CA_KEY" \
+    -extfile "$OBSERVER_SERVER_EXT" -out "$OBSERVER_SERVER_CERT" >/dev/null 2>&1 || return 1
+
+  "$OPENSSL_BIN" req -x509 -newkey rsa:2048 -nodes -days 1 -sha256 \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -subj '/CN=Aster Phase 2 Script Host CA' -keyout "$SCRIPT_HOST_CA_KEY" \
+    -out "$SCRIPT_HOST_CA" >/dev/null 2>&1 || return 1
+  "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=script-host.aster.test' \
+    -keyout "$SCRIPT_HOST_SERVER_KEY" -out "$SCRIPT_HOST_SERVER_CSR" >/dev/null 2>&1 || return 1
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:script-host.aster.test,URI:spiffe://aster.test/script\nextendedKeyUsage=serverAuth\n' >"$SCRIPT_HOST_SERVER_EXT"
+  "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$(random_hex 16)" \
+    -in "$SCRIPT_HOST_SERVER_CSR" -CA "$SCRIPT_HOST_CA" -CAkey "$SCRIPT_HOST_CA_KEY" \
+    -extfile "$SCRIPT_HOST_SERVER_EXT" -out "$SCRIPT_HOST_SERVER_CERT" >/dev/null 2>&1 || return 1
+  "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=Aster Phase 2 Data Server' \
+    -keyout "$SCRIPT_HOST_CLIENT_KEY" -out "$SCRIPT_HOST_CLIENT_CSR" >/dev/null 2>&1 || return 1
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nsubjectAltName=URI:spiffe://aster.test/server\nextendedKeyUsage=clientAuth\n' >"$SCRIPT_HOST_CLIENT_EXT"
+  "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$(random_hex 16)" \
+    -in "$SCRIPT_HOST_CLIENT_CSR" -CA "$SCRIPT_HOST_CA" -CAkey "$SCRIPT_HOST_CA_KEY" \
+    -extfile "$SCRIPT_HOST_CLIENT_EXT" -out "$SCRIPT_HOST_CLIENT_CERT" >/dev/null 2>&1 || return 1
+  "$OPENSSL_BIN" verify -CAfile "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" >/dev/null 2>&1 || return 1
+  "$OPENSSL_BIN" verify -CAfile "$SCRIPT_HOST_CA" "$SCRIPT_HOST_SERVER_CERT" \
+    "$SCRIPT_HOST_CLIENT_CERT" >/dev/null 2>&1 || return 1
+  : >"$ORACLE_OBSERVER_RECEIPT"
+  : >"$CANDIDATE_OBSERVER_RECEIPT"
+  /usr/bin/chmod 0444 "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" "$SCRIPT_HOST_CA" \
+    "$SCRIPT_HOST_SERVER_CERT" "$SCRIPT_HOST_CLIENT_CERT"
+  /usr/bin/chmod 0400 "$OBSERVER_CA_KEY" "$OBSERVER_SERVER_KEY" "$SCRIPT_HOST_CA_KEY" \
+    "$SCRIPT_HOST_CLIENT_KEY"
+  /usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"
+  /usr/bin/chmod 0600 "$ORACLE_OBSERVER_RECEIPT" "$CANDIDATE_OBSERVER_RECEIPT"
+}
+
+assert_private_runtime_material() {
+  local file identity owner mode links size type
+  for file in "$ORACLE_OBSERVER_RECEIPT" "$CANDIDATE_OBSERVER_RECEIPT"; do
+    identity="$(/usr/bin/stat -c '%u|%a|%h|%s|%F' -- "$file")" || return 1
+    IFS='|' read -r owner mode links size type <<<"$identity"
+    [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == 600 && "$links" == 1 && \
+       "$size" =~ ^[0-9]+$ && "$type" =~ ^regular( empty)?\ file$ ]] || return 1
+    ((10#$size <= 16384)) || return 1
+    [[ "$(/usr/bin/wc -l <"$file" | /usr/bin/tr -d '[:space:]')" =~ ^([0-9]|[1-5][0-9]|6[0-4])$ ]] || return 1
+  done
+  for file in "$OBSERVER_CA_KEY" "$OBSERVER_SERVER_KEY" "$SCRIPT_HOST_CA_KEY" "$SCRIPT_HOST_CLIENT_KEY"; do
+    [[ "$(/usr/bin/stat -c '%u|%a|%h|%F' -- "$file")" == "$(/usr/bin/id -u)|400|1|regular file" ]] || return 1
+  done
+  [[ "$(/usr/bin/stat -c '%u|%a|%h|%F' -- "$SCRIPT_HOST_SERVER_KEY")" == \
+     "$(/usr/bin/id -u)|600|1|regular file" ]] || return 1
+  [[ "$(/usr/bin/stat -c '%u|%a|%F' -- "$SCRIPT_HOST_STATE")" == "$(/usr/bin/id -u)|700|directory" ]]
+}
+
 sha256_file() {
   # The awk program intentionally uses the literal first field.
   # shellcheck disable=SC2016
@@ -166,6 +232,16 @@ normalize_configured_image() {
   else
     return 1
   fi
+}
+
+validate_script_host_image_metadata() {
+  local configured_image=$1 metadata=$2 raw_id source revision tree reference image_id
+  IFS='|' read -r raw_id source revision tree reference <<<"$metadata"
+  image_id="$(normalize_image_id "$raw_id")" || return 1
+  [[ "$configured_image" == "$image_id" && "$source" == 'https://github.com/qq98982/aster' && \
+     "$revision" == "$ASTER_HEAD" && "$tree" == "$ASTER_TREE" && \
+     "$reference" == "$ORACLE_SOURCE_COMMIT" ]] || return 1
+  printf '%s' "$image_id"
 }
 
 port_state() {
@@ -346,6 +422,53 @@ start_compose_stage() {
     fi
     wait_for_service "$role" "$service" || return 1
   done
+}
+
+wait_for_script_host_serving() {
+  local supervisor_id probe_program
+  supervisor_id="$(compose_candidate ps --all -q candidate-script-supervisor)" || return 1
+  supervisor_id="$(docker_cli inspect --format '{{.Id}}' "$supervisor_id")" || return 1
+  [[ "$supervisor_id" =~ ^[0-9a-f]{64}$ ]] || return 1
+  read -r -d '' probe_program <<'NODE' || true
+import fs from 'node:fs';
+import grpc from '@grpc/grpc-js';
+import protoLoader from '@grpc/proto-loader';
+const definition = protoLoader.loadSync('/opt/proto/aster/script/v1/script_host.proto');
+const protocol = grpc.loadPackageDefinition(definition).aster.script.v1;
+const credentials = grpc.credentials.createSsl(
+  fs.readFileSync('/probe/ca.pem'),
+  fs.readFileSync('/probe/client.key'),
+  fs.readFileSync('/probe/client.pem'),
+);
+const client = new protocol.ScriptHost('127.0.0.1:50051', credentials, {
+  'grpc.ssl_target_name_override': 'script-host.aster.test',
+  'grpc.default_authority': 'script-host.aster.test',
+});
+const end = Date.now() + 10000;
+const check = () => client.negotiate({schemaVersion: 1, protocolVersion: 2, expectedKind: 1},
+  {deadline: new Date(Math.min(end, Date.now() + 2000))}, (error, response) => {
+    if (!error && response?.schemaVersion === 1 && response?.protocolVersion === 2 &&
+        response?.kind === 1 && response?.serving === true) {
+      client.close();
+      process.exit(0);
+    }
+    if (Date.now() >= end) { client.close(); process.exit(1); }
+    setTimeout(check, 250);
+  });
+check();
+NODE
+  PROBE_CONTAINER_ID="$(docker_cli create --network "container:$supervisor_id" \
+    --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" --userns keep-id \
+    --pids-limit 32 --memory 192m --cpus 0.25 --cap-drop ALL \
+    --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
+    --volume "$SCRIPT_HOST_CA:/probe/ca.pem:ro" \
+    --volume "$SCRIPT_HOST_CLIENT_CERT:/probe/client.pem:ro" \
+    --volume "$SCRIPT_HOST_CLIENT_KEY:/probe/client.key:ro" \
+    --entrypoint node "$SCRIPT_SUPERVISOR_IMAGE_ID" --input-type=module -e "$probe_program")" || return 1
+  [[ "$PROBE_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]] || return 1
+  docker_cli start --attach "$PROBE_CONTAINER_ID" >/dev/null 2>&1 || return 1
+  remove_owned_container "$PROBE_CONTAINER_ID" || return 1
+  PROBE_CONTAINER_ID=''
 }
 
 inspect_service() {
@@ -773,6 +896,13 @@ cleanup_resources() {
         cleanup_failed=1
       fi
     fi
+    if [[ -n "$PROBE_CONTAINER_ID" ]]; then
+      if remove_owned_container "$PROBE_CONTAINER_ID"; then
+        PROBE_CONTAINER_ID=''
+      else
+        cleanup_failed=1
+      fi
+    fi
     for ((index=${#PROXY_PIDS[@]} - 1; index>=0; index--)); do
       if stop_owned_proxy "${PROXY_PIDS[index]}" "${PROXY_PGIDS[index]}" "${PROXY_TOKENS[index]}"; then
         unset 'PROXY_PIDS[index]' 'PROXY_PGIDS[index]' 'PROXY_TOKENS[index]'
@@ -797,7 +927,7 @@ cleanup_resources() {
         cleanup_failed=1
       fi
     fi
-    if [[ -z "$EXTRACTION_CONTAINER_ID" && ${#PROXY_PIDS[@]} == 0 && "$CANDIDATE_PROJECT_STARTED" == 0 && "$ORACLE_PROJECT_STARTED" == 0 ]]; then
+    if [[ -z "$EXTRACTION_CONTAINER_ID" && -z "$PROBE_CONTAINER_ID" && ${#PROXY_PIDS[@]} == 0 && "$CANDIDATE_PROJECT_STARTED" == 0 && "$ORACLE_PROJECT_STARTED" == 0 ]]; then
       remove_invariant_handle_root "$INVARIANT_HANDLE_ROOT" || cleanup_failed=1
       remove_state_handle_root "$STATE_HANDLE_ROOT" || cleanup_failed=1
       assert_ports_released "${PORTS[@]}" || cleanup_failed=1
@@ -881,6 +1011,22 @@ core_identity() {
   printf '%s' "$metadata"
 }
 
+assert_expected_fixture_images() {
+  local role service expected metadata id image configured_image project label status exit_code health
+  while IFS='|' read -r role service expected; do
+    metadata="$(inspect_service "$role" "$service")" || return 1
+    IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
+    configured_image="$(normalize_configured_image "$configured_image")" || return 1
+    [[ "$image" == "$expected" && "$configured_image" == "$expected" && "$status" == running && \
+       "$exit_code" == 0 && "$health" == healthy ]] || return 1
+  done <<EOF
+oracle|oracle-fetch-observer|$ORACLE_IMAGE_ID
+candidate|candidate-fetch-observer|$ORACLE_IMAGE_ID
+candidate|candidate-script-supervisor|$SCRIPT_SUPERVISOR_IMAGE_ID
+candidate|candidate-script-executor|$SCRIPT_EXECUTOR_IMAGE_ID
+EOF
+}
+
 topology_identity() {
   local role service metadata
   for role in oracle candidate; do
@@ -906,6 +1052,7 @@ assert_state_handle_root_clean() {
 
 assert_runtime_identity_unchanged() {
   local oracle_image candidate_metadata candidate_id candidate_source candidate_revision candidate_tree
+  local image_role image_id image_id_variable image_metadata
   oracle_image="$(docker_cli image inspect --format '{{.Id}}' "$ORACLE_IMAGE_PIN" 2>/dev/null || true)"
   oracle_image="$(normalize_image_id "$oracle_image")" || return 1
   [[ "$oracle_image" == "$ORACLE_IMAGE_ID" ]] || return 1
@@ -913,6 +1060,12 @@ assert_runtime_identity_unchanged() {
   IFS='|' read -r candidate_id candidate_source candidate_revision candidate_tree <<<"$candidate_metadata"
   candidate_id="$(normalize_image_id "$candidate_id")" || return 1
   [[ "$candidate_id" == "$CANDIDATE_IMAGE_ID" && "$candidate_source" == "$EXPECTED_ASTER_SOURCE" && "$candidate_revision" == "$ASTER_HEAD" && "$candidate_tree" == "$ASTER_TREE" ]] || return 1
+  for image_role in SUPERVISOR EXECUTOR; do
+    image_id_variable="SCRIPT_${image_role}_IMAGE_ID"
+    image_id="${!image_id_variable}"
+    image_metadata="$(docker_cli image inspect --format '{{.Id}}|{{index .Config.Labels "org.opencontainers.image.source"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "io.aster.source.tree"}}|{{index .Config.Labels "dev.aster.reference.revision"}}' "$image_id" 2>/dev/null || true)"
+    [[ "$(validate_script_host_image_metadata "$image_id" "$image_metadata")" == "$image_id" ]] || return 1
+  done
   [[ "$(core_identity oracle oracle-primary-core "$ORACLE_IMAGE_ID")" == "$ORACLE_PRIMARY_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity oracle oracle-foreign-core "$ORACLE_IMAGE_ID")" == "$ORACLE_FOREIGN_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity candidate candidate-primary-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_PRIMARY_CORE_IDENTITY" ]] || return 1
@@ -924,6 +1077,8 @@ assert_runtime_identity_unchanged() {
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
+  assert_expected_fixture_images || return 1
+  assert_private_runtime_material || return 1
   assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || return 1
   assert_state_handle_root_clean || return 1
   assert_path_identity "$BUILD_ROOT" "$BUILD_ROOT_IDENTITY" || return 1
@@ -1134,7 +1289,7 @@ main() {
   readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE LAUNCHER_SOURCE
   [[ -f "$SOURCE_COMPOSE" && -f "$PODMAN_GENERATOR" && -f "$STATE_DRIVER_SOURCE" && -f "$INVARIANT_DRIVER_SOURCE" && -f "$LAUNCHER_SOURCE" ]] || { failure_stage='tracked-inputs'; fail; return 1; }
 
-  [[ -n "${ASTER_PHASE2_ASTER_ROOT+x}" && -n "${ASTER_PHASE2_ORACLE_IMAGE+x}" && -n "${ASTER_PHASE2_CANDIDATE_IMAGE+x}" && -n "${ASTER_PHASE2_ENGINE_SOCKET+x}" ]] || { failure_stage='required-environment'; fail; return 1; }
+  [[ -n "${ASTER_PHASE2_ASTER_ROOT+x}" && -n "${ASTER_PHASE2_ORACLE_IMAGE+x}" && -n "${ASTER_PHASE2_CANDIDATE_IMAGE+x}" && -n "${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE+x}" && -n "${ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE+x}" && -n "${ASTER_PHASE2_ENGINE_SOCKET+x}" ]] || { failure_stage='required-environment'; fail; return 1; }
   [[ "$ASTER_PHASE2_ORACLE_IMAGE" == "$ORACLE_IMAGE_PIN" ]] || { failure_stage='oracle-pin'; fail; return 1; }
   [[ "$ASTER_PHASE2_CANDIDATE_IMAGE" =~ ^sha256:[0-9a-f]{64}$ && "$ASTER_PHASE2_CANDIDATE_IMAGE" != "$ORACLE_IMAGE_PIN" ]] || { failure_stage='candidate-pin'; fail; return 1; }
   BUILD_ROOT="${ASTER_PHASE2_BUILD_ROOT:-$DEFAULT_BUILD_ROOT}"
@@ -1180,12 +1335,17 @@ main() {
   PRIMARY_KEYRING_DIRECTORY="$RUN_DIR/candidate-primary-keys"
   FOREIGN_KEYRING_DIRECTORY="$RUN_DIR/candidate-foreign-keys"
   EVIDENCE_DIR="$RUN_DIR/evidence"
+  TLS_DIRECTORY="$RUN_DIR/tls"
+  OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/fetch-observer-receipts"
+  SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
   for directory in "$PRIVATE_HOME" "$CONFIG_DIR" "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
-    "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR"; do
+    "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
+    "$OBSERVER_RECEIPT_DIRECTORY" "$SCRIPT_HOST_STATE"; do
     /usr/bin/mkdir -m 700 -- "$directory"
   done
   readonly PRIVATE_HOME CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
   readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY EVIDENCE_DIR
+  readonly TLS_DIRECTORY OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE
 
   ORACLE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   CANDIDATE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
@@ -1208,12 +1368,34 @@ main() {
   ORACLE_EVIDENCE="$EVIDENCE_DIR/phase-2-client-credentials-oracle.json"
   DIFFERENTIAL_EVIDENCE="$EVIDENCE_DIR/phase-2-client-credentials-differential.json"
   INVARIANT_EVIDENCE="$EVIDENCE_DIR/phase-2-client-credentials-candidate-invariants.json"
+  FETCH_OBSERVER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-fetch-observer.mjs"
+  FETCH_OBSERVER_CA="$TLS_DIRECTORY/fetch-observer-ca.pem"
+  OBSERVER_CA_KEY="$TLS_DIRECTORY/fetch-observer-ca.key"
+  OBSERVER_SERVER_CERT="$TLS_DIRECTORY/fetch-observer-server.pem"
+  OBSERVER_SERVER_KEY="$TLS_DIRECTORY/fetch-observer-server.key"
+  OBSERVER_SERVER_CSR="$TLS_DIRECTORY/fetch-observer-server.csr"
+  OBSERVER_SERVER_EXT="$TLS_DIRECTORY/fetch-observer-server.ext"
+  SCRIPT_HOST_CA="$TLS_DIRECTORY/script-host-ca.pem"
+  SCRIPT_HOST_CA_KEY="$TLS_DIRECTORY/script-host-ca.key"
+  SCRIPT_HOST_SERVER_CERT="$TLS_DIRECTORY/script-host-server.pem"
+  SCRIPT_HOST_SERVER_KEY="$TLS_DIRECTORY/script-host-server.key"
+  SCRIPT_HOST_SERVER_CSR="$TLS_DIRECTORY/script-host-server.csr"
+  SCRIPT_HOST_SERVER_EXT="$TLS_DIRECTORY/script-host-server.ext"
+  SCRIPT_HOST_CLIENT_CERT="$TLS_DIRECTORY/script-host-client.pem"
+  SCRIPT_HOST_CLIENT_KEY="$TLS_DIRECTORY/script-host-client.key"
+  SCRIPT_HOST_CLIENT_CSR="$TLS_DIRECTORY/script-host-client.csr"
+  SCRIPT_HOST_CLIENT_EXT="$TLS_DIRECTORY/script-host-client.ext"
+  ORACLE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/oracle-fetch-observer.ndjson"
+  CANDIDATE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/candidate-fetch-observer.ndjson"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
-
   trap cleanup_trap EXIT
+  [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
+  generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
+  assert_private_runtime_material || { failure_stage='private-runtime-material'; fail; return 1; }
+
   /usr/bin/mkdir -m 700 -- "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
   INVARIANT_HANDLE_ROOT_IDENTITY="$(capture_path_identity "$INVARIANT_HANDLE_ROOT")" || { failure_stage='invariant-handle-root'; fail; return 1; }
   assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
@@ -1239,7 +1421,15 @@ main() {
   IFS='|' read -r raw_candidate_image_id candidate_source candidate_revision candidate_tree <<<"$candidate_metadata"
   CANDIDATE_IMAGE_ID="$(normalize_image_id "$raw_candidate_image_id")" || { fail; return 1; }
   [[ "$CANDIDATE_IMAGE_ID" == "$ASTER_PHASE2_CANDIDATE_IMAGE" && "$candidate_source" == "$EXPECTED_ASTER_SOURCE" && "$candidate_revision" == "$ASTER_HEAD" && "$candidate_tree" == "$ASTER_TREE" ]] || { fail; return 1; }
-  readonly ORACLE_IMAGE_ID CANDIDATE_IMAGE_ID
+  for image_role in SUPERVISOR EXECUTOR; do
+    image_variable="ASTER_PHASE2_SCRIPT_${image_role}_IMAGE"
+    image_value="${!image_variable}"
+    [[ "$image_value" =~ ^sha256:[0-9a-f]{64}$ ]] || { fail; return 1; }
+    image_metadata="$(docker_cli image inspect --format '{{.Id}}|{{index .Config.Labels "org.opencontainers.image.source"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "io.aster.source.tree"}}|{{index .Config.Labels "dev.aster.reference.revision"}}' "$image_value" 2>/dev/null || true)"
+    normalized_image_id="$(validate_script_host_image_metadata "$image_value" "$image_metadata")" || { fail; return 1; }
+    printf -v "SCRIPT_${image_role}_IMAGE_ID" '%s' "$normalized_image_id"
+  done
+  readonly ORACLE_IMAGE_ID CANDIDATE_IMAGE_ID SCRIPT_SUPERVISOR_IMAGE_ID SCRIPT_EXECUTOR_IMAGE_ID
 
   failure_stage='private-executables'
   /usr/bin/cp --reflink=never -- "$STATE_DRIVER_SOURCE" "$ORACLE_STATE_DRIVER"
@@ -1274,6 +1464,13 @@ main() {
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE
 ASTER_PHASE1_REDIS_IMAGE=$REDIS_IMAGE
 ASTER_PHASE1_ORACLE_IMAGE=$ORACLE_IMAGE_ID
+ASTER_PHASE1_RUNTIME_UID=$(/usr/bin/id -u)
+ASTER_PHASE1_RUNTIME_GID=$(/usr/bin/id -g)
+ASTER_PHASE2_FETCH_OBSERVER_SCRIPT=$FETCH_OBSERVER_SCRIPT
+ASTER_PHASE2_ORACLE_OBSERVER_CERT=$OBSERVER_SERVER_CERT
+ASTER_PHASE2_ORACLE_OBSERVER_KEY=$OBSERVER_SERVER_KEY
+ASTER_PHASE2_ORACLE_OBSERVER_CA=$FETCH_OBSERVER_CA
+ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT=$ORACLE_OBSERVER_RECEIPT
 ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY=$(random_hex 32)
@@ -1284,6 +1481,18 @@ EOF
   cat >"$CANDIDATE_ENV" <<EOF
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE
 ASTER_PHASE1_CANDIDATE_IMAGE=$CANDIDATE_IMAGE_ID
+ASTER_PHASE1_ORACLE_IMAGE=$ORACLE_IMAGE_ID
+ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=$SCRIPT_SUPERVISOR_IMAGE_ID
+ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE=$SCRIPT_EXECUTOR_IMAGE_ID
+ASTER_PHASE2_FETCH_OBSERVER_SCRIPT=$FETCH_OBSERVER_SCRIPT
+ASTER_PHASE2_CANDIDATE_OBSERVER_CERT=$OBSERVER_SERVER_CERT
+ASTER_PHASE2_CANDIDATE_OBSERVER_KEY=$OBSERVER_SERVER_KEY
+ASTER_PHASE2_CANDIDATE_OBSERVER_CA=$FETCH_OBSERVER_CA
+ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT=$CANDIDATE_OBSERVER_RECEIPT
+ASTER_PHASE2_SCRIPT_HOST_CA=$SCRIPT_HOST_CA
+ASTER_PHASE2_SCRIPT_HOST_SERVER_CERT=$SCRIPT_HOST_SERVER_CERT
+ASTER_PHASE2_SCRIPT_HOST_SERVER_KEY=$SCRIPT_HOST_SERVER_KEY
+ASTER_PHASE2_SCRIPT_HOST_STATE=$SCRIPT_HOST_STATE
 ASTER_PHASE1_CANDIDATE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_CANDIDATE_FOREIGN_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_RUNTIME_UID=$(/usr/bin/id -u)
@@ -1301,15 +1510,18 @@ EOF
   generated="$RUN_DIR/podman-differential-compose.json"
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" "$NODE_BIN" "$PODMAN_GENERATOR" \
     "$SOURCE_COMPOSE" "$RUN_DIR" "$generated" >/dev/null 2>&1 || { fail; return 1; }
-  "$NODE_BIN" --input-type=module - "$generated" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" <<'NODE'
+  "$NODE_BIN" --input-type=module - "$generated" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" \
+    "$SCRIPT_HOST_CA" "$SCRIPT_HOST_CLIENT_CERT" "$SCRIPT_HOST_CLIENT_KEY" "$FETCH_OBSERVER_CA" <<'NODE'
 import { open, readFile } from 'node:fs/promises';
-const [source, oracleOutput, candidateOutput] = process.argv.slice(2);
+const [source, oracleOutput, candidateOutput, scriptCa, scriptCert, scriptKey, observerCa] = process.argv.slice(2);
 const document = JSON.parse(await readFile(source, 'utf8'));
+const phase2Services = document['x-phase2-services'];
 const select = (services, networks, volumes) => {
   const output = { services: {}, networks: {}, volumes: {} };
   for (const name of services) {
-    if (!document.services?.[name]) throw new Error('service closure');
-    output.services[name] = structuredClone(document.services[name]);
+    const service = document.services?.[name] ?? phase2Services?.[name];
+    if (!service) throw new Error('service closure');
+    output.services[name] = structuredClone(service);
   }
   for (const name of networks) {
     if (!document.networks?.[name]) throw new Error('network closure');
@@ -1322,15 +1534,43 @@ const select = (services, networks, volumes) => {
   return output;
 };
 const oracle = select(
-  ['oracle-primary-postgres','oracle-primary-redis','oracle-primary-core','oracle-foreign-postgres','oracle-foreign-redis','oracle-foreign-core'],
+  ['oracle-primary-postgres','oracle-primary-redis','oracle-primary-core','oracle-fetch-observer','oracle-foreign-postgres','oracle-foreign-redis','oracle-foreign-core'],
   ['oracle-primary','oracle-foreign'],
   ['oracle-primary-postgres','oracle-primary-redis','oracle-foreign-postgres','oracle-foreign-redis'],
 );
 const candidate = select(
-  ['candidate-primary-postgres','candidate-primary-init','candidate-primary-core','candidate-foreign-postgres','candidate-foreign-init','candidate-foreign-core','candidate-fixture-coordinator'],
+  ['candidate-primary-postgres','candidate-primary-init','candidate-primary-core','candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor','candidate-foreign-postgres','candidate-foreign-init','candidate-foreign-core','candidate-fixture-coordinator'],
   ['candidate-primary','candidate-foreign'],
   ['candidate-primary-postgres','candidate-foreign-postgres','candidate-primary-keyring','candidate-foreign-keyring'],
 );
+for (const name of ['candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor']) {
+  candidate.services[name].userns_mode = 'keep-id';
+  candidate.services[name].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
+}
+oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
+oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
+candidate.services['candidate-primary-core'].environment = {
+  ...candidate.services['candidate-primary-core'].environment,
+  ASTER_SCRIPT_HOST_ADDRESS: 'candidate-script-supervisor:50051',
+  ASTER_SCRIPT_HOST_DNS_NAME: 'script-host.aster.test',
+  ASTER_SCRIPT_HOST_CA_FILE: '/run/aster/script-host-ca.pem',
+  ASTER_SCRIPT_HOST_CERT_FILE: '/run/aster/script-host-client.pem',
+  ASTER_SCRIPT_HOST_KEY_FILE: '/run/aster/script-host-client.key',
+  ASTER_SCRIPT_FETCH_POLICY_FILE: '/usr/local/share/aster/compatibility/phase-2-script-fetch-policy.json',
+  ASTER_DEVELOPMENT_FEATURES_ENABLED: 'true',
+  SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem',
+};
+candidate.services['candidate-primary-core'].volumes.push(
+  `${scriptCa}:/run/aster/script-host-ca.pem:ro`,
+  `${scriptCert}:/run/aster/script-host-client.pem:ro`,
+  `${scriptKey}:/run/aster/script-host-client.key:ro`,
+  `${observerCa}:/run/aster/fetch-observer-ca.pem:ro`,
+);
+oracle.services['oracle-primary-core'].environment.NODE_EXTRA_CA_CERTS = '/run/aster/fetch-observer-ca.pem';
+oracle.services['oracle-primary-core'].volumes = [
+  ...(oracle.services['oracle-primary-core'].volumes ?? []),
+  `${observerCa}:/run/aster/fetch-observer-ca.pem:ro`,
+];
 for (const [file, value] of [[oracleOutput, oracle], [candidateOutput, candidate]]) {
   const handle = await open(file, 'wx', 0o600);
   await handle.writeFile(JSON.stringify(value));
@@ -1349,10 +1589,14 @@ NODE
 
   ORACLE_PROJECT_STARTED=1
   start_compose_stage oracle dependencies oracle-primary-postgres oracle-primary-redis oracle-foreign-postgres oracle-foreign-redis || { fail; return 1; }
+  start_compose_stage oracle observer oracle-fetch-observer || { fail; return 1; }
   start_compose_stage oracle core oracle-primary-core oracle-foreign-core || { fail; return 1; }
   CANDIDATE_PROJECT_STARTED=1
   start_compose_stage candidate postgres candidate-primary-postgres candidate-foreign-postgres || { fail; return 1; }
   start_compose_stage candidate init candidate-primary-init candidate-foreign-init || { fail; return 1; }
+  start_compose_stage candidate observer candidate-fetch-observer || { fail; return 1; }
+  start_compose_stage candidate script-host candidate-script-supervisor candidate-script-executor || { fail; return 1; }
+  wait_for_script_host_serving || { failure_stage='script-host-readiness'; fail; return 1; }
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
@@ -1362,6 +1606,7 @@ NODE
   assert_exact_project_services candidate "${CANDIDATE_SERVICES[@]}" || { fail; return 1; }
   failure_stage='service-closure-container-ids'
   assert_distinct_container_ids || { fail; return 1; }
+  assert_expected_fixture_images || { failure_stage='service-image-identity'; fail; return 1; }
 
   for binding in "${LOOPBACK_PROXY_BINDINGS[@]}"; do
     IFS='|' read -r proxy_role proxy_service proxy_target proxy_host <<<"$binding"

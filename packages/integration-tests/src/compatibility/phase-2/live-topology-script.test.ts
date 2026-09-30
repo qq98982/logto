@@ -337,6 +337,74 @@ afterAll(async () => {
 });
 
 describe('Phase 2 client-credentials live topology runner', () => {
+  it('owns private fetch and script-host material with pinned image provenance', () => {
+    for (const required of [
+      'ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE',
+      'ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE',
+      'SCRIPT_SUPERVISOR_IMAGE_ID',
+      'SCRIPT_EXECUTOR_IMAGE_ID',
+      'phase2-fetch-observer.mjs',
+      'oracle-fetch-observer.ndjson',
+      'candidate-fetch-observer.ndjson',
+      'fetch-observer-ca.pem',
+      'script-host-ca.pem',
+      'script-host-client.pem',
+      'script-host-client.key',
+      'candidate-script-supervisor',
+      'candidate-script-executor',
+      'start_compose_stage oracle observer oracle-fetch-observer',
+      'start_compose_stage candidate observer candidate-fetch-observer',
+      'start_compose_stage candidate script-host candidate-script-supervisor candidate-script-executor',
+      'wait_for_script_host_serving',
+      'assert_expected_fixture_images',
+      'response?.protocolVersion === 2',
+      'response?.serving === true',
+      'client.negotiate({schemaVersion: 1, protocolVersion: 2, expectedKind: 1}',
+    ]) {
+      expect(source).toContain(required);
+    }
+    expect(source).toContain('org.opencontainers.image.source');
+    expect(source).toContain('org.opencontainers.image.revision');
+    expect(source).toContain('io.aster.source.tree');
+    expect(source).toContain('assert_private_runtime_material');
+    expect(source).toContain('assert_runtime_identity_unchanged');
+    expect(source).toContain('PROBE_CONTAINER_ID');
+    expect(source).toContain('/usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"');
+    expect(source).toContain("candidate.services[name].userns_mode = 'keep-id'");
+    expect(source).toContain('--pids-limit 32 --memory 192m --cpus 0.25 --cap-drop ALL');
+    expect(source).toContain('process.exit(0)');
+    const trap = source.indexOf('trap cleanup_trap EXIT', source.indexOf('main() {'));
+    const generate = source.indexOf('generate_fetch_and_script_host_pki', trap);
+    expect(trap).toBeGreaterThan(0);
+    expect(generate).toBeGreaterThan(trap);
+    expect(source).toMatch(
+      /if \[\[ -n "\$PROBE_CONTAINER_ID" \]\]; then[\s\S]*remove_owned_container "\$PROBE_CONTAINER_ID"/u
+    );
+  });
+
+  it('rejects a pinned script-host image whose source tree label is wrong', async () => {
+    const harnessPath = path.join(temporaryRoot, 'script-host-tree-harness.sh');
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const metadata = [
+      digest,
+      'https://github.com/qq98982/aster',
+      'revision',
+      'tree',
+      '6852a7b8c8984c5c12b2061e8c51faa310a36412',
+    ].join('|');
+    const harness = `#!/usr/bin/env bash
+set -euo pipefail
+source ${JSON.stringify(runnerPath)}
+ASTER_HEAD=revision
+ASTER_TREE=tree
+[[ "$(validate_script_host_image_metadata ${JSON.stringify(digest)} ${JSON.stringify(metadata)})" == ${JSON.stringify(digest)} ]]
+! validate_script_host_image_metadata ${JSON.stringify(digest)} ${JSON.stringify(metadata.replace('|tree|', '|wrong-tree|'))} >/dev/null
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
   it('requires pinned explicit inputs and creates two isolated real compose projects', () => {
     for (const required of [
       'ASTER_PHASE2_ASTER_ROOT',
@@ -429,7 +497,7 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).not.toContain('assert_driver_discovery_port');
     expect(source).not.toMatch(/--filter\s+"publish=\$\{?port/u);
     expect(source).not.toMatch(
-      /CANDIDATE_SERVICES=\([\s\S]*candidate-(?:phase0|connector-host|saml-host|script-host)/u
+      /CANDIDATE_SERVICES=\([\s\S]*candidate-(?:phase0|connector-host|saml-host)/u
     );
   });
 

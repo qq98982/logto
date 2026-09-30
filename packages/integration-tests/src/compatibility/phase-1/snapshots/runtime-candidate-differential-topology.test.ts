@@ -10,6 +10,7 @@ const executeFile = promisify(execFile);
 type ComposeService = Readonly<Record<string, unknown>>;
 type ComposeDocument = Readonly<{
   services: Readonly<Record<string, ComposeService>>;
+  'x-phase2-services'?: Readonly<Record<string, ComposeService>>;
   networks: Readonly<Record<string, unknown>>;
   volumes: Readonly<Record<string, unknown>>;
 }>;
@@ -70,8 +71,68 @@ const phase0CandidateServices = [
   'candidate-phase0-redis',
   'candidate-phase0-core',
 ] as const;
-
 describe('runtime-candidate differential topology', () => {
+  it('defines the isolated Phase 2 fetch observer and real script host slice', async () => {
+    const document = await readCompose(topologyPath);
+    const fixtures = document['x-phase2-services'];
+    const oracleObserver = fixtures?.['oracle-fetch-observer'];
+    const candidateObserver = fixtures?.['candidate-fetch-observer'];
+    const supervisor = fixtures?.['candidate-script-supervisor'];
+    const executor = fixtures?.['candidate-script-executor'];
+
+    expect(oracleObserver).toMatchObject({
+      image: ['$', '{ASTER_PHASE1_ORACLE_IMAGE:?required}'].join(''),
+      entrypoint: ['node'],
+      command: ['/opt/aster-fixture/phase2-fetch-observer.mjs'],
+      networks: { 'oracle-primary': { aliases: ['fetch-observer.aster.test'] } },
+    });
+    expect(candidateObserver).toMatchObject({
+      networks: {
+        'candidate-primary': {
+          ipv4_address: '172.30.241.50',
+          aliases: ['fetch-observer.aster.test'],
+        },
+      },
+      pids_limit: 32,
+      mem_limit: '192m',
+      cpus: 0.25,
+      cap_drop: ['ALL'],
+    });
+    expect(JSON.stringify(oracleObserver)).toContain("host:'fetch-observer.aster.test:8443'");
+    expect(JSON.stringify(candidateObserver)).toContain("host:'fetch-observer.aster.test:8443'");
+    expect(JSON.stringify(oracleObserver)).not.toContain('rejectUnauthorized:false');
+    expect(JSON.stringify(candidateObserver)).not.toContain('rejectUnauthorized:false');
+    expect(supervisor).toMatchObject({
+      image: [
+        '$',
+        '{ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:-$',
+        '{ASTER_PHASE1_CANDIDATE_IMAGE:?required}}',
+      ].join(''),
+      environment: {
+        ASTER_SCRIPT_HOST_ADDRESS: '0.0.0.0:50051',
+        ASTER_SCRIPT_SIDECAR_ADDRESS: '127.0.0.1:50052',
+        ASTER_SCRIPT_CA_FILE: '/run/aster-script-host/tls/ca.pem',
+        ASTER_SCRIPT_CERTIFICATE_FILE: '/run/aster-script-host/tls/server.pem',
+        ASTER_SCRIPT_PRIVATE_KEY_FILE: '/run/aster-script-host/tls/server.key',
+        ASTER_SCRIPT_EXPECTED_CLIENT_URI: 'spiffe://aster.test/server',
+      },
+      networks: { 'candidate-primary': { aliases: ['candidate-script-supervisor'] } },
+    });
+    expect(executor).toMatchObject({
+      image: [
+        '$',
+        '{ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE:-$',
+        '{ASTER_PHASE1_CANDIDATE_IMAGE:?required}}',
+      ].join(''),
+      network_mode: 'service:candidate-script-supervisor',
+      environment: { ASTER_SCRIPT_SUPERVISOR_ADDRESS: '127.0.0.1:50052' },
+    });
+    expect(JSON.stringify(executor)).not.toContain('process.exit(0)');
+    expect(document.services['candidate-foreign-core']?.environment).not.toHaveProperty(
+      'ASTER_SCRIPT_HOST_ADDRESS'
+    );
+  });
+
   it('exports only artifacts bound to both owned image roles', async () => {
     const source = await readFile(runtimeRunnerPath, 'utf8');
     const marker = source.indexOf('const gate = process.argv[3];');
