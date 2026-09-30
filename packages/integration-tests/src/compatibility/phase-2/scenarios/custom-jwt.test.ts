@@ -1,0 +1,154 @@
+/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The stateful fake target proves ordering, lifecycle changes, cleanup, and evidence redaction through one bounded in-memory contract. */
+
+import {
+  customJwtScenarioIds,
+  runCustomJwtScenarios,
+  type CustomJwtTargetPort,
+} from './custom-jwt.js';
+
+const jwt = (payload: Record<string, unknown>) =>
+  ['header', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'signature'].join('.');
+
+describe('Phase 2 custom JWT scenarios', () => {
+  it('collects the fixed management and M2M contract without credential or script material', async () => {
+    let configured = false;
+    const calls: string[] = [];
+    const port: CustomJwtTargetPort = {
+      request: async ({ method, path, body }): ReturnType<CustomJwtTargetPort['request']> => {
+        calls.push(`${method} ${path}`);
+        if (method === 'DELETE') {
+          const existed = configured;
+          configured = false;
+          return {
+            status: existed ? 204 : 404,
+            headers: {},
+            body: existed ? null : { code: 'entity.not_found' },
+          };
+        }
+        if (path.endsWith('/test')) {
+          return { status: 200, headers: {}, body: { probe_claim: 'dry' } };
+        }
+        if (path.endsWith('/unknown')) {
+          return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+        }
+        if (method === 'PUT') {
+          if (typeof (body as { script?: unknown }).script !== 'string') {
+            return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+          }
+          configured = true;
+          return { status: 201, headers: { vary: 'Origin' }, body };
+        }
+        if (method === 'PATCH') {
+          return { status: 200, headers: {}, body };
+        }
+        if (path.endsWith('/jwt-customizer')) {
+          return {
+            status: 200,
+            headers: {},
+            body: configured ? [{ key: 'jwt.clientCredentials', value: body ?? {} }] : [],
+          };
+        }
+        return configured
+          ? {
+              status: 200,
+              headers: {},
+              body: {
+                script: 'hidden',
+                blockIssuanceOnError: true,
+                environmentVariables: {},
+                contextSample: {},
+                tokenSample: {},
+              },
+            }
+          : { status: 404, headers: {}, body: { code: 'entity.not_exists_with_id' } };
+      },
+      issueClientCredentials: async ({ caseId }) => {
+        if (caseId === 'custom-jwt.m2m-deny') {
+          return { status: 400, body: { error: 'access_denied' } };
+        }
+        if (caseId === 'custom-jwt.m2m-throw-block') {
+          return { status: 400, body: { error: 'invalid_request' } };
+        }
+        return {
+          status: 200,
+          body: {
+            access_token: jwt({
+              probe_claim: 'merged',
+              probe_env: 'custom-jwt-env-marker',
+              probe_app: 'client',
+              iss: 'issuer',
+              sub: 'client',
+              aud: 'resource',
+              exp: 2,
+              iat: 2,
+              jti: 'id',
+              client_id: 'client',
+              scope: 'read',
+              organization_id: 'override',
+              gty: 'override',
+              kind: 'override',
+            }),
+          },
+        };
+      },
+    };
+
+    const result = await runCustomJwtScenarios(port, {
+      expected: {
+        issuer: 'issuer',
+        subject: 'client',
+        audience: 'resource',
+        clientId: 'client',
+        scope: 'read',
+      },
+    });
+
+    expect(result.map(({ id }) => id)).toEqual(customJwtScenarioIds);
+    expect(result.at(-1)?.projection).toMatchObject({
+      customClaimMerged: true,
+      environmentMerged: true,
+      protectedClaimsPreserved: true,
+      extensionClaimsOverridden: true,
+    });
+    expect(calls.at(-1)).toBe('DELETE configs/jwt-customizer/client-credentials');
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toMatch(
+      /access_token|getCustomJwtClaims|custom-jwt-env-marker|signature/u
+    );
+    expect(Object.isFrozen(result)).toBe(true);
+  });
+
+  it('cleans the customizer when target collection fails', async () => {
+    const calls: string[] = [];
+    const port: CustomJwtTargetPort = {
+      request: async ({ method, path }) => {
+        calls.push(`${method} ${path}`);
+        if (method === 'DELETE') {
+          return { status: 204, headers: {}, body: null };
+        }
+        throw new Error('target unavailable');
+      },
+      issueClientCredentials: async () => {
+        throw new Error('unexpected issuance');
+      },
+    };
+
+    await expect(
+      runCustomJwtScenarios(port, {
+        expected: {
+          issuer: 'issuer',
+          subject: 'client',
+          audience: 'resource',
+          clientId: 'client',
+          scope: 'read',
+        },
+      })
+    ).rejects.toThrow('target unavailable');
+    expect(calls).toEqual([
+      'GET configs/jwt-customizer/client-credentials',
+      'DELETE configs/jwt-customizer/client-credentials',
+    ]);
+  });
+});
+
+/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
