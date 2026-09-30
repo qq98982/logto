@@ -240,7 +240,13 @@
         "custom-jwt.m2m-deny",
         "custom-jwt.m2m-throw-block",
         "custom-jwt.m2m-throw-open",
-        "custom-jwt.m2m-protected-claims"
+        "custom-jwt.m2m-protected-claims",
+        "custom-jwt.user-initial-resource",
+        "custom-jwt.user-refresh-context",
+        "custom-jwt.user-old-refresh-after-rotation",
+        "custom-jwt.user-refresh-deny",
+        "custom-jwt.user-refresh-throw-block",
+        "custom-jwt.user-refresh-throw-open-retry"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

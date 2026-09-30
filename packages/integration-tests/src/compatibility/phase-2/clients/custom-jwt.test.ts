@@ -19,6 +19,11 @@ describe('custom JWT HTTP port', () => {
         return { status: 200, body: { access_token: 'opaque' } };
       },
       verifyAccessToken: async () => ({ verified: true }),
+      issueUserTokens: async () => ({ access: 'user-access', refresh: 'user-refresh' }),
+      exchangeUserRefresh: async ({ refreshToken, signal }) => ({
+        status: refreshToken === 'user-refresh' && !signal.aborted ? 200 : 500,
+        body: { access_token: 'rotated-access' },
+      }),
     });
     await expect(
       port.request({ method: 'GET', path: 'configs/jwt-customizer' })
@@ -27,6 +32,13 @@ describe('custom JWT HTTP port', () => {
       port.issueClientCredentials({ caseId: 'custom-jwt.m2m-success' })
     ).resolves.toMatchObject({ status: 200 });
     expect(calls).toEqual(['fence', 'fence', 'fence', 'issue', 'fence']);
+    const user = await port.issueUserTokens();
+    const exchanged = await port.exchangeUserRefresh({ refreshToken: user.refresh });
+    expect(exchanged).toMatchObject({
+      status: 200,
+    });
+    expect(() => JSON.stringify(exchanged)).toThrow('Invalid Phase 2 custom JWT HTTP observation');
+    expect(() => JSON.stringify(user)).toThrow('Invalid Phase 2 custom JWT HTTP observation');
     expect(JSON.stringify(port)).not.toContain('private-secret');
   });
 
@@ -36,6 +48,8 @@ describe('custom JWT HTTP port', () => {
       withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
       issueClientCredentials: async () => ({ status: 200, body: {} }),
       verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
     };
     const oversized = createCustomJwtHttpPort({
       ...base,

@@ -130,7 +130,12 @@ const issueUserTokens = async (
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   clientKind: 'public' | 'confidential',
   captureBrowserSession: boolean,
-  requestFetch: typeof fetch = fetch
+  requestFetch: typeof fetch = fetch,
+  options: Readonly<{
+    subjectPassword?: string;
+    resourceAtCodeExchange?: boolean;
+    signal?: AbortSignal;
+  }> = {}
 ): Promise<IssuedPublicUserTokens | IssuedPublicUserSession> => {
   let stage = 'admission';
   try {
@@ -168,7 +173,9 @@ const issueUserTokens = async (
           ? {}
           : { body: body instanceof URLSearchParams ? body : JSON.stringify(body) }),
         redirect: 'manual',
-        signal: AbortSignal.timeout(10_000),
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)])
+          : AbortSignal.timeout(10_000),
       });
       mergeCookies(cookies, response);
       return response;
@@ -192,8 +199,8 @@ const issueUserTokens = async (
     stage = 'authorization';
     await discard(await requireStatus(await send(authorization, 'GET'), 303));
     stage = 'bootstrap';
-    await fixture.withSecretLease(async (lease) => {
-      const password = bounded(lease.getSubjectPassword?.() ?? fail(), 256);
+    const identifyWithPassword = async (passwordInput: string) => {
+      const password = bounded(passwordInput, 256);
       await discard(
         await requireStatus(
           await send(endpoint('/api/experience'), 'PUT', { interactionEvent: 'SignIn' }),
@@ -218,7 +225,12 @@ const issueUserTokens = async (
           204
         )
       );
-    });
+    };
+    await (options.subjectPassword === undefined
+      ? fixture.withSecretLease(async (lease) =>
+          identifyWithPassword(lease.getSubjectPassword?.() ?? fail())
+        )
+      : identifyWithPassword(options.subjectPassword));
     stage = 'submit';
     const submitted = await jsonBody(
       await requireStatus(await send(endpoint('/api/experience/submit'), 'POST'), 200)
@@ -264,6 +276,7 @@ const issueUserTokens = async (
             code,
             code_verifier: verifier,
             redirect_uri: client.redirectUri,
+            ...(options.resourceAtCodeExchange ? { resource: status.resource.indicator } : {}),
             ...(clientKind === 'public' ? { client_id: client.id } : {}),
           }),
           authorization
@@ -321,6 +334,19 @@ export const issuePublicUserTokens = async (
     false,
     requestFetch
   ) as Promise<IssuedPublicUserTokens>;
+
+export const issuePublicUserResourceTokensWithPassword = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  subjectPassword: string,
+  signal: AbortSignal,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserTokens> =>
+  issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+    subjectPassword,
+    resourceAtCodeExchange: true,
+    signal,
+  }) as Promise<IssuedPublicUserTokens>;
 
 export const issueConfidentialUserSession = async (
   targetInput: TargetConfig,

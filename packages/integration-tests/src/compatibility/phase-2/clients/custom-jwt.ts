@@ -28,6 +28,12 @@ export type CustomJwtHttpCapabilities = Readonly<{
     }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
   verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
+  issueUserTokens(
+    input: Readonly<{ signal: AbortSignal }>
+  ): Promise<Readonly<{ access: string; refresh: string }>>;
+  exchangeUserRefresh(
+    input: Readonly<{ refreshToken: string; signal: AbortSignal }>
+  ): Promise<Readonly<{ status: number; body: unknown }>>;
   timeoutMs?: number;
 }>;
 
@@ -111,6 +117,45 @@ export const createCustomJwtHttpPort = (
         return fail();
       }
       return Object.freeze(boundedClone(await capabilities.verifyAccessToken(token)));
+    },
+    issueUserTokens: async () => {
+      const issued = await fenced(async (signal) => capabilities.issueUserTokens({ signal }));
+      if (
+        typeof issued.access !== 'string' ||
+        issued.access.length === 0 ||
+        Buffer.byteLength(issued.access) > 16 * 1024 ||
+        typeof issued.refresh !== 'string' ||
+        issued.refresh.length === 0 ||
+        Buffer.byteLength(issued.refresh) > 16 * 1024 ||
+        issued.access === issued.refresh
+      ) {
+        return fail();
+      }
+      return Object.freeze({
+        access: issued.access,
+        refresh: issued.refresh,
+        toJSON: (): never => fail(),
+      });
+    },
+    exchangeUserRefresh: async ({ refreshToken }) => {
+      if (
+        typeof refreshToken !== 'string' ||
+        refreshToken.length === 0 ||
+        Buffer.byteLength(refreshToken) > 16 * 1024
+      ) {
+        return fail();
+      }
+      const response = await fenced(async (signal) =>
+        capabilities.exchangeUserRefresh({ refreshToken, signal })
+      );
+      if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) {
+        return fail();
+      }
+      return Object.freeze({
+        status: response.status,
+        body: boundedClone(response.body),
+        toJSON: (): never => fail(),
+      });
     },
   });
 };

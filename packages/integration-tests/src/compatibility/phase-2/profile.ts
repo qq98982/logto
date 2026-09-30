@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = 'd2c34d0454fa355100afdd9e2dafa8c205a9226b87a155f5ff12255462832d57';
-const expectedSchemaSha256 = '55bdab12f4b5a0b843c2e95c783ca53eaf29e4e062d0e07e897f8fd73411a941';
+const expectedProfileSha256 = '23d4580546ac4dbc685caae4d33c13ffbe42fa814793e8ffdf7a5110dc1059cb';
+const expectedSchemaSha256 = 'e67e78ccd61bdf1ebd0d66aa4c12103a9abde457b91a61abbb7b6f190413c0d6';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -181,6 +181,12 @@ const differentialScenarioIds = [
   'custom-jwt.m2m-throw-block',
   'custom-jwt.m2m-throw-open',
   'custom-jwt.m2m-protected-claims',
+  'custom-jwt.user-initial-resource',
+  'custom-jwt.user-refresh-context',
+  'custom-jwt.user-old-refresh-after-rotation',
+  'custom-jwt.user-refresh-deny',
+  'custom-jwt.user-refresh-throw-block',
+  'custom-jwt.user-refresh-throw-open-retry',
 ] as const;
 const deviceOperationIds = [
   'device.authorize',

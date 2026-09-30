@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed scenario collector validates hostile JSON shapes, owns one ordered evidence journal, and preserves fixed primary and cleanup failure classes. */
+/* eslint-disable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed scenario collector validates hostile JSON shapes, owns one ordered evidence journal, and preserves fixed primary and cleanup failure classes; null is an observed wire value. */
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import type { JsonValue } from '../../normalize.js';
@@ -20,6 +20,12 @@ export const customJwtScenarioIds = Object.freeze([
   'custom-jwt.m2m-throw-block',
   'custom-jwt.m2m-throw-open',
   'custom-jwt.m2m-protected-claims',
+  'custom-jwt.user-initial-resource',
+  'custom-jwt.user-refresh-context',
+  'custom-jwt.user-old-refresh-after-rotation',
+  'custom-jwt.user-refresh-deny',
+  'custom-jwt.user-refresh-throw-block',
+  'custom-jwt.user-refresh-throw-open-retry',
 ] as const);
 
 export type CustomJwtScenarioId = (typeof customJwtScenarioIds)[number];
@@ -41,6 +47,10 @@ export type CustomJwtTargetPort = Readonly<{
       caseId: Extract<CustomJwtScenarioId, `custom-jwt.m2m-${string}`>;
     }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
+  issueUserTokens(): Promise<Readonly<{ access: string; refresh: string; toJSON(): never }>>;
+  exchangeUserRefresh(
+    input: Readonly<{ refreshToken: string }>
+  ): Promise<Readonly<{ status: number; body: unknown; toJSON?(): never }>>;
   verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
 }>;
 export type CustomJwtExpectedClaims = Readonly<{
@@ -49,6 +59,11 @@ export type CustomJwtExpectedClaims = Readonly<{
   audience: string;
   clientId: string;
   scope: string;
+  userSubject: string;
+  userClientId: string;
+  userApplicationName: string;
+  userAudience: string;
+  userScope: string;
 }>;
 export type CustomJwtScenarioEvidence = Readonly<{
   id: CustomJwtScenarioId;
@@ -61,6 +76,7 @@ export const compareCustomJwtProjections = (
 ): boolean => isDeepStrictEqual(expected, actual);
 
 const path = 'configs/jwt-customizer/client-credentials';
+const userPath = 'configs/jwt-customizer/access-token';
 const expectedConfigKeys = Object.freeze([
   'blockIssuanceOnError',
   'contextSample',
@@ -81,6 +97,17 @@ const scripts = Object.freeze({
     client_id: 'override', scope: 'override', organization_id: 'override', gty: 'override',
     kind: 'override', probe_claim: 'merged', probe_env: 'custom-jwt-env-marker', probe_app: 'client',
     probe_original_jti: token.jti
+  });`,
+  user: `const getCustomJwtClaims = async ({ token, context }) => ({
+    probe_user_id: context.user.id, probe_has_password: context.user.hasPassword,
+    // The pinned probe queried "event" and observed null on resource refresh.
+    probe_event: context.interaction?.event ?? null,
+    probe_verification_type: context.interaction?.verificationRecords?.[0]?.type ?? null,
+    probe_application_id: context.application?.id ?? null,
+    probe_application_name: context.application?.name ?? null,
+    probe_token_aud: token.aud, probe_token_scope: token.scope,
+    probe_token_client_id: token.clientId, probe_token_account_id: token.accountId,
+    probe_token_gty: token.gty, probe_token_kind: token.kind, probe_survives: 'yes'
   });`,
 });
 
@@ -122,7 +149,26 @@ const configuration = (script: string, blockIssuanceOnError: boolean) =>
       clientId: 'sample',
     }),
   });
+const userConfiguration = (script: string, blockIssuanceOnError: boolean) =>
+  Object.freeze({
+    script,
+    blockIssuanceOnError,
+    environmentVariables: Object.freeze({}),
+    contextSample: Object.freeze({
+      user: Object.freeze({ id: 'sample', hasPassword: true }),
+      application: Object.freeze({ id: 'sample', name: 'sample' }),
+    }),
+    tokenSample: Object.freeze({
+      kind: 'AccessToken',
+      aud: 'sample',
+      scope: 'read',
+      clientId: 'sample',
+      accountId: 'sample',
+    }),
+  });
 const tokenBody = (value: unknown): Record<string, unknown> => record(value);
+const textOrNull = (value: unknown): string | null =>
+  value === null || typeof value === 'string' ? value : fail();
 const assertStatus = (response: Readonly<{ status: number }>, expected: number): void => {
   if (response.status !== expected) {
     fail();
@@ -142,10 +188,21 @@ export const runCustomJwtScenarios = async (
   input: Readonly<{ expected: CustomJwtExpectedClaims }>
 ): Promise<readonly CustomJwtScenarioEvidence[]> => {
   const results: CustomJwtScenarioEvidence[] = [];
+  let m2mCreated = false;
+  let userCreated = false;
   const push = (id: CustomJwtScenarioId, projection: Record<string, JsonValue>) =>
     results.push(evidence(id, projection));
-  const configure = async (script: string, block: boolean) =>
-    port.request({ method: 'PUT', path, body: configuration(script, block) });
+  const configure = async (script: string, block: boolean) => {
+    const response = await port.request({
+      method: 'PUT',
+      path,
+      body: configuration(script, block),
+    });
+    if (response.status === 200 || response.status === 201) {
+      m2mCreated = true;
+    }
+    return response;
+  };
   let collected: readonly CustomJwtScenarioEvidence[] | undefined;
   let primaryFailed = false;
   try {
@@ -319,6 +376,122 @@ export const runCustomJwtScenarios = async (
         claims.gty === 'override' &&
         claims.kind === 'override',
     });
+
+    const userMissing = await port.request({ method: 'GET', path: userPath });
+    assertError(userMissing, 404, 'entity.not_exists_with_id');
+    const configureUser = async (script: string, block: boolean) => {
+      const response = await port.request({
+        method: 'PUT',
+        path: userPath,
+        body: userConfiguration(script, block),
+      });
+      if (response.status === 200 || response.status === 201) {
+        userCreated = true;
+      }
+      return response;
+    };
+    await configureUser(scripts.user, false);
+    const firstUser = await port.issueUserTokens();
+    const initialClaims = await port.verifyAccessToken(firstUser.access);
+    push(customJwtScenarioIds[16], {
+      status: 200,
+      customized: initialClaims.probe_survives === 'yes',
+      subjectMatches: initialClaims.sub === input.expected.userSubject,
+      resourceAudienceMatches: initialClaims.aud === input.expected.userAudience,
+      clientIdMatches: initialClaims.client_id === input.expected.userClientId,
+      accountIdMatches: initialClaims.probe_token_account_id === input.expected.userSubject,
+      applicationIdMatches: initialClaims.probe_application_id === input.expected.userClientId,
+      applicationNameMatches:
+        initialClaims.probe_application_name === input.expected.userApplicationName,
+      scopeEmpty: initialClaims.probe_token_scope === '',
+      scopeMatchesFixture: initialClaims.probe_token_scope === input.expected.userScope,
+      grantType: textOrNull(initialClaims.probe_token_gty),
+      kind: textOrNull(initialClaims.probe_token_kind),
+    });
+    const refreshed = await port.exchangeUserRefresh({ refreshToken: firstUser.refresh });
+    assertStatus(refreshed, 200);
+    const refreshedBody = tokenBody(refreshed.body);
+    const refreshedAccess =
+      typeof refreshedBody.access_token === 'string' ? refreshedBody.access_token : fail();
+    const refreshedClaims = await port.verifyAccessToken(refreshedAccess);
+    push(customJwtScenarioIds[17], {
+      status: refreshed.status,
+      userIdMatches: refreshedClaims.probe_user_id === input.expected.userSubject,
+      hasPassword: refreshedClaims.probe_has_password === true,
+      event: refreshedClaims.probe_event === null ? null : 'present',
+      verificationType: textOrNull(refreshedClaims.probe_verification_type),
+      applicationIdMatches: refreshedClaims.probe_application_id === input.expected.userClientId,
+      applicationNameMatches:
+        refreshedClaims.probe_application_name === input.expected.userApplicationName,
+      audienceMatches: refreshedClaims.probe_token_aud === input.expected.userAudience,
+      scopeEmpty: refreshedClaims.probe_token_scope === '',
+      scopeMatchesFixture: refreshedClaims.probe_token_scope === input.expected.userScope,
+      clientIdMatches: refreshedClaims.probe_token_client_id === input.expected.userClientId,
+      accountIdMatches: refreshedClaims.probe_token_account_id === input.expected.userSubject,
+      customSurvives: refreshedClaims.probe_survives === 'yes',
+      grantType: textOrNull(refreshedClaims.probe_token_gty),
+      kind: textOrNull(refreshedClaims.probe_token_kind),
+    });
+
+    await configureUser(scripts.user, false);
+    const rotationUser = await port.issueUserTokens();
+    const rotated = await port.exchangeUserRefresh({ refreshToken: rotationUser.refresh });
+    assertStatus(rotated, 200);
+    const rotatedBody = tokenBody(rotated.body);
+    const rotatedRefresh =
+      typeof rotatedBody.refresh_token === 'string' &&
+      rotatedBody.refresh_token !== rotationUser.refresh;
+    const oldAfterRotation = await port.exchangeUserRefresh({
+      refreshToken: rotationUser.refresh,
+    });
+    push(customJwtScenarioIds[18], {
+      status: oldAfterRotation.status,
+      error:
+        tokenBody(oldAfterRotation.body).error === undefined
+          ? null
+          : textOrNull(tokenBody(oldAfterRotation.body).error),
+      issued: typeof tokenBody(oldAfterRotation.body).access_token === 'string',
+      priorRefreshRotated: rotatedRefresh,
+    });
+
+    await configureUser(scripts.user, false);
+    const denyUser = await port.issueUserTokens();
+    await configureUser(scripts.deny, true);
+    const userDenied = await port.exchangeUserRefresh({ refreshToken: denyUser.refresh });
+    assertStatus(userDenied, 400);
+    push(customJwtScenarioIds[19], {
+      status: userDenied.status,
+      error: tokenBody(userDenied.body).error === 'access_denied' ? 'access_denied' : 'other',
+      issued: typeof tokenBody(userDenied.body).access_token === 'string',
+    });
+
+    await configureUser(scripts.user, false);
+    const blockUser = await port.issueUserTokens();
+    await configureUser(scripts.throwing, true);
+    const userBlocked = await port.exchangeUserRefresh({ refreshToken: blockUser.refresh });
+    assertStatus(userBlocked, 400);
+    push(customJwtScenarioIds[20], {
+      status: userBlocked.status,
+      error: tokenBody(userBlocked.body).error === 'invalid_request' ? 'invalid_request' : 'other',
+      issued: typeof tokenBody(userBlocked.body).access_token === 'string',
+    });
+
+    await configureUser(scripts.user, false);
+    const retryUser = await port.issueUserTokens();
+    await configureUser(scripts.deny, true);
+    const rejectedDeny = await port.exchangeUserRefresh({ refreshToken: retryUser.refresh });
+    assertStatus(rejectedDeny, 400);
+    await configureUser(scripts.throwing, true);
+    const rejectedThrow = await port.exchangeUserRefresh({ refreshToken: retryUser.refresh });
+    assertStatus(rejectedThrow, 400);
+    await configureUser(scripts.throwing, false);
+    const userOpen = await port.exchangeUserRefresh({ refreshToken: retryUser.refresh });
+    assertStatus(userOpen, 200);
+    push(customJwtScenarioIds[21], {
+      status: userOpen.status,
+      issued: typeof tokenBody(userOpen.body).access_token === 'string',
+      sameRefreshRemainedUsable: userOpen.status === 200,
+    });
     if (
       results.length !== customJwtScenarioIds.length ||
       results.some(({ id }, index) => id !== customJwtScenarioIds[index])
@@ -330,9 +503,21 @@ export const runCustomJwtScenarios = async (
     primaryFailed = true;
   }
   try {
-    const cleanup = await port.request({ method: 'DELETE', path });
-    if (cleanup.status !== 204 && cleanup.status !== 404) {
-      fail();
+    const cleanupResults = await Promise.all(
+      [path, userPath].map(async (cleanupPath) => {
+        try {
+          const cleanup = await port.request({ method: 'DELETE', path: cleanupPath });
+          const knownCreated = cleanupPath === path ? m2mCreated : userCreated;
+          return knownCreated
+            ? cleanup.status === 204
+            : cleanup.status === 204 || cleanup.status === 404;
+        } catch {
+          return false;
+        }
+      })
+    );
+    if (cleanupResults.includes(false)) {
+      throw fixedFailure(primaryFailed ? 'primary+cleanup' : 'cleanup');
     }
   } catch {
     throw fixedFailure(primaryFailed ? 'primary+cleanup' : 'cleanup');
@@ -343,4 +528,4 @@ export const runCustomJwtScenarios = async (
   return collected ?? fail();
 };
 
-/* eslint-enable max-lines, complexity, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

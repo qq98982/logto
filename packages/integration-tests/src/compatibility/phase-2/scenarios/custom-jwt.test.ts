@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The stateful fake target proves ordering, lifecycle changes, cleanup, and evidence redaction through one bounded in-memory contract. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The stateful fake target proves ordering, lifecycle changes, cleanup, and evidence redaction through one bounded in-memory contract. */
 
 import {
   compareCustomJwtProjections,
@@ -14,6 +14,20 @@ const verifyJwt = async (token: string) =>
     string,
     unknown
   >;
+const userAccessJwt = () =>
+  jwt({
+    sub: 'user',
+    aud: 'resource',
+    client_id: 'user-client',
+    scope: 'read:profile',
+    probe_application_id: 'user-client',
+    probe_application_name: 'User Client',
+    probe_token_account_id: 'user',
+    probe_token_scope: 'read:profile',
+    probe_token_gty: 'authorization_code',
+    probe_token_kind: 'AccessToken',
+    probe_survives: 'yes',
+  });
 
 describe('Phase 2 custom JWT scenarios', () => {
   it('compares custom JWT status, denial and protected-claim evidence exactly', () => {
@@ -30,14 +44,22 @@ describe('Phase 2 custom JWT scenarios', () => {
 
   it('collects the fixed management and M2M contract without credential or script material', async () => {
     let configured = false;
+    let userConfigured = false;
+    const issuedRefreshTokens = new Set<string>();
+    let userMode: 'success' | 'deny' | 'block' | 'open' = 'success';
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
       verifyAccessToken: verifyJwt,
       request: async ({ method, path, body }): ReturnType<CustomJwtTargetPort['request']> => {
         calls.push(`${method} ${path}`);
         if (method === 'DELETE') {
-          const existed = configured;
-          configured = false;
+          const access = path.endsWith('/access-token');
+          const existed = access ? userConfigured : configured;
+          if (access) {
+            userConfigured = false;
+          } else {
+            configured = false;
+          }
           return {
             status: existed ? 204 : 404,
             headers: {},
@@ -65,6 +87,17 @@ describe('Phase 2 custom JWT scenarios', () => {
             return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
           }
           configured = true;
+          if (path.endsWith('/access-token')) {
+            userConfigured = true;
+            const { script } = body as { script: string };
+            userMode = script.includes('denyAccess')
+              ? 'deny'
+              : script.includes('throw new Error')
+                ? (body as { blockIssuanceOnError: boolean }).blockIssuanceOnError
+                  ? 'block'
+                  : 'open'
+                : 'success';
+          }
           return { status: 201, headers: { vary: 'Origin' }, body };
         }
         if (method === 'PATCH') {
@@ -92,6 +125,11 @@ describe('Phase 2 custom JWT scenarios', () => {
                 ]
               : [],
           };
+        }
+        if (path.endsWith('/access-token')) {
+          return userConfigured
+            ? { status: 200, headers: {}, body: body ?? {} }
+            : { status: 404, headers: {}, body: { code: 'entity.not_exists_with_id' } };
         }
         return configured
           ? {
@@ -139,6 +177,49 @@ describe('Phase 2 custom JWT scenarios', () => {
           },
         };
       },
+      issueUserTokens: async () => {
+        const refresh = `refresh-token-${issuedRefreshTokens.size + 1}`;
+        issuedRefreshTokens.add(refresh);
+        return {
+          access: userAccessJwt(),
+          refresh,
+          toJSON: () => {
+            throw new Error('must stay private');
+          },
+        };
+      },
+      exchangeUserRefresh: async ({ refreshToken }) => {
+        if (!issuedRefreshTokens.has(refreshToken)) {
+          throw new Error('unknown refresh');
+        }
+        if (userMode === 'deny') {
+          return { status: 400, body: { error: 'access_denied' } };
+        }
+        if (userMode === 'block') {
+          return { status: 400, body: { error: 'invalid_request' } };
+        }
+        return {
+          status: 200,
+          body: {
+            access_token: jwt({
+              probe_user_id: 'user',
+              probe_has_password: true,
+              probe_event: null,
+              probe_verification_type: 'Password',
+              probe_application_id: 'user-client',
+              probe_application_name: 'User Client',
+              probe_token_aud: 'resource',
+              probe_token_scope: 'read:profile',
+              probe_token_client_id: 'user-client',
+              probe_token_account_id: 'user',
+              probe_token_gty: 'authorization_code refresh_token',
+              probe_token_kind: 'AccessToken',
+              probe_survives: 'yes',
+            }),
+            refresh_token: 'next-refresh-token',
+          },
+        };
+      },
     };
 
     const result = await runCustomJwtScenarios(port, {
@@ -148,17 +229,71 @@ describe('Phase 2 custom JWT scenarios', () => {
         audience: 'resource',
         clientId: 'client',
         scope: 'read',
+        userSubject: 'user',
+        userClientId: 'user-client',
+        userApplicationName: 'User Client',
+        userAudience: 'resource',
+        userScope: 'read:profile',
       },
     });
 
     expect(result.map(({ id }) => id)).toEqual(customJwtScenarioIds);
-    expect(result.at(-1)?.projection).toMatchObject({
+    expect(result[15]?.projection).toMatchObject({
       customClaimMerged: true,
       environmentMerged: true,
       protectedClaimsPreserved: true,
       extensionClaimsOverridden: true,
     });
-    expect(calls.at(-1)).toBe('DELETE configs/jwt-customizer/client-credentials');
+    expect(result.slice(16).map(({ projection }) => projection)).toEqual([
+      {
+        status: 200,
+        customized: true,
+        subjectMatches: true,
+        resourceAudienceMatches: true,
+        clientIdMatches: true,
+        accountIdMatches: true,
+        applicationIdMatches: true,
+        applicationNameMatches: true,
+        scopeEmpty: false,
+        scopeMatchesFixture: true,
+        grantType: 'authorization_code',
+        kind: 'AccessToken',
+      },
+      {
+        status: 200,
+        userIdMatches: true,
+        hasPassword: true,
+        event: null,
+        verificationType: 'Password',
+        applicationIdMatches: true,
+        applicationNameMatches: true,
+        audienceMatches: true,
+        scopeEmpty: false,
+        scopeMatchesFixture: true,
+        clientIdMatches: true,
+        accountIdMatches: true,
+        customSurvives: true,
+        grantType: 'authorization_code refresh_token',
+        kind: 'AccessToken',
+      },
+      {
+        status: 200,
+        error: null,
+        issued: true,
+        priorRefreshRotated: true,
+      },
+      { status: 400, error: 'access_denied', issued: false },
+      { status: 400, error: 'invalid_request', issued: false },
+      { status: 200, issued: true, sameRefreshRemainedUsable: true },
+    ]);
+    expect(calls.slice(-2)).toEqual([
+      'DELETE configs/jwt-customizer/client-credentials',
+      'DELETE configs/jwt-customizer/access-token',
+    ]);
+    expect({ configured, userConfigured }).toEqual({
+      configured: false,
+      userConfigured: false,
+    });
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(
       /access_token|getCustomJwtClaims|custom-jwt-env-marker|signature/u
@@ -180,6 +315,12 @@ describe('Phase 2 custom JWT scenarios', () => {
       issueClientCredentials: async () => {
         throw new Error('unexpected issuance');
       },
+      issueUserTokens: async () => {
+        throw new Error('unexpected issuance');
+      },
+      exchangeUserRefresh: async () => {
+        throw new Error('unexpected refresh');
+      },
     };
 
     await expect(
@@ -190,12 +331,18 @@ describe('Phase 2 custom JWT scenarios', () => {
           audience: 'resource',
           clientId: 'client',
           scope: 'read',
+          userSubject: 'user',
+          userClientId: 'user-client',
+          userApplicationName: 'User Client',
+          userAudience: 'resource',
+          userScope: 'read:profile',
         },
       })
     ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary)');
     expect(calls).toEqual([
       'GET configs/jwt-customizer/client-credentials',
       'DELETE configs/jwt-customizer/client-credentials',
+      'DELETE configs/jwt-customizer/access-token',
     ]);
   });
 
@@ -204,16 +351,24 @@ describe('Phase 2 custom JWT scenarios', () => {
     let failCleanup = false;
     let jtiMismatch = false;
     let configured = false;
+    let userConfigured = false;
+    const issuedRefreshTokens = new Set<string>();
+    let userMode: 'success' | 'deny' | 'block' | 'open' = 'success';
     const port: CustomJwtTargetPort = {
       verifyAccessToken: verifyJwt,
       request: async ({ method, path, body }) => {
         if (method === 'DELETE') {
           deleteCount += 1;
-          if (failCleanup && deleteCount > 2) {
+          if (failCleanup && deleteCount === 3) {
             throw new Error('secret cleanup diagnostic');
           }
-          const existed = configured;
-          configured = false;
+          const access = path.endsWith('/access-token');
+          const existed = access ? userConfigured : configured;
+          if (access) {
+            userConfigured = false;
+          } else {
+            configured = false;
+          }
           return {
             status: existed ? 204 : 404,
             headers: {},
@@ -259,7 +414,27 @@ describe('Phase 2 custom JWT scenarios', () => {
           return { status: 404, headers: {}, body: { code: 'entity.not_exists_with_id' } };
         }
         if (method === 'PUT') {
-          configured = true;
+          if (path.endsWith('/access-token')) {
+            userConfigured = true;
+          } else {
+            configured = true;
+          }
+          if (path.endsWith('/access-token')) {
+            const { script, blockIssuanceOnError } = body as {
+              script: string;
+              blockIssuanceOnError: boolean;
+            };
+            userMode = script.includes('denyAccess')
+              ? 'deny'
+              : script.includes('throw new Error')
+                ? blockIssuanceOnError
+                  ? 'block'
+                  : 'open'
+                : 'success';
+          }
+        }
+        if (method === 'GET' && path.endsWith('/access-token') && !userConfigured) {
+          return { status: 404, headers: {}, body: { code: 'entity.not_exists_with_id' } };
         }
         return {
           status: method === 'PUT' ? 201 : 200,
@@ -305,6 +480,49 @@ describe('Phase 2 custom JWT scenarios', () => {
           },
         };
       },
+      issueUserTokens: async () => {
+        const refresh = `refresh-token-${issuedRefreshTokens.size + 1}`;
+        issuedRefreshTokens.add(refresh);
+        return {
+          access: userAccessJwt(),
+          refresh,
+          toJSON: () => {
+            throw new Error('must stay private');
+          },
+        };
+      },
+      exchangeUserRefresh: async ({ refreshToken }) => {
+        if (!issuedRefreshTokens.has(refreshToken)) {
+          throw new Error('unknown refresh');
+        }
+        if (userMode === 'deny') {
+          return { status: 400, body: { error: 'access_denied' } };
+        }
+        if (userMode === 'block') {
+          return { status: 400, body: { error: 'invalid_request' } };
+        }
+        return {
+          status: 200,
+          body: {
+            access_token: jwt({
+              probe_user_id: 'user',
+              probe_has_password: true,
+              probe_event: null,
+              probe_verification_type: 'Password',
+              probe_application_id: 'user-client',
+              probe_application_name: 'User Client',
+              probe_token_aud: 'resource',
+              probe_token_scope: 'read:profile',
+              probe_token_client_id: 'user-client',
+              probe_token_account_id: 'user',
+              probe_token_gty: 'authorization_code refresh_token',
+              probe_token_kind: 'AccessToken',
+              probe_survives: 'yes',
+            }),
+            refresh_token: 'next-refresh-token',
+          },
+        };
+      },
     };
     const expected = {
       issuer: 'issuer',
@@ -312,12 +530,17 @@ describe('Phase 2 custom JWT scenarios', () => {
       audience: 'resource',
       clientId: 'client',
       scope: 'read',
+      userSubject: 'user',
+      userClientId: 'user-client',
+      userApplicationName: 'User Client',
+      userAudience: 'resource',
+      userScope: 'read:profile',
     };
     const result = await runCustomJwtScenarios(port, { expected });
-    expect(result.at(-1)?.projection.protectedClaimsPreserved).toBe(false);
+    expect(result[15]?.projection.protectedClaimsPreserved).toBe(false);
     jtiMismatch = true;
     const wrongJti = await runCustomJwtScenarios(port, { expected });
-    expect(wrongJti.at(-1)?.projection.protectedClaimsPreserved).toBe(false);
+    expect(wrongJti[15]?.projection.protectedClaimsPreserved).toBe(false);
     deleteCount = 0;
     failCleanup = true;
     await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
@@ -326,4 +549,4 @@ describe('Phase 2 custom JWT scenarios', () => {
   });
 });
 
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

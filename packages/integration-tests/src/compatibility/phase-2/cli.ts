@@ -21,6 +21,7 @@ import {
 } from './candidate-invariants/device-authorization.js';
 import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
 import { createCustomJwtHttpPort } from './clients/custom-jwt.js';
+import { issuePublicUserResourceTokensWithPassword } from './clients/user-token-issuance.js';
 import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
@@ -425,7 +426,7 @@ type DeviceFailureStage =
   | 'verification-get'
   | 'verification-post';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-4][0-9]|15[0-4])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|160)))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -943,7 +944,8 @@ const runTargetScenarios = async (
     try {
       const collect = async (
         authorizationHeaders: Readonly<Record<string, string>>,
-        clientSecret: string
+        clientSecret: string,
+        subjectPassword: string
       ) => {
         const port = createCustomJwtHttpPort({
           assertInvocationFence: async () => prepared.fence.assertStable(),
@@ -952,6 +954,7 @@ const runTargetScenarios = async (
               ![
                 'configs/jwt-customizer',
                 'configs/jwt-customizer/client-credentials',
+                'configs/jwt-customizer/access-token',
                 'configs/jwt-customizer/test',
                 'configs/jwt-customizer/unknown-token-type',
               ].includes(requestPath)
@@ -993,6 +996,30 @@ const runTargetScenarios = async (
             const verified = await jwtVerify(token, createLocalJWKSet(jwks));
             return Object.freeze({ ...verified.payload });
           },
+          issueUserTokens: async ({ signal }) => {
+            const issued = await issuePublicUserResourceTokensWithPassword(
+              descriptor.target,
+              fixture,
+              subjectPassword,
+              signal
+            );
+            return Object.freeze({ access: issued.access, refresh: issued.refresh });
+          },
+          exchangeUserRefresh: async ({ refreshToken, signal }) => {
+            const status = fixture.status ?? fail();
+            return requestPhase2Json({
+              url: new URL('/oidc/token', descriptor.target.coreUrl),
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                client_id: status.client.id,
+                resource: status.resource.indicator,
+              }),
+              signal,
+            });
+          },
         });
         return runCustomJwtScenarios(port, {
           expected: {
@@ -1001,6 +1028,11 @@ const runTargetScenarios = async (
             audience: fixture.public.resources.primary.indicator,
             clientId: fixture.public.clients.basic.id,
             scope: 'read write',
+            userSubject: fixture.status?.user.id ?? fail(),
+            userClientId: fixture.status?.client.id ?? fail(),
+            userApplicationName: fixture.status?.client.name ?? fail(),
+            userAudience: fixture.status?.resource.indicator ?? fail(),
+            userScope: fixture.status?.resource.scopeName ?? fail(),
           },
         });
       };
@@ -1010,12 +1042,17 @@ const runTargetScenarios = async (
               descriptor.target,
               fixture,
               async (bearer, lease) =>
-                collect({ authorization: `Bearer ${bearer}` }, lease.getClientSecret('basic'))
+                collect(
+                  { authorization: `Bearer ${bearer}` },
+                  lease.getClientSecret('basic'),
+                  lease.getSubjectPassword?.() ?? fail()
+                )
             )
           : await fixture.withSecretLease(async (lease) =>
               collect(
                 { 'development-user-id': 'integration-test-admin-user' },
-                lease.getClientSecret('basic')
+                lease.getClientSecret('basic'),
+                lease.getSubjectPassword?.() ?? fail()
               )
             );
     } catch (error: unknown) {

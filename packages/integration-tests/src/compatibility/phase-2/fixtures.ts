@@ -9,6 +9,7 @@ import {
   type CommandRunnerRequest,
   type CommandRunnerResult,
 } from '../phase-1/clients/command-provisioner.js';
+import { getPhase1FixtureRuntimeText } from '../phase-1/fixture-map.js';
 import { assertPhase1RuntimeCredentialGraphIsSanitized } from '../phase-1/fixtures.js';
 import { snapshotClosedDataGraph } from '../phase-1/model.js';
 
@@ -55,7 +56,7 @@ type Phase2DeviceClientPublic = Readonly<{
 
 export type Phase2StatusPublic = Readonly<{
   user: Readonly<{ id: string; username: string }>;
-  client: Readonly<{ id: string; redirectUri: string }>;
+  client: Readonly<{ id: string; name?: string; redirectUri: string }>;
   confidentialClient: Readonly<{ id: string; redirectUri: string }>;
   resource: Readonly<{ id: string; indicator: string; scopeName: string }>;
 }>;
@@ -1363,7 +1364,11 @@ export const createReferencePhase2FixtureProvisioner = (
         });
         const fixture = createFixture(publicFixture, state.secrets, state, {
           user: Object.freeze({ id: statusUserId, username }),
-          client: Object.freeze({ id: statusClientId, redirectUri: statusRedirectUri }),
+          client: Object.freeze({
+            id: statusClientId,
+            name: `Phase 2 ${marker} status client`,
+            redirectUri: statusRedirectUri,
+          }),
           confidentialClient: Object.freeze({
             id: referenceStatusConfidentialClientId,
             redirectUri: statusRedirectUri,
@@ -1944,7 +1949,11 @@ export const createCandidatePhase2FixtureProvisioner = (
         const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
         const fixture = createFixture(publicFixture, secrets, state, {
           user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
-          client: Object.freeze({ id: 'phase1-browser', redirectUri: statusRedirectUri }),
+          client: Object.freeze({
+            id: 'phase1-browser',
+            name: getPhase1FixtureRuntimeText('Phase 1 Consent Client', allocationId),
+            redirectUri: statusRedirectUri,
+          }),
           confidentialClient: Object.freeze({
             id: statusConfidentialClientId,
             redirectUri: statusRedirectUri,
