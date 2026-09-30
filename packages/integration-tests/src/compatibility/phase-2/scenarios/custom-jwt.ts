@@ -48,9 +48,6 @@ export type CustomJwtExpectedClaims = Readonly<{
   audience: string;
   clientId: string;
   scope: string;
-  expiresAt: number;
-  issuedAt: number;
-  jwtId: string;
 }>;
 export type CustomJwtScenarioEvidence = Readonly<{
   id: CustomJwtScenarioId;
@@ -73,10 +70,11 @@ const scripts = Object.freeze({
   });`,
   deny: `const getCustomJwtClaims = async ({ api }) => api.denyAccess('blocked');`,
   throwing: `const getCustomJwtClaims = async () => { throw new Error('boom'); };`,
-  protected: `const getCustomJwtClaims = async () => ({
+  protected: `const getCustomJwtClaims = async ({ token }) => ({
     iss: 'override', sub: 'override', aud: 'override', exp: 1, iat: 1, jti: 'override',
     client_id: 'override', scope: 'override', organization_id: 'override', gty: 'override',
-    kind: 'override', probe_claim: 'merged', probe_env: 'custom-jwt-env-marker', probe_app: 'client'
+    kind: 'override', probe_claim: 'merged', probe_env: 'custom-jwt-env-marker', probe_app: 'client',
+    probe_original_jti: token.jti
   });`,
 });
 
@@ -231,7 +229,10 @@ export const runCustomJwtScenarios = async (
       path: 'configs/jwt-customizer/test',
       body: {
         tokenType: 'client-credentials',
-        ...configuration(scripts.success, false),
+        script: scripts.success,
+        environmentVariables: { probe_env: environmentMarker },
+        token: configuration(scripts.success, false).tokenSample,
+        context: configuration(scripts.success, false).contextSample,
       },
     });
     const dryBody = record(dryRun.body);
@@ -291,9 +292,12 @@ export const runCustomJwtScenarios = async (
     });
 
     await configure(scripts.protected, false);
+    const issuedBefore = Math.floor(Date.now() / 1000);
     const protectedResult = await port.issueClientCredentials({ caseId: customJwtScenarioIds[15] });
+    const issuedAfter = Math.floor(Date.now() / 1000);
     assertStatus(protectedResult, 200);
-    const claims = decodeJwtPayload(tokenBody(protectedResult.body).access_token);
+    const protectedBody = tokenBody(protectedResult.body);
+    const claims = decodeJwtPayload(protectedBody.access_token);
     push(customJwtScenarioIds[15], {
       status: protectedResult.status,
       customClaimMerged: claims.probe_claim === 'merged',
@@ -304,9 +308,16 @@ export const runCustomJwtScenarios = async (
         claims.aud === input.expected.audience &&
         claims.client_id === input.expected.clientId &&
         claims.scope === input.expected.scope &&
-        claims.exp === input.expected.expiresAt &&
-        claims.iat === input.expected.issuedAt &&
-        claims.jti === input.expected.jwtId,
+        typeof claims.iat === 'number' &&
+        Number.isSafeInteger(claims.iat) &&
+        claims.iat >= issuedBefore - 30 &&
+        claims.iat <= issuedAfter + 30 &&
+        typeof claims.exp === 'number' &&
+        Number.isSafeInteger(claims.exp) &&
+        claims.exp - claims.iat === protectedBody.expires_in &&
+        typeof claims.jti === 'string' &&
+        claims.jti.length > 0 &&
+        claims.jti === claims.probe_original_jti,
       extensionClaimsOverridden:
         claims.organization_id === 'override' &&
         claims.gty === 'override' &&

@@ -26,6 +26,16 @@ describe('Phase 2 custom JWT scenarios', () => {
           };
         }
         if (path.endsWith('/test')) {
+          if (
+            typeof body !== 'object' ||
+            body === null ||
+            !('token' in body) ||
+            !('context' in body) ||
+            'tokenSample' in body ||
+            'contextSample' in body
+          ) {
+            return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+          }
           return { status: 200, headers: {}, body: { probe_claim: 'dry' } };
         }
         if (path.endsWith('/unknown-token-type')) {
@@ -85,9 +95,11 @@ describe('Phase 2 custom JWT scenarios', () => {
         if (caseId === 'custom-jwt.m2m-throw-block') {
           return { status: 400, body: { error: 'invalid_request' } };
         }
+        const issuedAt = Math.floor(Date.now() / 1000);
         return {
           status: 200,
           body: {
+            expires_in: 3600,
             access_token: jwt({
               probe_claim: 'merged',
               probe_env: 'custom-jwt-env-marker',
@@ -95,9 +107,10 @@ describe('Phase 2 custom JWT scenarios', () => {
               iss: 'issuer',
               sub: 'client',
               aud: 'resource',
-              exp: 2,
-              iat: 2,
-              jti: 'id',
+              exp: issuedAt + 3600,
+              iat: issuedAt,
+              jti: 'dynamic-id',
+              probe_original_jti: 'dynamic-id',
               client_id: 'client',
               scope: 'read',
               organization_id: 'override',
@@ -116,9 +129,6 @@ describe('Phase 2 custom JWT scenarios', () => {
         audience: 'resource',
         clientId: 'client',
         scope: 'read',
-        expiresAt: 2,
-        issuedAt: 2,
-        jwtId: 'id',
       },
     });
 
@@ -160,9 +170,6 @@ describe('Phase 2 custom JWT scenarios', () => {
           audience: 'resource',
           clientId: 'client',
           scope: 'read',
-          expiresAt: 2,
-          issuedAt: 2,
-          jwtId: 'id',
         },
       })
     ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary)');
@@ -175,6 +182,7 @@ describe('Phase 2 custom JWT scenarios', () => {
   it('rejects wrong protected authority and fails closed on cleanup failure', async () => {
     let deleteCount = 0;
     let failCleanup = false;
+    let jtiMismatch = false;
     let configured = false;
     const port: CustomJwtTargetPort = {
       request: async ({ method, path, body }) => {
@@ -195,6 +203,14 @@ describe('Phase 2 custom JWT scenarios', () => {
           return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
         }
         if (path.endsWith('/test')) {
+          if (
+            typeof body !== 'object' ||
+            body === null ||
+            !('token' in body) ||
+            !('context' in body)
+          ) {
+            return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+          }
           return { status: 200, headers: {}, body: { probe_claim: 'dry' } };
         }
         if (method === 'PATCH' && typeof (body as { script?: unknown }).script !== 'string') {
@@ -243,19 +259,22 @@ describe('Phase 2 custom JWT scenarios', () => {
         if (caseId.endsWith('throw-block')) {
           return { status: 400, body: { error: 'invalid_request' } };
         }
+        const issuedAt = Math.floor(Date.now() / 1000);
         return {
           status: 200,
           body: {
+            expires_in: 3600,
             access_token: jwt({
               probe_claim: 'merged',
               probe_env: 'custom-jwt-env-marker',
               probe_app: 'client',
-              iss: 'wrong',
+              iss: jtiMismatch ? 'issuer' : 'wrong',
               sub: 'client',
               aud: 'resource',
-              exp: 2,
-              iat: 2,
-              jti: 'id',
+              exp: issuedAt + 3600,
+              iat: issuedAt,
+              jti: 'dynamic-id',
+              probe_original_jti: jtiMismatch ? 'different-id' : 'dynamic-id',
               client_id: 'client',
               scope: 'read',
               organization_id: 'override',
@@ -272,12 +291,12 @@ describe('Phase 2 custom JWT scenarios', () => {
       audience: 'resource',
       clientId: 'client',
       scope: 'read',
-      expiresAt: 2,
-      issuedAt: 2,
-      jwtId: 'id',
     };
     const result = await runCustomJwtScenarios(port, { expected });
     expect(result.at(-1)?.projection.protectedClaimsPreserved).toBe(false);
+    jtiMismatch = true;
+    const wrongJti = await runCustomJwtScenarios(port, { expected });
+    expect(wrongJti.at(-1)?.projection.protectedClaimsPreserved).toBe(false);
     deleteCount = 0;
     failCleanup = true;
     await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
