@@ -446,6 +446,7 @@ wait "\${NODE_RUN_PID}" || {
       esac
       failure_stage="base-preservation-runtime-scenario-\${scenario_index}-\${scenario_phase}"
       ;;
+    17[0-9]) failure_stage="base-preservation-runtime-scenario-1-compare-step-$((node_run_status - 170))" ;;
   esac
   fail
 }

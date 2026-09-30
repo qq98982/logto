@@ -101,25 +101,36 @@ export type Phase2BaseScenarioFailure = Error &
   Readonly<{
     scenarioIndex: number;
     stage: Phase2BaseScenarioStage;
+    stepIndex?: number;
   }>;
 
 class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScenarioFailure {
   readonly scenarioIndex: number;
   readonly stage: Phase2BaseScenarioStage;
+  readonly stepIndex?: number;
 
-  constructor(scenarioIndex: number, stage: Phase2BaseScenarioStage) {
+  constructor(scenarioIndex: number, stage: Phase2BaseScenarioStage, stepIndex?: number) {
     super(scenarioFailureMessage);
     if (
       !Number.isInteger(scenarioIndex) ||
       scenarioIndex < 0 ||
       scenarioIndex > 21 ||
-      !phase2BaseScenarioStages.includes(stage)
+      !phase2BaseScenarioStages.includes(stage) ||
+      (stepIndex !== undefined &&
+        (scenarioIndex !== 1 ||
+          stage !== 'compare' ||
+          !Number.isInteger(stepIndex) ||
+          stepIndex < 0 ||
+          stepIndex > 9))
     ) {
       throw new TypeError(scenarioFailureMessage);
     }
     this.name = 'Phase2BaseScenarioFailure';
     this.scenarioIndex = scenarioIndex;
     this.stage = stage;
+    if (stepIndex !== undefined) {
+      this.stepIndex = stepIndex;
+    }
     phase2BaseScenarioFailures.add(this);
     Object.freeze(this);
   }
@@ -155,6 +166,18 @@ const diagnostic = 'Invalid Phase 2 base-preservation runtime';
 const acceptedHarnessCommit = '83d08f0821345d1bdc01491152949cc6f044ecfb';
 const scenarioTimeoutMs = 300_000;
 const commitPattern = /^[0-9a-f]{40}$/u;
+const scenarioOneStepIds: readonly string[] = Object.freeze([
+  'authorize',
+  'experience-bootstrap',
+  'password',
+  'identify',
+  'submit',
+  'consent-get',
+  'consent-post',
+  'resume',
+  'callback',
+  'state',
+]);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -167,9 +190,42 @@ const runScenarioStage = async <Value>(
 ): Promise<Value> => {
   try {
     return await operation();
-  } catch {
+  } catch (error: unknown) {
+    if (isPhase2BaseScenarioFailure(error)) {
+      throw error;
+    }
     throw new AuthenticPhase2BaseScenarioFailure(scenarioIndex, stage);
   }
+};
+
+const decodeJsonPointerSegment = (segment: string): string | undefined => {
+  if (/~(?:[^01]|$)/u.test(segment)) {
+    return undefined;
+  }
+
+  return segment.replaceAll('~1', '/').replaceAll('~0', '~');
+};
+
+const scenarioOneDifferenceStepIndex = (difference: Difference | undefined): number | undefined => {
+  if (!difference?.path.startsWith('/')) {
+    return undefined;
+  }
+  const segments = difference.path
+    .slice(1)
+    .split('/')
+    .map((segment) => decodeJsonPointerSegment(segment));
+
+  if (
+    segments.length < 3 ||
+    segments.includes(undefined) ||
+    segments[0] !== 'steps' ||
+    segments[2] !== 'value'
+  ) {
+    return undefined;
+  }
+  const stepIndex = scenarioOneStepIds.indexOf(segments[1] ?? '');
+
+  return stepIndex === -1 ? undefined : stepIndex;
 };
 
 const assertRawDiscoveryControl = (
@@ -504,7 +560,15 @@ export const runPhase2BasePreservationRuntime = async (
       const differences = await runScenarioStage(scenarioIndex, 'compare', () => {
         const result = Object.freeze([...dependencies.compare(oracle, candidate)]);
 
-        return result.length === 0 ? result : fail();
+        if (result.length > 0) {
+          throw new AuthenticPhase2BaseScenarioFailure(
+            scenarioIndex,
+            'compare',
+            scenarioIndex === 1 ? scenarioOneDifferenceStepIndex(result[0]) : undefined
+          );
+        }
+
+        return result;
       });
       const projectedScenario = await runScenarioStage(scenarioIndex, 'projection', () =>
         snapshotPhase1EvidencePreservingVerifiedTokens<Phase2BasePreservationScenario>({

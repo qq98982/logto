@@ -234,11 +234,15 @@ const throwPrivateError = (): never => {
 
 class ForgedPhase2BaseScenarioFailure extends Error {
   get scenarioIndex(): number {
-    return 7;
+    return 1;
   }
 
   get stage(): string {
-    return 'oracle';
+    return 'compare';
+  }
+
+  get stepIndex(): number {
+    return 0;
   }
 
   constructor() {
@@ -247,8 +251,11 @@ class ForgedPhase2BaseScenarioFailure extends Error {
   }
 }
 
-const runAuthenticScenarioFailure = async (stage: Phase2BaseScenarioStage): Promise<never> => {
-  const selectedIndex = 7;
+const runAuthenticScenarioFailure = async (
+  stage: Phase2BaseScenarioStage,
+  selectedIndex = 7,
+  difference?: Readonly<{ path: string; oracle?: string; candidate?: string }>
+): Promise<never> => {
   const selectedScenario = phase1DifferentialScenarios[selectedIndex];
 
   if (!selectedScenario) {
@@ -317,6 +324,9 @@ const runAuthenticScenarioFailure = async (stage: Phase2BaseScenarioStage): Prom
     },
     compare: () => {
       if (stage === 'compare' && comparisonIndex === selectedIndex) {
+        if (difference) {
+          return Object.freeze([difference]);
+        }
         throw new Error('private scenario failure');
       }
       comparisonIndex += 1;
@@ -398,6 +408,65 @@ describe('Phase 2 base-preservation CLI', () => {
 
     expect(code).toBe(1);
     expect(stderr).toEqual(['Phase 2 base-preservation failed (runtime).\n']);
+  });
+
+  it.each([
+    ['authorize', 0],
+    ['experience-bootstrap', 1],
+    ['password', 2],
+    ['identify', 3],
+    ['submit', 4],
+    ['consent-get', 5],
+    ['consent-post', 6],
+    ['resume', 7],
+    ['callback', 8],
+    ['state', 9],
+  ] as const)('reports scenario 1 compare step %s as index %i', async (stepId, stepIndex) => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () =>
+          runAuthenticScenarioFailure('compare', 1, {
+            path: `/steps/${stepId}/value/private`,
+            oracle: 'private oracle value',
+            candidate: 'private candidate value',
+          }),
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      `Phase 2 base-preservation failed (runtime-scenario-1-compare-step-${stepIndex}).\n`,
+    ]);
+    expect(stderr.join('')).not.toContain('private oracle value');
+    expect(stderr.join('')).not.toContain('private candidate value');
+  });
+
+  it('falls back to the generic scenario 1 compare stage for a hostile difference pointer', async () => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () =>
+          runAuthenticScenarioFailure('compare', 1, {
+            path: '/steps/authorize~2/private-path',
+            oracle: 'private oracle value',
+          }),
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual(['Phase 2 base-preservation failed (runtime-scenario-1-compare).\n']);
+    expect(stderr.join('')).not.toContain('private');
   });
 
   it('accepts only the closed command and fixed private output path', () => {

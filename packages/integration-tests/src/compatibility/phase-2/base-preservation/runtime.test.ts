@@ -338,6 +338,74 @@ describe('Phase 2 base-preservation runtime', () => {
     });
   });
 
+  it.each([
+    ['authorize', 0],
+    ['experience-bootstrap', 1],
+    ['password', 2],
+    ['identify', 3],
+    ['submit', 4],
+    ['consent-get', 5],
+    ['consent-post', 6],
+    ['resume', 7],
+    ['callback', 8],
+    ['state', 9],
+  ] as const)(
+    'classifies scenario 1 first difference step %s as index %i',
+    async (stepId, stepIndex) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      let comparisonIndex = 0;
+
+      await expect(
+        runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          compare: () => {
+            const differences =
+              comparisonIndex === 1
+                ? Object.freeze([{ path: `/steps/${stepId}/value/private`, oracle: 'secret' }])
+                : Object.freeze([]);
+            comparisonIndex += 1;
+
+            return differences;
+          },
+        })
+      ).rejects.toMatchObject({ scenarioIndex: 1, stage: 'compare', stepIndex });
+    }
+  );
+
+  it.each([
+    '/private/authorize/value',
+    '/steps/unknown/value',
+    '/steps/authorize',
+    '/steps/authorize/private',
+    '/steps/authorize~2/value',
+    '/steps~1authorize/value/private',
+  ])('does not classify hostile scenario 1 difference pointer %s', async (path) => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const dependencies = createDependencies(calls);
+    let comparisonIndex = 0;
+
+    try {
+      await runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+        ...dependencies,
+        compare: () => {
+          const differences =
+            comparisonIndex === 1
+              ? Object.freeze([{ path, oracle: 'private oracle', candidate: 'private candidate' }])
+              : Object.freeze([]);
+          comparisonIndex += 1;
+
+          return differences;
+        },
+      });
+      throw new Error('expected runtime failure');
+    } catch (error: unknown) {
+      expect(error).toMatchObject({ scenarioIndex: 1, stage: 'compare' });
+      expect(error).not.toHaveProperty('stepIndex');
+      expect(JSON.stringify(error)).not.toContain('private');
+    }
+  });
+
   it('reuses all accepted Phase 1 runners and adapts only candidate discovery', async () => {
     const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
     const result = await runPhase2BasePreservationRuntime(

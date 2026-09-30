@@ -18,6 +18,8 @@ const childFailurePattern =
   /^Phase 2 base-preservation failed \((arguments|paths|profile|harness|closure|phase1|runtime|harness-recheck|publish)\)\.\n$/u;
 const scenarioFailurePattern =
   /^Phase 2 base-preservation failed \(runtime-scenario-(0|[1-9]|1[0-9]|2[01])-(oracle|candidate|artifact|projection|compare)\)\.\n$/u;
+const scenarioOneStepFailurePattern =
+  /^Phase 2 base-preservation failed \(runtime-scenario-1-compare-step-([0-9])\)\.\n$/u;
 const scenarioStages = Object.freeze(['oracle', 'candidate', 'artifact', 'projection', 'compare']);
 const childFailureExitCodes = Object.freeze({
   arguments: 40,
@@ -50,6 +52,10 @@ const parseBasePreservationChildFailure = (result) => {
   const exitCode = childFailureExitCodes[stage];
   if (Number.isSafeInteger(exitCode)) {
     return Object.freeze({ diagnostic: result.stderr, exitCode });
+  }
+  const scenarioStep = scenarioOneStepFailurePattern.exec(result.stderr);
+  if (scenarioStep) {
+    return Object.freeze({ diagnostic: result.stderr, exitCode: 170 + Number(scenarioStep[1]) });
   }
   const scenario = scenarioFailurePattern.exec(result.stderr);
   if (!scenario) {
