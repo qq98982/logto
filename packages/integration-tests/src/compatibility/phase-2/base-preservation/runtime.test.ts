@@ -93,6 +93,29 @@ const targetGraph = Object.freeze({
   }),
 });
 
+const runtimeContext = Object.freeze({
+  authorization: Object.freeze({
+    mode: 'runtime-candidate',
+    profile: phase1Profile,
+    profileSha256: '1'.repeat(64),
+    schemaSha256: '2'.repeat(64),
+  }) as never,
+  oracleImageDigest: `sha256:${'3'.repeat(64)}`,
+  candidateImageDigest: `sha256:${'4'.repeat(64)}`,
+  evidenceDirectory: '/private/evidence',
+  oracleSnapshotPath: '/private/oracle.json',
+  repositoryRoot: '/home/henry/repo/logto',
+  conformanceRoot: '/private/conformance',
+  targets: targetGraph,
+  isolationAttestations: Object.freeze({}) as never,
+});
+
+const sourceClosure = Object.freeze({
+  acceptedCommit: '83d08f0821345d1bdc01491152949cc6f044ecfb',
+  roots: Object.freeze(['root.ts']),
+  files: Object.freeze([Object.freeze({ path: 'root.ts', blobId: '5'.repeat(40) })]),
+});
+
 const rawDiscovery = Object.freeze({
   issuer: 'http://localhost:3321/oidc',
   introspection_endpoint: 'http://localhost:3321/oidc/token/introspection',
@@ -230,6 +253,91 @@ const createDependencies = (
 };
 
 describe('Phase 2 base-preservation runtime', () => {
+  it.each(['oracle', 'candidate', 'artifact', 'projection', 'compare'] as const)(
+    'attributes a selected scenario failure to the %s stage',
+    async (stage) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      const selectedIndex = 7;
+      const selectedScenario = phase1DifferentialScenarios[selectedIndex];
+
+      if (!selectedScenario) {
+        throw new Error('missing selected scenario');
+      }
+      let artifactIndex = 0;
+      let comparisonIndex = 0;
+      const error = new Error('private scenario failure');
+
+      await expect(
+        runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          runScenario: async (scenario, runtime) => {
+            if (
+              scenario === selectedScenario &&
+              ((stage === 'oracle' && runtime.target.label === 'oracle') ||
+                (stage === 'candidate' && runtime.target.label === 'candidate'))
+            ) {
+              throw error;
+            }
+
+            return dependencies.runScenario(scenario, runtime);
+          },
+          assertCandidateArtifact: (value) => {
+            if (stage === 'artifact' && artifactIndex === selectedIndex) {
+              throw error;
+            }
+            artifactIndex += 1;
+            dependencies.assertCandidateArtifact(value);
+          },
+          projectHttpCompatibility: (scenarioId, oracle, candidate) => {
+            if (stage === 'projection' && scenarioId === selectedScenario.id) {
+              throw error;
+            }
+
+            return dependencies.projectHttpCompatibility(scenarioId, oracle, candidate);
+          },
+          compare: (oracle, candidate) => {
+            if (stage === 'compare' && comparisonIndex === selectedIndex) {
+              throw error;
+            }
+            comparisonIndex += 1;
+
+            return dependencies.compare(oracle, candidate);
+          },
+        })
+      ).rejects.toMatchObject({
+        scenarioIndex: selectedIndex,
+        stage,
+        message: 'Phase 2 base-preservation scenario failed',
+      });
+    }
+  );
+
+  it('attributes a nonzero comparison to the selected scenario compare stage', async () => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const dependencies = createDependencies(calls);
+    const selectedIndex = 11;
+    let comparisonIndex = 0;
+
+    await expect(
+      runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+        ...dependencies,
+        compare: (oracle, candidate) => {
+          const differences =
+            comparisonIndex === selectedIndex
+              ? Object.freeze([{ path: '/changed', expected: 1, actual: 2 }])
+              : dependencies.compare(oracle, candidate);
+          comparisonIndex += 1;
+
+          return differences;
+        },
+      })
+    ).rejects.toMatchObject({
+      scenarioIndex: selectedIndex,
+      stage: 'compare',
+    });
+  });
+
   it('reuses all accepted Phase 1 runners and adapts only candidate discovery', async () => {
     const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
     const result = await runPhase2BasePreservationRuntime(
@@ -336,7 +444,10 @@ describe('Phase 2 base-preservation runtime', () => {
         }),
         { ...dependencies, compare: () => [{ path: '/changed', expected: 1, actual: 2 }] }
       )
-    ).rejects.toThrow('Invalid Phase 2 base-preservation runtime');
+    ).rejects.toMatchObject({
+      scenarioIndex: 0,
+      stage: 'compare',
+    });
   });
 
   it('fails closed unless the raw discovery control proves the exact Phase 1 rejection', async () => {

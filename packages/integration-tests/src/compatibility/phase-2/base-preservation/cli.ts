@@ -27,6 +27,7 @@ import {
 } from '../provenance.js';
 
 import {
+  isPhase2BaseScenarioFailure,
   runPhase2BasePreservationRuntime,
   type Phase2BasePreservationRuntimeResult,
 } from './runtime.js';
@@ -75,6 +76,7 @@ type BaseFailureStage =
   | 'closure'
   | 'phase1'
   | 'runtime'
+  | `runtime-scenario-${number}-${'oracle' | 'candidate' | 'artifact' | 'projection' | 'compare'}`
   | 'harness-recheck'
   | 'publish';
 const success = 'Phase 2 base-preservation completed.\n';
@@ -353,7 +355,15 @@ export const runPhase2BasePreservationCli = async (
             return fail();
           }
           failureStage = 'runtime';
-          const runtime = await dependencies.runRuntime(context, profile, closure);
+          const runtime = await dependencies
+            .runRuntime(context, profile, closure)
+            .catch((error: unknown) => {
+              if (isPhase2BaseScenarioFailure(error)) {
+                failureStage = `runtime-scenario-${error.scenarioIndex}-${error.stage}`;
+              }
+
+              throw error;
+            });
           const candidateSourceCommit = requiredEnvironment(
             dependencies.environment,
             'ASTER_PHASE2_CANDIDATE_SOURCE_COMMIT'

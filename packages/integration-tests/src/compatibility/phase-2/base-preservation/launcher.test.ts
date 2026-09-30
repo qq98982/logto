@@ -114,6 +114,30 @@ describe('Phase 2 base-preservation launcher', () => {
     }
   });
 
+  it.each([0, 1, 9, 10, 21])('maps only closed scenario %i phases', (index) => {
+    for (const [phase, stage] of [
+      'oracle',
+      'candidate',
+      'artifact',
+      'projection',
+      'compare',
+    ].entries()) {
+      const message = `Phase 2 base-preservation failed (runtime-scenario-${index}-${stage}).\n`;
+      const result = { timedOut: false, code: 1, signal: null, stdout: '', stderr: message };
+      expect(diagnosticForBasePreservationChild(result)).toBe(message);
+      expect(exitCodeForBasePreservationChild(result)).toBe(60 + index * 5 + phase);
+      for (const hostile of [
+        { ...result, code: 0 },
+        { ...result, signal: 'SIGTERM' },
+        { ...result, stdout: 'private credential' },
+        { ...result, stderr: `${message}private credential` },
+        { ...result, stderr: `Phase 2 base-preservation failed (runtime-scenario-22-${stage}).\n` },
+      ]) {
+        expect(exitCodeForBasePreservationChild(hostile)).toBe(1);
+      }
+    }
+  });
+
   it('selects and forwards exactly the four inherited Phase 1 browser runtime values', () => {
     expect(basePreservationBrowserEnvironmentKeys).toEqual([
       'HOME',

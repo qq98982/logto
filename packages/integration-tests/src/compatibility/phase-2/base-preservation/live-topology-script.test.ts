@@ -126,6 +126,18 @@ describe('Phase 2 base-preservation live runner', () => {
     46) failure_stage=base-preservation-runtime ;;
     47) failure_stage=base-preservation-harness-recheck ;;
     48) failure_stage=base-preservation-publish ;;
+    6[0-9]|[7-9][0-9]|1[0-5][0-9]|16[0-9])
+      scenario_offset=$((node_run_status - 60))
+      scenario_index=$((scenario_offset / 5))
+      case "$((scenario_offset % 5))" in
+        0) scenario_phase=oracle ;;
+        1) scenario_phase=candidate ;;
+        2) scenario_phase=artifact ;;
+        3) scenario_phase=projection ;;
+        4) scenario_phase=compare ;;
+      esac
+      failure_stage="base-preservation-runtime-scenario-\${scenario_index}-\${scenario_phase}"
+      ;;
   esac
   fail
 }`;

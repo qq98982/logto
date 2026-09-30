@@ -80,6 +80,54 @@ export type Phase2BasePreservationRuntimeResult = Readonly<{
   sanitizerSuccess: true;
 }>;
 
+export type Phase2BaseScenarioStage =
+  | 'oracle'
+  | 'candidate'
+  | 'artifact'
+  | 'projection'
+  | 'compare';
+
+const phase2BaseScenarioFailures = new WeakSet<Error>();
+const scenarioFailureMessage = 'Phase 2 base-preservation scenario failed';
+const phase2BaseScenarioStages: readonly Phase2BaseScenarioStage[] = Object.freeze([
+  'oracle',
+  'candidate',
+  'artifact',
+  'projection',
+  'compare',
+]);
+
+export type Phase2BaseScenarioFailure = Error &
+  Readonly<{
+    scenarioIndex: number;
+    stage: Phase2BaseScenarioStage;
+  }>;
+
+class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScenarioFailure {
+  readonly scenarioIndex: number;
+  readonly stage: Phase2BaseScenarioStage;
+
+  constructor(scenarioIndex: number, stage: Phase2BaseScenarioStage) {
+    super(scenarioFailureMessage);
+    if (
+      !Number.isInteger(scenarioIndex) ||
+      scenarioIndex < 0 ||
+      scenarioIndex > 21 ||
+      !phase2BaseScenarioStages.includes(stage)
+    ) {
+      throw new TypeError(scenarioFailureMessage);
+    }
+    this.name = 'Phase2BaseScenarioFailure';
+    this.scenarioIndex = scenarioIndex;
+    this.stage = stage;
+    phase2BaseScenarioFailures.add(this);
+    Object.freeze(this);
+  }
+}
+
+export const isPhase2BaseScenarioFailure = (error: unknown): error is Phase2BaseScenarioFailure =>
+  error instanceof Error && phase2BaseScenarioFailures.has(error);
+
 export type Phase2BasePreservationRuntimeDependencies = Readonly<{
   projectProfile: typeof projectPhase1ProfileForImplementation;
   createReferenceProvisioner: typeof createReferencePhase1FixtureProvisioner;
@@ -110,6 +158,18 @@ const commitPattern = /^[0-9a-f]{40}$/u;
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
+};
+
+const runScenarioStage = async <Value>(
+  scenarioIndex: number,
+  stage: Phase2BaseScenarioStage,
+  operation: () => Value | Promise<Value>
+): Promise<Value> => {
+  try {
+    return await operation();
+  } catch {
+    throw new AuthenticPhase2BaseScenarioFailure(scenarioIndex, stage);
+  }
 };
 
 const assertRawDiscoveryControl = (
@@ -410,37 +470,43 @@ export const runPhase2BasePreservationRuntime = async (
     const scenarios: Phase2BasePreservationScenario[] = [];
     const discoverySessions: Phase2BaseDiscoverySession[] = [];
 
-    for (const scenario of phase1DifferentialScenarios) {
-      const candidateRuntime = createCandidateRuntime(
-        context,
-        containers.candidate,
-        containers.projectName,
-        scenario,
-        phase2Profile,
-        dependencies,
-        scenario.id === 'discovery.config',
-        discoverySessions
+    for (const [scenarioIndex, scenario] of phase1DifferentialScenarios.entries()) {
+      const candidateRuntime = await runScenarioStage(scenarioIndex, 'candidate', () =>
+        createCandidateRuntime(
+          context,
+          containers.candidate,
+          containers.projectName,
+          scenario,
+          phase2Profile,
+          dependencies,
+          scenario.id === 'discovery.config',
+          discoverySessions
+        )
       );
-      const rawOracle = keyedProjection(
-        scenario,
-        await dependencies.runScenario(scenario, oracleRuntime)
+      const oracleEvidence = await runScenarioStage(scenarioIndex, 'oracle', async () =>
+        dependencies.runScenario(scenario, oracleRuntime)
       );
-      const rawCandidate = keyedProjection(
-        scenario,
-        await dependencies.runScenario(scenario, candidateRuntime)
+      const candidateEvidence = await runScenarioStage(scenarioIndex, 'candidate', async () =>
+        dependencies.runScenario(scenario, candidateRuntime)
       );
-      dependencies.assertCandidateArtifact(rawCandidate);
-      const { oracle, candidate } = dependencies.projectHttpCompatibility(
-        scenario.id,
-        rawOracle,
-        rawCandidate
+      const rawOracle = await runScenarioStage(scenarioIndex, 'projection', () =>
+        keyedProjection(scenario, oracleEvidence)
       );
-      const differences = Object.freeze([...dependencies.compare(oracle, candidate)]);
+      const rawCandidate = await runScenarioStage(scenarioIndex, 'projection', () =>
+        keyedProjection(scenario, candidateEvidence)
+      );
+      await runScenarioStage(scenarioIndex, 'artifact', () => {
+        dependencies.assertCandidateArtifact(rawCandidate);
+      });
+      const { oracle, candidate } = await runScenarioStage(scenarioIndex, 'projection', () =>
+        dependencies.projectHttpCompatibility(scenario.id, rawOracle, rawCandidate)
+      );
+      const differences = await runScenarioStage(scenarioIndex, 'compare', () => {
+        const result = Object.freeze([...dependencies.compare(oracle, candidate)]);
 
-      if (differences.length > 0) {
-        return fail();
-      }
-      scenarios.push(
+        return result.length === 0 ? result : fail();
+      });
+      const projectedScenario = await runScenarioStage(scenarioIndex, 'projection', () =>
         snapshotPhase1EvidencePreservingVerifiedTokens<Phase2BasePreservationScenario>({
           id: scenario.id,
           oracle: createPhase1ProjectionEnvelope('oracle', oracle),
@@ -448,6 +514,7 @@ export const runPhase2BasePreservationRuntime = async (
           differences,
         })
       );
+      scenarios.push(projectedScenario);
     }
     if (discoverySessions.length !== 1) {
       return fail();
@@ -481,6 +548,9 @@ export const runPhase2BasePreservationRuntime = async (
 
     return result;
   } catch (error: unknown) {
+    if (isPhase2BaseScenarioFailure(error)) {
+      throw error;
+    }
     if (error instanceof TypeError && error.message === diagnostic) {
       throw error;
     }

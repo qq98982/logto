@@ -16,6 +16,9 @@ import {
 const diagnostic = 'Phase 2 base-preservation launcher failed.\n';
 const childFailurePattern =
   /^Phase 2 base-preservation failed \((arguments|paths|profile|harness|closure|phase1|runtime|harness-recheck|publish)\)\.\n$/u;
+const scenarioFailurePattern =
+  /^Phase 2 base-preservation failed \(runtime-scenario-(0|[1-9]|1[0-9]|2[01])-(oracle|candidate|artifact|projection|compare)\)\.\n$/u;
+const scenarioStages = Object.freeze(['oracle', 'candidate', 'artifact', 'projection', 'compare']);
 const childFailureExitCodes = Object.freeze({
   arguments: 40,
   paths: 41,
@@ -45,10 +48,19 @@ const parseBasePreservationChildFailure = (result) => {
   const match = childFailurePattern.exec(result.stderr);
   const stage = match?.[1];
   const exitCode = childFailureExitCodes[stage];
-  if (!Number.isSafeInteger(exitCode)) {
+  if (Number.isSafeInteger(exitCode)) {
+    return Object.freeze({ diagnostic: result.stderr, exitCode });
+  }
+  const scenario = scenarioFailurePattern.exec(result.stderr);
+  if (!scenario) {
     return;
   }
-  return Object.freeze({ diagnostic: result.stderr, exitCode });
+  const index = Number(scenario[1]);
+  const phase = scenarioStages.indexOf(scenario[2]);
+  if (!Number.isSafeInteger(index) || index < 0 || index > 21 || phase < 0) {
+    return;
+  }
+  return Object.freeze({ diagnostic: result.stderr, exitCode: 60 + index * 5 + phase });
 };
 export const diagnosticForBasePreservationChild = (result) =>
   parseBasePreservationChildFailure(result)?.diagnostic ?? diagnostic;

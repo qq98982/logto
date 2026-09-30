@@ -1,6 +1,7 @@
-/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The CLI harness records exact call order and iterates independent fail-closed cases with local mutable traces and intentional no-op ports. */
+/* eslint-disable max-lines, no-await-in-loop, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The CLI harness records exact call order, selected-scenario stage counters, and independent fail-closed cases with local mutable traces and intentional no-op ports. */
 import path from 'node:path';
 
+import { phase1DifferentialScenarios } from '../../phase-1/scenarios/index.js';
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
 
 import {
@@ -8,6 +9,11 @@ import {
   runPhase2BasePreservationCli,
   type Phase2BasePreservationCliDependencies,
 } from './cli.js';
+import {
+  runPhase2BasePreservationRuntime,
+  type Phase2BasePreservationRuntimeDependencies,
+  type Phase2BaseScenarioStage,
+} from './runtime.js';
 import type { AcceptedPhase1SourceClosureManifest } from './source-closure.js';
 
 const root = '/private/evidence';
@@ -226,7 +232,174 @@ const throwPrivateError = (): never => {
   throw new Error('private credential must stay hidden');
 };
 
+class ForgedPhase2BaseScenarioFailure extends Error {
+  get scenarioIndex(): number {
+    return 7;
+  }
+
+  get stage(): string {
+    return 'oracle';
+  }
+
+  constructor() {
+    super('private credential');
+    this.name = 'Phase2BaseScenarioFailure';
+  }
+}
+
+const runAuthenticScenarioFailure = async (stage: Phase2BaseScenarioStage): Promise<never> => {
+  const selectedIndex = 7;
+  const selectedScenario = phase1DifferentialScenarios[selectedIndex];
+
+  if (!selectedScenario) {
+    throw new Error('missing selected scenario');
+  }
+  const phase1Profile = Object.freeze({
+    phase1Harness: Object.freeze({ commit: '9'.repeat(40) }),
+    fixtures: Object.freeze({}),
+    oidc: Object.freeze({
+      grants: Object.freeze(['authorization_code', 'refresh_token']),
+      discoveryPath: '/oidc/.well-known/openid-configuration',
+      oauthAuthorizationServerDiscoveryPath: '/oidc/.well-known/oauth-authorization-server',
+      jwksPath: '/oidc/jwks',
+    }),
+  }) as never;
+  let artifactIndex = 0;
+  let comparisonIndex = 0;
+  const dependencies: Phase2BasePreservationRuntimeDependencies = {
+    projectProfile: () => phase1Profile,
+    createReferenceProvisioner: () => Object.freeze({}) as never,
+    createCandidateProvisioner: () => Object.freeze({}) as never,
+    runFixtureCommand: async () => Object.freeze({}) as never,
+    createSessionBinding: () => {
+      throw new Error('unexpected session binding');
+    },
+    createReferenceProjector: () => async () => Object.freeze({}) as never,
+    loadContainerGraph: () =>
+      Object.freeze({
+        projectName: 'aster-phase1-0123456789abcdef',
+        oracle: Object.freeze({ primary: 'a'.repeat(64), foreign: 'b'.repeat(64) }),
+        candidate: Object.freeze({ primary: 'c'.repeat(64), foreign: 'd'.repeat(64) }),
+      }),
+    runScenario: async (scenario, runtime) => {
+      if (
+        scenario === selectedScenario &&
+        ((stage === 'oracle' && runtime.target.label === 'oracle') ||
+          (stage === 'candidate' && runtime.target.label === 'candidate'))
+      ) {
+        throw new Error('private scenario failure');
+      }
+
+      return Object.freeze({
+        target: runtime.target.label,
+        steps: Object.freeze(
+          scenario.orderedSteps.map(({ id }) =>
+            Object.freeze({ stepId: id, value: Object.freeze({ marker: scenario.id }) })
+          )
+        ),
+      }) as never;
+    },
+    runRawDiscoveryControl: async () => {
+      throw new Error('unexpected raw control');
+    },
+    assertCandidateArtifact: () => {
+      if (stage === 'artifact' && artifactIndex === selectedIndex) {
+        throw new Error('private scenario failure');
+      }
+      artifactIndex += 1;
+    },
+    projectHttpCompatibility: (scenarioId, oracle, candidate) => {
+      if (stage === 'projection' && scenarioId === selectedScenario.id) {
+        throw new Error('private scenario failure');
+      }
+
+      return Object.freeze({ oracle, candidate });
+    },
+    compare: () => {
+      if (stage === 'compare' && comparisonIndex === selectedIndex) {
+        throw new Error('private scenario failure');
+      }
+      comparisonIndex += 1;
+
+      return Object.freeze([]);
+    },
+    assertSanitized: () => {},
+  };
+
+  return runPhase2BasePreservationRuntime(
+    Object.freeze({
+      authorization: Object.freeze({
+        mode: 'runtime-candidate',
+        profile: phase1Profile,
+        profileSha256: '1'.repeat(64),
+        schemaSha256: '2'.repeat(64),
+      }) as never,
+      oracleImageDigest: `sha256:${'3'.repeat(64)}`,
+      candidateImageDigest: `sha256:${'4'.repeat(64)}`,
+      evidenceDirectory: '/private/evidence',
+      oracleSnapshotPath: '/private/oracle.json',
+      repositoryRoot: '/home/henry/repo/logto',
+      conformanceRoot: '/private/conformance',
+      targets: Object.freeze({
+        oracle: Object.freeze({
+          primary: Object.freeze({ label: 'oracle' }),
+          foreign: Object.freeze({ label: 'oracle' }),
+        }),
+        candidate: Object.freeze({
+          primary: Object.freeze({ label: 'candidate' }),
+          foreign: Object.freeze({ label: 'candidate' }),
+        }),
+      }),
+      isolationAttestations: Object.freeze({}) as never,
+    }) as never,
+    profile,
+    verifiedClosure,
+    dependencies
+  ) as Promise<never>;
+};
+
 describe('Phase 2 base-preservation CLI', () => {
+  it.each(['oracle', 'candidate', 'artifact', 'projection', 'compare'] as const)(
+    'reports an authentic runtime scenario %s failure without private details',
+    async (stage) => {
+      const stderr: string[] = [];
+      const code = await runPhase2BasePreservationCli(
+        arguments_,
+        'a'.repeat(64),
+        dependencies([], {
+          runRuntime: async () => {
+            return runAuthenticScenarioFailure(stage);
+          },
+          stderr: (message) => {
+            stderr.push(message);
+          },
+        })
+      );
+
+      expect(code).toBe(1);
+      expect(stderr).toEqual([`Phase 2 base-preservation failed (runtime-scenario-7-${stage}).\n`]);
+    }
+  );
+
+  it('rejects a forged runtime scenario failure as a generic runtime failure', async () => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () => {
+          throw new ForgedPhase2BaseScenarioFailure();
+        },
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual(['Phase 2 base-preservation failed (runtime).\n']);
+  });
+
   it('accepts only the closed command and fixed private output path', () => {
     expect(parsePhase2BasePreservationArguments(arguments_)).toMatchObject({
       outputPath: path.join(root, 'phase-2-base-preservation.json'),
@@ -436,4 +609,4 @@ describe('Phase 2 base-preservation CLI', () => {
   });
 });
 
-/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines, no-await-in-loop, unicorn/consistent-function-scoping, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
