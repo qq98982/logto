@@ -69,6 +69,18 @@ const foreignCoordinatorEntities = [
     runtimeId: 'phase2-device-first',
   },
 ];
+const adminCoordinatorEntities = [
+  ['tenant', 'admin', 'admin'],
+  ['user', 'phase1-admin', 'phase1-admin'],
+  ['application', 'admin-console', 'admin-console'],
+  ['resource', 'admin.resource.1', 'admin-management'],
+  ['resource', 'admin.resource.2', 'admin-account'],
+  ['resource', 'admin.resource.3', 'admin-organizations'],
+  ['role', 'default:admin', 'default:admin'],
+  ['role', 'user', 'user'],
+  ['organization', 't-default', 't-default'],
+  ['organization-role', 'admin', 'admin'],
+].map(([kind, logicalId, runtimeId]) => ({ kind, logicalId, runtimeId }));
 const primaryCoordinatorIsolation = {
   persistenceId: 'postgresql:1:aster_phase1_candidate_primary',
   cookieKeyId: '1'.repeat(32),
@@ -81,6 +93,29 @@ const foreignCoordinatorIsolation = {
 };
 const phase2ForeignAllocationId = (allocationId: string) =>
   `phase2-foreign-${createHash('sha256').update(allocationId).digest('hex')}`;
+const phase2AdminAllocationId = (allocationId: string) =>
+  `phase2-admin-${createHash('sha256').update(allocationId).digest('hex').slice(0, 32)}`;
+
+const adminProvisionResult = (allocationId: string): CommandRunnerResult =>
+  commandResult(
+    JSON.stringify({
+      schemaVersion: 1,
+      operation: 'provision',
+      public: {
+        schemaVersion: 1,
+        recipe: 'adminConsole',
+        allocations: [
+          {
+            allocationId,
+            role: 'admin',
+            target: 'primary',
+            isolation: primaryCoordinatorIsolation,
+            entities: adminCoordinatorEntities,
+          },
+        ],
+      },
+    })
+  );
 
 const commandResult = (stdout: string): CommandRunnerResult => ({
   exitCode: 0,
@@ -529,6 +564,9 @@ describe('Phase 2 fixture lifecycle', () => {
       const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
       const { operation } = descriptor;
       if (operation === 'provision') {
+        if (descriptor.recipe === 'adminConsole') {
+          return adminProvisionResult(phase2AdminAllocationId('candidate-fixture'));
+        }
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
@@ -559,11 +597,17 @@ describe('Phase 2 fixture lifecycle', () => {
         );
       }
       cleanupCalls += 1;
-      return cleanupCalls === 1
+      return cleanupCalls % 2 === 1
         ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
         : rejectedCommandResult();
     };
-    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+    const secrets = [
+      'a'.repeat(32),
+      'b'.repeat(32),
+      'c'.repeat(32),
+      'd'.repeat(32),
+      'e'.repeat(32),
+    ];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -586,6 +630,9 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(fixture.public.clients).toEqual({
       basic: { id: 'phase2-m2m-basic', method: 'client_secret_basic' },
       post: { id: 'phase2-m2m-post', method: 'client_secret_post' },
+    });
+    expect(fixture.public.admin).toEqual({
+      allocationId: phase2AdminAllocationId('candidate-fixture'),
     });
     expect(fixture.public.deviceClients).toEqual({
       firstParty: {
@@ -633,6 +680,7 @@ describe('Phase 2 fixture lifecycle', () => {
     });
     await fixture.withSecretLease(async (lease) => {
       expect(Object.keys(lease).toSorted()).toEqual([
+        'getAdminPassword',
         'getClientSecret',
         'getStatusClientSecret',
         'getSubjectPassword',
@@ -640,6 +688,7 @@ describe('Phase 2 fixture lifecycle', () => {
       ]);
       expect(lease.getStatusClientSecret()).toBe('c'.repeat(32));
       expect(lease.getSubjectPassword?.()).toBe('d'.repeat(32));
+      expect(lease.getAdminPassword?.()).toBe('e'.repeat(32));
     });
     expect(JSON.stringify(fixture.public)).not.toContain('c'.repeat(32));
     expect(await provisioner.projectState(fixture)).toEqual({ allocations: [] });
@@ -764,17 +813,19 @@ describe('Phase 2 fixture lifecycle', () => {
         )
       )
     ).toBe(true);
-    expect(requests.map(({ command, args, shell }) => ({ command, args, shell }))).toEqual([
-      { command: '/usr/bin/true', args: ['fixture', 'apply'], shell: false },
-      { command: '/usr/bin/true', args: ['fixture', 'apply'], shell: false },
-      { command: '/usr/bin/true', args: ['fixture', 'apply'], shell: false },
-      { command: '/usr/bin/true', args: ['fixture', 'apply'], shell: false },
-    ]);
-    expect(fencedCalls).toBe(4);
-    const projectDescriptor = JSON.parse(requests[1]?.stdin ?? '{}') as {
+    expect(
+      requests.every(
+        ({ command, args }) =>
+          command === '/usr/bin/true' &&
+          JSON.stringify(args) === JSON.stringify(['fixture', 'apply'])
+      )
+    ).toBe(true);
+    expect(requests).toHaveLength(8);
+    expect(fencedCalls).toBe(8);
+    const projectDescriptor = JSON.parse(requests[2]?.stdin ?? '{}') as {
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
     };
-    const cleanupDescriptors = [requests[2], requests[3]].map((request) =>
+    const cleanupDescriptors = [requests[6], requests[7]].map((request) =>
       JSON.parse(request?.stdin ?? '{}')
     ) as Array<{
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
@@ -795,6 +846,9 @@ describe('Phase 2 fixture lifecycle', () => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
       if (descriptor.operation === 'provision') {
+        if (descriptor.recipe === 'adminConsole') {
+          return adminProvisionResult(phase2AdminAllocationId('candidate-invariants-fixture'));
+        }
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
@@ -832,11 +886,17 @@ describe('Phase 2 fixture lifecycle', () => {
         );
       }
       cleanupCalls += 1;
-      return cleanupCalls === 1
+      return cleanupCalls % 2 === 1
         ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
         : rejectedCommandResult();
     };
-    const sensitiveValues = ['e'.repeat(32), 'f'.repeat(32), 'g'.repeat(32), 'h'.repeat(32)];
+    const sensitiveValues = [
+      'e'.repeat(32),
+      'f'.repeat(32),
+      'g'.repeat(32),
+      'h'.repeat(32),
+      'i'.repeat(32),
+    ];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -855,11 +915,17 @@ describe('Phase 2 fixture lifecycle', () => {
     const descriptors = requests.map(({ stdin }) => JSON.parse(stdin) as Record<string, unknown>);
     expect(descriptors.map(({ recipe }) => recipe)).toEqual([
       'phase2CandidateInvariants',
+      'adminConsole',
       'phase2CandidateInvariants',
+      'adminConsole',
+      'adminConsole',
+      'adminConsole',
       'phase2CandidateInvariants',
       'phase2CandidateInvariants',
     ]);
-    for (const descriptor of descriptors.slice(1)) {
+    for (const descriptor of descriptors.filter(
+      ({ recipe }, index) => recipe === 'phase2CandidateInvariants' && index > 0
+    )) {
       expect(descriptor.public).toEqual({
         schemaVersion: 1,
         recipe: 'phase2CandidateInvariants',
@@ -1136,8 +1202,11 @@ describe('Phase 2 fixture lifecycle', () => {
     let cleanupCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       requests.push(request);
-      const descriptor = JSON.parse(request.stdin) as { operation?: string };
+      const descriptor = JSON.parse(request.stdin) as { operation?: string; recipe?: string };
       if (descriptor.operation === 'provision') {
+        if (descriptor.recipe === 'adminConsole') {
+          return adminProvisionResult(phase2AdminAllocationId('candidate-retry'));
+        }
         provisionAttempts += 1;
         if (provisionAttempts === 1) {
           return {
@@ -1180,7 +1249,13 @@ describe('Phase 2 fixture lifecycle', () => {
         })
       );
     };
-    const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+    const secrets = [
+      'a'.repeat(32),
+      'b'.repeat(32),
+      'c'.repeat(32),
+      'd'.repeat(32),
+      'e'.repeat(32),
+    ];
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -1199,11 +1274,14 @@ describe('Phase 2 fixture lifecycle', () => {
       'cleanup',
       'cleanup',
       'provision',
+      'provision',
+      'cleanup',
+      'cleanup',
       'cleanup',
       'cleanup',
     ]);
     const provisions = requests.filter(({ stdin }) => JSON.parse(stdin).operation === 'provision');
-    expect(provisions).toHaveLength(2);
+    expect(provisions).toHaveLength(3);
     expect(provisions[0]?.stdin).toBe(provisions[1]?.stdin);
     expect(JSON.parse(provisions[0]?.stdin ?? '{}')).toHaveProperty(
       'profile.fixtures.phase2.subjectPrimaryEmail',
@@ -1211,8 +1289,10 @@ describe('Phase 2 fixture lifecycle', () => {
     );
     expect(JSON.parse(requests[1]?.stdin ?? '{}')).not.toHaveProperty('public');
     expect(JSON.parse(requests[2]?.stdin ?? '{}')).not.toHaveProperty('public');
-    expect(JSON.parse(requests[4]?.stdin ?? '{}')).toHaveProperty('public');
     expect(JSON.parse(requests[5]?.stdin ?? '{}')).toHaveProperty('public');
+    expect(JSON.parse(requests[6]?.stdin ?? '{}')).toHaveProperty('public');
+    expect(JSON.parse(requests[7]?.stdin ?? '{}')).toHaveProperty('public');
+    expect(JSON.parse(requests[8]?.stdin ?? '{}')).toHaveProperty('public');
   });
 
   it('rejects coordinator output that leaks the private subject password', async () => {
@@ -1246,7 +1326,7 @@ describe('Phase 2 fixture lifecycle', () => {
   });
 
   it('generates production candidate secrets as exact 32 lowercase alphanumeric characters', async () => {
-    let provisionDescriptor: any;
+    const provisionDescriptors: any[] = [];
     let cleanupCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
@@ -1257,7 +1337,10 @@ describe('Phase 2 fixture lifecycle', () => {
       runner: async (request) => {
         const input = JSON.parse(request.stdin);
         if (input.operation === 'provision') {
-          provisionDescriptor = input;
+          provisionDescriptors.push(input);
+          if (input.recipe === 'adminConsole') {
+            return adminProvisionResult(phase2AdminAllocationId('production-secrets'));
+          }
           return commandResult(
             JSON.stringify({
               schemaVersion: 1,
@@ -1288,28 +1371,23 @@ describe('Phase 2 fixture lifecycle', () => {
           );
         }
         cleanupCalls += 1;
-        return cleanupCalls === 1
+        return cleanupCalls % 2 === 1
           ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
           : rejectedCommandResult();
       },
     });
     const fixtureValue = await provisioner.provision();
-    const serialized = JSON.stringify(provisionDescriptor);
-    for (const seed of [
-      ...provisionDescriptor.seeds.passwords,
-      ...provisionDescriptor.seeds.clientSecrets,
-    ]) {
+    const serialized = JSON.stringify(provisionDescriptors);
+    const seeds = provisionDescriptors.flatMap(({ seeds }) => [
+      ...seeds.passwords,
+      ...seeds.clientSecrets,
+    ]);
+    for (const seed of seeds) {
       expect(seed.value).toMatch(/^[a-z0-9]{32}$/u);
     }
-    expect(
-      new Set(
-        [...provisionDescriptor.seeds.passwords, ...provisionDescriptor.seeds.clientSecrets].map(
-          (seed: any) => seed.value
-        )
-      ).size
-    ).toBe(4);
+    expect(new Set(seeds.map((seed: any) => seed.value)).size).toBe(5);
     expect(JSON.stringify(fixtureValue.public)).not.toContain(
-      provisionDescriptor.seeds.clientSecrets[0].value
+      provisionDescriptors[0].seeds.clientSecrets[0].value
     );
     expect(serialized).toContain('clientSecrets');
     await provisioner.cleanup(fixtureValue);
@@ -1334,6 +1412,7 @@ describe('Phase 2 fixture lifecycle', () => {
       'Phase 2 fixture cleanup failed'
     );
 
+    const candidateCleanupRecipes: string[] = [];
     const candidateProvisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -1341,12 +1420,21 @@ describe('Phase 2 fixture lifecycle', () => {
       environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
       createAllocationId: () => 'noop-candidate',
       createSecret: (() => {
-        const values = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+        const values = [
+          'a'.repeat(32),
+          'b'.repeat(32),
+          'c'.repeat(32),
+          'd'.repeat(32),
+          'e'.repeat(32),
+        ];
         return () => values.shift() ?? 'unexpected';
       })(),
       runner: async (request) => {
-        const descriptor = JSON.parse(request.stdin) as { operation?: string };
+        const descriptor = JSON.parse(request.stdin) as { operation?: string; recipe?: string };
         if (descriptor.operation === 'provision') {
+          if (descriptor.recipe === 'adminConsole') {
+            return adminProvisionResult(phase2AdminAllocationId('noop-candidate'));
+          }
           return commandResult(
             JSON.stringify({
               schemaVersion: 1,
@@ -1368,6 +1456,7 @@ describe('Phase 2 fixture lifecycle', () => {
           );
         }
         if (descriptor.operation === 'cleanup') {
+          candidateCleanupRecipes.push(descriptor.recipe ?? 'missing');
           return commandResult(
             JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true })
           );
@@ -1385,6 +1474,12 @@ describe('Phase 2 fixture lifecycle', () => {
     await expect(candidateProvisioner.cleanup(candidateFixture)).rejects.toThrow(
       'Phase 2 fixture cleanup failed'
     );
+    expect(candidateCleanupRecipes).toEqual([
+      'adminConsole',
+      'adminConsole',
+      'dataProtocol',
+      'dataProtocol',
+    ]);
   });
 
   it('runs cleanup when fixture use fails and does not publish leased secrets', async () => {
