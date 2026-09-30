@@ -1,4 +1,4 @@
-/* eslint-disable no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The CLI harness records exact call order and iterates independent fail-closed cases with local mutable traces and intentional no-op ports. */
+/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function -- The CLI harness records exact call order and iterates independent fail-closed cases with local mutable traces and intentional no-op ports. */
 import path from 'node:path';
 
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from '../profile.js';
@@ -222,6 +222,10 @@ const dependencies = (
   ...overrides,
 });
 
+const throwPrivateError = (): never => {
+  throw new Error('private credential must stay hidden');
+};
+
 describe('Phase 2 base-preservation CLI', () => {
   it('accepts only the closed command and fixed private output path', () => {
     expect(parsePhase2BasePreservationArguments(arguments_)).toMatchObject({
@@ -257,6 +261,57 @@ describe('Phase 2 base-preservation CLI', () => {
       'recheck',
       'publish',
     ]);
+  });
+
+  it('reports only fixed failure stages across the base-preservation boundaries', async () => {
+    const cases: ReadonlyArray<readonly [string, Partial<Phase2BasePreservationCliDependencies>]> =
+      [
+        ['paths', { validatePaths: async () => throwPrivateError() }],
+        ['profile', { loadPhase2Profile: async () => throwPrivateError() }],
+        ['harness', { inspectHarness: async () => throwPrivateError() }],
+        ['closure', { createSourceClosure: async () => throwPrivateError() }],
+        ['phase1', { runPhase1Cli: async () => throwPrivateError() }],
+        ['runtime', { runRuntime: async () => throwPrivateError() }],
+        ['harness-recheck', { recheckHarness: async () => throwPrivateError() }],
+        ['publish', { publish: async () => throwPrivateError() }],
+      ];
+    for (const [stage, override] of cases) {
+      const stderr: string[] = [];
+      const code = await runPhase2BasePreservationCli(
+        arguments_,
+        'a'.repeat(64),
+        dependencies([], {
+          ...override,
+          stderr: (message) => {
+            stderr.push(message);
+          },
+        })
+      );
+      expect(code).toBe(1);
+      expect(stderr).toEqual([`Phase 2 base-preservation failed (${stage}).\n`]);
+    }
+  });
+
+  it('attributes a failure after successful differential callback to Phase 1 orchestration', async () => {
+    const calls: string[] = [];
+    const stderr: string[] = [];
+    const base = dependencies(calls, {
+      stderr: (message) => {
+        stderr.push(message);
+      },
+    });
+    const code = await runPhase2BasePreservationCli(arguments_, 'a'.repeat(64), {
+      ...base,
+      runPhase1Cli: async (args, injected) => {
+        expect(await base.runPhase1Cli(args, injected)).toBe(0);
+        return 1;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toContain('recheck');
+    expect(calls).not.toContain('publish');
+    expect(stderr).toEqual(['Phase 2 base-preservation failed (phase1).\n']);
   });
 
   it.each([
@@ -381,4 +436,4 @@ describe('Phase 2 base-preservation CLI', () => {
   });
 });
 
-/* eslint-enable no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */
+/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-empty-function */

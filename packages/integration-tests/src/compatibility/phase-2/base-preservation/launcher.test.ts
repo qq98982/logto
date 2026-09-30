@@ -1,5 +1,16 @@
-/* eslint-disable max-params, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument -- The launcher test records five-part dependency calls, verifies sorted environment keys, and iterates hostile environment cases. */
-import { lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+/* eslint-disable max-lines, max-params, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument -- The launcher test records lifecycle dependency calls, verifies sorted environment keys, and iterates hostile environment cases. */
+import {
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import { computeRuntimeBundleManifest } from '../launcher.mjs';
@@ -13,7 +24,9 @@ import {
   basePreservationEnvironmentKeys,
   basePreservationOptionalEnvironmentKeys,
   basePreservationRequiredEnvironmentKeys,
+  cleanupBasePreservationBridgeEntry,
   createBasePreservationBridgeEntry,
+  diagnosticForBasePreservationChild,
   launchPhase2BasePreservation,
   selectBasePreservationEnvironment,
 } from './launcher.mjs';
@@ -26,6 +39,20 @@ const socketlessEnvironment = Object.freeze(
     Object.entries(environment).filter(([key]) => key !== 'ASTER_PHASE1_ENGINE_SOCKET')
   )
 );
+const creationReceipt = Object.freeze({
+  root: '/repo/packages/integration-tests',
+  path: basePreservationRuntimeEntryPath,
+  parent: '/repo/packages/integration-tests/lib/compatibility/phase-2',
+  parentDev: 1,
+  parentIno: 2,
+  dev: 1,
+  ino: 3,
+  uid: 1000,
+  mode: 0o400,
+  size: Buffer.byteLength(basePreservationBridgeSource),
+  nlink: 1,
+  content: basePreservationBridgeSource,
+});
 
 const createBridgeFixture = async (name: string) => {
   const root = await mkdtemp(`/var/tmp/henry-build/${name}-`);
@@ -55,6 +82,34 @@ const removeBridgeFixture = async (fixture: Awaited<ReturnType<typeof createBrid
 };
 
 describe('Phase 2 base-preservation launcher', () => {
+  it.each([
+    'arguments',
+    'paths',
+    'profile',
+    'harness',
+    'closure',
+    'phase1',
+    'runtime',
+    'harness-recheck',
+    'publish',
+  ])('forwards only an authenticated %s child stage', (stage) => {
+    const message = `Phase 2 base-preservation failed (${stage}).\n`;
+    const result = { timedOut: false, code: 1, signal: null, stdout: '', stderr: message };
+    expect(diagnosticForBasePreservationChild(result)).toBe(message);
+    for (const hostile of [
+      { ...result, code: 0 },
+      { ...result, timedOut: true },
+      { ...result, signal: 'SIGTERM' },
+      { ...result, stdout: 'private credential' },
+      { ...result, stderr: `${message}private credential` },
+      { ...result, stderr: `Phase 2 base-preservation failed (unknown).\n` },
+    ]) {
+      expect(diagnosticForBasePreservationChild(hostile)).toBe(
+        'Phase 2 base-preservation launcher failed.\n'
+      );
+    }
+  });
+
   it('selects and forwards exactly the four inherited Phase 1 browser runtime values', () => {
     expect(basePreservationBrowserEnvironmentKeys).toEqual([
       'HOME',
@@ -84,7 +139,7 @@ describe('Phase 2 base-preservation launcher', () => {
     expect(phase2BasePreservationRuntimeEntryPath).toBe(basePreservationRuntimeEntryPath);
   });
 
-  it('builds one clean verified entry and forwards only the closed topology environment', async () => {
+  it('creates, executes, and cleans up one verified entry sequentially', async () => {
     const calls: string[] = [];
     const manifest = Object.freeze({
       sha256: '1'.repeat(64),
@@ -109,7 +164,7 @@ describe('Phase 2 base-preservation launcher', () => {
         },
         createEntry: async () => {
           calls.push('entry');
-          return basePreservationRuntimeEntryPath;
+          return creationReceipt;
         },
         identity: async () => {
           calls.push('identity');
@@ -141,6 +196,9 @@ describe('Phase 2 base-preservation launcher', () => {
           );
           return 0;
         },
+        cleanupEntry: async () => {
+          calls.push('cleanup');
+        },
       })
     ).resolves.toBe(0);
     expect(calls).toEqual([
@@ -151,6 +209,7 @@ describe('Phase 2 base-preservation launcher', () => {
       'identity',
       'recheck-entry',
       'execute',
+      'cleanup',
     ]);
   });
 
@@ -159,7 +218,7 @@ describe('Phase 2 base-preservation launcher', () => {
       launchPhase2BasePreservation(['run'], socketlessEnvironment, {
         inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
         build: async () => 0,
-        createEntry: async () => basePreservationRuntimeEntryPath,
+        createEntry: async () => creationReceipt,
         identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
         recheckEntry: async () => basePreservationRuntimeEntryPath,
         execute: async (
@@ -179,6 +238,7 @@ describe('Phase 2 base-preservation launcher', () => {
           );
           return 0;
         },
+        cleanupEntry: async () => 0,
       } as never)
     ).resolves.toBe(0);
   });
@@ -188,10 +248,11 @@ describe('Phase 2 base-preservation launcher', () => {
     const dependencies = {
       inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
       build,
-      createEntry: async () => basePreservationRuntimeEntryPath,
+      createEntry: async () => creationReceipt,
       identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
       recheckEntry: async () => basePreservationRuntimeEntryPath,
       execute: async () => 0,
+      cleanupEntry: async () => 0,
     } as never;
     const invalidEnvironments = [
       Object.fromEntries(Object.entries(environment).slice(1)),
@@ -218,10 +279,11 @@ describe('Phase 2 base-preservation launcher', () => {
       const dependencies = {
         inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
         build,
-        createEntry: async () => basePreservationRuntimeEntryPath,
+        createEntry: async () => creationReceipt,
         identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
         recheckEntry: async () => basePreservationRuntimeEntryPath,
         execute: async () => 0,
+        cleanupEntry: async () => 0,
       } as never;
       const invalidValues = [
         Object.fromEntries(Object.entries(environment).filter(([name]) => name !== key)),
@@ -250,10 +312,11 @@ describe('Phase 2 base-preservation launcher', () => {
           {
             inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
             build,
-            createEntry: async () => basePreservationRuntimeEntryPath,
+            createEntry: async () => creationReceipt,
             identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
             recheckEntry: async () => basePreservationRuntimeEntryPath,
             execute: async () => 0,
+            cleanupEntry: async () => 0,
           } as never
         )
       ).rejects.toThrow('Invalid Phase 2 base-preservation launcher');
@@ -275,7 +338,8 @@ describe('Phase 2 base-preservation launcher', () => {
     );
 
     try {
-      await expect(createBasePreservationBridgeEntry(fixture.root)).resolves.toBe(fixture.bridge);
+      const creation = await createBasePreservationBridgeEntry(fixture.root);
+      expect(creation.path).toBe(fixture.bridge);
       const [bytes, state, launcher, provenance] = await Promise.all([
         readFile(fixture.bridge, 'utf8'),
         stat(fixture.bridge),
@@ -347,8 +411,190 @@ describe('Phase 2 base-preservation launcher', () => {
     }
   });
 
+  it('removes its just-created bridge when a post-open creation step fails', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-create-failure');
+    const injectedFailure = new Error('post-open');
+
+    try {
+      await expect(
+        createBasePreservationBridgeEntry(fixture.root, {
+          afterOpen: async () => {
+            throw injectedFailure;
+          },
+        } as never)
+      ).rejects.toBe(injectedFailure);
+      await expect(lstat(fixture.bridge)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('retries a transient initial fstat, closes the descriptor, and removes its bridge', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-fstat-retry');
+    const injectedFailure = new Error('initial fstat');
+    const handles: FileHandle[] = [];
+    const stat = import.meta.jest.fn(async (handle: FileHandle) => {
+      handles.push(handle);
+      if (stat.mock.calls.length === 1) {
+        throw injectedFailure;
+      }
+      return handle.stat();
+    });
+
+    try {
+      await expect(
+        createBasePreservationBridgeEntry(fixture.root, {
+          stat,
+        } as never)
+      ).rejects.toBe(injectedFailure);
+      expect(stat).toHaveBeenCalledTimes(2);
+      await expect(handles[0]!.stat()).rejects.toMatchObject({ code: 'EBADF' });
+      await expect(lstat(fixture.bridge)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('preserves a replacement installed before recovery from initial fstat failure', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-fstat-replaced');
+    const injectedFailure = new Error('initial fstat replacement');
+    const replacement = 'fstat-replacement-sentinel\n';
+    const stat = import.meta.jest.fn(async (handle: FileHandle) => {
+      if (stat.mock.calls.length === 1) {
+        await unlink(fixture.bridge);
+        await writeFile(fixture.bridge, replacement, { mode: 0o400 });
+        throw injectedFailure;
+      }
+      return handle.stat();
+    });
+
+    try {
+      await expect(
+        createBasePreservationBridgeEntry(fixture.root, {
+          stat,
+        } as never)
+      ).rejects.toBe(injectedFailure);
+      expect(stat).toHaveBeenCalledTimes(2);
+      await expect(readFile(fixture.bridge, 'utf8')).resolves.toBe(replacement);
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('closes the descriptor and preserves the path when created inode identity is unavailable', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-fstat-unavailable');
+    const injectedFailure = new Error('fstat unavailable');
+    const handles: FileHandle[] = [];
+    const stat = import.meta.jest.fn(async (handle: FileHandle) => {
+      handles.push(handle);
+      throw injectedFailure;
+    });
+
+    try {
+      await expect(
+        createBasePreservationBridgeEntry(fixture.root, {
+          stat,
+        } as never)
+      ).rejects.toBe(injectedFailure);
+      expect(stat).toHaveBeenCalledTimes(2);
+      await expect(handles[0]!.stat()).rejects.toMatchObject({ code: 'EBADF' });
+      await expect(readFile(fixture.bridge, 'utf8')).resolves.toBe('');
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('preserves a replacement installed during failed bridge creation', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-create-replaced');
+    const injectedFailure = new Error('post-open replacement');
+    const replacement = 'creation-replacement-sentinel\n';
+
+    try {
+      await expect(
+        createBasePreservationBridgeEntry(fixture.root, {
+          afterOpen: async () => {
+            await unlink(fixture.bridge);
+            await writeFile(fixture.bridge, replacement, { mode: 0o400 });
+            throw injectedFailure;
+          },
+        } as never)
+      ).rejects.toBe(injectedFailure);
+      await expect(readFile(fixture.bridge, 'utf8')).resolves.toBe(replacement);
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('cleans up after identity and execution failures once bridge creation succeeds', async () => {
+    const cleanupEntry = import.meta.jest.fn(async () => 0);
+    const creation = creationReceipt;
+    const dependencies = {
+      inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+      build: async () => 0,
+      createEntry: async () => creation,
+      identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
+      recheckEntry: async () => basePreservationRuntimeEntryPath,
+      execute: async () => 0,
+      cleanupEntry,
+    };
+
+    await expect(
+      launchPhase2BasePreservation(['run'], environment, {
+        ...dependencies,
+        identity: async () => {
+          throw new Error('identity');
+        },
+      } as never)
+    ).rejects.toThrow('identity');
+    await expect(
+      launchPhase2BasePreservation(['run'], environment, {
+        ...dependencies,
+        execute: async () => {
+          throw new Error('execute');
+        },
+      } as never)
+    ).rejects.toThrow('execute');
+    expect(cleanupEntry).toHaveBeenNthCalledWith(1, creation);
+    expect(cleanupEntry).toHaveBeenNthCalledWith(2, creation);
+  });
+
+  it('preserves a bridge path replaced after creation', async () => {
+    const fixture = await createBridgeFixture('phase2-base-bridge-replaced');
+    const replacement = 'replacement-sentinel\n';
+
+    try {
+      const creation = await createBasePreservationBridgeEntry(fixture.root);
+      await unlink(fixture.bridge);
+      await writeFile(fixture.bridge, replacement, { mode: 0o400 });
+
+      await expect(cleanupBasePreservationBridgeEntry(creation)).rejects.toThrow(
+        'Invalid Phase 2 base-preservation launcher'
+      );
+      await expect(readFile(fixture.bridge, 'utf8')).resolves.toBe(replacement);
+    } finally {
+      await removeBridgeFixture(fixture);
+    }
+  });
+
+  it('propagates cleanup failure after successful execution', async () => {
+    const cleanupFailure = new Error('cleanup');
+    await expect(
+      launchPhase2BasePreservation(['run'], environment, {
+        inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
+        build: async () => 0,
+        createEntry: async () => creationReceipt,
+        identity: async () => Object.freeze({ sha256: '1'.repeat(64) }),
+        recheckEntry: async () => basePreservationRuntimeEntryPath,
+        execute: async () => 0,
+        cleanupEntry: async () => {
+          throw cleanupFailure;
+        },
+      } as never)
+    ).rejects.toBe(cleanupFailure);
+  });
+
   it('does not create or accept an entry after build failure or from an unrelated path', async () => {
-    const createEntry = import.meta.jest.fn(async () => basePreservationRuntimeEntryPath);
+    const createEntry = import.meta.jest.fn(async () => creationReceipt);
     const identity = import.meta.jest.fn(async () => Object.freeze({ sha256: '1'.repeat(64) }));
     const baseDependencies = {
       inspect: async () => Object.freeze({ head: '3'.repeat(40), tree: '4'.repeat(40) }),
@@ -356,6 +602,7 @@ describe('Phase 2 base-preservation launcher', () => {
       identity,
       recheckEntry: async () => basePreservationRuntimeEntryPath,
       execute: async () => 0,
+      cleanupEntry: async () => 0,
     };
 
     await expect(
@@ -373,11 +620,13 @@ describe('Phase 2 base-preservation launcher', () => {
         ...baseDependencies,
         build: async () => 0,
         createEntry: async () =>
-          '/repo/packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js',
+          Object.freeze({
+            path: '/repo/packages/integration-tests/lib/compatibility/phase-2/base-preservation/cli.js',
+          }),
       } as never)
     ).rejects.toThrow('Invalid Phase 2 base-preservation launcher');
     expect(identity).not.toHaveBeenCalled();
   });
 });
 
-/* eslint-enable max-params, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument */
+/* eslint-enable max-lines, max-params, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-argument */

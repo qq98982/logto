@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The tracked launcher owns one clean build, exact topology-environment selection, a verified runtime manifest, and fixed exit propagation. */
+/* eslint-disable max-lines, complexity, no-bitwise, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The launcher verifies filesystem mode bits and owns one source-bound runtime and bridge lifecycle. */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { lstat, open, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   computeRuntimeBundleManifest,
@@ -14,10 +14,25 @@ import {
 } from '../launcher.mjs';
 
 const diagnostic = 'Phase 2 base-preservation launcher failed.\n';
+const childFailurePattern =
+  /^Phase 2 base-preservation failed \((arguments|paths|profile|harness|closure|phase1|runtime|harness-recheck|publish)\)\.\n$/u;
+class BasePreservationChildFailure extends Error {}
+export const diagnosticForBasePreservationChild = (result) =>
+  result.timedOut === false &&
+  result.code === 1 &&
+  result.signal === null &&
+  result.stdout === '' &&
+  childFailurePattern.test(result.stderr)
+    ? result.stderr
+    : diagnostic;
 const failure = 'Invalid Phase 2 base-preservation launcher';
 export const basePreservationBridgeSource =
   "export { runPhase2CliMain } from './base-preservation/cli.js';\n";
 const bridgeBytes = Buffer.from(basePreservationBridgeSource, 'utf8');
+const defaultBridgeCreationHooks = Object.freeze({
+  async afterOpen() {},
+  stat: async (handle) => handle.stat(),
+});
 
 export const basePreservationBrowserEnvironmentKeys = Object.freeze([
   'HOME',
@@ -155,7 +170,9 @@ const assertBuiltNestedEntry = async (root) => {
 };
 
 const inspectBasePreservationBridgeEntry = async (root) => {
-  if (!path.isAbsolute(root) || path.normalize(root) !== root) return fail();
+  if (!path.isAbsolute(root) || path.normalize(root) !== root) {
+    return fail();
+  }
   const bridge = bridgePathFor(root);
   const parent = path.dirname(bridge);
   const parentBefore = await assertOwnedDirectory(parent);
@@ -218,10 +235,64 @@ const inspectBasePreservationBridgeEntry = async (root) => {
   return bridge;
 };
 
-export const createBasePreservationBridgeEntry = async (root = packageRoot) => {
-  if (!path.isAbsolute(root) || path.normalize(root) !== root) return fail();
+const cleanupFailedBridgeCreation = async (bridge, parent, parentBefore, created) => {
+  try {
+    const parentState = await assertOwnedDirectory(parent);
+    const state = await lstat(bridge);
+    if (
+      parentState.dev !== parentBefore.dev ||
+      parentState.ino !== parentBefore.ino ||
+      state.isSymbolicLink() ||
+      !state.isFile() ||
+      state.dev !== created.dev ||
+      state.ino !== created.ino ||
+      state.uid !== created.uid ||
+      state.nlink !== 1 ||
+      (state.mode & 0o777) !== 0o400 ||
+      state.size > bridgeBytes.byteLength
+    ) {
+      return;
+    }
+    const handle = await open(bridge, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const bytes = await handle.readFile();
+      const [pathAfter, parentAfter] = await Promise.all([lstat(bridge), lstat(parent)]);
+      if (
+        pathAfter.isSymbolicLink() ||
+        pathAfter.dev !== state.dev ||
+        pathAfter.ino !== state.ino ||
+        pathAfter.uid !== state.uid ||
+        pathAfter.nlink !== state.nlink ||
+        (pathAfter.mode & 0o777) !== (state.mode & 0o777) ||
+        pathAfter.size !== state.size ||
+        pathAfter.mtimeMs !== state.mtimeMs ||
+        pathAfter.ctimeMs !== state.ctimeMs ||
+        parentAfter.isSymbolicLink() ||
+        parentAfter.dev !== parentState.dev ||
+        parentAfter.ino !== parentState.ino ||
+        !bytes.equals(bridgeBytes.subarray(0, bytes.byteLength))
+      ) {
+        return;
+      }
+    } finally {
+      await handle.close();
+    }
+    await unlink(bridge);
+  } catch {
+    // Preserve any path that cannot be proven to be the bridge created by this call.
+  }
+};
+
+export const createBasePreservationBridgeEntry = async (
+  root = packageRoot,
+  hooks = defaultBridgeCreationHooks
+) => {
+  if (!path.isAbsolute(root) || path.normalize(root) !== root) {
+    return fail();
+  }
   const bridge = bridgePathFor(root);
   const parent = path.dirname(bridge);
+  const creationHooks = Object.freeze({ ...defaultBridgeCreationHooks, ...hooks });
   const parentBefore = await assertOwnedDirectory(parent);
   await assertBuiltNestedEntry(root);
   const handle = await open(
@@ -229,26 +300,97 @@ export const createBasePreservationBridgeEntry = async (root = packageRoot) => {
     fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
     0o400
   ).catch(fail);
+  let created;
   try {
-    await handle.writeFile(bridgeBytes);
-    await handle.chmod(0o400);
-    await handle.sync();
-  } finally {
-    await handle.close();
+    try {
+      try {
+        created = await creationHooks.stat(handle);
+      } catch (error) {
+        created = await creationHooks.stat(handle).catch(() => {});
+        throw error;
+      }
+      await creationHooks.afterOpen(bridge, handle);
+      await handle.writeFile(bridgeBytes);
+      await handle.chmod(0o400);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    const parentAfter = await lstat(parent).catch(fail);
+    if (
+      parentAfter.isSymbolicLink() ||
+      parentAfter.dev !== parentBefore.dev ||
+      parentAfter.ino !== parentBefore.ino
+    ) {
+      return fail();
+    }
+    await inspectBasePreservationBridgeEntry(root);
+    const state = await lstat(bridge).catch(fail);
+    return Object.freeze({
+      root,
+      path: bridge,
+      parent,
+      parentDev: parentAfter.dev,
+      parentIno: parentAfter.ino,
+      dev: state.dev,
+      ino: state.ino,
+      uid: state.uid,
+      mode: state.mode & 0o777,
+      size: state.size,
+      nlink: state.nlink,
+      content: basePreservationBridgeSource,
+    });
+  } catch (error) {
+    if (created !== undefined) {
+      await cleanupFailedBridgeCreation(bridge, parent, parentBefore, created);
+    }
+    throw error;
   }
-  const parentAfter = await lstat(parent).catch(fail);
-  if (
-    parentAfter.isSymbolicLink() ||
-    parentAfter.dev !== parentBefore.dev ||
-    parentAfter.ino !== parentBefore.ino
-  ) {
-    return fail();
-  }
-  return inspectBasePreservationBridgeEntry(root);
 };
 
 export const recheckBasePreservationBridgeEntry = async (root = packageRoot) =>
   inspectBasePreservationBridgeEntry(root);
+
+export const cleanupBasePreservationBridgeEntry = async (creation) => {
+  if (
+    typeof creation !== 'object' ||
+    creation === null ||
+    Array.isArray(creation) ||
+    !path.isAbsolute(creation.root) ||
+    path.normalize(creation.root) !== creation.root ||
+    !path.isAbsolute(creation.path) ||
+    path.normalize(creation.path) !== creation.path
+  ) {
+    return fail();
+  }
+  const { root } = creation;
+  const bridge = bridgePathFor(root);
+  const parent = path.dirname(bridge);
+  if (
+    creation.path !== bridge ||
+    creation.parent !== parent ||
+    creation.content !== basePreservationBridgeSource
+  ) {
+    return fail();
+  }
+  const parentState = await assertOwnedDirectory(parent);
+  await inspectBasePreservationBridgeEntry(root);
+  const state = await lstat(bridge).catch(fail);
+  if (
+    parentState.dev !== creation.parentDev ||
+    parentState.ino !== creation.parentIno ||
+    state.isSymbolicLink() ||
+    state.dev !== creation.dev ||
+    state.ino !== creation.ino ||
+    state.uid !== creation.uid ||
+    (state.mode & 0o777) !== creation.mode ||
+    state.size !== creation.size ||
+    state.nlink !== creation.nlink
+  ) {
+    return fail();
+  }
+  await unlink(bridge).catch(fail);
+};
 
 const defaultDependencies = Object.freeze({
   inspect: inspectCleanHead,
@@ -263,13 +405,20 @@ const defaultDependencies = Object.freeze({
       stdio: 'ignore',
       timeoutMs: 5 * 60_000,
     });
-    if (code !== 0) fail();
+    if (code !== 0) {
+      fail();
+    }
   },
   createEntry: createBasePreservationBridgeEntry,
   identity: computeRuntimeBundleManifest,
   recheckEntry: recheckBasePreservationBridgeEntry,
+  cleanupEntry: cleanupBasePreservationBridgeEntry,
   async execute(entry, args, environment, manifest, capability) {
     const result = await executeVerifiedPhase2Entry(entry, args, environment, manifest, capability);
+    const childDiagnostic = diagnosticForBasePreservationChild(result);
+    if (childDiagnostic !== diagnostic) {
+      throw new BasePreservationChildFailure(childDiagnostic);
+    }
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
       return 1;
     }
@@ -291,7 +440,9 @@ const validateEnvironmentValue = (value) => {
 };
 
 export const selectBasePreservationEnvironment = (source = process.env) => {
-  if (typeof source !== 'object' || source === null || Array.isArray(source)) return fail();
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    return fail();
+  }
   const entries = basePreservationRequiredEnvironmentKeys.map((key) => [
     key,
     validateEnvironmentValue(source[key]),
@@ -344,22 +495,34 @@ export const launchPhase2BasePreservation = async (
   const before = await dependencies.inspect(repositoryRoot);
   await dependencies.build(repositoryRoot);
   const after = await dependencies.inspect(repositoryRoot);
-  if (before.head !== after.head || before.tree !== after.tree) fail();
-  const entryPath = await dependencies.createEntry(packageRoot);
-  if (entryPath !== basePreservationRuntimeEntryPath) fail();
-  const manifest = await dependencies.identity(entryPath);
-  if ((await dependencies.recheckEntry(packageRoot)) !== entryPath) fail();
-  const environment = Object.freeze({
-    ...topologyEnvironment,
-    ASTER_PHASE2_HARNESS_HEAD: before.head,
-    ASTER_PHASE2_HARNESS_TREE: before.tree,
-    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: manifest.sha256,
-    LC_ALL: 'C',
-  });
-  const capability = randomBytes(32).toString('hex');
-  const code = await dependencies.execute(entryPath, args, environment, manifest, capability);
-  if (code !== 0) fail();
-  return 0;
+  if (before.head !== after.head || before.tree !== after.tree) {
+    fail();
+  }
+  const creation = await dependencies.createEntry(packageRoot);
+  try {
+    if (creation.path !== basePreservationRuntimeEntryPath) {
+      fail();
+    }
+    const manifest = await dependencies.identity(creation.path);
+    if ((await dependencies.recheckEntry(packageRoot)) !== creation.path) {
+      fail();
+    }
+    const environment = Object.freeze({
+      ...topologyEnvironment,
+      ASTER_PHASE2_HARNESS_HEAD: before.head,
+      ASTER_PHASE2_HARNESS_TREE: before.tree,
+      ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: manifest.sha256,
+      LC_ALL: 'C',
+    });
+    const capability = randomBytes(32).toString('hex');
+    const code = await dependencies.execute(creation.path, args, environment, manifest, capability);
+    if (code !== 0) {
+      fail();
+    }
+    return 0;
+  } finally {
+    await dependencies.cleanupEntry(creation);
+  }
 };
 
 if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
@@ -368,10 +531,12 @@ if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
       process.argv.slice(2),
       selectBasePreservationEnvironment(process.env)
     );
-  } catch {
+  } catch (error) {
     process.exitCode = 1;
-    process.stderr.write(diagnostic);
+    process.stderr.write(
+      error instanceof BasePreservationChildFailure ? error.message : diagnostic
+    );
   }
 }
 
-/* eslint-enable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable max-lines, complexity, no-bitwise, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

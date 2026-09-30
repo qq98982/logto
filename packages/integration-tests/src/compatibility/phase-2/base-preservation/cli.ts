@@ -67,6 +67,16 @@ export type Phase2BasePreservationCliDependencies = Readonly<{
 
 const invalidArguments = 'Invalid Phase 2 base-preservation arguments';
 const runFailure = 'Phase 2 base-preservation failed.\n';
+type BaseFailureStage =
+  | 'arguments'
+  | 'paths'
+  | 'profile'
+  | 'harness'
+  | 'closure'
+  | 'phase1'
+  | 'runtime'
+  | 'harness-recheck'
+  | 'publish';
 const success = 'Phase 2 base-preservation completed.\n';
 const outputName = 'phase-2-base-preservation.json';
 const maximumInputBytes = 1024 * 1024;
@@ -281,16 +291,22 @@ export const runPhase2BasePreservationCli = async (
   runtimeCapability?: string,
   dependencies: Phase2BasePreservationCliDependencies = defaultDependencies
 ): Promise<number> => {
+  let failureStage: BaseFailureStage = 'arguments';
   try {
     const command = parsePhase2BasePreservationArguments(arguments_);
+    failureStage = 'paths';
     await dependencies.validatePaths(command);
+    failureStage = 'profile';
     const profile = await dependencies.loadPhase2Profile({
       profilePath: command.phase2ProfilePath,
       schemaPath: command.phase2SchemaPath,
     });
+    failureStage = 'harness';
     const harness = await dependencies.inspectHarness(runtimeCapability);
+    failureStage = 'closure';
     const closure = await dependencies.createSourceClosure(harness.repositoryRoot);
     let artifact: JsonValue | undefined;
+    failureStage = 'phase1';
     const phase1Code = await dependencies.runPhase1Cli(
       [
         'run-differential',
@@ -336,6 +352,7 @@ export const runPhase2BasePreservationCli = async (
           if (context.repositoryRoot !== harness.repositoryRoot) {
             return fail();
           }
+          failureStage = 'runtime';
           const runtime = await dependencies.runRuntime(context, profile, closure);
           const candidateSourceCommit = requiredEnvironment(
             dependencies.environment,
@@ -385,6 +402,7 @@ export const runPhase2BasePreservationCli = async (
             scenarios: runtime.scenarios,
           });
           assertPhase1EvidenceIsSanitized(value);
+          failureStage = 'harness-recheck';
           await dependencies.recheckHarness(harness);
           artifact = value as unknown as JsonValue;
         },
@@ -393,15 +411,19 @@ export const runPhase2BasePreservationCli = async (
       }
     );
 
+    if (artifact !== undefined) {
+      failureStage = 'phase1';
+    }
     if (phase1Code !== 0 || artifact === undefined) {
       return fail();
     }
+    failureStage = 'publish';
     await dependencies.publish(command.outputPath, artifact);
     await safeWrite(dependencies.stdout, success);
 
     return 0;
   } catch {
-    await safeWrite(dependencies.stderr, runFailure);
+    await safeWrite(dependencies.stderr, `Phase 2 base-preservation failed (${failureStage}).\n`);
 
     return 1;
   }
