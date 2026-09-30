@@ -28,7 +28,7 @@ describe('Phase 2 custom JWT scenarios', () => {
         if (path.endsWith('/test')) {
           return { status: 200, headers: {}, body: { probe_claim: 'dry' } };
         }
-        if (path.endsWith('/unknown')) {
+        if (path.endsWith('/unknown-token-type')) {
           return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
         }
         if (method === 'PUT') {
@@ -39,13 +39,29 @@ describe('Phase 2 custom JWT scenarios', () => {
           return { status: 201, headers: { vary: 'Origin' }, body };
         }
         if (method === 'PATCH') {
+          if (typeof (body as { script?: unknown }).script !== 'string') {
+            return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+          }
           return { status: 200, headers: {}, body };
         }
         if (path.endsWith('/jwt-customizer')) {
           return {
             status: 200,
             headers: {},
-            body: configured ? [{ key: 'jwt.clientCredentials', value: body ?? {} }] : [],
+            body: configured
+              ? [
+                  {
+                    key: 'jwt.clientCredentials',
+                    value: {
+                      script: 'hidden',
+                      blockIssuanceOnError: true,
+                      environmentVariables: {},
+                      contextSample: {},
+                      tokenSample: {},
+                    },
+                  },
+                ]
+              : [],
           };
         }
         return configured
@@ -100,6 +116,9 @@ describe('Phase 2 custom JWT scenarios', () => {
         audience: 'resource',
         clientId: 'client',
         scope: 'read',
+        expiresAt: 2,
+        issuedAt: 2,
+        jwtId: 'id',
       },
     });
 
@@ -141,13 +160,129 @@ describe('Phase 2 custom JWT scenarios', () => {
           audience: 'resource',
           clientId: 'client',
           scope: 'read',
+          expiresAt: 2,
+          issuedAt: 2,
+          jwtId: 'id',
         },
       })
-    ).rejects.toThrow('target unavailable');
+    ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary)');
     expect(calls).toEqual([
       'GET configs/jwt-customizer/client-credentials',
       'DELETE configs/jwt-customizer/client-credentials',
     ]);
+  });
+
+  it('rejects wrong protected authority and fails closed on cleanup failure', async () => {
+    let deleteCount = 0;
+    let failCleanup = false;
+    let configured = false;
+    const port: CustomJwtTargetPort = {
+      request: async ({ method, path, body }) => {
+        if (method === 'DELETE') {
+          deleteCount += 1;
+          if (failCleanup && deleteCount > 2) {
+            throw new Error('secret cleanup diagnostic');
+          }
+          const existed = configured;
+          configured = false;
+          return {
+            status: existed ? 204 : 404,
+            headers: {},
+            body: existed ? null : { code: 'entity.not_found' },
+          };
+        }
+        if (path.endsWith('/unknown-token-type')) {
+          return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+        }
+        if (path.endsWith('/test')) {
+          return { status: 200, headers: {}, body: { probe_claim: 'dry' } };
+        }
+        if (method === 'PATCH' && typeof (body as { script?: unknown }).script !== 'string') {
+          return { status: 400, headers: {}, body: { code: 'guard.invalid_input' } };
+        }
+        if (path.endsWith('/jwt-customizer')) {
+          return {
+            status: 200,
+            headers: {},
+            body: [
+              {
+                key: 'jwt.clientCredentials',
+                value: {
+                  script: 'hidden',
+                  blockIssuanceOnError: true,
+                  environmentVariables: {},
+                  contextSample: {},
+                  tokenSample: {},
+                },
+              },
+            ],
+          };
+        }
+        if (method === 'GET' && !configured) {
+          return { status: 404, headers: {}, body: { code: 'entity.not_exists_with_id' } };
+        }
+        if (method === 'PUT') {
+          configured = true;
+        }
+        return {
+          status: method === 'PUT' ? 201 : 200,
+          headers: {},
+          body: body ?? {
+            script: 'hidden',
+            blockIssuanceOnError: true,
+            environmentVariables: {},
+            contextSample: {},
+            tokenSample: {},
+          },
+        };
+      },
+      issueClientCredentials: async ({ caseId }) => {
+        if (caseId.endsWith('deny')) {
+          return { status: 400, body: { error: 'access_denied' } };
+        }
+        if (caseId.endsWith('throw-block')) {
+          return { status: 400, body: { error: 'invalid_request' } };
+        }
+        return {
+          status: 200,
+          body: {
+            access_token: jwt({
+              probe_claim: 'merged',
+              probe_env: 'custom-jwt-env-marker',
+              probe_app: 'client',
+              iss: 'wrong',
+              sub: 'client',
+              aud: 'resource',
+              exp: 2,
+              iat: 2,
+              jti: 'id',
+              client_id: 'client',
+              scope: 'read',
+              organization_id: 'override',
+              gty: 'override',
+              kind: 'override',
+            }),
+          },
+        };
+      },
+    };
+    const expected = {
+      issuer: 'issuer',
+      subject: 'client',
+      audience: 'resource',
+      clientId: 'client',
+      scope: 'read',
+      expiresAt: 2,
+      issuedAt: 2,
+      jwtId: 'id',
+    };
+    const result = await runCustomJwtScenarios(port, { expected });
+    expect(result.at(-1)?.projection.protectedClaimsPreserved).toBe(false);
+    deleteCount = 0;
+    failCleanup = true;
+    await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
+      'Phase 2 custom JWT scenario failed (cleanup)'
+    );
   });
 });
 
