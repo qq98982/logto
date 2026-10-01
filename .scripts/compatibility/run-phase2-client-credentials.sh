@@ -1560,10 +1560,13 @@ const candidate = select(
   ['candidate-primary','candidate-foreign'],
   ['candidate-primary-postgres','candidate-foreign-postgres','candidate-primary-keyring','candidate-foreign-keyring'],
 );
-for (const name of ['candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor']) {
+for (const name of ['candidate-fetch-observer','candidate-script-supervisor']) {
   candidate.services[name].userns_mode = 'keep-id';
   candidate.services[name].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 }
+delete candidate.services['candidate-script-executor'].userns_mode;
+candidate.services['candidate-script-executor'].tmpfs =
+  ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
 oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 const healthcheckIntervals = {

@@ -456,6 +456,45 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(sourceDocument.services).not.toHaveProperty('candidate-fetch-observer');
   });
 
+  it('keeps the shared-network executor on the default rootless user namespace', async () => {
+    const directory = await mkdtemp(path.join(temporaryRoot, 'executor-userns-compose-'));
+    const oracleOutput = path.join(directory, 'oracle.json');
+    const candidateOutput = path.join(directory, 'candidate.json');
+    const result = await runEmbeddedNode(embeddedNodeProgram("failure_stage='compose-config'"), [
+      topologyPath,
+      oracleOutput,
+      candidateOutput,
+      '/private/script-ca.pem',
+      '/private/script-client.pem',
+      '/private/script-client.key',
+      '/private/observer-ca.pem',
+    ]);
+    expect(result).toEqual({ code: 0, stderr: '' });
+    const candidate = JSON.parse(await readFile(candidateOutput, 'utf8')) as {
+      services: Record<
+        string,
+        {
+          userns_mode?: string;
+          network_mode?: string;
+          user?: string;
+          volumes?: unknown[];
+          tmpfs?: string[];
+        }
+      >;
+    };
+    expect(candidate.services['candidate-fetch-observer']?.userns_mode).toBe('keep-id');
+    expect(candidate.services['candidate-script-supervisor']?.userns_mode).toBe('keep-id');
+    const executor = candidate.services['candidate-script-executor'];
+    expect(executor).toBeDefined();
+    expect(executor).not.toHaveProperty('userns_mode');
+    expect(executor).toMatchObject({
+      network_mode: 'service:candidate-script-supervisor',
+      user: '10001:10001',
+      tmpfs: ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'],
+    });
+    expect(executor).not.toHaveProperty('volumes');
+  });
+
   it('owns private fetch and script-host material with pinned image provenance', () => {
     for (const required of [
       'ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE',
@@ -490,6 +529,7 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(source).toContain('PROBE_CONTAINER_ID');
     expect(source).toContain('/usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"');
     expect(source).toContain("candidate.services[name].userns_mode = 'keep-id'");
+    expect(source).toContain("delete candidate.services['candidate-script-executor'].userns_mode");
     expect(source).toContain('--pids-limit 32 --memory 192m --cpus 0.25 --cap-drop ALL');
     expect(source).toContain('process.exit(0)');
     const trap = source.indexOf('trap cleanup_trap EXIT', source.indexOf('main() {'));
