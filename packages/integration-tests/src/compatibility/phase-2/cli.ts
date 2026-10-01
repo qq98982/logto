@@ -460,13 +460,17 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
+const candidateAdminConsumerStageFailurePattern =
+  /^Phase 2 stage failed: (candidate)-(admin-consumer-unknown)$/u;
 const customJwtStageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-fetch-[0-5]|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
 const customJwtFailurePattern =
   /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])\)$/u;
+const customJwtFetchFailurePattern =
+  /^Phase 2 custom JWT fetch scenario failed \(primary:([0-5])\)$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -512,7 +516,18 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
             : `Phase 2 stage failed: candidate-custom-jwt-${failureIndex}`
         );
       }
-      throw new Error('Phase 2 stage failed: candidate-fixture');
+      const fetchFailureIndex =
+        consumerError instanceof Error
+          ? customJwtFetchFailurePattern.exec(consumerError.message)?.[1]
+          : undefined;
+      if (fetchFailureIndex !== undefined) {
+        throw new Error(`Phase 2 stage failed: candidate-custom-jwt-fetch-${fetchFailureIndex}`);
+      }
+      throw new Error(
+        consumerError instanceof Error && consumerError.message.startsWith('Phase 2 custom JWT')
+          ? 'Phase 2 stage failed: candidate-fixture'
+          : 'Phase 2 stage failed: candidate-admin-consumer-unknown'
+      );
     }
     const adminStage =
       error instanceof Error
@@ -523,6 +538,69 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
         ? `Phase 2 stage failed: candidate-admin-bearer-${adminStage}`
         : 'Phase 2 stage failed: candidate-fixture'
     );
+  }
+};
+
+type CandidateFixturePhase = 'provision' | 'readiness' | 'public-jwks' | 'cleanup' | 'body-cleanup';
+const candidateFixturePhase = (name: CandidateFixturePhase) =>
+  new Error(`Phase 2 stage failed: candidate-fixture-${name}`);
+
+type Phase2TargetFixtureOptions<Jwks, Result> = Readonly<{
+  kind: 'oracle' | 'candidate';
+  provisioner: Phase2FixtureProvisioner;
+  waitUntilReady: (fixture: ProvisionedPhase2Fixture) => Promise<void>;
+  readPublicJwks: (fixture: ProvisionedPhase2Fixture) => Promise<Jwks>;
+  use: (jwks: Jwks, fixture: ProvisionedPhase2Fixture) => Promise<Result>;
+}>;
+
+export const runPhase2TargetFixture = async <Jwks, Result>({
+  kind,
+  provisioner,
+  waitUntilReady,
+  readPublicJwks,
+  use,
+}: Phase2TargetFixtureOptions<Jwks, Result>): Promise<Result> => {
+  const cleanupState = { failed: false };
+  const classifiedProvisioner =
+    kind === 'candidate'
+      ? {
+          ...provisioner,
+          provision: async () => {
+            try {
+              return await provisioner.provision();
+            } catch {
+              throw candidateFixturePhase('provision');
+            }
+          },
+          cleanup: async (fixture: ProvisionedPhase2Fixture) => {
+            try {
+              await provisioner.cleanup(fixture);
+            } catch {
+              cleanupState.failed = true;
+              throw candidateFixturePhase('cleanup');
+            }
+          },
+        }
+      : provisioner;
+  try {
+    return await runWithPhase2Fixture(classifiedProvisioner, async (fixture) => {
+      await waitUntilReady(fixture).catch(() => {
+        throw kind === 'candidate'
+          ? candidateFixturePhase('readiness')
+          : new Error('Phase 2 stage failed: oracle-fixture');
+      });
+      const jwks = await readPublicJwks(fixture).catch(() => {
+        throw kind === 'candidate'
+          ? candidateFixturePhase('public-jwks')
+          : new Error('Phase 2 stage failed: oracle-fixture');
+      });
+      return use(jwks, fixture);
+    });
+  } catch (error: unknown) {
+    if (kind === 'candidate' && cleanupState.failed && error instanceof AggregateError) {
+      throw candidateFixturePhase('body-cleanup');
+    }
+    throw error;
   }
 };
 export const closedDeviceFailureStage = (error: unknown): DeviceFailureStage | undefined => {
@@ -1065,9 +1143,10 @@ const runTargetScenarios = async (
   });
   const jwtAudit = createClientCredentialsJwtAudit();
   const provisioner = provisionerFor(prepared, phase2FixtureRecipeForMode('differential'));
-  const scenarios = await runWithPhase2Fixture(provisioner, async (fixture) => {
-    await waitForClientCredentialsFixtureReady(descriptor.target, fixture.public);
-    const jwks = await fetchPhase2PublicJwks(descriptor.target);
+  const collectScenarios = async (
+    jwks: Awaited<ReturnType<typeof fetchPhase2PublicJwks>>,
+    fixture: ProvisionedPhase2Fixture
+  ) => {
     const results: ClientCredentialsScenarioResult[] = [];
     for (const scenario of createClientCredentialsScenarioRegistry(profile)) {
       try {
@@ -1310,6 +1389,7 @@ const runTargetScenarios = async (
           error instanceof Error &&
           (customJwtStageFailurePattern.test(error.message) ||
             candidateAdminBearerStageFailurePattern.test(error.message) ||
+            error.message === 'Phase 2 stage failed: candidate-admin-consumer-unknown' ||
             error.message === 'Phase 2 stage failed: candidate-fixture')
         ) {
           throw error;
@@ -1326,6 +1406,13 @@ const runTargetScenarios = async (
         }
         throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt-${failureIndex}`);
       }
+      const fetchFailureIndex =
+        error instanceof Error ? customJwtFetchFailurePattern.exec(error.message)?.[1] : undefined;
+      if (fetchFailureIndex !== undefined) {
+        throw new Error(
+          `Phase 2 stage failed: ${descriptor.kind}-custom-jwt-fetch-${fetchFailureIndex}`
+        );
+      }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
     }
     return Object.freeze([
@@ -1336,12 +1423,21 @@ const runTargetScenarios = async (
       ...customJwtScenarios,
       ...customJwtFetchScenarios,
     ]);
+  };
+  const scenarios = await runPhase2TargetFixture({
+    kind: descriptor.kind,
+    provisioner,
+    waitUntilReady: async (fixture) =>
+      waitForClientCredentialsFixtureReady(descriptor.target, fixture.public),
+    readPublicJwks: async () => fetchPhase2PublicJwks(descriptor.target),
+    use: collectScenarios,
   }).catch((error: unknown) => {
     if (
       error instanceof Error &&
       (scenarioFailurePattern.test(error.message) ||
         customJwtStageFailurePattern.test(error.message) ||
         candidateAdminBearerStageFailurePattern.test(error.message) ||
+        candidateAdminConsumerStageFailurePattern.test(error.message) ||
         stageFailurePattern.test(error.message))
     ) {
       throw error;
@@ -2079,6 +2175,7 @@ export const runPhase2Cli = async (
               (scenarioFailurePattern.test(error.message) ||
                 customJwtStageFailurePattern.test(error.message) ||
                 candidateAdminBearerStageFailurePattern.test(error.message) ||
+                candidateAdminConsumerStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -2117,6 +2214,7 @@ export const runPhase2Cli = async (
           (scenarioFailurePattern.test(error.message) ||
             customJwtStageFailurePattern.test(error.message) ||
             candidateAdminBearerStageFailurePattern.test(error.message) ||
+            candidateAdminConsumerStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -2211,7 +2309,8 @@ export const runPhase2CliMain = async (
     const stage =
       original instanceof Error
         ? (stageFailurePattern.exec(original.message) ??
-          candidateAdminBearerStageFailurePattern.exec(original.message))
+          candidateAdminBearerStageFailurePattern.exec(original.message) ??
+          candidateAdminConsumerStageFailurePattern.exec(original.message))
         : null;
     const candidateInvariantStage =
       original instanceof Error

@@ -236,6 +236,8 @@ const assertError = (response: CustomJwtHttpResponse, status: number, code: stri
 const fixedFailure = (
   stage: 'primary' | 'cleanup' | 'primary+cleanup' | `primary:${number}`
 ): TypeError => new TypeError(`Phase 2 custom JWT scenario failed (${stage})`);
+const fixedFetchFailure = (index: number): TypeError =>
+  new TypeError(`Phase 2 custom JWT fetch scenario failed (primary:${index})`);
 
 const fetchOrigin = 'https://fetch-observer.aster.test:8443';
 const fetchScripts = Object.freeze([
@@ -329,62 +331,66 @@ export const runCustomJwtFetchScenarios = async (
   ] as const);
   const results: CustomJwtFetchScenarioEvidence[] = [];
   for (const [index, id] of customJwtFetchScenarioIds.entries()) {
-    const staleReceipts = await port.readAndResetFetchReceipts();
-    if (staleReceipts.length > 0) {
-      fail();
+    try {
+      const staleReceipts = await port.readAndResetFetchReceipts();
+      if (staleReceipts.length > 0) {
+        fail();
+      }
+      const response = await port.request({
+        method: 'POST',
+        path: 'configs/jwt-customizer/test',
+        body: {
+          tokenType: 'client-credentials',
+          script: fetchScripts[index],
+          environmentVariables: {},
+          token: fetchTokenSample,
+          context: fetchContextSample,
+        },
+      });
+      assertStatus(response, 200);
+      const body = record(response.body);
+      const receipts = projectedReceipts(
+        await port.readAndResetFetchReceipts(),
+        expectedReceipts[index] ?? fail()
+      );
+      const responseStatus = body.probe_status;
+      const errorName = body.probe_error_name;
+      const textMatches = body.probe_text_matches;
+      const jsonMatches = body.probe_json_matches;
+      const responseOk = body.probe_ok;
+      const redirected = body.probe_redirected;
+      const finalPathMatches = body.probe_final_path_matches;
+      const projection: Record<string, JsonValue> = {
+        managementStatus: response.status,
+        ...(index === 5
+          ? { errorName: errorName === 'TypeError' ? 'TypeError' : fail() }
+          : {
+              responseStatus:
+                typeof responseStatus === 'number' &&
+                Number.isInteger(responseStatus) &&
+                responseStatus >= 100 &&
+                responseStatus <= 599
+                  ? responseStatus
+                  : fail(),
+              ...(index === 1 || index === 2
+                ? { jsonMatches: observedBoolean(jsonMatches) }
+                : {
+                    textMatches: observedBoolean(textMatches),
+                    ...(index === 3 ? { ok: observedBoolean(responseOk) } : {}),
+                    ...(index === 4
+                      ? {
+                          redirected: observedBoolean(redirected),
+                          finalPathMatches: observedBoolean(finalPathMatches),
+                        }
+                      : {}),
+                  }),
+            }),
+        receipts,
+      };
+      results.push(Object.freeze({ id, projection: Object.freeze(projection) }));
+    } catch {
+      throw fixedFetchFailure(index);
     }
-    const response = await port.request({
-      method: 'POST',
-      path: 'configs/jwt-customizer/test',
-      body: {
-        tokenType: 'client-credentials',
-        script: fetchScripts[index],
-        environmentVariables: {},
-        token: fetchTokenSample,
-        context: fetchContextSample,
-      },
-    });
-    assertStatus(response, 200);
-    const body = record(response.body);
-    const receipts = projectedReceipts(
-      await port.readAndResetFetchReceipts(),
-      expectedReceipts[index] ?? fail()
-    );
-    const responseStatus = body.probe_status;
-    const errorName = body.probe_error_name;
-    const textMatches = body.probe_text_matches;
-    const jsonMatches = body.probe_json_matches;
-    const responseOk = body.probe_ok;
-    const redirected = body.probe_redirected;
-    const finalPathMatches = body.probe_final_path_matches;
-    const projection: Record<string, JsonValue> = {
-      managementStatus: response.status,
-      ...(index === 5
-        ? { errorName: errorName === 'TypeError' ? 'TypeError' : fail() }
-        : {
-            responseStatus:
-              typeof responseStatus === 'number' &&
-              Number.isInteger(responseStatus) &&
-              responseStatus >= 100 &&
-              responseStatus <= 599
-                ? responseStatus
-                : fail(),
-            ...(index === 1 || index === 2
-              ? { jsonMatches: observedBoolean(jsonMatches) }
-              : {
-                  textMatches: observedBoolean(textMatches),
-                  ...(index === 3 ? { ok: observedBoolean(responseOk) } : {}),
-                  ...(index === 4
-                    ? {
-                        redirected: observedBoolean(redirected),
-                        finalPathMatches: observedBoolean(finalPathMatches),
-                      }
-                    : {}),
-                }),
-          }),
-      receipts,
-    };
-    results.push(Object.freeze({ id, projection: Object.freeze(projection) }));
   }
   return Object.freeze(results);
 };

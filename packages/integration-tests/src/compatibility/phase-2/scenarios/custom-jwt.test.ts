@@ -201,9 +201,84 @@ describe('Phase 2 custom JWT scenarios', () => {
     };
 
     await expect(runCustomJwtFetchScenarios(port)).rejects.toThrow(
-      'Invalid Phase 2 custom JWT scenario'
+      'Phase 2 custom JWT fetch scenario failed (primary:0)'
     );
     expect(requestCount).toBe(journal.length === 1 ? 0 : 1);
+  });
+
+  it('fails closed with the last fetch index without exposing a hostile thrown value', async () => {
+    let requestCount = 0;
+    let receiptReadCount = 0;
+    const privateValue = Object.freeze({
+      token: 'private-fetch-token',
+      toString: () => {
+        throw new Error('private-hostile-stringification');
+      },
+    });
+    const port: CustomJwtFetchTargetPort = {
+      request: async () => {
+        const index = requestCount++;
+        if (index === 5) {
+          // eslint-disable-next-line @typescript-eslint/no-throw-literal -- Prove hostile non-Error values are discarded.
+          throw privateValue;
+        }
+        return {
+          status: 200,
+          headers: {},
+          body:
+            index === 0
+              ? { probe_status: 200, probe_text_matches: true }
+              : index === 1 || index === 2
+                ? { probe_status: 200, probe_json_matches: true }
+                : index === 3
+                  ? { probe_status: 404, probe_ok: false, probe_text_matches: true }
+                  : {
+                      probe_status: 200,
+                      probe_redirected: true,
+                      probe_final_path_matches: true,
+                      probe_text_matches: true,
+                    },
+        };
+      },
+      readAndResetFetchReceipts: async () => {
+        const readIndex = receiptReadCount++;
+        if (readIndex % 2 === 0) {
+          return [];
+        }
+        const completedIndex = Math.floor(readIndex / 2);
+        return completedIndex === 4
+          ? [
+              { method: 'GET', path: '/redirect', headerMatches: true, bodyMatches: true },
+              { method: 'GET', path: '/final', headerMatches: true, bodyMatches: true },
+            ]
+          : [
+              {
+                method: completedIndex === 2 ? 'POST' : 'GET',
+                path: ['/text', '/json', '/post', '/not-found'][completedIndex] as
+                  | '/text'
+                  | '/json'
+                  | '/post'
+                  | '/not-found',
+                headerMatches: true,
+                bodyMatches: true,
+              },
+            ];
+      },
+    };
+
+    let rejection: unknown;
+    try {
+      await runCustomJwtFetchScenarios(port);
+    } catch (error: unknown) {
+      rejection = error;
+    }
+
+    expect(rejection).toBeInstanceOf(TypeError);
+    expect((rejection as TypeError).message).toBe(
+      'Phase 2 custom JWT fetch scenario failed (primary:5)'
+    );
+    expect(rejection).not.toBe(privateValue);
+    expect(requestCount).toBe(6);
   });
 
   it('compares custom JWT status, denial and protected-claim evidence exactly', () => {

@@ -45,12 +45,13 @@ import {
   projectDeviceResourceRefreshClaims,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
+  runPhase2TargetFixture,
   runPhase2Cli,
   runPhase2CliMain,
   withCandidateAdminBearerDiagnostic,
   type Phase2CliDependencies,
 } from './cli.js';
-import type { Phase2FixtureSecretLease } from './fixtures.js';
+import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
 
@@ -137,6 +138,9 @@ const wrapCandidateConsumer = async (
   }
 };
 
+// eslint-disable-next-line unicorn/no-useless-undefined -- The diagnostic port explicitly represents an absent device stage.
+const noDeviceStage = () => undefined;
+
 describe('candidate fixture diagnostics', () => {
   it('classifies the raw consumer failure before the admin wrapper erases it', async () => {
     await expect(
@@ -161,6 +165,27 @@ describe('candidate fixture diagnostics', () => {
         }
       )
     ).rejects.toThrow('Phase 2 stage failed: candidate-admin-bearer-jwks');
+    for (const index of [0, 1, 2, 3, 4, 5]) {
+      // eslint-disable-next-line no-await-in-loop -- Each closed fetch index is checked independently in registry order.
+      await expect(
+        withCandidateAdminBearerDiagnostic(
+          wrapCandidateConsumer,
+          async () => {
+            throw new Error(`Phase 2 custom JWT fetch scenario failed (primary:${index})`);
+          },
+          noDeviceStage
+        )
+      ).rejects.toThrow(`Phase 2 stage failed: candidate-custom-jwt-fetch-${index}`);
+    }
+    await expect(
+      withCandidateAdminBearerDiagnostic(
+        wrapCandidateConsumer,
+        async () => {
+          throw new Error('unknown consumer failure');
+        },
+        noDeviceStage
+      )
+    ).rejects.toThrow('Phase 2 stage failed: candidate-admin-consumer-unknown');
     await Promise.all(
       [
         new Error('Phase 2 custom JWT scenario failed (primary:22):private'),
@@ -190,6 +215,126 @@ describe('candidate fixture diagnostics', () => {
         }
       )
     ).rejects.toThrow('Phase 2 stage failed: candidate-fixture');
+  });
+
+  it('classifies candidate fixture phases at their execution boundaries', async () => {
+    const events: string[] = [];
+    const fixture = {} as ProvisionedPhase2Fixture;
+    const provisioner = {
+      provision: async () => {
+        events.push('provision');
+        return fixture;
+      },
+      projectState: async () => ({}),
+      cleanup: async () => {
+        events.push('cleanup');
+      },
+    };
+    await expect(
+      runPhase2TargetFixture({
+        kind: 'candidate',
+        provisioner,
+        waitUntilReady: async () => {
+          events.push('readiness');
+        },
+        readPublicJwks: async () => {
+          events.push('public-jwks');
+          return 'jwks';
+        },
+        use: async (jwks) => {
+          events.push(`body:${jwks}`);
+          return 'result';
+        },
+      })
+    ).resolves.toBe('result');
+    expect(events).toEqual(['provision', 'readiness', 'public-jwks', 'body:jwks', 'cleanup']);
+
+    for (const [phase, expected] of [
+      ['provision', 'candidate-fixture-provision'],
+      ['readiness', 'candidate-fixture-readiness'],
+      ['public-jwks', 'candidate-fixture-public-jwks'],
+    ] as const) {
+      // eslint-disable-next-line no-await-in-loop -- Each fixture boundary must report its own fixed failure category.
+      await expect(
+        runPhase2TargetFixture({
+          kind: 'candidate',
+          provisioner: {
+            ...provisioner,
+            provision: async () => {
+              if (phase === 'provision') {
+                throw new Error('private');
+              }
+              return fixture;
+            },
+          },
+          waitUntilReady: async () => {
+            if (phase === 'readiness') {
+              throw new Error('private');
+            }
+          },
+          readPublicJwks: async () => {
+            if (phase === 'public-jwks') {
+              throw new Error('private');
+            }
+            return 'jwks';
+          },
+          use: async () => 'result',
+        })
+      ).rejects.toThrow(`Phase 2 stage failed: ${expected}`);
+    }
+  });
+
+  it('distinguishes candidate fixture cleanup from body plus cleanup', async () => {
+    const fixture = {} as ProvisionedPhase2Fixture;
+    const provisioner = {
+      provision: async () => fixture,
+      projectState: async () => ({}),
+      cleanup: async () => {
+        throw new Error('private cleanup');
+      },
+    };
+    const invoke = async (body: () => Promise<string>) =>
+      runPhase2TargetFixture({
+        kind: 'candidate',
+        provisioner,
+        waitUntilReady: async () => {
+          Object.isFrozen(fixture);
+        },
+        readPublicJwks: async () => 'jwks',
+        use: body,
+      });
+    await expect(invoke(async () => 'result')).rejects.toThrow(
+      'Phase 2 stage failed: candidate-fixture-cleanup'
+    );
+    await expect(
+      invoke(async () => {
+        throw new Error('private body');
+      })
+    ).rejects.toThrow('Phase 2 stage failed: candidate-fixture-body-cleanup');
+  });
+
+  it('preserves a body aggregate when fixture cleanup succeeds', async () => {
+    const fixture = {} as ProvisionedPhase2Fixture;
+    const bodyFailure = new AggregateError([new Error('private body')], 'private aggregate');
+    await expect(
+      runPhase2TargetFixture({
+        kind: 'candidate',
+        provisioner: {
+          provision: async () => fixture,
+          projectState: async () => ({}),
+          cleanup: async () => {
+            Object.isFrozen(fixture);
+          },
+        },
+        waitUntilReady: async () => {
+          Object.isFrozen(fixture);
+        },
+        readPublicJwks: async () => 'jwks',
+        use: async () => {
+          throw bodyFailure;
+        },
+      })
+    ).rejects.toBe(bodyFailure);
   });
 });
 
@@ -1780,6 +1925,48 @@ describe('Phase 2 CLI', () => {
     );
     expect(calls.join(' ')).not.toContain('private credential value');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves the closed admin consumer stage through both command paths', async () => {
+    for (const mode of ['differential', 'candidate-invariants'] as const) {
+      const calls: string[] = [];
+      const output = path.join(root, `phase-2-client-credentials-${mode}.json`);
+      const targetArguments =
+        mode === 'differential'
+          ? ['--oracle-evidence', oracleTargetPath, '--candidate-target', candidateTargetPath]
+          : ['--target', candidateTargetPath];
+      // eslint-disable-next-line no-await-in-loop -- Both commands share one private fixture directory and must clean it independently.
+      const code = await runPhase2CliMain(
+        [
+          mode,
+          '--profile',
+          profilePath,
+          '--schema',
+          schemaPath,
+          ...targetArguments,
+          '--output',
+          output,
+          '--temp-root',
+          root,
+        ],
+        undefined,
+        {
+          ...dependencies(calls),
+          executeDifferential: async () => {
+            throw new Error('Phase 2 stage failed: candidate-admin-consumer-unknown');
+          },
+          executeCandidateInvariants: async () => {
+            throw new Error('Phase 2 stage failed: candidate-admin-consumer-unknown');
+          },
+        }
+      );
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        'stderr:Phase 2 client credentials command failed (candidate-admin-consumer-unknown).'
+      );
+      // eslint-disable-next-line no-await-in-loop -- Failed commands must not publish an artifact before the next invocation.
+      await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
   });
 
   it('preserves the execution stage when differential cleanup also fails', async () => {

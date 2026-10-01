@@ -1094,6 +1094,39 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual([false, false, false, false, false, false]);
   });
 
+  it('forwards only closed custom JWT fetch indices', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('custom-jwt-fetch-') === true);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+    const accepted = ['oracle', 'candidate'].flatMap((target) =>
+      Array.from(
+        { length: 6 },
+        (_, index) =>
+          `Phase 2 client credentials command failed (${target}-custom-jwt-fetch-${index}).`
+      )
+    );
+    const rejected = [
+      'Phase 2 client credentials command failed (candidate-custom-jwt-fetch-6).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-fetch-01).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-fetch-0-private).',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: accepted.length * patterns.length }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
+  });
+
   it('forwards only exact candidate admin bearer stages', async () => {
     const patterns = Array.from(
       source.matchAll(

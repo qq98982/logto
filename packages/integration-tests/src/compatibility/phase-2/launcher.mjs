@@ -225,7 +225,21 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-fetch-[0-5]\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
+  if (
     /^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-22:(authorize|approval-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection)\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
+  if (
+    /^Phase 2 client credentials command failed \(candidate-admin-consumer-unknown\)\.\n$/u.test(
       stderr
     )
   ) {
@@ -238,7 +252,7 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture|discovery|controls|sanitizer|comparison|logout-session|custom-jwt(-([0-9]|1[0-9]|2[0-3]))?|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer|comparison|logout-session|custom-jwt(-([0-9]|1[0-9]|2[0-3]))?|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
     /^Phase 2 client credentials command failed \((oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(

@@ -93,6 +93,33 @@ describe('Phase 2 tracked launcher', () => {
     expect(
       diagnosticForPhase2Child('Phase 2 client credentials command failed (candidate-fixture).\n')
     ).toBe('Phase 2 client credentials command failed (candidate-fixture).\n');
+    for (const diagnostic of [
+      'candidate-fixture-provision',
+      'candidate-fixture-readiness',
+      'candidate-fixture-public-jwks',
+      'candidate-admin-consumer-unknown',
+      'candidate-fixture-cleanup',
+      'candidate-fixture-body-cleanup',
+      ...Array.from({ length: 6 }, (_, index) => `oracle-custom-jwt-fetch-${index}`),
+      ...Array.from({ length: 6 }, (_, index) => `candidate-custom-jwt-fetch-${index}`),
+    ]) {
+      const message = `Phase 2 client credentials command failed (${diagnostic}).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    for (const diagnostic of [
+      'candidate-custom-jwt-fetch-6',
+      'candidate-custom-jwt-fetch-01',
+      'candidate-custom-jwt-fetch-0-private',
+    ]) {
+      expect(
+        diagnosticForPhase2Child(`Phase 2 client credentials command failed (${diagnostic}).\n`)
+      ).toBe('Phase 2 client credentials launcher failed.\n');
+    }
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate-custom-jwt-fetch-0).\nprivate'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (candidate-admin-bearer-management-refresh).\n'
