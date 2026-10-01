@@ -2,8 +2,12 @@
 
 import {
   compareCustomJwtProjections,
+  customJwtFetchScenarioIds,
   customJwtScenarioIds,
+  runCustomJwtFetchScenarios,
   runCustomJwtScenarios,
+  type CustomJwtFetchReceipt,
+  type CustomJwtFetchTargetPort,
   type CustomJwtTargetPort,
 } from './custom-jwt.js';
 
@@ -30,6 +34,178 @@ const userAccessJwt = () =>
   });
 
 describe('Phase 2 custom JWT scenarios', () => {
+  it('collects six isolated fetch dry runs with exact sanitized observer receipts', async () => {
+    const pendingReceipts: CustomJwtFetchReceipt[][] = [];
+    const scriptsSeen: string[] = [];
+    const port: CustomJwtFetchTargetPort = {
+      request: async ({ method, path, body }) => {
+        expect({ method, path }).toEqual({
+          method: 'POST',
+          path: 'configs/jwt-customizer/test',
+        });
+        const { script } = body as { script: string };
+        scriptsSeen.push(script);
+        if (script.includes('/text')) {
+          pendingReceipts.push([
+            { method: 'GET', path: '/text', headerMatches: true, bodyMatches: true },
+          ]);
+          return {
+            status: 200,
+            headers: {},
+            body: { probe_status: 200, probe_text_matches: true },
+          };
+        }
+        if (script.includes('/json')) {
+          pendingReceipts.push([
+            { method: 'GET', path: '/json', headerMatches: true, bodyMatches: true },
+          ]);
+          return {
+            status: 200,
+            headers: {},
+            body: { probe_status: 200, probe_json_matches: true },
+          };
+        }
+        if (script.includes('/post')) {
+          pendingReceipts.push([
+            { method: 'POST', path: '/post', headerMatches: true, bodyMatches: true },
+          ]);
+          return {
+            status: 200,
+            headers: {},
+            body: { probe_status: 201, probe_json_matches: true },
+          };
+        }
+        if (script.includes('/not-found')) {
+          pendingReceipts.push([
+            { method: 'GET', path: '/not-found', headerMatches: true, bodyMatches: true },
+          ]);
+          return {
+            status: 200,
+            headers: {},
+            body: { probe_status: 404, probe_ok: false, probe_text_matches: true },
+          };
+        }
+        if (script.includes('/redirect')) {
+          pendingReceipts.push([
+            { method: 'GET', path: '/redirect', headerMatches: true, bodyMatches: true },
+            { method: 'GET', path: '/final', headerMatches: true, bodyMatches: true },
+          ]);
+          return {
+            status: 200,
+            headers: {},
+            body: {
+              probe_status: 200,
+              probe_redirected: true,
+              probe_final_path_matches: true,
+              probe_text_matches: true,
+            },
+          };
+        }
+        pendingReceipts.push([
+          {
+            method: 'GET',
+            path: '/reset-connection',
+            headerMatches: true,
+            bodyMatches: true,
+          },
+        ]);
+        return { status: 200, headers: {}, body: { probe_error_name: 'TypeError' } };
+      },
+      readAndResetFetchReceipts: async () => pendingReceipts.shift() ?? [],
+    };
+
+    const result = await runCustomJwtFetchScenarios(port);
+
+    expect(result.map(({ id }) => id)).toEqual(customJwtFetchScenarioIds);
+    expect(result.map(({ projection }) => projection)).toEqual([
+      {
+        managementStatus: 200,
+        responseStatus: 200,
+        textMatches: true,
+        receipts: [{ method: 'GET', path: '/text' }],
+      },
+      {
+        managementStatus: 200,
+        responseStatus: 200,
+        jsonMatches: true,
+        receipts: [{ method: 'GET', path: '/json' }],
+      },
+      {
+        managementStatus: 200,
+        responseStatus: 201,
+        jsonMatches: true,
+        receipts: [{ method: 'POST', path: '/post', headerMatches: true, bodyMatches: true }],
+      },
+      {
+        managementStatus: 200,
+        responseStatus: 404,
+        ok: false,
+        textMatches: true,
+        receipts: [{ method: 'GET', path: '/not-found' }],
+      },
+      {
+        managementStatus: 200,
+        responseStatus: 200,
+        redirected: true,
+        finalPathMatches: true,
+        textMatches: true,
+        receipts: [
+          { method: 'GET', path: '/redirect' },
+          { method: 'GET', path: '/final' },
+        ],
+      },
+      {
+        managementStatus: 200,
+        errorName: 'TypeError',
+        receipts: [{ method: 'GET', path: '/reset-connection' }],
+      },
+    ]);
+    expect(scriptsSeen).toHaveLength(6);
+    expect(scriptsSeen[2]).toMatch(
+      /method: 'POST'.*'x-aster-probe': 'bounded-header'.*body: 'bounded-body'/su
+    );
+    expect(scriptsSeen[3]).toContain('probe_ok: response.ok');
+    expect(scriptsSeen[4]).toMatch(
+      /typeof response\.url === 'string'.*response\.url\.endsWith\('\/final'\).*response\.redirected/su
+    );
+    expect(scriptsSeen[5]).toContain(
+      "fetch('https://fetch-observer.aster.test:8443/reset-connection')"
+    );
+    expect(JSON.stringify(result)).not.toMatch(
+      /bounded-body|bounded-header|fetch-observer\.aster\.test|script|token|cookie/iu
+    );
+  });
+
+  it.each([
+    [
+      'stale receipts before invocation',
+      [[{ method: 'GET', path: '/text', headerMatches: true, bodyMatches: true }]],
+    ],
+    [
+      'a wrong receipt after invocation',
+      [[], [{ method: 'GET', path: '/json', headerMatches: true, bodyMatches: true }]],
+    ],
+  ] as const)('fails closed on %s', async (_name, journal) => {
+    let requestCount = 0;
+    let readCount = 0;
+    const port: CustomJwtFetchTargetPort = {
+      request: async () => {
+        requestCount += 1;
+        return {
+          status: 200,
+          headers: {},
+          body: { probe_status: 200, probe_text_matches: true },
+        };
+      },
+      readAndResetFetchReceipts: async () => journal[readCount++] ?? [],
+    };
+
+    await expect(runCustomJwtFetchScenarios(port)).rejects.toThrow(
+      'Invalid Phase 2 custom JWT scenario'
+    );
+    expect(requestCount).toBe(journal.length === 1 ? 0 : 1);
+  });
+
   it('compares custom JWT status, denial and protected-claim evidence exactly', () => {
     const denied = { status: 400, error: 'access_denied' };
     expect(compareCustomJwtProjections(denied, { ...denied })).toBe(true);

@@ -1,7 +1,9 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering -- Bounded response accounting and JSON cloning are confined to this capability adapter. */
+/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering -- Bounded response and receipt validation are confined to this capability adapter. */
 import { types as nodeTypes } from 'node:util';
 
 import type {
+  CustomJwtFetchReceipt,
+  CustomJwtFetchTargetPort,
   CustomJwtHttpResponse,
   CustomJwtScenarioId,
   CustomJwtTargetPort,
@@ -34,11 +36,25 @@ export type CustomJwtHttpCapabilities = Readonly<{
   exchangeUserRefresh(
     input: Readonly<{ refreshToken: string; signal: AbortSignal }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
+  readAndResetFetchReceipts?(
+    input: Readonly<{ signal: AbortSignal; accept(value: unknown): void }>
+  ): Promise<void>;
   timeoutMs?: number;
 }>;
 
 const maximumBodyBytes = 64 * 1024;
 const maximumHeaderBytes = 16 * 1024;
+const maximumFetchReceiptBytes = 16 * 1024;
+const maximumFetchReceipts = 64;
+const fetchReceiptPaths = new Set([
+  '/text',
+  '/json',
+  '/post',
+  '/not-found',
+  '/redirect',
+  '/final',
+  '/reset-connection',
+]);
 const fail = (): never => {
   throw new TypeError('Invalid Phase 2 custom JWT HTTP observation');
 };
@@ -72,9 +88,94 @@ const boundedHeaders = (headers: Readonly<Record<string, string>>) => {
   return Object.freeze(result);
 };
 
+const ownData = (
+  value: Readonly<Record<string, unknown>> | readonly unknown[],
+  key: string
+): unknown => {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
+    return fail();
+  }
+  return descriptor.value as unknown;
+};
+
+const boundedFetchReceipt = (item: unknown): CustomJwtFetchReceipt => {
+  if (typeof item !== 'object' || item === null || Array.isArray(item) || nodeTypes.isProxy(item)) {
+    return fail();
+  }
+  if (Object.getPrototypeOf(item) !== Object.prototype) {
+    return fail();
+  }
+  const ownKeys = Reflect.ownKeys(item);
+  if (
+    ownKeys.some((key) => typeof key !== 'string') ||
+    JSON.stringify(ownKeys.toSorted((left, right) => String(left).localeCompare(String(right)))) !==
+      JSON.stringify(['bodyMatches', 'headerMatches', 'method', 'path'])
+  ) {
+    return fail();
+  }
+  const record = item as Readonly<Record<string, unknown>>;
+  const method = ownData(record, 'method');
+  const path = ownData(record, 'path');
+  const headerMatches = ownData(record, 'headerMatches');
+  const bodyMatches = ownData(record, 'bodyMatches');
+  if (
+    (method !== 'GET' && method !== 'POST') ||
+    typeof path !== 'string' ||
+    !fetchReceiptPaths.has(path) ||
+    (path === '/reset-connection' && method !== 'GET') ||
+    typeof headerMatches !== 'boolean' ||
+    typeof bodyMatches !== 'boolean'
+  ) {
+    return fail();
+  }
+  return Object.freeze({
+    method,
+    path: path as CustomJwtFetchReceipt['path'],
+    headerMatches,
+    bodyMatches,
+  });
+};
+
+const boundedFetchReceipts = (value: unknown): readonly CustomJwtFetchReceipt[] => {
+  if (
+    !Array.isArray(value) ||
+    nodeTypes.isProxy(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype
+  ) {
+    return fail();
+  }
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+  if (!lengthDescriptor || !('value' in lengthDescriptor)) {
+    return fail();
+  }
+  const lengthValue: unknown = lengthDescriptor.value as unknown;
+  if (
+    typeof lengthValue !== 'number' ||
+    !Number.isInteger(lengthValue) ||
+    lengthValue < 0 ||
+    lengthValue > maximumFetchReceipts
+  ) {
+    return fail();
+  }
+  const expectedKeys = [
+    ...Array.from({ length: lengthValue }, (_, index) => String(index)),
+    'length',
+  ];
+  if (JSON.stringify(Reflect.ownKeys(value)) !== JSON.stringify(expectedKeys)) {
+    return fail();
+  }
+  const result = expectedKeys.slice(0, -1).map((key) => boundedFetchReceipt(ownData(value, key)));
+  const frozen = Object.freeze(result);
+  if (Buffer.byteLength(JSON.stringify(frozen)) > maximumFetchReceiptBytes) {
+    return fail();
+  }
+  return frozen;
+};
+
 export const createCustomJwtHttpPort = (
   capabilities: CustomJwtHttpCapabilities
-): CustomJwtTargetPort => {
+): CustomJwtTargetPort & CustomJwtFetchTargetPort => {
   const timeoutMs = capabilities.timeoutMs ?? 10_000;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     return fail();
@@ -157,7 +258,26 @@ export const createCustomJwtHttpPort = (
         toJSON: (): never => fail(),
       });
     },
+    readAndResetFetchReceipts: async () => {
+      const takeReceipts = capabilities.readAndResetFetchReceipts;
+      if (!takeReceipts) {
+        return fail();
+      }
+      let accepted: readonly CustomJwtFetchReceipt[] | undefined;
+      await fenced(async (signal) =>
+        takeReceipts({
+          signal,
+          accept: (value) => {
+            if (accepted) {
+              fail();
+            }
+            accepted = boundedFetchReceipts(value);
+          },
+        })
+      );
+      return accepted ?? fail();
+    },
   });
 };
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering */
+/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering */

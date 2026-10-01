@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed scenario collector validates hostile JSON shapes, owns one ordered evidence journal, and preserves fixed primary and cleanup failure classes; null is an observed wire value. */
+/* eslint-disable max-lines, complexity, no-restricted-syntax, no-await-in-loop, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed scenario collector validates hostile JSON shapes, owns sequential isolated evidence journals, and preserves fixed primary and cleanup failure classes; null is an observed wire value. */
 import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import type { JsonValue } from '../../normalize.js';
@@ -34,6 +34,12 @@ export type CustomJwtHttpResponse = Readonly<{
   headers: Readonly<Record<string, string>>;
   body: unknown;
 }>;
+export type CustomJwtFetchReceipt = Readonly<{
+  method: 'GET' | 'POST';
+  path: '/text' | '/json' | '/post' | '/not-found' | '/redirect' | '/final' | '/reset-connection';
+  headerMatches: boolean;
+  bodyMatches: boolean;
+}>;
 export type CustomJwtTargetPort = Readonly<{
   request(
     input: Readonly<{
@@ -52,6 +58,11 @@ export type CustomJwtTargetPort = Readonly<{
     input: Readonly<{ refreshToken: string }>
   ): Promise<Readonly<{ status: number; body: unknown; toJSON?(): never }>>;
   verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
+  readAndResetFetchReceipts?(): Promise<readonly CustomJwtFetchReceipt[]>;
+}>;
+export type CustomJwtFetchTargetPort = Readonly<{
+  request: CustomJwtTargetPort['request'];
+  readAndResetFetchReceipts(): Promise<readonly CustomJwtFetchReceipt[]>;
 }>;
 export type CustomJwtExpectedClaims = Readonly<{
   issuer: string;
@@ -67,6 +78,20 @@ export type CustomJwtExpectedClaims = Readonly<{
 }>;
 export type CustomJwtScenarioEvidence = Readonly<{
   id: CustomJwtScenarioId;
+  projection: Readonly<Record<string, JsonValue>>;
+}>;
+
+export const customJwtFetchScenarioIds = Object.freeze([
+  'custom-jwt.fetch-get-text',
+  'custom-jwt.fetch-get-json',
+  'custom-jwt.fetch-post',
+  'custom-jwt.fetch-not-found',
+  'custom-jwt.fetch-redirect',
+  'custom-jwt.fetch-reset-connection',
+] as const);
+export type CustomJwtFetchScenarioId = (typeof customJwtFetchScenarioIds)[number];
+export type CustomJwtFetchScenarioEvidence = Readonly<{
+  id: CustomJwtFetchScenarioId;
   projection: Readonly<Record<string, JsonValue>>;
 }>;
 
@@ -182,6 +207,158 @@ const assertError = (response: CustomJwtHttpResponse, status: number, code: stri
 };
 const fixedFailure = (stage: 'primary' | 'cleanup' | 'primary+cleanup'): TypeError =>
   new TypeError(`Phase 2 custom JWT scenario failed (${stage})`);
+
+const fetchOrigin = 'https://fetch-observer.aster.test:8443';
+const fetchScripts = Object.freeze([
+  `const getCustomJwtClaims = async () => {
+    const response = await fetch('${fetchOrigin}/text');
+    return { probe_status: response.status, probe_text_matches: (await response.text()) === 'bounded-text' };
+  };`,
+  `const getCustomJwtClaims = async () => {
+    const response = await fetch('${fetchOrigin}/json');
+    const body = await response.json();
+    return { probe_status: response.status, probe_json_matches: body.kind === 'bounded-json' && body.count === 2 };
+  };`,
+  `const getCustomJwtClaims = async () => {
+    const response = await fetch('${fetchOrigin}/post', {
+      method: 'POST', headers: { 'x-aster-probe': 'bounded-header' }, body: 'bounded-body'
+    });
+    const body = await response.json();
+    return { probe_status: response.status, probe_json_matches:
+      body.method === 'POST' && body.header === 'bounded-header' && body.body === 'bounded-body' };
+  };`,
+  `const getCustomJwtClaims = async () => {
+    const response = await fetch('${fetchOrigin}/not-found');
+    return { probe_status: response.status, probe_ok: response.ok,
+      probe_text_matches: (await response.text()) === 'missing' };
+  };`,
+  `const getCustomJwtClaims = async () => {
+    const response = await fetch('${fetchOrigin}/redirect');
+    const finalPathMatches = typeof response.url === 'string' && response.url.endsWith('/final');
+    return { probe_status: response.status, probe_redirected: response.redirected,
+      probe_final_path_matches: finalPathMatches,
+      probe_text_matches: (await response.text()) === 'redirected' };
+  };`,
+  `const getCustomJwtClaims = async () => {
+    try { await fetch('${fetchOrigin}/reset-connection'); }
+    catch (error) { return { probe_error_name: error?.name ?? null }; }
+    return { probe_error_name: null };
+  };`,
+] as const);
+const fetchTokenSample = Object.freeze({
+  kind: 'ClientCredentials',
+  aud: 'sample',
+  scope: 'read',
+  clientId: 'sample',
+});
+const fetchContextSample = Object.freeze({
+  application: Object.freeze({ id: 'sample', name: 'sample' }),
+});
+const isTrue = (value: unknown): value is true => value === true;
+const projectedReceipts = (
+  receipts: readonly CustomJwtFetchReceipt[],
+  expected: ReadonlyArray<Readonly<{ method: 'GET' | 'POST'; path: CustomJwtFetchReceipt['path'] }>>
+): JsonValue[] => {
+  if (
+    receipts.length !== expected.length ||
+    receipts.some((item, index) => {
+      const { method, path, headerMatches, bodyMatches } = item;
+      return (
+        method !== expected[index]?.method ||
+        path !== expected[index]?.path ||
+        !isTrue(headerMatches) ||
+        !isTrue(bodyMatches)
+      );
+    })
+  ) {
+    return fail();
+  }
+  return Object.freeze(
+    expected.map(({ method, path }): Record<string, JsonValue> => {
+      if (path === '/post') {
+        return Object.freeze({ method, path, headerMatches: true, bodyMatches: true });
+      }
+      return Object.freeze({ method, path });
+    })
+  ) as unknown as JsonValue[];
+};
+const observedBoolean = (value: unknown): boolean => (typeof value === 'boolean' ? value : fail());
+
+export const runCustomJwtFetchScenarios = async (
+  port: CustomJwtFetchTargetPort
+): Promise<readonly CustomJwtFetchScenarioEvidence[]> => {
+  const expectedReceipts = Object.freeze([
+    [{ method: 'GET', path: '/text' }],
+    [{ method: 'GET', path: '/json' }],
+    [{ method: 'POST', path: '/post' }],
+    [{ method: 'GET', path: '/not-found' }],
+    [
+      { method: 'GET', path: '/redirect' },
+      { method: 'GET', path: '/final' },
+    ],
+    [{ method: 'GET', path: '/reset-connection' }],
+  ] as const);
+  const results: CustomJwtFetchScenarioEvidence[] = [];
+  for (const [index, id] of customJwtFetchScenarioIds.entries()) {
+    const staleReceipts = await port.readAndResetFetchReceipts();
+    if (staleReceipts.length > 0) {
+      fail();
+    }
+    const response = await port.request({
+      method: 'POST',
+      path: 'configs/jwt-customizer/test',
+      body: {
+        tokenType: 'client-credentials',
+        script: fetchScripts[index],
+        environmentVariables: {},
+        token: fetchTokenSample,
+        context: fetchContextSample,
+      },
+    });
+    assertStatus(response, 200);
+    const body = record(response.body);
+    const receipts = projectedReceipts(
+      await port.readAndResetFetchReceipts(),
+      expectedReceipts[index] ?? fail()
+    );
+    const responseStatus = body.probe_status;
+    const errorName = body.probe_error_name;
+    const textMatches = body.probe_text_matches;
+    const jsonMatches = body.probe_json_matches;
+    const responseOk = body.probe_ok;
+    const redirected = body.probe_redirected;
+    const finalPathMatches = body.probe_final_path_matches;
+    const projection: Record<string, JsonValue> = {
+      managementStatus: response.status,
+      ...(index === 5
+        ? { errorName: errorName === 'TypeError' ? 'TypeError' : fail() }
+        : {
+            responseStatus:
+              typeof responseStatus === 'number' &&
+              Number.isInteger(responseStatus) &&
+              responseStatus >= 100 &&
+              responseStatus <= 599
+                ? responseStatus
+                : fail(),
+            ...(index === 1 || index === 2
+              ? { jsonMatches: observedBoolean(jsonMatches) }
+              : {
+                  textMatches: observedBoolean(textMatches),
+                  ...(index === 3 ? { ok: observedBoolean(responseOk) } : {}),
+                  ...(index === 4
+                    ? {
+                        redirected: observedBoolean(redirected),
+                        finalPathMatches: observedBoolean(finalPathMatches),
+                      }
+                    : {}),
+                }),
+          }),
+      receipts,
+    };
+    results.push(Object.freeze({ id, projection: Object.freeze(projection) }));
+  }
+  return Object.freeze(results);
+};
 
 export const runCustomJwtScenarios = async (
   port: CustomJwtTargetPort,
@@ -528,4 +705,4 @@ export const runCustomJwtScenarios = async (
   return collected ?? fail();
 };
 
-/* eslint-enable max-lines, complexity, no-restricted-syntax, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, complexity, no-restricted-syntax, no-await-in-loop, @typescript-eslint/ban-types, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

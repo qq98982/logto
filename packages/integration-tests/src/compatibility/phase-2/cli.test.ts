@@ -224,6 +224,7 @@ const targetDocument = (kind: 'oracle' | 'candidate') => ({
     sha256: 'c'.repeat(64),
     controlSocket: `/tmp/${kind}-state.sock`,
   },
+  fetchObserverReceiptFile: `/tmp/${kind}-fetch-receipts.ndjson`,
   ...(kind === 'candidate'
     ? {
         fixtureSocket: '/tmp/candidate-fixture.sock',
@@ -416,6 +417,14 @@ const dependencies = (
         type: 'unix-socket',
       },
     }),
+    fetchObserverReceiptFile: {
+      path: target.fetchObserverReceiptFile,
+      dev: '1',
+      ino: '8',
+      uid: 1,
+      mode: 0o600,
+      nlink: 1,
+    },
   }),
   prepareTarget: async (verified) => ({
     descriptor: verified.descriptor,
@@ -426,6 +435,7 @@ const dependencies = (
         // The fake target identity remains stable for this CLI unit test.
       },
     },
+    fetchObserverReceiptFile: verified.fetchObserverReceiptFile,
   }),
 });
 

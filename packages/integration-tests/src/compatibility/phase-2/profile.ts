@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '23d4580546ac4dbc685caae4d33c13ffbe42fa814793e8ffdf7a5110dc1059cb';
-const expectedSchemaSha256 = 'e67e78ccd61bdf1ebd0d66aa4c12103a9abde457b91a61abbb7b6f190413c0d6';
+const expectedProfileSha256 = '9068e47f98f231805fc2b941e2c980b42e015eb0dec981fd6bd68caebe9ae0bc';
+const expectedSchemaSha256 = 'e2bef39f04e1fa720ff500ab896ef0239d8e717c9158d301c6187b053b3b008e';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -187,6 +187,12 @@ const differentialScenarioIds = [
   'custom-jwt.user-refresh-deny',
   'custom-jwt.user-refresh-throw-block',
   'custom-jwt.user-refresh-throw-open-retry',
+  'custom-jwt.fetch-get-text',
+  'custom-jwt.fetch-get-json',
+  'custom-jwt.fetch-post',
+  'custom-jwt.fetch-not-found',
+  'custom-jwt.fetch-redirect',
+  'custom-jwt.fetch-reset-connection',
 ] as const;
 const deviceOperationIds = [
   'device.authorize',

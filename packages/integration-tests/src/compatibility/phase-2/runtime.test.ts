@@ -25,6 +25,7 @@ import {
   fetchPhase2Discovery,
   fetchPhase2PublicJwks,
   preparePhase2TargetForExecution,
+  readAndResetPhase2FetchReceipts,
   validatePhase2TargetDescriptor,
   verifyPhase2Target,
   type Phase2TargetDescriptor,
@@ -34,6 +35,7 @@ const rootPrefix = '/var/tmp/henry-build/phase2-runtime-';
 let root = '';
 let driverPath = '';
 let driverSha = '';
+let receiptPath = '';
 let servers: Server[] = [];
 const topology = () => ({
   projectName: 'aster-phase2-client-credentials-2222222222222222',
@@ -80,6 +82,7 @@ const descriptor = (): Phase2TargetDescriptor =>
       sha256: driverSha,
       controlSocket: path.join(root, 'invariant.sock'),
     },
+    fetchObserverReceiptFile: receiptPath,
   });
 
 const oracleDescriptor = (): Phase2TargetDescriptor =>
@@ -106,6 +109,7 @@ const oracleDescriptor = (): Phase2TargetDescriptor =>
       sha256: driverSha,
       controlSocket: path.join(root, 'state.sock'),
     },
+    fetchObserverReceiptFile: receiptPath,
   });
 
 const fixture: ProvisionedPhase2Fixture = Object.freeze({
@@ -199,6 +203,8 @@ const result = (stdout: string): CommandRunnerResult => ({
 beforeAll(async () => {
   root = await mkdtemp(rootPrefix);
   driverPath = path.join(root, 'driver');
+  receiptPath = path.join(root, 'fetch-receipts.ndjson');
+  await writeFile(receiptPath, '', { mode: 0o600 });
   await writeFile(driverPath, '#!/bin/sh\nexit 1\n', { mode: 0o700 });
   await chmod(driverPath, 0o700);
   driverSha = createHash('sha256')
@@ -267,6 +273,111 @@ describe('Phase 2 runtime adapters', () => {
         stateDriver: { ...descriptor().stateDriver, controlSocket: '/tmp/control\n.sock' },
       })
     ).toThrow('Invalid Phase 2 runtime');
+  });
+
+  it('reads and resets bounded mutable fetch receipts without changing file identity', async () => {
+    const verified = await verifyPhase2Target(descriptor());
+    const sessionRoot = await mkdtemp(path.join(root, 'receipt-session-'));
+    await chmod(sessionRoot, 0o700);
+    const prepared = await preparePhase2TargetForExecution(verified, sessionRoot, 'candidate');
+    const observations = [
+      { method: 'GET', path: '/text', headerMatches: true, bodyMatches: true },
+      { method: 'GET', path: '/reset-connection', headerMatches: true, bodyMatches: true },
+    ];
+    await writeFile(
+      receiptPath,
+      observations.map((value) => JSON.stringify(value)).join('\n') + '\n',
+      { mode: 0o600 }
+    );
+    let accepted: unknown;
+    await expect(
+      readAndResetPhase2FetchReceipts(prepared, (value) => {
+        accepted = value;
+      })
+    ).resolves.toBeUndefined();
+    expect(accepted).toEqual(observations);
+    await expect(readFile(receiptPath, 'utf8')).resolves.toBe('');
+    await writeFile(receiptPath, `${JSON.stringify(observations[0])}\n`, { mode: 0o600 });
+    await expect(
+      readAndResetPhase2FetchReceipts(prepared, () => {
+        throw new Error('rejected receipt');
+      })
+    ).rejects.toThrow('Invalid Phase 2 runtime');
+    await expect(readFile(receiptPath, 'utf8')).resolves.toContain('/text');
+    await writeFile(receiptPath, '', { mode: 0o600 });
+    await expect(prepared.fence.assertStable()).resolves.toBeUndefined();
+    await rm(sessionRoot, { force: true, recursive: true });
+  });
+
+  it('rejects unsafe receipt modes, links, bounds, and inode replacement', async () => {
+    await chmod(receiptPath, 0o640);
+    await expect(verifyPhase2Target(descriptor())).rejects.toThrow('Invalid Phase 2 runtime');
+    await chmod(receiptPath, 0o600);
+    const hardlink = path.join(root, 'fetch-receipts-hardlink.ndjson');
+    await link(receiptPath, hardlink);
+    await expect(verifyPhase2Target(descriptor())).rejects.toThrow('Invalid Phase 2 runtime');
+    await rm(hardlink);
+    await writeFile(receiptPath, 'x'.repeat(16 * 1024 + 1), { mode: 0o600 });
+    await expect(verifyPhase2Target(descriptor())).rejects.toThrow('Invalid Phase 2 runtime');
+    await writeFile(receiptPath, '', { mode: 0o600 });
+    const verified = await verifyPhase2Target(descriptor());
+    const sessionRoot = await mkdtemp(path.join(root, 'receipt-replace-session-'));
+    await chmod(sessionRoot, 0o700);
+    const prepared = await preparePhase2TargetForExecution(verified, sessionRoot, 'candidate');
+    const original = path.join(root, 'fetch-receipts-original.ndjson');
+    await rename(receiptPath, original);
+    await writeFile(receiptPath, '', { mode: 0o600 });
+    await expect(prepared.fence.assertStable()).rejects.toThrow('Invalid Phase 2 runtime');
+    await rm(receiptPath);
+    await rename(original, receiptPath);
+    await expect(prepared.fence.assertStable()).resolves.toBeUndefined();
+    await rm(sessionRoot, { force: true, recursive: true });
+  });
+
+  it('keeps oracle and candidate receipt handles isolated', async () => {
+    const oracleReceipt = path.join(root, 'oracle-fetch-receipts.ndjson');
+    await writeFile(
+      receiptPath,
+      '{"method":"GET","path":"/text","headerMatches":true,"bodyMatches":true}\n',
+      { mode: 0o600 }
+    );
+    await writeFile(
+      oracleReceipt,
+      '{"method":"GET","path":"/json","headerMatches":true,"bodyMatches":true}\n',
+      { mode: 0o600 }
+    );
+    const candidateVerified = await verifyPhase2Target(descriptor());
+    const oracleVerified = await verifyPhase2Target({
+      ...oracleDescriptor(),
+      fetchObserverReceiptFile: oracleReceipt,
+    });
+    const sessionRoot = await mkdtemp(path.join(root, 'receipt-isolation-session-'));
+    await chmod(sessionRoot, 0o700);
+    const candidate = await preparePhase2TargetForExecution(
+      candidateVerified,
+      sessionRoot,
+      'candidate'
+    );
+    const oracle = await preparePhase2TargetForExecution(oracleVerified, sessionRoot, 'oracle');
+    let candidateReceipts: unknown;
+    await readAndResetPhase2FetchReceipts(candidate, (value) => {
+      candidateReceipts = value;
+    });
+    expect(candidateReceipts).toEqual([
+      { method: 'GET', path: '/text', headerMatches: true, bodyMatches: true },
+    ]);
+    await expect(readFile(oracleReceipt, 'utf8')).resolves.toContain('/json');
+    let oracleReceipts: unknown;
+    await readAndResetPhase2FetchReceipts(oracle, (value) => {
+      oracleReceipts = value;
+    });
+    expect(oracleReceipts).toEqual([
+      { method: 'GET', path: '/json', headerMatches: true, bodyMatches: true },
+    ]);
+    await expect(readFile(receiptPath, 'utf8')).resolves.toBe('');
+    await expect(readFile(oracleReceipt, 'utf8')).resolves.toBe('');
+    await rm(sessionRoot, { force: true, recursive: true });
+    await rm(oracleReceipt);
   });
 
   it('bounds public JWKS/discovery reads and rejects private JWK material', async () => {

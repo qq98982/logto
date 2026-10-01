@@ -56,6 +56,7 @@ import {
   fetchPhase2Discovery,
   fetchPhase2PublicJwks,
   preparePhase2TargetForExecution,
+  readAndResetPhase2FetchReceipts,
   requestPhase2Json,
   validatePhase2TargetDescriptor,
   verifyPhase2Target,
@@ -79,8 +80,11 @@ import {
 } from './scenarios/client-credentials.js';
 import {
   compareCustomJwtProjections,
+  customJwtFetchScenarioIds,
   customJwtScenarioIds,
+  runCustomJwtFetchScenarios,
   runCustomJwtScenarios,
+  type CustomJwtFetchScenarioEvidence,
   type CustomJwtScenarioEvidence,
 } from './scenarios/custom-jwt.js';
 import {
@@ -182,6 +186,7 @@ type TargetScenarioEvidence = Readonly<{
     | LogoutSessionScenarioResult
     | DeviceAuthorizationScenarioResult
     | CustomJwtScenarioEvidence
+    | CustomJwtFetchScenarioEvidence
   >;
   discovery: Readonly<{
     grantTypesSupported: readonly string[];
@@ -426,7 +431,7 @@ type DeviceFailureStage =
   | 'verification-get'
   | 'verification-post';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|160)))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-6])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -941,6 +946,7 @@ const runTargetScenarios = async (
       }
     }
     let customJwtScenarios: readonly CustomJwtScenarioEvidence[];
+    let customJwtFetchScenarios: readonly CustomJwtFetchScenarioEvidence[];
     try {
       const collect = async (
         authorizationHeaders: Readonly<Record<string, string>>,
@@ -1020,8 +1026,10 @@ const runTargetScenarios = async (
               signal,
             });
           },
+          readAndResetFetchReceipts: async ({ accept }) =>
+            readAndResetPhase2FetchReceipts(prepared, accept),
         });
-        return runCustomJwtScenarios(port, {
+        const standard = await runCustomJwtScenarios(port, {
           expected: {
             issuer: new URL('oidc', descriptor.target.coreUrl).toString(),
             subject: fixture.public.clients.basic.id,
@@ -1035,8 +1043,10 @@ const runTargetScenarios = async (
             userScope: fixture.status?.resource.scopeName ?? fail(),
           },
         });
+        const fetch = await runCustomJwtFetchScenarios(port);
+        return Object.freeze({ standard, fetch });
       };
-      customJwtScenarios =
+      const collected =
         descriptor.kind === 'candidate'
           ? await withPhase2AdminManagementBearer(
               descriptor.target,
@@ -1055,6 +1065,8 @@ const runTargetScenarios = async (
                 lease.getSubjectPassword?.() ?? fail()
               )
             );
+      customJwtScenarios = collected.standard;
+      customJwtFetchScenarios = collected.fetch;
     } catch (error: unknown) {
       if (
         error instanceof Error &&
@@ -1070,6 +1082,7 @@ const runTargetScenarios = async (
       ...logoutSessionScenarios,
       ...deviceScenarios,
       ...customJwtScenarios,
+      ...customJwtFetchScenarios,
     ]);
   }).catch((error: unknown) => {
     if (
@@ -1178,7 +1191,11 @@ const executeDifferential = async (
     if (!candidateScenario || candidateScenario.id !== oracleScenario.id) {
       return fail();
     }
-    if ((customJwtScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+    if (
+      ([...customJwtScenarioIds, ...customJwtFetchScenarioIds] as readonly string[]).includes(
+        oracleScenario.id
+      )
+    ) {
       if (
         !compareCustomJwtProjections(
           oracleScenario.projection as CustomJwtScenarioEvidence['projection'],

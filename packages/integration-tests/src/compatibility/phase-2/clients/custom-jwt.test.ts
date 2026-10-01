@@ -2,6 +2,228 @@
 import { createCustomJwtHttpPort } from './custom-jwt.js';
 
 describe('custom JWT HTTP port', () => {
+  it('validates and freezes bounded fetch observer receipts from the injected capability', async () => {
+    const calls: string[] = [];
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {
+        calls.push('fence');
+      },
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      readAndResetFetchReceipts: async ({ signal, accept }) => {
+        calls.push(signal.aborted ? 'aborted' : 'take');
+        accept([
+          { method: 'GET', path: '/redirect', headerMatches: true, bodyMatches: true },
+          { method: 'GET', path: '/final', headerMatches: true, bodyMatches: true },
+        ]);
+      },
+    });
+
+    const receipts = await port.readAndResetFetchReceipts();
+
+    expect(receipts).toEqual([
+      { method: 'GET', path: '/redirect', headerMatches: true, bodyMatches: true },
+      { method: 'GET', path: '/final', headerMatches: true, bodyMatches: true },
+    ]);
+    expect(Object.isFrozen(receipts)).toBe(true);
+    expect(receipts.every((receipt) => Object.isFrozen(receipt))).toBe(true);
+    expect(calls).toEqual(['fence', 'take', 'fence']);
+  });
+
+  it.each([
+    ['missing capability', undefined],
+    [
+      'too many receipts',
+      Array.from({ length: 65 }, () => ({
+        method: 'GET',
+        path: '/text',
+        headerMatches: true,
+        bodyMatches: true,
+      })),
+    ],
+    [
+      'oversized serialized receipts',
+      [
+        {
+          method: 'GET',
+          path: `/${'x'.repeat(17 * 1024)}`,
+          headerMatches: true,
+          bodyMatches: true,
+        },
+      ],
+    ],
+    ['unknown path', [{ method: 'GET', path: '/private', headerMatches: true, bodyMatches: true }]],
+    [
+      'unexpected keys',
+      [{ method: 'GET', path: '/text', headerMatches: true, bodyMatches: true, secret: 'private' }],
+    ],
+  ])('rejects %s from the fetch receipt capability', async (_name, receiptValue) => {
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {},
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      ...(receiptValue === undefined
+        ? {}
+        : {
+            readAndResetFetchReceipts: async ({ accept }: { accept(value: unknown): void }) => {
+              accept(receiptValue);
+            },
+          }),
+    });
+
+    await expect(port.readAndResetFetchReceipts()).rejects.toThrow(
+      'Invalid Phase 2 custom JWT HTTP observation'
+    );
+  });
+
+  it.each([
+    [
+      'an own array mapper',
+      Object.assign([{ method: 'GET', path: '/text', headerMatches: true, bodyMatches: true }], {
+        map: () => [{ method: 'GET', path: '/private' }],
+      }),
+    ],
+    [
+      'an array proxy',
+      new Proxy([{ method: 'GET', path: '/text', headerMatches: true, bodyMatches: true }], {}),
+    ],
+    [
+      'an accessor record',
+      [
+        Object.create(Object.prototype, {
+          method: { enumerable: true, get: () => 'GET' },
+          path: { enumerable: true, value: '/text' },
+          headerMatches: { enumerable: true, value: true },
+          bodyMatches: { enumerable: true, value: true },
+        }),
+      ],
+    ],
+    [
+      'a symbol-bearing record',
+      [
+        {
+          method: 'GET',
+          path: '/text',
+          headerMatches: true,
+          bodyMatches: true,
+          [Symbol('private')]: 'hidden',
+        },
+      ],
+    ],
+  ])('fails closed on %s without invoking caller-controlled properties', async (_name, value) => {
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {},
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      readAndResetFetchReceipts: async ({ accept }) => {
+        accept(value);
+      },
+    });
+
+    await expect(port.readAndResetFetchReceipts()).rejects.toThrow(
+      'Invalid Phase 2 custom JWT HTTP observation'
+    );
+  });
+
+  it('rejects a receipt proxy before invoking its traps', async () => {
+    const trapCalls: string[] = [];
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {},
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      readAndResetFetchReceipts: async ({ accept }) => {
+        accept([
+          new Proxy(
+            {},
+            {
+              ownKeys: () => {
+                trapCalls.push('ownKeys');
+                throw new Error('private trap message');
+              },
+            }
+          ),
+        ]);
+      },
+    });
+
+    await expect(port.readAndResetFetchReceipts()).rejects.toThrow(
+      'Invalid Phase 2 custom JWT HTTP observation'
+    );
+    expect(trapCalls).toEqual([]);
+  });
+
+  it('validates raw receipts inside the callback before promise thenable adoption', async () => {
+    const trapCalls: string[] = [];
+    const raw = new Proxy([], {
+      get: (_target, key) => {
+        trapCalls.push(String(key));
+        throw new Error('private then trap message');
+      },
+    });
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {},
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      readAndResetFetchReceipts: async ({ accept }) => {
+        accept(raw);
+      },
+    });
+
+    await expect(port.readAndResetFetchReceipts()).rejects.toThrow(
+      'Invalid Phase 2 custom JWT HTTP observation'
+    );
+    expect(trapCalls).toEqual([]);
+  });
+
+  it('rejects an own then property without reading it', async () => {
+    const trapCalls: string[] = [];
+    // eslint-disable-next-line unicorn/no-thenable -- This hostile thenable proves validation happens before Promise adoption.
+    const raw = Object.defineProperty([], 'then', {
+      enumerable: true,
+      get: () => {
+        trapCalls.push('then');
+        throw new Error('private then message');
+      },
+    });
+    const port = createCustomJwtHttpPort({
+      assertInvocationFence: async () => {},
+      managementRequest: async () => ({ status: 200, headers: {}, body: {} }),
+      withM2MSecret: async <Result>(use: (secret: string) => Promise<Result>) => use('secret'),
+      issueClientCredentials: async () => ({ status: 200, body: {} }),
+      verifyAccessToken: async () => ({}),
+      issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
+      exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      readAndResetFetchReceipts: async ({ accept }) => {
+        accept(raw);
+      },
+    });
+
+    await expect(port.readAndResetFetchReceipts()).rejects.toThrow(
+      'Invalid Phase 2 custom JWT HTTP observation'
+    );
+    expect(trapCalls).toEqual([]);
+  });
+
   it('preserves fencing and confines the M2M secret to its lease', async () => {
     const calls: string[] = [];
     const port = createCustomJwtHttpPort({

@@ -59,6 +59,16 @@ export type Phase2TargetDescriptor = Readonly<{
   fixtureExecutable?: Readonly<{ path: string; sha256: string }>;
   fixtureSocket?: string;
   invariantDriver?: Phase2RuntimeDriver;
+  fetchObserverReceiptFile: string;
+}>;
+
+export type Phase2MutableFileIdentity = Readonly<{
+  path: string;
+  dev: string;
+  ino: string;
+  uid: number;
+  mode: number;
+  nlink: number;
 }>;
 
 export type VerifiedPhase2Target = Readonly<{
@@ -70,6 +80,7 @@ export type VerifiedPhase2Target = Readonly<{
   fixtureSocket?: Phase2SocketIdentity;
   stateControlSocket: Phase2SocketIdentity;
   invariantControlSocket?: Phase2SocketIdentity;
+  fetchObserverReceiptFile: Phase2MutableFileIdentity;
 }>;
 
 export type Phase2InvocationFence = Readonly<{
@@ -81,6 +92,7 @@ export type PreparedPhase2Target = Readonly<{
   descriptor: Phase2TargetDescriptor;
   topology: Phase2TopologyIdentity;
   fence: Phase2InvocationFence;
+  fetchObserverReceiptFile: Phase2MutableFileIdentity;
 }>;
 
 type StateDriverOptions = Readonly<{
@@ -251,6 +263,7 @@ export const validatePhase2TargetDescriptor = (value: unknown): Phase2TargetDesc
       'target',
       'foreignTarget',
       'stateDriver',
+      'fetchObserverReceiptFile',
     ],
     ['fixtureExecutable', 'fixtureSocket', 'invariantDriver']
   );
@@ -322,6 +335,7 @@ export const validatePhase2TargetDescriptor = (value: unknown): Phase2TargetDesc
     target,
     foreignTarget,
     stateDriver: validateDriver(own(source, 'stateDriver')),
+    fetchObserverReceiptFile: validateAbsolutePath(own(source, 'fetchObserverReceiptFile')),
     ...(fixtureExecutable === undefined
       ? {}
       : { fixtureExecutable: validateExecutableDescriptor(fixtureExecutable) }),
@@ -446,6 +460,41 @@ const verifySocket = async (socketPath: string): Promise<Phase2SocketIdentity> =
   });
 };
 
+const verifyMutableReceiptFile = async (filePath: string): Promise<Phase2MutableFileIdentity> => {
+  await privateParent(filePath);
+  const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(fail);
+  try {
+    const state = await handle.stat();
+    const pathState = await lstat(filePath).catch(fail);
+    if (
+      !state.isFile() ||
+      state.uid !== currentUid() ||
+      (state.mode & 0o777) !== 0o600 ||
+      state.nlink !== 1 ||
+      state.size > 16 * 1024 ||
+      pathState.isSymbolicLink() ||
+      !pathState.isFile() ||
+      pathState.dev !== state.dev ||
+      pathState.ino !== state.ino ||
+      pathState.uid !== state.uid ||
+      pathState.mode !== state.mode ||
+      pathState.nlink !== state.nlink
+    ) {
+      return fail();
+    }
+    return Object.freeze({
+      path: filePath,
+      dev: String(state.dev),
+      ino: String(state.ino),
+      uid: state.uid,
+      mode: state.mode & 0o777,
+      nlink: state.nlink,
+    });
+  } finally {
+    await handle.close();
+  }
+};
+
 const sameArtifactIdentity = (
   left: Phase2ArtifactIdentity | undefined,
   right: Phase2ArtifactIdentity | undefined
@@ -454,6 +503,10 @@ const sameArtifactIdentity = (
 const sameSocketIdentity = (
   left: Phase2SocketIdentity | undefined,
   right: Phase2SocketIdentity | undefined
+): boolean => JSON.stringify(left) === JSON.stringify(right);
+const sameMutableFileIdentity = (
+  left: Phase2MutableFileIdentity,
+  right: Phase2MutableFileIdentity
 ): boolean => JSON.stringify(left) === JSON.stringify(right);
 
 const assertVerifiedTargetStable = async (verified: VerifiedPhase2Target): Promise<void> => {
@@ -465,6 +518,7 @@ const assertVerifiedTargetStable = async (verified: VerifiedPhase2Target): Promi
     fixtureSocket,
     invariantDriver,
     invariantSocket,
+    receiptFile,
   ] = await Promise.all([
     verifyArtifact(descriptor.stateDriver),
     verifySocket(descriptor.stateDriver.controlSocket),
@@ -472,6 +526,7 @@ const assertVerifiedTargetStable = async (verified: VerifiedPhase2Target): Promi
     descriptor.fixtureSocket ? verifySocket(descriptor.fixtureSocket) : undefined,
     descriptor.invariantDriver ? verifyArtifact(descriptor.invariantDriver) : undefined,
     descriptor.invariantDriver ? verifySocket(descriptor.invariantDriver.controlSocket) : undefined,
+    verifyMutableReceiptFile(descriptor.fetchObserverReceiptFile),
   ]);
   if (
     !sameArtifactIdentity(stateDriver, verified.stateDriver) ||
@@ -479,7 +534,8 @@ const assertVerifiedTargetStable = async (verified: VerifiedPhase2Target): Promi
     !sameArtifactIdentity(fixtureExecutable, verified.fixtureExecutable) ||
     !sameSocketIdentity(fixtureSocket, verified.fixtureSocket) ||
     !sameArtifactIdentity(invariantDriver, verified.invariantDriver) ||
-    !sameSocketIdentity(invariantSocket, verified.invariantControlSocket)
+    !sameSocketIdentity(invariantSocket, verified.invariantControlSocket) ||
+    !sameMutableFileIdentity(receiptFile, verified.fetchObserverReceiptFile)
   ) {
     fail();
   }
@@ -708,7 +764,12 @@ export const preparePhase2TargetForExecution = async (
       originalFence.run(async () => copiedFence.run(operation)),
   });
   await fence.assertStable();
-  return Object.freeze({ descriptor, topology: verified.topology, fence });
+  return Object.freeze({
+    descriptor,
+    topology: verified.topology,
+    fence,
+    fetchObserverReceiptFile: copied.fetchObserverReceiptFile,
+  });
 };
 
 export const verifyPhase2Target = async (
@@ -721,6 +782,7 @@ export const verifyPhase2Target = async (
     fixtureSocket,
     invariantDriver,
     invariantControlSocket,
+    fetchObserverReceiptFile,
   ] = await Promise.all([
     verifyArtifact(descriptor.stateDriver),
     verifySocket(descriptor.stateDriver.controlSocket),
@@ -728,6 +790,7 @@ export const verifyPhase2Target = async (
     descriptor.fixtureSocket ? verifySocket(descriptor.fixtureSocket) : undefined,
     descriptor.invariantDriver ? verifyArtifact(descriptor.invariantDriver) : undefined,
     descriptor.invariantDriver ? verifySocket(descriptor.invariantDriver.controlSocket) : undefined,
+    verifyMutableReceiptFile(descriptor.fetchObserverReceiptFile),
   ]);
   const topology = Object.freeze({
     projectName: descriptor.projectName,
@@ -751,7 +814,89 @@ export const verifyPhase2Target = async (
     ...(fixtureSocket && { fixtureSocket }),
     ...(invariantDriver && { invariantDriver }),
     ...(invariantControlSocket && { invariantControlSocket }),
+    fetchObserverReceiptFile,
   });
+};
+
+export const readAndResetPhase2FetchReceipts = async (
+  target: PreparedPhase2Target,
+  accept: (value: unknown) => void
+): Promise<void> => {
+  if (typeof accept !== 'function') {
+    return fail();
+  }
+  const expected = target.fetchObserverReceiptFile;
+  const current = await verifyMutableReceiptFile(expected.path);
+  if (!sameMutableFileIdentity(current, expected)) {
+    return fail();
+  }
+  const handle = await open(expected.path, fsConstants.O_RDWR | fsConstants.O_NOFOLLOW).catch(fail);
+  try {
+    const before = await handle.stat();
+    if (
+      String(before.dev) !== expected.dev ||
+      String(before.ino) !== expected.ino ||
+      before.uid !== expected.uid ||
+      (before.mode & 0o777) !== expected.mode ||
+      before.nlink !== expected.nlink ||
+      before.size > 16 * 1024
+    ) {
+      return fail();
+    }
+    const bytes = new Uint8Array(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (bytesRead < 1) {
+        return fail();
+      }
+      offset += bytesRead;
+    }
+    const afterRead = await handle.stat();
+    const pathAfterRead = await lstat(expected.path).catch(fail);
+    if (
+      afterRead.dev !== before.dev ||
+      afterRead.ino !== before.ino ||
+      afterRead.uid !== before.uid ||
+      afterRead.mode !== before.mode ||
+      afterRead.nlink !== before.nlink ||
+      afterRead.size !== before.size ||
+      pathAfterRead.isSymbolicLink() ||
+      pathAfterRead.dev !== before.dev ||
+      pathAfterRead.ino !== before.ino
+    ) {
+      return fail();
+    }
+    const text = new TextDecoder('utf8', { fatal: true }).decode(bytes);
+    const lines =
+      text.length === 0 ? [] : text.endsWith('\n') ? text.slice(0, -1).split('\n') : fail();
+    if (lines.length > 64 || lines.some((line) => line.length === 0)) {
+      return fail();
+    }
+    const parsed = lines.map((line) => JSON.parse(line) as unknown);
+    accept(parsed);
+    await handle.truncate(0);
+    await handle.sync();
+    const afterReset = await handle.stat();
+    const pathAfterReset = await lstat(expected.path).catch(fail);
+    if (
+      afterReset.dev !== before.dev ||
+      afterReset.ino !== before.ino ||
+      afterReset.uid !== before.uid ||
+      afterReset.mode !== before.mode ||
+      afterReset.nlink !== before.nlink ||
+      afterReset.size > 0 ||
+      pathAfterReset.isSymbolicLink() ||
+      pathAfterReset.dev !== before.dev ||
+      pathAfterReset.ino !== before.ino
+    ) {
+      return fail();
+    }
+  } catch {
+    return fail();
+  } finally {
+    await handle.close();
+  }
 };
 
 const readJsonResponse = async (url: URL, requestFetch: typeof fetch): Promise<unknown> => {
