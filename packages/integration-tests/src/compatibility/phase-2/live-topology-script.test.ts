@@ -1094,6 +1094,45 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual([false, false, false, false, false, false]);
   });
 
+  it('forwards only closed custom JWT device refresh stages for scenario 22', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('custom-jwt-22:') === true);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+    const accepted = ['oracle', 'candidate'].flatMap((target) =>
+      [
+        'authorize',
+        'initial-lease',
+        'refresh-request',
+        'refresh-http',
+        'jwt-verify',
+        'projection',
+      ].map(
+        (stage) => `Phase 2 client credentials command failed (${target}-custom-jwt-22:${stage}).`
+      )
+    );
+    const rejected = [
+      'Phase 2 client credentials command failed (oracle-custom-jwt-21:authorize).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-23:projection).',
+      'Phase 2 client credentials command failed (oracle-custom-jwt-22:unknown).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-22:jwt-verify:private-value).',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: accepted.length * patterns.length }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
+  });
+
   it('forwards only closed consent composite projection diagnostics', async () => {
     const patterns = Array.from(
       source.matchAll(

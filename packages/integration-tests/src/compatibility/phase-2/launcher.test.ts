@@ -353,6 +353,31 @@ describe('Phase 2 tracked launcher', () => {
       }
     }
   });
+  it('forwards only exact custom JWT device refresh stages for scenario 22', () => {
+    for (const target of ['oracle', 'candidate']) {
+      for (const stage of [
+        'authorize',
+        'initial-lease',
+        'refresh-request',
+        'refresh-http',
+        'jwt-verify',
+        'projection',
+      ]) {
+        const message = `Phase 2 client credentials command failed (${target}-custom-jwt-22:${stage}).\n`;
+        expect(diagnosticForPhase2Child(message)).toBe(message);
+      }
+    }
+    for (const diagnostic of [
+      'oracle-custom-jwt-21:authorize',
+      'candidate-custom-jwt-23:projection',
+      'oracle-custom-jwt-22:unknown',
+      'candidate-custom-jwt-22:jwt-verify:private-value',
+    ]) {
+      expect(
+        diagnosticForPhase2Child(`Phase 2 client credentials command failed (${diagnostic}).\n`)
+      ).toBe('Phase 2 client credentials launcher failed.\n');
+    }
+  });
   it('forwards only closed device candidate-invariant stages from the child', () => {
     for (const stage of [
       'candidate-invariant-device-0',

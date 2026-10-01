@@ -39,6 +39,7 @@ import {
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
   deviceScenarioProjectionFailure,
+  observeDeviceResourceRefreshContext,
   parsePhase2Arguments,
   phase2FixtureRecipeForMode,
   projectDeviceResourceRefreshClaims,
@@ -202,6 +203,193 @@ describe('device resource refresh claim projection', () => {
       applicationMatchesToken: false,
       protectedClaimsMatch: true,
     });
+  });
+});
+
+describe('device resource refresh observation', () => {
+  type ObservationInput = Parameters<typeof observeDeviceResourceRefreshContext>[0];
+  type ObservationStage = Parameters<ObservationInput['recordStage']>[0];
+  const expected = Object.freeze({
+    issuer: 'https://issuer.example/oidc',
+    audience: 'https://resource.example',
+    subject: 'approved-user',
+    clientId: 'approved-device-client',
+  });
+  const validClaims = Object.freeze({
+    iss: expected.issuer,
+    aud: expected.audience,
+    sub: expected.subject,
+    client_id: expected.clientId,
+    probe_invoked: true,
+    probe_user_context_present: true,
+    probe_application_context_present: true,
+    probe_user_matches_token: true,
+    probe_application_matches_token: true,
+    probe_user_id: expected.subject,
+    probe_application_id: expected.clientId,
+    probe_token_account_id: expected.subject,
+    probe_token_client_id: expected.clientId,
+    probe_token_kind: 'AccessToken',
+    probe_grant_type: 'device_code refresh_token',
+  });
+  const createHarness = (overrides: Partial<ObservationInput['transport']> = {}) => {
+    const stages: ObservationStage[] = [];
+    let clearCalls = 0;
+    let verifiedToken: string | undefined;
+    const absentToken = new Map<string, string>().get('missing');
+    const clear = () => {
+      clearCalls += 1;
+    };
+    const verifyAccessToken = async (token: string) => {
+      verifiedToken = token;
+      return validClaims;
+    };
+    let credentialLeaseReads = 0;
+    const transport = {
+      withCredentialLease: async <Result>(
+        use: (lease: {
+          getAccessToken(): string | undefined;
+          getRefreshToken(): string | undefined;
+          getIdToken(): string | undefined;
+          getPreviousRefreshToken(): string | undefined;
+          toJSON(): never;
+        }) => Result | Promise<Result>
+      ) => {
+        credentialLeaseReads += 1;
+        return use({
+          getAccessToken: () =>
+            credentialLeaseReads === 1 ? 'opaque-access-token' : 'signed.access.token',
+          getRefreshToken: () => 'opaque-refresh-token',
+          getIdToken: () => absentToken,
+          getPreviousRefreshToken: () => absentToken,
+          toJSON: () => {
+            throw new TypeError('credential lease is not serializable');
+          },
+        });
+      },
+      requestLifecycle: async () => ({ status: 200 }),
+      clear,
+      ...overrides,
+    };
+    return {
+      stages,
+      clear,
+      verifyAccessToken,
+      transport,
+      credentialLeaseReads: () => credentialLeaseReads,
+      clearCalls: () => clearCalls,
+      verifiedToken: () => verifiedToken,
+      input: {
+        transport,
+        issueAuthorization: async () => {
+          await Promise.resolve();
+        },
+        verifyAccessToken,
+        refreshRequest: Object.freeze({
+          kind: 'refresh' as const,
+          method: 'POST' as const,
+          proof: Object.freeze({ method: 'public' as const, clientId: expected.clientId }),
+          resource: expected.audience,
+          scope: 'read',
+        }),
+        expected,
+        recordStage: (stage: ObservationStage) => {
+          stages.push(stage);
+        },
+      } satisfies ObservationInput,
+    };
+  };
+
+  it('observes a successful refresh in the closed lifecycle order and clears credentials', async () => {
+    const harness = createHarness();
+    await expect(observeDeviceResourceRefreshContext(harness.input)).resolves.toMatchObject({
+      status: 200,
+      initialAccessOpaque: true,
+      invoked: true,
+    });
+    expect(harness.stages).toEqual([
+      'authorize',
+      'initial-lease',
+      'refresh-request',
+      'refresh-http',
+      'jwt-verify',
+      'projection',
+    ]);
+    expect(harness.verifiedToken()).toBe('signed.access.token');
+    expect(harness.clearCalls()).toBe(1);
+  });
+
+  it('rejects a non-200 refresh before reading or verifying refreshed credentials', async () => {
+    const harness = createHarness({ requestLifecycle: async () => ({ status: 503 }) });
+    await expect(observeDeviceResourceRefreshContext(harness.input)).rejects.toEqual(
+      new TypeError('Invalid Phase 2 custom JWT device resource refresh context')
+    );
+    expect(harness.stages).toEqual([
+      'authorize',
+      'initial-lease',
+      'refresh-request',
+      'refresh-http',
+    ]);
+    expect(harness.credentialLeaseReads()).toBe(1);
+    expect(harness.verifiedToken()).toBeUndefined();
+    expect(harness.clearCalls()).toBe(1);
+  });
+
+  const failureCases: ReadonlyArray<
+    readonly [ObservationStage, (input: ObservationInput) => ObservationInput]
+  > = [
+    [
+      'authorize',
+      (input) => ({
+        ...input,
+        issueAuthorization: async () => {
+          throw new Error('private user id');
+        },
+      }),
+    ],
+    [
+      'initial-lease',
+      (input) => ({
+        ...input,
+        transport: {
+          ...input.transport,
+          withCredentialLease: async () => {
+            throw new Error('private initial token');
+          },
+        },
+      }),
+    ],
+    [
+      'refresh-request',
+      (input) => ({
+        ...input,
+        transport: {
+          ...input.transport,
+          requestLifecycle: async () => {
+            throw new Error('private response');
+          },
+        },
+      }),
+    ],
+    [
+      'jwt-verify',
+      (input) => ({
+        ...input,
+        verifyAccessToken: async () => {
+          throw new Error('private jwt');
+        },
+      }),
+    ],
+  ];
+
+  it.each(failureCases)('reports fixed error text for a %s failure', async (stage, transform) => {
+    const harness = createHarness();
+    const input = transform(harness.input);
+    await expect(observeDeviceResourceRefreshContext(input)).rejects.toEqual(
+      new TypeError('Invalid Phase 2 custom JWT device resource refresh context')
+    );
+    expect(harness.stages.at(-1)).toBe(stage);
+    expect(harness.clearCalls()).toBe(1);
   });
 });
 
@@ -1361,6 +1549,79 @@ describe('Phase 2 CLI', () => {
         'stderr:Phase 2 client credentials command failed (oracle-execution).'
       );
       expect(calls.join(' ')).not.toContain(`custom-jwt-${suffix}`);
+    }
+  });
+
+  it('reports only a closed device refresh stage for custom JWT scenario 22', async () => {
+    const candidateStageArguments = [
+      'candidate-invariants',
+      '--profile',
+      profilePath,
+      '--schema',
+      schemaPath,
+      '--target',
+      candidateTargetPath,
+      '--output',
+      path.join(root, 'phase-2-client-credentials-candidate-invariants.json'),
+      '--temp-root',
+      root,
+    ];
+    for (const target of ['oracle', 'candidate'] as const) {
+      for (const stage of [
+        'authorize',
+        'initial-lease',
+        'refresh-request',
+        'refresh-http',
+        'jwt-verify',
+        'projection',
+      ]) {
+        const calls: string[] = [];
+        const base = dependencies(calls);
+        // eslint-disable-next-line no-await-in-loop -- CLI fixtures share one output path.
+        const code = await runPhase2CliMain(
+          target === 'oracle' ? oracleArguments() : candidateStageArguments,
+          undefined,
+          {
+            ...base,
+            ...(target === 'oracle'
+              ? {
+                  executeOracle: async () => {
+                    throw new Error(`Phase 2 stage failed: oracle-custom-jwt-22:${stage}`);
+                  },
+                }
+              : {
+                  executeCandidateInvariants: async () => {
+                    throw new Error(`Phase 2 stage failed: candidate-custom-jwt-22:${stage}`);
+                  },
+                }),
+          }
+        );
+        expect(code).toBe(1);
+        expect(calls).toContain(
+          `stderr:Phase 2 client credentials command failed (${target}-custom-jwt-22:${stage}).`
+        );
+      }
+    }
+
+    for (const diagnostic of [
+      'oracle-custom-jwt-21:authorize',
+      'oracle-custom-jwt-23:projection',
+      'oracle-custom-jwt-22:unknown',
+      'oracle-custom-jwt-22:jwt-verify:private credential',
+    ]) {
+      const calls: string[] = [];
+      // eslint-disable-next-line no-await-in-loop -- CLI fixtures share one output path.
+      const code = await runPhase2CliMain(oracleArguments(), undefined, {
+        ...dependencies(calls),
+        executeOracle: async () => {
+          throw new Error(`Phase 2 stage failed: ${diagnostic}`);
+        },
+      });
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+      expect(calls.join(' ')).not.toContain(diagnostic);
     }
   });
 

@@ -33,7 +33,11 @@ import {
 } from './candidate-invariants/device-authorization.js';
 import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
 import { createCustomJwtHttpPort } from './clients/custom-jwt.js';
-import { createDeviceAuthorizationTransportLease } from './clients/device-authorization.js';
+import {
+  createDeviceAuthorizationTransportLease,
+  type DeviceCredentialLease,
+  type DeviceLifecycleRequest,
+} from './clients/device-authorization.js';
 import { issuePublicUserResourceTokensWithPassword } from './clients/user-token-issuance.js';
 import { phase2InvariantRequestKind } from './driver-protocol.js';
 import {
@@ -445,10 +449,17 @@ type DeviceFailureStage =
   | 'transition'
   | 'verification-get'
   | 'verification-post';
+type DeviceResourceRefreshFailureStage =
+  | 'authorize'
+  | 'initial-lease'
+  | 'refresh-request'
+  | 'refresh-http'
+  | 'jwt-verify'
+  | 'projection';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const customJwtStageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3]))$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-22:(?:authorize|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
 const customJwtFailurePattern =
   /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])\)$/u;
 const candidateInvariantStageFailurePattern =
@@ -540,6 +551,68 @@ export const projectDeviceResourceRefreshClaims = (
     grantType:
       claims.probe_grant_type === 'device_code refresh_token' ? 'device_code refresh_token' : null,
   });
+
+const invalidDeviceResourceRefreshContext =
+  'Invalid Phase 2 custom JWT device resource refresh context';
+
+export const observeDeviceResourceRefreshContext = async (
+  input: Readonly<{
+    refreshRequest: DeviceLifecycleRequest & Readonly<{ kind: 'refresh' }>;
+    expected: Readonly<{ issuer: string; audience: string; subject: string; clientId: string }>;
+    transport: Readonly<{
+      withCredentialLease<Result>(
+        use: (lease: DeviceCredentialLease) => Result | Promise<Result>
+      ): Promise<Result>;
+      requestLifecycle(
+        request: DeviceLifecycleRequest & Readonly<{ kind: 'refresh' }>
+      ): Promise<Readonly<{ status: number }>>;
+      clear(): void;
+    }>;
+    issueAuthorization(): Promise<void>;
+    verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
+    recordStage(stage: DeviceResourceRefreshFailureStage): void;
+  }>
+) => {
+  try {
+    try {
+      input.recordStage('authorize');
+      await input.issueAuthorization();
+      input.recordStage('initial-lease');
+      const initialAccessOpaque = await input.transport.withCredentialLease(async (lease) => {
+        const access = lease.getAccessToken();
+        const refresh = lease.getRefreshToken();
+        return (
+          typeof access === 'string' &&
+          access.split('.').length !== 3 &&
+          typeof refresh === 'string' &&
+          refresh.length > 0
+        );
+      });
+      input.recordStage('refresh-request');
+      const refreshed = await input.transport.requestLifecycle(input.refreshRequest);
+      input.recordStage('refresh-http');
+      if (refreshed.status !== 200) {
+        throw new TypeError(invalidDeviceResourceRefreshContext);
+      }
+      input.recordStage('jwt-verify');
+      const claims = await input.transport.withCredentialLease(async (lease) => {
+        const access = lease.getAccessToken() ?? fail();
+        return input.verifyAccessToken(access);
+      });
+      input.recordStage('projection');
+      const projected = projectDeviceResourceRefreshClaims(claims, input.expected);
+      return Object.freeze({
+        status: refreshed.status,
+        initialAccessOpaque,
+        ...projected,
+      });
+    } finally {
+      input.transport.clear();
+    }
+  } catch {
+    throw new TypeError(invalidDeviceResourceRefreshContext);
+  }
+};
 
 const parseFlagMap = (
   values: readonly string[],
@@ -992,6 +1065,7 @@ const runTargetScenarios = async (
     }
     let customJwtScenarios: readonly CustomJwtScenarioEvidence[];
     let customJwtFetchScenarios: readonly CustomJwtFetchScenarioEvidence[];
+    let deviceFailureStage: DeviceResourceRefreshFailureStage | undefined;
     try {
       const collect = async (
         authorizationHeaders: Readonly<Record<string, string>>,
@@ -1075,28 +1149,25 @@ const runTargetScenarios = async (
             const transport = createDeviceAuthorizationTransportLease({
               target: descriptor.target,
             });
-            try {
-              const resource = fixture.public.resources.primary.indicator;
-              await issueDeviceAuthorization(
-                transport,
-                { target: descriptor.target, fixture, jwks, state },
-                {
-                  client: 'firstParty',
-                  scope: 'openid offline_access read',
-                  resource,
-                }
-              );
-              const initialAccessOpaque = await transport.withCredentialLease(async (lease) => {
-                const access = lease.getAccessToken();
-                const refresh = lease.getRefreshToken();
-                return (
-                  typeof access === 'string' &&
-                  access.split('.').length !== 3 &&
-                  typeof refresh === 'string' &&
-                  refresh.length > 0
+            const resource = fixture.public.resources.primary.indicator;
+            return observeDeviceResourceRefreshContext({
+              transport,
+              issueAuthorization: async () => {
+                await issueDeviceAuthorization(
+                  transport,
+                  { target: descriptor.target, fixture, jwks, state },
+                  {
+                    client: 'firstParty',
+                    scope: 'openid offline_access read',
+                    resource,
+                  }
                 );
-              });
-              const refreshed = await transport.requestLifecycle({
+              },
+              verifyAccessToken: async (access) => {
+                const verified = await jwtVerify(access, createLocalJWKSet(jwks));
+                return verified.payload;
+              },
+              refreshRequest: {
                 kind: 'refresh',
                 method: 'POST',
                 proof: {
@@ -1105,26 +1176,17 @@ const runTargetScenarios = async (
                 },
                 resource,
                 scope: 'read',
-              });
-              const claims = await transport.withCredentialLease(async (lease) => {
-                const access = lease.getAccessToken() ?? fail();
-                const verified = await jwtVerify(access, createLocalJWKSet(jwks));
-                return verified.payload;
-              });
-              const projected = projectDeviceResourceRefreshClaims(claims, {
+              },
+              expected: {
                 issuer: new URL('oidc', descriptor.target.coreUrl).toString(),
                 audience: resource,
                 subject: fixture.status?.user.id ?? fail(),
                 clientId: fixture.public.deviceClients.firstParty.id,
-              });
-              return Object.freeze({
-                status: refreshed.status,
-                initialAccessOpaque,
-                ...projected,
-              });
-            } finally {
-              transport.clear();
-            }
+              },
+              recordStage: (stage) => {
+                deviceFailureStage = stage;
+              },
+            });
           },
           readAndResetFetchReceipts: async ({ accept }) =>
             readAndResetPhase2FetchReceipts(prepared, accept),
@@ -1171,6 +1233,11 @@ const runTargetScenarios = async (
       const failureIndex =
         error instanceof Error ? customJwtFailurePattern.exec(error.message)?.[1] : undefined;
       if (failureIndex !== undefined) {
+        if (failureIndex === '22' && deviceFailureStage !== undefined) {
+          throw new Error(
+            `Phase 2 stage failed: ${descriptor.kind}-custom-jwt-22:${deviceFailureStage}`
+          );
+        }
         throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt-${failureIndex}`);
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
