@@ -1094,6 +1094,35 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual([false, false, false, false, false, false]);
   });
 
+  it('forwards only exact candidate admin bearer stages', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('candidate-admin-bearer-') === true);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+    await expect(
+      Promise.all(
+        [
+          'Phase 2 client credentials command failed (candidate-admin-bearer-admission).',
+          'Phase 2 client credentials command failed (candidate-admin-bearer-management-refresh).',
+          'Phase 2 client credentials command failed (candidate-admin-bearer-jwks).',
+        ].flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual([true, true, true, true, true, true]);
+    await expect(
+      Promise.all(
+        [
+          'Phase 2 client credentials command failed (candidate-admin-bearer-consumer).',
+          'Phase 2 client credentials command failed (candidate-admin-bearer-unknown).',
+          'Phase 2 client credentials command failed (candidate-admin-bearer-jwks):private.',
+        ].flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual([false, false, false, false, false, false]);
+  });
+
   it('forwards only closed custom JWT device refresh stages for scenario 22', async () => {
     const patterns = Array.from(
       source.matchAll(

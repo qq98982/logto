@@ -47,8 +47,10 @@ import {
   readPhase2TargetDescriptor,
   runPhase2Cli,
   runPhase2CliMain,
+  withCandidateAdminBearerDiagnostic,
   type Phase2CliDependencies,
 } from './cli.js';
+import type { Phase2FixtureSecretLease } from './fixtures.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
 
@@ -122,6 +124,72 @@ describe('device projection diagnostic fields', () => {
         { id: { claims: { claimKeys: ['iss'] } } }
       )
     ).toBeUndefined();
+  });
+});
+
+const wrapCandidateConsumer = async (
+  use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<unknown>
+) => {
+  try {
+    return await use('test-bearer', {} as Phase2FixtureSecretLease);
+  } catch {
+    throw new TypeError('Invalid Phase 2 Admin Management bearer flow (consumer)');
+  }
+};
+
+describe('candidate fixture diagnostics', () => {
+  it('classifies the raw consumer failure before the admin wrapper erases it', async () => {
+    await expect(
+      withCandidateAdminBearerDiagnostic(
+        wrapCandidateConsumer,
+        async () => {
+          throw new Error('Phase 2 custom JWT scenario failed (primary:22)');
+        },
+        () => 'jwt-verify'
+      )
+    ).rejects.toThrow('Phase 2 stage failed: candidate-custom-jwt-22:jwt-verify');
+    await expect(
+      withCandidateAdminBearerDiagnostic(
+        async () => {
+          throw new TypeError('Invalid Phase 2 Admin Management bearer flow (jwks)');
+        },
+        async () => {
+          throw new Error('unreachable consumer');
+        },
+        () => {
+          throw new Error('unreachable device stage');
+        }
+      )
+    ).rejects.toThrow('Phase 2 stage failed: candidate-admin-bearer-jwks');
+    await Promise.all(
+      [
+        new Error('Phase 2 custom JWT scenario failed (primary:22):private'),
+        new Error('Phase 2 custom JWT scenario failed (primary:22)\nprivate'),
+      ].map(async (privateFailure) =>
+        expect(
+          withCandidateAdminBearerDiagnostic(
+            wrapCandidateConsumer,
+            async () => {
+              throw privateFailure;
+            },
+            () => 'jwt-verify'
+          )
+        ).rejects.toThrow('Phase 2 stage failed: candidate-fixture')
+      )
+    );
+    await expect(
+      withCandidateAdminBearerDiagnostic(
+        async () => {
+          throw new TypeError('Invalid Phase 2 Admin Management bearer flow (jwks):private');
+        },
+        async () => {
+          throw new Error('unreachable consumer');
+        },
+        () => {
+          throw new Error('unreachable device stage');
+        }
+      )
+    ).rejects.toThrow('Phase 2 stage failed: candidate-fixture');
   });
 });
 

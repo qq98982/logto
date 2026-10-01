@@ -95,6 +95,20 @@ describe('Phase 2 tracked launcher', () => {
     ).toBe('Phase 2 client credentials command failed (candidate-fixture).\n');
     expect(
       diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate-admin-bearer-management-refresh).\n'
+      )
+    ).toBe(
+      'Phase 2 client credentials command failed (candidate-admin-bearer-management-refresh).\n'
+    );
+    for (const suffix of [':private\n', '\nprivate', '-private).\n']) {
+      expect(
+        diagnosticForPhase2Child(
+          `Phase 2 client credentials command failed (candidate-admin-bearer-jwks).${suffix}`
+        )
+      ).toBe('Phase 2 client credentials launcher failed.\n');
+    }
+    expect(
+      diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (differential-cleanup).\n'
       )
     ).toBe('Phase 2 client credentials command failed (differential-cleanup).\n');

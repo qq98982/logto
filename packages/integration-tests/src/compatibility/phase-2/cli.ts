@@ -53,6 +53,7 @@ import {
   createReferencePhase2FixtureProvisioner,
   runWithPhase2Fixture,
   type Phase2CandidateFixtureRecipe,
+  type Phase2FixtureSecretLease,
   type Phase2FixtureProvisioner,
   type ProvisionedPhase2Fixture,
 } from './fixtures.js';
@@ -460,6 +461,8 @@ type DeviceResourceRefreshFailureStage =
   | 'projection';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+const candidateAdminBearerStageFailurePattern =
+  /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 const customJwtStageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
 const customJwtFailurePattern =
@@ -473,6 +476,55 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
   (logoutSessionScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
+const candidateAdminBearerFailurePattern =
+  /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
+export const withCandidateAdminBearerDiagnostic = async <Result>(
+  authenticate: (
+    use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>
+  ) => Promise<Result>,
+  use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>,
+  deviceStage: () => DeviceResourceRefreshFailureStage | undefined
+): Promise<Result> => {
+  let consumerError: unknown;
+  try {
+    return await authenticate(async (bearer, lease) => {
+      try {
+        return await use(bearer, lease);
+      } catch (error: unknown) {
+        consumerError = error;
+        throw error;
+      }
+    });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      error.message === 'Invalid Phase 2 Admin Management bearer flow (consumer)'
+    ) {
+      const failureIndex =
+        consumerError instanceof Error
+          ? customJwtFailurePattern.exec(consumerError.message)?.[1]
+          : undefined;
+      if (failureIndex !== undefined) {
+        const stage = deviceStage();
+        throw new Error(
+          failureIndex === '22' && stage !== undefined
+            ? `Phase 2 stage failed: candidate-custom-jwt-22:${stage}`
+            : `Phase 2 stage failed: candidate-custom-jwt-${failureIndex}`
+        );
+      }
+      throw new Error('Phase 2 stage failed: candidate-fixture');
+    }
+    const adminStage =
+      error instanceof Error
+        ? candidateAdminBearerFailurePattern.exec(error.message)?.[1]
+        : undefined;
+    throw new Error(
+      adminStage
+        ? `Phase 2 stage failed: candidate-admin-bearer-${adminStage}`
+        : 'Phase 2 stage failed: candidate-fixture'
+    );
+  }
+};
 export const closedDeviceFailureStage = (error: unknown): DeviceFailureStage | undefined => {
   if (!(error instanceof Error)) {
     return undefined;
@@ -1233,15 +1285,15 @@ const runTargetScenarios = async (
       };
       const collected =
         descriptor.kind === 'candidate'
-          ? await withPhase2AdminManagementBearer(
-              descriptor.target,
-              fixture,
+          ? await withCandidateAdminBearerDiagnostic<Awaited<ReturnType<typeof collect>>>(
+              async (use) => withPhase2AdminManagementBearer(descriptor.target, fixture, use),
               async (bearer, lease) =>
                 collect(
                   { authorization: `Bearer ${bearer}` },
                   lease.getClientSecret('basic'),
                   lease.getSubjectPassword?.() ?? fail()
-                )
+                ),
+              () => deviceFailureStage
             )
           : await fixture.withSecretLease(async (lease) =>
               collect(
@@ -1253,6 +1305,17 @@ const runTargetScenarios = async (
       customJwtScenarios = collected.standard;
       customJwtFetchScenarios = collected.fetch;
     } catch (error: unknown) {
+      if (descriptor.kind === 'candidate') {
+        if (
+          error instanceof Error &&
+          (customJwtStageFailurePattern.test(error.message) ||
+            candidateAdminBearerStageFailurePattern.test(error.message) ||
+            error.message === 'Phase 2 stage failed: candidate-fixture')
+        ) {
+          throw error;
+        }
+        throw new Error('Phase 2 stage failed: candidate-fixture');
+      }
       const failureIndex =
         error instanceof Error ? customJwtFailurePattern.exec(error.message)?.[1] : undefined;
       if (failureIndex !== undefined) {
@@ -1278,11 +1341,14 @@ const runTargetScenarios = async (
       error instanceof Error &&
       (scenarioFailurePattern.test(error.message) ||
         customJwtStageFailurePattern.test(error.message) ||
+        candidateAdminBearerStageFailurePattern.test(error.message) ||
         stageFailurePattern.test(error.message))
     ) {
       throw error;
     }
-    throw new Error(`Phase 2 stage failed: ${descriptor.kind}-fixture`);
+    throw descriptor.kind === 'candidate'
+      ? new Error('Phase 2 stage failed: candidate-fixture')
+      : new Error('Phase 2 stage failed: oracle-fixture');
   });
   const success = scenarios.find(
     ({ id }) => id === 'client-credentials.organization-resource-scope'
@@ -2012,6 +2078,7 @@ export const runPhase2Cli = async (
               error instanceof Error &&
               (scenarioFailurePattern.test(error.message) ||
                 customJwtStageFailurePattern.test(error.message) ||
+                candidateAdminBearerStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -2049,6 +2116,7 @@ export const runPhase2Cli = async (
           error instanceof Error &&
           (scenarioFailurePattern.test(error.message) ||
             customJwtStageFailurePattern.test(error.message) ||
+            candidateAdminBearerStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -2140,7 +2208,11 @@ export const runPhase2CliMain = async (
     const match = original instanceof Error ? scenarioFailurePattern.exec(original.message) : null;
     const customJwtStage =
       original instanceof Error ? customJwtStageFailurePattern.exec(original.message) : null;
-    const stage = original instanceof Error ? stageFailurePattern.exec(original.message) : null;
+    const stage =
+      original instanceof Error
+        ? (stageFailurePattern.exec(original.message) ??
+          candidateAdminBearerStageFailurePattern.exec(original.message))
+        : null;
     const candidateInvariantStage =
       original instanceof Error
         ? candidateInvariantStageFailurePattern.exec(original.message)
