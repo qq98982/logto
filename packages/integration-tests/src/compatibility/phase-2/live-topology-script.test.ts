@@ -354,6 +354,31 @@ afterAll(async () => {
 });
 
 describe('Phase 2 client-credentials live topology runner', () => {
+  it('preserves the observer health argv through Podman Docker API tokenization', async () => {
+    const document = JSON.parse(await readFile(topologyPath, 'utf8')) as {
+      'x-phase2-services': Record<string, { healthcheck?: { test?: unknown } }>;
+    };
+    for (const name of ['oracle-fetch-observer', 'candidate-fetch-observer']) {
+      const testCommand = document['x-phase2-services'][name]?.healthcheck?.test;
+      expect(Array.isArray(testCommand)).toBe(true);
+      const command = (testCommand as unknown[]).map((value) =>
+        typeof value === 'string' ? value : ''
+      );
+      expect(command.slice(0, 3)).toEqual(['CMD', 'node', '-e']);
+      expect(command).toHaveLength(4);
+      const podmanArgv = command.flatMap((argument) => argument.split(/\s+/u));
+      expect(podmanArgv).toEqual(command);
+      const program = command[3] ?? '';
+      expect(program).toContain("require('node:https')");
+      expect(program).toContain('fetch-observer.aster.test');
+      expect(program).toContain("path:'/healthz'");
+      expect(program).toContain('ASTER_FETCH_OBSERVER_CA_FILE');
+      expect(program).toContain('statusCode===204?0:1');
+      expect(program).toContain(".on('error',()=>process.exit(1))");
+      expect(program).toContain('setTimeout(2000');
+    }
+  });
+
   it('disables only periodic health timers in the selected Podman documents', async () => {
     const directory = await mkdtemp(path.join(temporaryRoot, 'effective-compose-'));
     const oracleOutput = path.join(directory, 'oracle.json');
