@@ -1,5 +1,6 @@
 /* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One private fake-engine harness exercises both shell protocols, lifecycle state, restoration, and secret argv containment. */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, link, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import net, { type Server } from 'node:net';
 import path from 'node:path';
@@ -76,6 +77,12 @@ const fixture = {
     unassigned: { id: 'unassigned-scope', name: 'unassigned' },
   },
   boundary: { primary: 'provisioned', foreign: 'unchanged' },
+} as const;
+const candidateFixture = {
+  ...fixture,
+  admin: {
+    allocationId: `phase2-admin-${createHash('sha256').update(fixture.allocationId).digest('hex')}`,
+  },
 } as const;
 const candidateTarget = {
   label: 'candidate',
@@ -660,7 +667,7 @@ const stateRequest = (
     scenarioId: 'client-credentials.basic-explicit-resource',
     target: kind === 'candidate' ? candidateTarget : oracleTarget,
     foreignTarget: kind === 'candidate' ? candidateForeignTarget : oracleForeignTarget,
-    fixture,
+    fixture: kind === 'candidate' ? candidateFixture : fixture,
     ...(operation === 'finish'
       ? {
           signingKeyId:
@@ -691,7 +698,7 @@ const invariantRequest = (invariantId: string) => ({
   kind: 'phase2-client-credentials-candidate-invariant-request',
   invariantId,
   target: { primary: candidateTarget, foreign: candidateForeignTarget },
-  fixture,
+  fixture: candidateFixture,
   credentials: { basic: basicSecret, post: postSecret },
 });
 
@@ -707,7 +714,7 @@ const deviceInvariantRequest = (
   invariantId,
   operation,
   target: { primary: candidateTarget, foreign: candidateForeignTarget },
-  fixture,
+  fixture: candidateFixture,
   private: privateValues,
   observation,
   ...(handle === undefined ? {} : { handle }),
@@ -1778,6 +1785,58 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       expect(finished.stderr).toBe('Phase 2 client credentials state driver failed.\n');
     }
   );
+
+  it.each([
+    ['missing admin authority', fixture],
+    ['wrong admin child', { ...candidateFixture, admin: { allocationId: 'phase2-admin-wrong' } }],
+    [
+      'unknown admin field',
+      { ...candidateFixture, admin: { ...candidateFixture.admin, unexpected: true } },
+    ],
+    ['a different root allocation', { ...candidateFixture, allocationId: 'another-allocation' }],
+    ['a nonstring admin child', { ...candidateFixture, admin: { allocationId: 1 } }],
+  ])('rejects %s before either driver invokes tools', async (_name, invalidFixture) => {
+    const harness = await createHarness();
+    const requests = [
+      [harness.state, { ...stateRequest('begin'), fixture: invalidFixture }],
+      [
+        harness.invariant,
+        {
+          ...invariantRequest('client-credentials.cross-tenant-authority-rejected'),
+          fixture: invalidFixture,
+        },
+      ],
+    ] as const;
+    for (const [executable, request] of requests) {
+      const result = await invoke(executable, JSON.stringify(request), harness.env);
+      expect(result.code).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(
+        executable === harness.state
+          ? 'Phase 2 client credentials state driver failed.\n'
+          : 'Phase 2 client credentials invariant driver failed.\n'
+      );
+    }
+    await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
+  });
+
+  it('rejects candidate admin authority on an oracle state request before invoking tools', async () => {
+    const harness = await createHarness('oracle');
+    const result = await invoke(
+      harness.state,
+      JSON.stringify({
+        ...stateRequest('begin', {}, 'oracle'),
+        fixture: candidateFixture,
+      }),
+      harness.env
+    );
+    expect(result).toMatchObject({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials state driver failed.\n',
+    });
+    await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
+  });
 
   it.each([
     ['unknown field', JSON.stringify({ ...stateRequest('begin'), unexpected: true })],

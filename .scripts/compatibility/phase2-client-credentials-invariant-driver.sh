@@ -250,7 +250,7 @@ request_bytes="$(printf '%s' "$raw_request" | /usr/bin/wc -c | /usr/bin/tr -d '[
 [[ "$request_bytes" =~ ^[0-9]+$ && "$request_bytes" -gt 0 && "$request_bytes" -le "$MAX_INPUT_BYTES" ]] || die
 
 request="$(printf '%s' "$raw_request" | "$PYTHON_BIN" -c '
-import json, re, sys
+import hashlib, json, re, sys
 class DuplicateKey(ValueError): pass
 def pairs(items):
     out={}
@@ -266,8 +266,11 @@ def endpoint(value, core, admin):
     exact(value,["label","coreUrl","adminUrl"])
     if value != {"label":"candidate","coreUrl":core,"adminUrl":admin}: raise ValueError()
 def fixture(value):
-    exact(value,["allocationId","clients","deviceClients","resources","organization","scopes","boundary"])
+    exact(value,["allocationId","clients","deviceClients","resources","organization","scopes","boundary","admin"])
     text(value["allocationId"],r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+    exact(value["admin"],["allocationId"])
+    expected_admin="phase2-admin-"+hashlib.sha256(value["allocationId"].encode("utf8")).hexdigest()
+    if value["admin"]["allocationId"] != expected_admin: raise ValueError()
     exact(value["clients"],["basic","post"])
     for name,method in (("basic","client_secret_basic"),("post","client_secret_post")):
         exact(value["clients"][name],["id","method"]); text(value["clients"][name]["id"],r"^[A-Za-z0-9._~-]{1,128}$")

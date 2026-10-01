@@ -87,7 +87,7 @@ request_bytes="$(printf '%s' "$raw_request" | /usr/bin/wc -c | /usr/bin/tr -d '[
 [[ "$request_bytes" =~ ^[0-9]+$ && "$request_bytes" -gt 0 && "$request_bytes" -le "$MAX_INPUT_BYTES" ]] || die
 
 request="$(printf '%s' "$raw_request" | "$PYTHON_BIN" -c '
-import json, re, sys
+import hashlib, json, re, sys
 
 class DuplicateKey(ValueError): pass
 def pairs(items):
@@ -104,9 +104,13 @@ def text(value, pattern=r"^[^\x00-\x1f\x7f]{1,4096}$"):
 def target(value, label, core, admin):
     exact(value, ["label", "coreUrl", "adminUrl"])
     if value != {"label": label, "coreUrl": core, "adminUrl": admin}: raise ValueError()
-def fixture(value):
-    exact(value, ["allocationId", "clients", "deviceClients", "resources", "organization", "scopes", "boundary"])
+def fixture(value, label):
+    exact(value, ["allocationId", "clients", "deviceClients", "resources", "organization", "scopes", "boundary"] + (["admin"] if label == "candidate" else []))
     text(value["allocationId"], r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+    if label == "candidate":
+        exact(value["admin"], ["allocationId"])
+        expected_admin = "phase2-admin-" + hashlib.sha256(value["allocationId"].encode("utf8")).hexdigest()
+        if value["admin"]["allocationId"] != expected_admin: raise ValueError()
     exact(value["clients"], ["basic", "post"])
     exact(value["clients"]["basic"], ["id", "method"]); exact(value["clients"]["post"], ["id", "method"])
     if value["clients"]["basic"]["method"] != "client_secret_basic" or value["clients"]["post"]["method"] != "client_secret_post": raise ValueError()
@@ -163,7 +167,7 @@ try:
         target(value["target"], label, "http://localhost:3321/", "http://localhost:3421/")
         target(value["foreignTarget"], label, "http://localhost:3322/", "http://localhost:3422/")
     else: raise ValueError()
-    fixture(value["fixture"])
+    fixture(value["fixture"], label)
     if operation == "finish":
         text(value["handle"], r"^[0-9a-f]{32}$")
         if type(value["responseStatus"]) is not int or not 100 <= value["responseStatus"] <= 599 or type(value["tokenIssued"]) is not bool: raise ValueError()
