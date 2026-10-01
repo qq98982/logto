@@ -1035,6 +1035,34 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only closed custom JWT failure indices', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('custom-jwt-(') === true);
+    expect(patterns).toHaveLength(2);
+    expect(patterns[0]).toBe(patterns[1]);
+    await expect(
+      Promise.all(
+        [
+          'Phase 2 client credentials command failed (oracle-custom-jwt-0).',
+          'Phase 2 client credentials command failed (candidate-custom-jwt-23).',
+        ].flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual([true, true, true, true]);
+    await expect(
+      Promise.all(
+        [
+          'Phase 2 client credentials command failed (oracle-custom-jwt-24).',
+          'Phase 2 client credentials command failed (oracle-custom-jwt-01).',
+          'Phase 2 client credentials command failed (candidate-custom-jwt-0-private).',
+        ].flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual([false, false, false, false, false, false]);
+  });
+
   it('forwards only closed consent composite projection diagnostics', async () => {
     const patterns = Array.from(
       source.matchAll(

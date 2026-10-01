@@ -326,22 +326,31 @@ describe('Phase 2 tracked launcher', () => {
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
   });
-  it('forwards only exact custom JWT stage diagnostics from the child', () => {
+  it('forwards only exact closed custom JWT stage diagnostics from the child', () => {
     for (const target of ['oracle', 'candidate']) {
-      const message = `Phase 2 client credentials command failed (${target}-custom-jwt).\n`;
-      expect(diagnosticForPhase2Child(message)).toBe(message);
-      expect(
-        diagnosticForPhase2ChildResult({
-          code: 1,
-          signal: null,
-          stdout: '',
-          stderr: message,
-          timedOut: false,
-        })
-      ).toBe(message);
-      expect(diagnosticForPhase2Child(`${message}private-value`)).toBe(
-        'Phase 2 client credentials launcher failed.\n'
-      );
+      for (const suffix of ['', '-0', '-23']) {
+        const message = `Phase 2 client credentials command failed (${target}-custom-jwt${suffix}).\n`;
+        expect(diagnosticForPhase2Child(message)).toBe(message);
+        expect(
+          diagnosticForPhase2ChildResult({
+            code: 1,
+            signal: null,
+            stdout: '',
+            stderr: message,
+            timedOut: false,
+          })
+        ).toBe(message);
+        expect(diagnosticForPhase2Child(`${message}private-value`)).toBe(
+          'Phase 2 client credentials launcher failed.\n'
+        );
+      }
+      for (const suffix of ['-24', '-01', '-0-private']) {
+        expect(
+          diagnosticForPhase2Child(
+            `Phase 2 client credentials command failed (${target}-custom-jwt${suffix}).\n`
+          )
+        ).toBe('Phase 2 client credentials launcher failed.\n');
+      }
     }
   });
   it('forwards only closed device candidate-invariant stages from the child', () => {

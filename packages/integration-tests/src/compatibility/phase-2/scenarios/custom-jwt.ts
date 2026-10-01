@@ -233,8 +233,9 @@ const assertError = (response: CustomJwtHttpResponse, status: number, code: stri
     fail();
   }
 };
-const fixedFailure = (stage: 'primary' | 'cleanup' | 'primary+cleanup'): TypeError =>
-  new TypeError(`Phase 2 custom JWT scenario failed (${stage})`);
+const fixedFailure = (
+  stage: 'primary' | 'cleanup' | 'primary+cleanup' | `primary:${number}`
+): TypeError => new TypeError(`Phase 2 custom JWT scenario failed (${stage})`);
 
 const fetchOrigin = 'https://fetch-observer.aster.test:8443';
 const fetchScripts = Object.freeze([
@@ -410,6 +411,7 @@ export const runCustomJwtScenarios = async (
   };
   let collected: readonly CustomJwtScenarioEvidence[] | undefined;
   let primaryFailed = false;
+  let primaryFailureIndex: number | undefined;
   try {
     const missing = await port.request({ method: 'GET', path });
     assertError(missing, 404, 'entity.not_exists_with_id');
@@ -720,6 +722,7 @@ export const runCustomJwtScenarios = async (
     collected = Object.freeze(results);
   } catch {
     primaryFailed = true;
+    primaryFailureIndex = results.length;
   }
   try {
     const cleanupResults = await Promise.all(
@@ -742,7 +745,11 @@ export const runCustomJwtScenarios = async (
     throw fixedFailure(primaryFailed ? 'primary+cleanup' : 'cleanup');
   }
   if (primaryFailed) {
-    throw fixedFailure('primary');
+    throw fixedFailure(
+      primaryFailureIndex !== undefined && primaryFailureIndex <= customJwtScenarioIds.length
+        ? `primary:${primaryFailureIndex}`
+        : 'primary'
+    );
   }
   return collected ?? fail();
 };

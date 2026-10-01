@@ -1326,6 +1326,44 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('reports only a closed custom JWT failure index', async () => {
+    for (const index of ['0', '23']) {
+      const calls: string[] = [];
+      // eslint-disable-next-line no-await-in-loop -- CLI fixtures share one output path.
+      const code = await runPhase2CliMain(oracleArguments(), undefined, {
+        ...dependencies(calls),
+        executeOracle: async () => {
+          throw new Error(`Phase 2 stage failed: oracle-custom-jwt-${index}`);
+        },
+      });
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (oracle-custom-jwt-${index}).`
+      );
+    }
+    for (const suffix of [
+      '24',
+      '01',
+      '0-private',
+      '0:private credential',
+      '23:private credential',
+    ]) {
+      const calls: string[] = [];
+      // eslint-disable-next-line no-await-in-loop -- CLI fixtures share one output path.
+      const code = await runPhase2CliMain(oracleArguments(), undefined, {
+        ...dependencies(calls),
+        executeOracle: async () => {
+          throw new Error(`Phase 2 stage failed: oracle-custom-jwt-${suffix}`);
+        },
+      });
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+      expect(calls.join(' ')).not.toContain(`custom-jwt-${suffix}`);
+    }
+  });
+
   it('reports only a closed sanitizer partition and bounded scenario index', async () => {
     const calls: string[] = [];
     const output = path.join(root, 'phase-2-client-credentials-oracle.json');

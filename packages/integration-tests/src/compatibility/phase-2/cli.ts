@@ -447,6 +447,10 @@ type DeviceFailureStage =
   | 'verification-post';
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+const customJwtStageFailurePattern =
+  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3]))$/u;
+const customJwtFailurePattern =
+  /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])\)$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -1164,11 +1168,10 @@ const runTargetScenarios = async (
       customJwtScenarios = collected.standard;
       customJwtFetchScenarios = collected.fetch;
     } catch (error: unknown) {
-      if (
-        error instanceof Error &&
-        error.message.startsWith('Phase 2 custom JWT scenario failed')
-      ) {
-        throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
+      const failureIndex =
+        error instanceof Error ? customJwtFailurePattern.exec(error.message)?.[1] : undefined;
+      if (failureIndex !== undefined) {
+        throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt-${failureIndex}`);
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
     }
@@ -1183,7 +1186,9 @@ const runTargetScenarios = async (
   }).catch((error: unknown) => {
     if (
       error instanceof Error &&
-      (scenarioFailurePattern.test(error.message) || stageFailurePattern.test(error.message))
+      (scenarioFailurePattern.test(error.message) ||
+        customJwtStageFailurePattern.test(error.message) ||
+        stageFailurePattern.test(error.message))
     ) {
       throw error;
     }
@@ -1916,6 +1921,7 @@ export const runPhase2Cli = async (
             if (
               error instanceof Error &&
               (scenarioFailurePattern.test(error.message) ||
+                customJwtStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -1952,6 +1958,7 @@ export const runPhase2Cli = async (
         if (
           error instanceof Error &&
           (scenarioFailurePattern.test(error.message) ||
+            customJwtStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -2041,6 +2048,8 @@ export const runPhase2CliMain = async (
     const original = error instanceof AggregateError ? (error.errors[0] as unknown) : error;
     const cleanup = error instanceof AggregateError ? (error.errors[1] as unknown) : undefined;
     const match = original instanceof Error ? scenarioFailurePattern.exec(original.message) : null;
+    const customJwtStage =
+      original instanceof Error ? customJwtStageFailurePattern.exec(original.message) : null;
     const stage = original instanceof Error ? stageFailurePattern.exec(original.message) : null;
     const candidateInvariantStage =
       original instanceof Error
@@ -2060,15 +2069,17 @@ export const runPhase2CliMain = async (
         ? invalidArguments
         : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
           ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n${structuralDiagnostic ? `${structuralDiagnostic}\n` : ''}`
-          : candidateInvariantStage?.[1] && candidateInvariantStage[2]
-            ? `Phase 2 client credentials command failed (${candidateInvariantStage[1]}-${candidateInvariantStage[2]}).\n`
-            : stage?.[1] && stage[2]
-              ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-              : commandStage?.[1] && commandStage[2]
-                ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
-                : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
-                  ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
-                  : runFailure
+          : customJwtStage?.[1] && customJwtStage[2]
+            ? `Phase 2 client credentials command failed (${customJwtStage[1]}-${customJwtStage[2]}).\n`
+            : candidateInvariantStage?.[1] && candidateInvariantStage[2]
+              ? `Phase 2 client credentials command failed (${candidateInvariantStage[1]}-${candidateInvariantStage[2]}).\n`
+              : stage?.[1] && stage[2]
+                ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
+                : commandStage?.[1] && commandStage[2]
+                  ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
+                  : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
+                    ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
+                    : runFailure
     );
     return 1;
   }

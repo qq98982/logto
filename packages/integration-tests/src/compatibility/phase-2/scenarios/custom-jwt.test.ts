@@ -224,6 +224,7 @@ describe('Phase 2 custom JWT scenarios', () => {
     const issuedRefreshTokens = new Set<string>();
     let userMode: 'success' | 'deny' | 'block' | 'open' = 'success';
     let deviceRelationshipsMatch = true;
+    let failDeviceRefresh = false;
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
       verifyAccessToken: verifyJwt,
@@ -397,18 +398,23 @@ describe('Phase 2 custom JWT scenarios', () => {
           },
         };
       },
-      observeDeviceResourceRefresh: async () => ({
-        status: 200,
-        initialAccessOpaque: true,
-        invoked: true,
-        userContextPresent: true,
-        applicationContextPresent: true,
-        userMatchesToken: deviceRelationshipsMatch,
-        applicationMatchesToken: deviceRelationshipsMatch,
-        protectedClaimsMatch: true,
-        tokenKind: 'access_token',
-        grantType: 'device_code refresh_token',
-      }),
+      observeDeviceResourceRefresh: async () => {
+        if (failDeviceRefresh) {
+          throw new Error('private device failure');
+        }
+        return {
+          status: 200,
+          initialAccessOpaque: true,
+          invoked: true,
+          userContextPresent: true,
+          applicationContextPresent: true,
+          userMatchesToken: deviceRelationshipsMatch,
+          applicationMatchesToken: deviceRelationshipsMatch,
+          protectedClaimsMatch: true,
+          tokenKind: 'access_token',
+          grantType: 'device_code refresh_token',
+        };
+      },
     };
 
     const result = await runCustomJwtScenarios(port, {
@@ -514,6 +520,23 @@ describe('Phase 2 custom JWT scenarios', () => {
       userMatchesToken: false,
       applicationMatchesToken: false,
     });
+    failDeviceRefresh = true;
+    await expect(
+      runCustomJwtScenarios(port, {
+        expected: {
+          issuer: 'issuer',
+          subject: 'client',
+          audience: 'resource',
+          clientId: 'client',
+          scope: 'read',
+          userSubject: 'user',
+          userClientId: 'user-client',
+          userApplicationName: 'User Client',
+          userAudience: 'resource',
+          userScope: 'read:profile',
+        },
+      })
+    ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary:22)');
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/getCustomJwtClaims|custom-jwt-env-marker|signature/u);
     expect(Object.isFrozen(result)).toBe(true);
@@ -568,7 +591,7 @@ describe('Phase 2 custom JWT scenarios', () => {
           userScope: 'read:profile',
         },
       })
-    ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary)');
+    ).rejects.toThrow('Phase 2 custom JWT scenario failed (primary:0)');
     expect(calls).toEqual([
       'GET configs/jwt-customizer/client-credentials',
       'DELETE configs/jwt-customizer/client-credentials',
