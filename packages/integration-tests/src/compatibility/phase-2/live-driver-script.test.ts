@@ -937,6 +937,28 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(source).toContain('CREATE TEMP TABLE phase2_private_code(device_code text,prefix text)');
   });
 
+  it('binds custom JWT storage and fetch probes to the exercised row and broker namespace', async () => {
+    const source = await readFile(invariantDriver, 'utf8');
+    const storageProbe = source.slice(
+      source.indexOf('custom-jwt.storage-confidential-forced-rls:probe)'),
+      source.indexOf('custom-jwt.blocking-refresh-rolls-back:arm)')
+    );
+    const fetchProbe = source.slice(
+      source.indexOf('custom-jwt.fetch-policy-boundary:probe)'),
+      source.indexOf('custom-jwt.storage-confidential-forced-rls:probe)')
+    );
+
+    expect(storageProbe).toContain("token_type='client-credentials'");
+    expect(storageProbe).not.toContain("token_type='access-token'");
+    expect(storageProbe.match(/token_type='client-credentials'/gu)).toHaveLength(3);
+    expect(fetchProbe).toContain('exec --interactive -- "$primary_core_id"');
+    expect(fetchProbe).toContain('-connect fetch-observer.aster.test:8444');
+    expect(fetchProbe).toContain('-servername fetch-observer.aster.test');
+    expect(fetchProbe).toContain('-verify_hostname fetch-observer.aster.test');
+    expect(fetchProbe).toContain('-CAfile /run/aster/fetch-observer-ca.pem');
+    expect(fetchProbe).not.toContain('candidate-fetch-observer');
+  });
+
   it('persists a private baseline, publishes DB-derived facts, and keeps abort idempotent', async () => {
     const harness = await createHarness();
     const stateEnv = {

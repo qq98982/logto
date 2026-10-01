@@ -792,7 +792,8 @@
         "ASTER_FETCH_OBSERVER_CERTIFICATE_FILE": "/run/aster-fetch-observer/tls/server.pem",
         "ASTER_FETCH_OBSERVER_PRIVATE_KEY_FILE": "/run/aster-fetch-observer/tls/server.key",
         "ASTER_FETCH_OBSERVER_RECEIPT_FILE": "/run/aster-fetch-observer/receipts/observations.ndjson",
-        "ASTER_FETCH_OBSERVER_CA_FILE": "/run/aster-fetch-observer/tls/ca.pem"
+        "ASTER_FETCH_OBSERVER_CA_FILE": "/run/aster-fetch-observer/tls/ca.pem",
+        "ASTER_FETCH_OBSERVER_DENIED_PORT": "8444"
       },
       "healthcheck": {
         "test": ["CMD", "node", "-e", "const{readFileSync}=require('node:fs'),{get}=require('node:https'),r=get({hostname:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],

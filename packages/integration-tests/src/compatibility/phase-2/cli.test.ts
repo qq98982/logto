@@ -20,6 +20,16 @@ import {
   runClientCredentialsCandidateInvariantControls,
 } from './candidate-invariants/client-credentials.js';
 import {
+  customJwtFetchPolicyCandidateInvariantIds,
+  customJwtFetchPolicyExpectedProjection,
+  runCustomJwtFetchPolicyControls,
+} from './candidate-invariants/custom-jwt-fetch-policy.js';
+import {
+  customJwtCandidateInvariantExpectedProjection,
+  customJwtCandidateInvariantIds,
+  runCustomJwtCandidateInvariantControls,
+} from './candidate-invariants/custom-jwt.js';
+import {
   deviceCandidateInvariantExpectedProjection,
   deviceCandidateInvariantIds,
   runDeviceCandidateInvariantControls,
@@ -31,6 +41,7 @@ import {
   deviceScenarioProjectionFailure,
   parsePhase2Arguments,
   phase2FixtureRecipeForMode,
+  projectDeviceResourceRefreshClaims,
   readPhase2OracleArtifact,
   readPhase2TargetDescriptor,
   runPhase2Cli,
@@ -113,6 +124,87 @@ describe('device projection diagnostic fields', () => {
   });
 });
 
+describe('device resource refresh claim projection', () => {
+  const expected = Object.freeze({
+    issuer: 'https://issuer.example/oidc',
+    audience: 'https://resource.example',
+    subject: 'approved-user',
+    clientId: 'approved-device-client',
+  });
+  const validClaims = Object.freeze({
+    iss: expected.issuer,
+    aud: expected.audience,
+    sub: expected.subject,
+    client_id: expected.clientId,
+    probe_invoked: true,
+    probe_user_context_present: true,
+    probe_application_context_present: true,
+    probe_user_matches_token: true,
+    probe_application_matches_token: true,
+    probe_user_id: expected.subject,
+    probe_application_id: expected.clientId,
+    probe_token_account_id: expected.subject,
+    probe_token_client_id: expected.clientId,
+    probe_token_kind: 'AccessToken',
+    probe_grant_type: 'device_code refresh_token',
+  });
+
+  it('publishes only safe relationship and authority results for valid claims', () => {
+    expect(projectDeviceResourceRefreshClaims(validClaims, expected)).toEqual({
+      invoked: true,
+      userContextPresent: true,
+      applicationContextPresent: true,
+      userMatchesToken: true,
+      applicationMatchesToken: true,
+      protectedClaimsMatch: true,
+      tokenKind: 'access_token',
+      grantType: 'device_code refresh_token',
+    });
+  });
+
+  it.each(['iss', 'aud', 'sub', 'client_id'] as const)(
+    'rejects a signed JWT with the wrong %s authority',
+    (claim) => {
+      expect(
+        projectDeviceResourceRefreshClaims({ ...validClaims, [claim]: 'wrong-authority' }, expected)
+          .protectedClaimsMatch
+      ).toBe(false);
+    }
+  );
+
+  it('preserves false customizer relationship checks', () => {
+    expect(
+      projectDeviceResourceRefreshClaims(
+        {
+          ...validClaims,
+          probe_user_matches_token: false,
+          probe_application_matches_token: false,
+        },
+        expected
+      )
+    ).toMatchObject({ userMatchesToken: false, applicationMatchesToken: false });
+  });
+
+  it('rejects internally matching context and token identities outside the approved fixture', () => {
+    expect(
+      projectDeviceResourceRefreshClaims(
+        {
+          ...validClaims,
+          probe_user_id: 'wrong-user',
+          probe_token_account_id: 'wrong-user',
+          probe_application_id: 'wrong-client',
+          probe_token_client_id: 'wrong-client',
+        },
+        expected
+      )
+    ).toMatchObject({
+      userMatchesToken: false,
+      applicationMatchesToken: false,
+      protectedClaimsMatch: true,
+    });
+  });
+});
+
 describe('Phase 2 fixture recipe routing', () => {
   it('selects the candidate invariant recipe only for candidate-invariants', () => {
     expect(phase2FixtureRecipeForMode('candidate-invariants')).toBe('phase2CandidateInvariants');
@@ -181,6 +273,8 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'client-credentials.user-authority-unchanged',
     'logout-session.verification-storage-closed',
     ...deviceCandidateInvariantIds,
+    ...customJwtCandidateInvariantIds,
+    ...customJwtFetchPolicyCandidateInvariantIds,
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze([
@@ -309,6 +403,15 @@ const dependencies = (
         ),
         ...deviceCandidateInvariantIds.map((id) =>
           runDeviceCandidateInvariantControls(id, deviceCandidateInvariantExpectedProjection(id))
+        ),
+        ...customJwtCandidateInvariantIds.map((id) =>
+          runCustomJwtCandidateInvariantControls(
+            id,
+            customJwtCandidateInvariantExpectedProjection(id)
+          )
+        ),
+        ...customJwtFetchPolicyCandidateInvariantIds.map((id) =>
+          runCustomJwtFetchPolicyControls(id, customJwtFetchPolicyExpectedProjection(id))
         ),
       ]),
     });

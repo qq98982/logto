@@ -11,6 +11,16 @@ import {
   runClientCredentialsCandidateInvariantControls,
 } from './candidate-invariants/client-credentials.js';
 import {
+  customJwtFetchPolicyCandidateInvariantIds,
+  customJwtFetchPolicyExpectedProjection,
+  runCustomJwtFetchPolicyControls,
+} from './candidate-invariants/custom-jwt-fetch-policy.js';
+import {
+  customJwtCandidateInvariantExpectedProjection,
+  customJwtCandidateInvariantIds,
+  runCustomJwtCandidateInvariantControls,
+} from './candidate-invariants/custom-jwt.js';
+import {
   deviceCandidateInvariantExpectedProjection,
   deviceCandidateInvariantIds,
   runDeviceCandidateInvariantControls,
@@ -151,7 +161,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 167).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 168).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -234,7 +244,12 @@ const validateCandidateInvariantPayload = (
     fail();
   }
   const invariantEntries = invariants as unknown[];
-  const allIds = [...clientCredentialsCandidateInvariantIds, ...deviceCandidateInvariantIds];
+  const allIds = [
+    ...clientCredentialsCandidateInvariantIds,
+    ...deviceCandidateInvariantIds,
+    ...customJwtCandidateInvariantIds,
+    ...customJwtFetchPolicyCandidateInvariantIds,
+  ];
   if (
     allIds.length !== profile.candidateInvariantScenarios.length ||
     allIds.some((id, index) => id !== profile.candidateInvariantScenarios[index])
@@ -259,12 +274,26 @@ const validateCandidateInvariantPayload = (
             id as (typeof clientCredentialsCandidateInvariantIds)[number]
           )
         )
-      : runDeviceCandidateInvariantControls(
-          id as (typeof deviceCandidateInvariantIds)[number],
-          deviceCandidateInvariantExpectedProjection(
-            id as (typeof deviceCandidateInvariantIds)[number]
+      : (deviceCandidateInvariantIds as readonly string[]).includes(id)
+        ? runDeviceCandidateInvariantControls(
+            id as (typeof deviceCandidateInvariantIds)[number],
+            deviceCandidateInvariantExpectedProjection(
+              id as (typeof deviceCandidateInvariantIds)[number]
+            )
           )
-        );
+        : (customJwtCandidateInvariantIds as readonly string[]).includes(id)
+          ? runCustomJwtCandidateInvariantControls(
+              id as (typeof customJwtCandidateInvariantIds)[number],
+              customJwtCandidateInvariantExpectedProjection(
+                id as (typeof customJwtCandidateInvariantIds)[number]
+              )
+            )
+          : runCustomJwtFetchPolicyControls(
+              id as (typeof customJwtFetchPolicyCandidateInvariantIds)[number],
+              customJwtFetchPolicyExpectedProjection(
+                id as (typeof customJwtFetchPolicyCandidateInvariantIds)[number]
+              )
+            );
     if (JSON.stringify(evidence) !== JSON.stringify(expectedEvidence)) {
       fail();
     }
@@ -308,7 +337,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 167).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 168).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -359,7 +388,10 @@ const snapshotCandidateInvariantPayload = (value: unknown): JsonValue => {
     const payload = snapshotExactDataRecord(value, ['schemaVersion', 'mode', 'invariants']);
     const invariants = snapshotDenseArray(
       payload.invariants,
-      clientCredentialsCandidateInvariantIds.length + deviceCandidateInvariantIds.length
+      clientCredentialsCandidateInvariantIds.length +
+        deviceCandidateInvariantIds.length +
+        customJwtCandidateInvariantIds.length +
+        customJwtFetchPolicyCandidateInvariantIds.length
     ).map((entry) =>
       snapshotExactDataRecord(entry, ['id', 'candidate', 'positiveControl', 'negativeControl'])
     );

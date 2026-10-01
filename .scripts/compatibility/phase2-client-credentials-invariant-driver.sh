@@ -302,13 +302,17 @@ try:
       "device-authorization.cross-tenant-lookup-rejected","device-authorization.transition-failure-rolls-back",
       "device-token.consumed-replay-revokes-grant","device-authorization.expired-cleanup-bounded",
       "device-evidence.secret-material-absent"}
+    custom_jwt={
+      "custom-jwt.storage-confidential-forced-rls",
+      "custom-jwt.blocking-refresh-rolls-back",
+      "custom-jwt.fetch-policy-boundary"}
     invariant=value["invariantId"]
     if invariant in legacy:
       exact(value,["schemaVersion","kind","invariantId","target","fixture","credentials"])
       exact(value["credentials"],["basic","post"])
       text(value["credentials"]["basic"],r"^[^\x00-\x20\x7f]{1,256}$"); text(value["credentials"]["post"],r"^[^\x00-\x20\x7f]{1,256}$")
       if value["credentials"]["basic"] == value["credentials"]["post"]: raise ValueError()
-    elif invariant in device:
+    elif invariant in device or invariant in custom_jwt:
       operation=value.get("operation")
       base=["schemaVersion","kind","invariantId","operation","target","fixture","private","observation"]
       exact(value,base+(["handle"] if "handle" in value else []))
@@ -320,10 +324,16 @@ try:
       private_keys=set(value["private"]); observation_keys=set(value["observation"])
       code_keys={"deviceCode","userCode","xsrf"}
       device_only={"deviceCode"}
+      refresh_only={"refreshCredential"}
+      canary_only={"canary"}
       if private_keys == code_keys:
         for item in value["private"].values(): text(item,r"^[^\x00-\x1f\x7f]{1,4096}$")
       elif private_keys == device_only:
         text(value["private"]["deviceCode"],r"^[^\x00-\x1f\x7f]{1,4096}$")
+      elif invariant == "custom-jwt.blocking-refresh-rolls-back" and private_keys == refresh_only:
+        text(value["private"]["refreshCredential"],r"^[^\x00-\x20\x7f]{1,16384}$")
+      elif invariant == "custom-jwt.storage-confidential-forced-rls" and private_keys == canary_only:
+        text(value["private"]["canary"],r"^AsterStorageCanary[0-9A-Za-z._-]{16,96}$")
       elif invariant == "device-evidence.secret-material-absent" and private_keys == {"password","clientSecrets","tokens"}:
         text(value["private"]["password"],r"^[^\x00-\x1f\x7f]{1,4096}$")
         for name in ("clientSecrets","tokens"):
@@ -352,6 +362,12 @@ try:
           "arm":(set(),set()),"finish":(code_keys,{"authorizationStatus"}),"abort":(set(),set())},
         "device-evidence.secret-material-absent":{
           "probe":(code_keys|{"password","clientSecrets","tokens"},{"issuedStatus"})},
+        "custom-jwt.storage-confidential-forced-rls":{"probe":(canary_only,{"semanticRoundTrip"})},
+        "custom-jwt.blocking-refresh-rolls-back":{
+          "arm":(refresh_only,set()),
+          "restore":(set(),{"status","error","tokenPublished"}),
+          "finish":(set(),{"status","tokenPublished"}),"abort":(set(),set())},
+        "custom-jwt.fetch-policy-boundary":{"probe":(set(),set())},
       }
       expected=allowed.get(invariant,{}).get(operation)
       if expected is None or private_keys != expected[0] or observation_keys != expected[1]: raise ValueError()
@@ -560,10 +576,13 @@ terminal() {
 }
 
 control_terminal() {
-  local extra=$1
+  local extra=$1 kind='phase2-device-candidate-invariant-control'
+  if [[ "$invariant_id" == custom-jwt.* ]]; then
+    kind='phase2-custom-jwt-candidate-invariant-control'
+  fi
   "$JQ_BIN" -cn --arg invariantId "$invariant_id" --arg operation "$operation" \
-    --argjson extra "$extra" --argjson attestation "$attestation" \
-    '{schemaVersion:1,kind:"phase2-device-candidate-invariant-control",invariantId:$invariantId,operation:$operation} + $extra + {attestation:$attestation}' | /usr/bin/tr -d '\n'
+    --arg kind "$kind" --argjson extra "$extra" --argjson attestation "$attestation" \
+    '{schemaVersion:1,kind:$kind,invariantId:$invariantId,operation:$operation} + $extra + {attestation:$attestation}' | /usr/bin/tr -d '\n'
 }
 
 device_handle_document() {
@@ -707,6 +726,16 @@ SELECT value FROM authority;
 SQL
 }
 
+refresh_authority_snapshot() {
+  local token_id=$1 family_id=$2
+  run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="token_id=$token_id" --set="family_id=$family_id" <<'SQL'
+SELECT jsonb_build_object(
+  'refresh',encode(sha256(convert_to(COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY token_id)::text FROM aster_tenant.refresh_tokens row WHERE tenant_id='default' AND family_id=:'family_id'),'[]'),'UTF8')),'hex'),
+  'family',encode(sha256(convert_to(COALESCE((SELECT to_jsonb(row)::text FROM aster_tenant.token_families row WHERE tenant_id='default' AND family_id=:'family_id'),'null'),'UTF8')),'hex'),
+  'access',encode(sha256(convert_to(COALESCE((SELECT jsonb_agg(to_jsonb(row) ORDER BY encode(access_digest,'hex'))::text FROM aster_tenant.session_access_tokens row WHERE tenant_id='default' AND grant_id=(SELECT grant_id FROM aster_tenant.token_families WHERE tenant_id='default' AND family_id=:'family_id')),'[]'),'UTF8')),'hex'));
+SQL
+}
+
 basic_client_id="$(value '.fixture.clients.basic.id')" || die
 primary_resource="$(value '.fixture.resources.primary.indicator')" || die
 basic_secret=''
@@ -716,6 +745,124 @@ fi
 
 if [[ "$operation" != legacy ]]; then
   case "$invariant_id:$operation" in
+    custom-jwt.fetch-policy-boundary:probe)
+      reachability_response="$(
+        printf 'GET /healthz HTTP/1.1\r\nHost: fetch-observer.aster.test:8444\r\nConnection: close\r\n\r\n' |
+          "$DOCKER_BIN" exec --interactive -- "$primary_core_id" /usr/bin/timeout 10 \
+            /usr/bin/openssl s_client -quiet \
+            -connect fetch-observer.aster.test:8444 \
+            -servername fetch-observer.aster.test \
+            -verify_hostname fetch-observer.aster.test \
+            -CAfile /run/aster/fetch-observer-ca.pem -verify_return_error 2>/dev/null
+      )" || die
+      [[ ${#reachability_response} -le 4096 ]] || die
+      [[ "$reachability_response" =~ ^HTTP/1\.[01][[:space:]]204([[:space:]]|$) ]] || die
+      control_terminal '{"ok":true}'
+      ;;
+    custom-jwt.storage-confidential-forced-rls:probe)
+      [[ "$(value '.observation.semanticRoundTrip')" == true ]] || die
+      storage_canary="$(value '.private.canary')"
+      catalog="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SELECT jsonb_build_object(
+  'rowSecurity',c.relrowsecurity,
+  'forcedRowSecurity',c.relforcerowsecurity,
+  'columns',(SELECT jsonb_agg(column_name ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='aster_tenant' AND table_name='jwt_customizers'),
+  'plaintextColumns',(SELECT count(*) FROM information_schema.columns WHERE table_schema='aster_tenant' AND table_name='jwt_customizers' AND column_name ~ '(script|environment|sample|payload|plaintext)'),
+  'adminPrivileges',has_table_privilege('aster_admin','aster_tenant.jwt_customizers','SELECT,INSERT,UPDATE,DELETE'),
+  'workerPrivileges',has_table_privilege('aster_worker','aster_tenant.jwt_customizers','SELECT,INSERT,UPDATE,DELETE'))
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='aster_tenant' AND c.relname='jwt_customizers';
+SQL
+      )" || die
+      printf '%s' "$catalog" | "$JQ_BIN" -e '.rowSecurity==true and .forcedRowSecurity==true and .plaintextColumns==0 and .adminPrivileges==false and .workerPrivileges==false and .columns==["tenant_id","token_type","ciphertext","nonce","wrapping_key_id","writer_generation","revision","created_at","updated_at"]' >/dev/null || die
+      deployment_id="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres <<'SQL'
+SELECT deployment_id::text FROM aster_control.deployment_state WHERE singleton;
+SQL
+      )" || die
+      [[ "$deployment_id" =~ ^[0-9a-f-]{36}$ ]] || die
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_maintainer >/dev/null <<SQL
+SELECT * FROM aster_runtime.run_tenant_maintenance('$deployment_id');
+SQL
+      rls_seed_default="$(/usr/bin/od -An -N32 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+      rls_seed_foreign="$(/usr/bin/od -An -N32 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_control_resolver --set="seed=$rls_seed_default" >/dev/null <<'SQL'
+SELECT * FROM aster_runtime.mint_tenant_binding(sha256(decode(:'seed','hex')),'default','request');
+SQL
+      primary_row="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_request --set="seed=$rls_seed_default" <<'SQL'
+SELECT * FROM aster_runtime.activate_tenant_binding(decode(:'seed','hex')) \g /dev/null
+SELECT jsonb_build_object('count',count(*),'ciphertext',bool_and(octet_length(ciphertext)>=17),'nonceBytes',min(octet_length(nonce)),'revision',bool_and(revision>0)) FROM aster_tenant.jwt_customizers WHERE token_type='client-credentials';
+SQL
+      )" || die
+      printf '%s' "$primary_row" | "$JQ_BIN" -e '.count==1 and .ciphertext==true and .nonceBytes==24 and .revision==true' >/dev/null || die
+      canary_matches="$(printf '%s\n' "$storage_canary" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_storage_canary(value text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_storage_canary FROM STDIN;' \
+        --command="SELECT count(*) FROM aster_tenant.jwt_customizers CROSS JOIN phase2_private_storage_canary WHERE tenant_id='default' AND token_type='client-credentials' AND (position(convert_to(value,'UTF8') in ciphertext)>0 OR position(convert_to(value,'UTF8') in nonce)>0 OR position(value in wrapping_key_id)>0 OR position(value in writer_generation::text)>0 OR position(value in revision::text)>0 OR position(value in created_at::text)>0 OR position(value in updated_at::text)>0);")" || die
+      [[ "$canary_matches" == 0 ]] || die
+      run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_control_resolver --set="seed=$rls_seed_foreign" >/dev/null <<'SQL'
+SELECT * FROM aster_runtime.mint_tenant_binding(sha256(decode(:'seed','hex')),'admin','request');
+SQL
+      foreign_row="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary aster_request --set="seed=$rls_seed_foreign" <<'SQL'
+SELECT * FROM aster_runtime.activate_tenant_binding(decode(:'seed','hex')) \g /dev/null
+WITH changed AS (UPDATE aster_tenant.jwt_customizers SET revision=revision+1 WHERE tenant_id='default' AND token_type='client-credentials' RETURNING 1)
+SELECT jsonb_build_object('visible',(SELECT count(*) FROM aster_tenant.jwt_customizers WHERE tenant_id='default'),'updated',(SELECT count(*) FROM changed));
+SQL
+      )" || die
+      printf '%s' "$foreign_row" | "$JQ_BIN" -e '.=={visible:0,updated:0}' >/dev/null || die
+      expect_rejected_sql <<'SQL'
+SET ROLE aster_admin;
+SELECT count(*) FROM aster_tenant.jwt_customizers;
+SQL
+      expect_rejected_sql <<'SQL'
+SET ROLE aster_worker;
+SELECT count(*) FROM aster_tenant.jwt_customizers;
+SQL
+      terminal '{"invariant":"storage-canary-absent-forced-rls","catalog":{"rowSecurity":true,"forcedRowSecurity":true},"schema":{"plaintextColumns":"absent","envelopeColumns":"closed"},"envelope":{"ciphertext":"present","nonceBytes":24,"revision":"positive","canaryBytes":"absent"},"managementRoundTrip":"matched","requestRole":{"primaryVisible":true,"foreignVisible":false,"foreignUpdate":"rejected"},"adminRole":"rejected","workerRole":"rejected"}'
+      ;;
+    custom-jwt.blocking-refresh-rolls-back:arm)
+      refresh_credential="$(value '.private.refreshCredential')"
+      refresh_row="$(printf '%s\n' "$refresh_credential" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_refresh(value text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_refresh FROM STDIN;' \
+        --command="SELECT jsonb_build_object('tokenId',token_id,'familyId',family_id) FROM aster_tenant.refresh_tokens CROSS JOIN phase2_private_refresh WHERE tenant_id='default' AND refresh_digest=sha256(convert_to(value,'UTF8'));")" || die
+      printf '%s' "$refresh_row" | "$JQ_BIN" -e '(.tokenId|type)=="string" and (.familyId|type)=="string"' >/dev/null || die
+      token_id="$(printf '%s' "$refresh_row" | "$JQ_BIN" -er '.tokenId')"
+      family_id="$(printf '%s' "$refresh_row" | "$JQ_BIN" -er '.familyId')"
+      authority="$(refresh_authority_snapshot "$token_id" "$family_id")" || die
+      handle_data="$($JQ_BIN -cn --arg tokenId "$token_id" --arg familyId "$family_id" --argjson authority "$authority" '{tokenId:$tokenId,familyId:$familyId,authority:$authority}')" || die
+      handle="$(new_device_handle armed "$handle_data")" || die
+      control_terminal "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')"
+      ;;
+    custom-jwt.blocking-refresh-rolls-back:restore)
+      [[ "$(value '.observation.status')" == 400 && "$(value '.observation.error')" == invalid_request && "$(value '.observation.tokenPublished')" == false ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="armed"' >/dev/null || die
+      token_id="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.tokenId')"; family_id="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.familyId')"
+      expected_authority="$(printf '%s' "$saved" | "$JQ_BIN" -ce '.data.authority')"
+      current_authority="$(refresh_authority_snapshot "$token_id" "$family_id")" || die
+      assert_unchanged "$expected_authority" "$current_authority"
+      rewrite_handle "$(printf '%s' "$saved" | "$JQ_BIN" -c '.stage="restored"')"
+      exec {handle_fd}>&-; handle_fd=''
+      control_terminal '{"ok":true}'
+      ;;
+    custom-jwt.blocking-refresh-rolls-back:finish)
+      [[ "$(value '.observation.status')" == 200 && "$(value '.observation.tokenPublished')" == true ]] || die
+      handle="$(value '.handle')"; device_handle_document "$handle" || die; saved=$device_handle_value
+      printf '%s' "$saved" | "$JQ_BIN" -e '.stage=="restored"' >/dev/null || die
+      token_id="$(printf '%s' "$saved" | "$JQ_BIN" -er '.data.tokenId')"
+      consumed="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="token_id=$token_id" <<'SQL'
+SELECT count(*) FROM aster_tenant.refresh_tokens WHERE tenant_id='default' AND token_id=:'token_id' AND consumed_at IS NOT NULL;
+SQL
+      )" || die
+      [[ "$consumed" == 1 ]] || die
+      retire_handle
+      terminal '{"invariant":"blocking-refresh-rolls-back","blocked":{"status":400,"error":"invalid_request","tokenPublished":false},"rollback":{"refreshAuthority":"unchanged","tokenFamily":"unchanged","accessAuthority":"unchanged"},"correctedRetry":{"status":200,"tokenPublished":true}}'
+      ;;
+    custom-jwt.blocking-refresh-rolls-back:abort)
+      handle="$(value '.handle')"; device_handle_document "$handle" || die
+      retire_handle
+      control_terminal '{"ok":true}'
+      ;;
     device-authorization.forced-rls-isolation:probe)
       probe_uid="phase2-rls-$(value '.fixture.allocationId')"
       probe_client="$(value '.fixture.deviceClients.firstParty.id')"

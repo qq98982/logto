@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(167);
+    expect(registries.differentialScenarios).toHaveLength(168);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -102,6 +102,7 @@ describe('Phase 2 profile loader', () => {
       'custom-jwt.user-refresh-deny',
       'custom-jwt.user-refresh-throw-block',
       'custom-jwt.user-refresh-throw-open-retry',
+      'custom-jwt.device-resource-refresh-context',
       'custom-jwt.fetch-get-text',
       'custom-jwt.fetch-get-json',
       'custom-jwt.fetch-post',
@@ -124,7 +125,11 @@ describe('Phase 2 profile loader', () => {
       'device-token.consumed-replay-revokes-grant',
       'device-authorization.expired-cleanup-bounded',
       'device-evidence.secret-material-absent',
+      'custom-jwt.storage-confidential-forced-rls',
+      'custom-jwt.blocking-refresh-rolls-back',
+      'custom-jwt.fetch-policy-boundary',
     ]);
+    expect(registries.candidateInvariantScenarios).toHaveLength(16);
     expect(registries.discovery).toEqual({
       grantTypesSupportedAppend: [
         'client_credentials',
@@ -149,10 +154,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '9068e47f98f231805fc2b941e2c980b42e015eb0dec981fd6bd68caebe9ae0bc'
+      '99172f76481c6af8d929fc00aa84360162b1f5d2d385437b8f0ae432191d8ccd'
     );
     expect(registries.schemaSha256).toBe(
-      'e2bef39f04e1fa720ff500ab896ef0239d8e717c9158d301c6187b053b3b008e'
+      'a5706d026940dee59fd2566601f7e5d04472c507ccbdfa862b1acb41ec6d1c8c'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

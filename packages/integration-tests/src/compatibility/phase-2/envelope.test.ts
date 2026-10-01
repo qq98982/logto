@@ -8,6 +8,16 @@ import {
   runClientCredentialsCandidateInvariantControls,
 } from './candidate-invariants/client-credentials.js';
 import {
+  customJwtFetchPolicyCandidateInvariantIds,
+  customJwtFetchPolicyExpectedProjection,
+  runCustomJwtFetchPolicyControls,
+} from './candidate-invariants/custom-jwt-fetch-policy.js';
+import {
+  customJwtCandidateInvariantExpectedProjection,
+  customJwtCandidateInvariantIds,
+  runCustomJwtCandidateInvariantControls,
+} from './candidate-invariants/custom-jwt.js';
+import {
   deviceCandidateInvariantExpectedProjection,
   deviceCandidateInvariantIds,
   runDeviceCandidateInvariantControls,
@@ -159,7 +169,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 168 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 169 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -230,7 +240,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 168 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 169 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -423,8 +433,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 167-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 167 }, (_, index) => ({
+  it('publishes the full 168-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 168 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));
@@ -463,12 +473,14 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('accepts only the exact ordered thirteen candidate invariant proofs', () => {
+  it('accepts only the exact ordered sixteen candidate invariant proofs', () => {
     const candidateProfile = {
       ...profile,
       candidateInvariantScenarios: [
         ...clientCredentialsCandidateInvariantIds,
         ...deviceCandidateInvariantIds,
+        ...customJwtCandidateInvariantIds,
+        ...customJwtFetchPolicyCandidateInvariantIds,
       ],
     } as Phase2ProfileRegistries;
     const invariants = [
@@ -480,6 +492,15 @@ describe('Phase 2 public provenance envelope', () => {
       ),
       ...deviceCandidateInvariantIds.map((id) =>
         runDeviceCandidateInvariantControls(id, deviceCandidateInvariantExpectedProjection(id))
+      ),
+      ...customJwtCandidateInvariantIds.map((id) =>
+        runCustomJwtCandidateInvariantControls(
+          id,
+          customJwtCandidateInvariantExpectedProjection(id)
+        )
+      ),
+      ...customJwtFetchPolicyCandidateInvariantIds.map((id) =>
+        runCustomJwtFetchPolicyControls(id, customJwtFetchPolicyExpectedProjection(id))
       ),
     ];
     const create = (entries: unknown[]) =>

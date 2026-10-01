@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '9068e47f98f231805fc2b941e2c980b42e015eb0dec981fd6bd68caebe9ae0bc';
-const expectedSchemaSha256 = 'e2bef39f04e1fa720ff500ab896ef0239d8e717c9158d301c6187b053b3b008e';
+const expectedProfileSha256 = '99172f76481c6af8d929fc00aa84360162b1f5d2d385437b8f0ae432191d8ccd';
+const expectedSchemaSha256 = 'a5706d026940dee59fd2566601f7e5d04472c507ccbdfa862b1acb41ec6d1c8c';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -187,6 +187,7 @@ const differentialScenarioIds = [
   'custom-jwt.user-refresh-deny',
   'custom-jwt.user-refresh-throw-block',
   'custom-jwt.user-refresh-throw-open-retry',
+  'custom-jwt.device-resource-refresh-context',
   'custom-jwt.fetch-get-text',
   'custom-jwt.fetch-get-json',
   'custom-jwt.fetch-post',
@@ -228,6 +229,9 @@ const candidateInvariantIds = [
   'device-token.consumed-replay-revokes-grant',
   'device-authorization.expired-cleanup-bounded',
   'device-evidence.secret-material-absent',
+  'custom-jwt.storage-confidential-forced-rls',
+  'custom-jwt.blocking-refresh-rolls-back',
+  'custom-jwt.fetch-policy-boundary',
 ] as const;
 const stillAbsentDiscoveryFields = ['registration_endpoint'] as const;
 const endpointFieldsAppend = [

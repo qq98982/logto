@@ -39,12 +39,25 @@ const receipt = (method, path, headerMatches, bodyMatches) =>
 export const startFetchObserver = async ({
   address = '0.0.0.0',
   port = 8443,
+  deniedPort,
   certificateFile,
   privateKeyFile,
   receiptFile,
 }) => {
+  if (deniedPort !== undefined &&
+      (!Number.isInteger(deniedPort) || deniedPort < 0 || deniedPort > 65535 ||
+       (deniedPort !== 0 && deniedPort === port))) {
+    throw new Error('observer denied port invalid');
+  }
   const receipts = await exactPrivateFile(receiptFile);
-  const [cert, key] = await Promise.all([readFile(certificateFile), readFile(privateKeyFile)]);
+  let cert;
+  let key;
+  try {
+    [cert, key] = await Promise.all([readFile(certificateFile), readFile(privateKeyFile)]);
+  } catch (error) {
+    await receipts.close();
+    throw error;
+  }
   let writeChain = Promise.resolve();
   let receiptCount = 0;
   let receiptBytes = 0;
@@ -82,97 +95,139 @@ export const startFetchObserver = async ({
     writeChain = operation.catch(() => {});
     return operation;
   };
-  const server = https.createServer({ cert, key }, (request, response) => {
-    const chunks = [];
-    let size = 0;
-    let oversized = false;
-    let url;
-    try {
-      url = new URL(request.url ?? '/', 'https://fetch-observer.aster.test:8443');
-    } catch {
-      url = undefined;
-    }
-    request.on('data', (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        oversized = true;
-        request.socket.destroy();
+  const startServer = async (listenPort) => {
+    let boundPort = listenPort;
+    const server = https.createServer({ cert, key }, (request, response) => {
+      const chunks = [];
+      let size = 0;
+      let oversized = false;
+      let url;
+      const expectedOrigin = `https://fetch-observer.aster.test:${boundPort}`;
+      const requestTarget = request.url ?? '/';
+      try {
+        if (!requestTarget.startsWith('/') || requestTarget.startsWith('//')) {
+          throw new Error('observer request target invalid');
+        }
+        url = new URL(requestTarget, expectedOrigin);
+      } catch {
+        url = undefined;
       }
-      else chunks.push(chunk);
-    });
-    request.on('error', () => {});
-    request.on('end', () => {
-      if (oversized || response.destroyed) return;
-      if (!url || request.headers.host !== 'fetch-observer.aster.test:8443' ||
-          url.search !== '' || url.hash !== '') {
-        response.writeHead(400, { 'content-type': 'text/plain', connection: 'close' }).end('bad request');
-        return;
-      }
-      if (url.pathname === '/reset-connection') {
-        const body = Buffer.concat(chunks);
-        if (request.method !== 'GET' || body.length !== 0) {
+      request.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+          oversized = true;
+          request.socket.destroy();
+        }
+        else chunks.push(chunk);
+      });
+      request.on('error', () => {});
+      request.on('end', () => {
+        if (oversized || response.destroyed) return;
+        if (!url || url.origin !== expectedOrigin ||
+            request.headers.host !== `fetch-observer.aster.test:${boundPort}` ||
+            request.socket.servername !== 'fetch-observer.aster.test' ||
+            url.search !== '' || url.hash !== '') {
           response.writeHead(400, { 'content-type': 'text/plain', connection: 'close' }).end('bad request');
           return;
         }
-        void append(receipt('GET', url.pathname, true, true)).then(
-          () => request.socket.destroy(),
+        if (url.pathname === '/reset-connection') {
+          const body = Buffer.concat(chunks);
+          if (request.method !== 'GET' || body.length !== 0) {
+            response.writeHead(400, { 'content-type': 'text/plain', connection: 'close' }).end('bad request');
+            return;
+          }
+          void append(receipt('GET', url.pathname, true, true)).then(
+            () => request.socket.destroy(),
+            () => response.writeHead(503, { connection: 'close' }).end()
+          );
+          return;
+        }
+        if (url.pathname === '/healthz' && request.method === 'GET') {
+          response.writeHead(receiptFailed ? 503 : 204).end();
+          return;
+        }
+        if (!routes.has(url.pathname) || !['GET', 'POST'].includes(request.method ?? '')) {
+          response.writeHead(404, { 'content-type': 'text/plain', connection: 'close' }).end('not found');
+          return;
+        }
+        const body = Buffer.concat(chunks);
+        const headerMatches =
+          url.pathname !== '/post' || request.headers['x-aster-probe'] === 'bounded-header';
+        const bodyMatches =
+          url.pathname !== '/post' ||
+          createHash('sha256').update(body).digest('hex') ===
+            '3920a2e1225ff984975c8a9c4f13a31b60e3ebcedc4b4bb9d440c50568128b8f';
+        void append(receipt(request.method ?? '', url.pathname, headerMatches, bodyMatches)).then(
+          () => {
+            if (url.pathname === '/text') response.writeHead(200).end('bounded-text');
+            else if (url.pathname === '/json') {
+              response.writeHead(200, { 'content-type': 'application/json' });
+              response.end('{"kind":"bounded-json","count":2}');
+            } else if (url.pathname === '/post') {
+              response.writeHead(201, { 'content-type': 'application/json' });
+              response.end('{"method":"POST","header":"bounded-header","body":"bounded-body"}');
+            } else if (url.pathname === '/not-found') response.writeHead(404).end('missing');
+            else if (url.pathname === '/redirect') {
+              response.writeHead(302, { location: '/final' }).end();
+            } else response.writeHead(200).end('redirected');
+          },
           () => response.writeHead(503, { connection: 'close' }).end()
         );
-        return;
-      }
-      if (url.pathname === '/healthz' && request.method === 'GET') {
-        response.writeHead(204).end();
-        return;
-      }
-      if (!routes.has(url.pathname) || !['GET', 'POST'].includes(request.method ?? '')) {
-        response.writeHead(404, { 'content-type': 'text/plain', connection: 'close' }).end('not found');
-        return;
-      }
-      const body = Buffer.concat(chunks);
-      const headerMatches =
-        url.pathname !== '/post' || request.headers['x-aster-probe'] === 'bounded-header';
-      const bodyMatches =
-        url.pathname !== '/post' ||
-        createHash('sha256').update(body).digest('hex') ===
-          '3920a2e1225ff984975c8a9c4f13a31b60e3ebcedc4b4bb9d440c50568128b8f';
-      void append(receipt(request.method ?? '', url.pathname, headerMatches, bodyMatches)).then(
-        () => {
-          if (url.pathname === '/text') response.writeHead(200).end('bounded-text');
-          else if (url.pathname === '/json') {
-            response.writeHead(200, { 'content-type': 'application/json' });
-            response.end('{"kind":"bounded-json","count":2}');
-          } else if (url.pathname === '/post') {
-            response.writeHead(201, { 'content-type': 'application/json' });
-            response.end('{"method":"POST","header":"bounded-header","body":"bounded-body"}');
-          } else if (url.pathname === '/not-found') response.writeHead(404).end('missing');
-          else if (url.pathname === '/redirect') {
-            response.writeHead(302, { location: '/final' }).end();
-          } else response.writeHead(200).end('redirected');
-        },
-        () => response.writeHead(503, { connection: 'close' }).end()
-      );
+      });
     });
-  });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, address, resolve);
-  });
+    await new Promise((resolve, reject) => {
+      const onError = (error) => {
+        server.off('listening', onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        server.off('error', onError);
+        resolve();
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(listenPort, address);
+    });
+    server.on('error', () => { receiptFailed = true; });
+    boundPort = server.address().port;
+    return server;
+  };
+  const servers = [];
+  try {
+    servers.push(await startServer(port));
+    if (deniedPort !== undefined) servers.push(await startServer(deniedPort));
+  } catch (error) {
+    await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
+    await receipts.close();
+    throw error;
+  }
   return Object.freeze({
-    address: server.address(),
+    address: servers[0].address(),
+    ...(servers[1] ? { deniedAddress: servers[1].address() } : {}),
     close: async () => {
-      await new Promise((resolve, reject) =>
+      const results = await Promise.allSettled(servers.map((server) => new Promise((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve()))
-      );
-      await writeChain;
-      await receipts.close();
+      )));
+      try {
+        await writeChain;
+      } finally {
+        await receipts.close();
+      }
+      const failed = results.find((result) => result.status === 'rejected');
+      if (failed) throw failed.reason;
     },
   });
 };
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const deniedPort = process.env.ASTER_FETCH_OBSERVER_DENIED_PORT;
+  if (deniedPort !== undefined && deniedPort !== '8444') {
+    throw new Error('observer denied port invalid');
+  }
   await startFetchObserver({
     certificateFile: required('ASTER_FETCH_OBSERVER_CERTIFICATE_FILE'),
     privateKeyFile: required('ASTER_FETCH_OBSERVER_PRIVATE_KEY_FILE'),
     receiptFile: required('ASTER_FETCH_OBSERVER_RECEIPT_FILE'),
+    ...(deniedPort ? { deniedPort: 8444 } : {}),
   });
 }

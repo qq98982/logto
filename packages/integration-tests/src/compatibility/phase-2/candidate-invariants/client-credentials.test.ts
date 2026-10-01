@@ -184,6 +184,9 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'device-token.consumed-replay-revokes-grant',
     'device-authorization.expired-cleanup-bounded',
     'device-evidence.secret-material-absent',
+    'custom-jwt.storage-confidential-forced-rls',
+    'custom-jwt.blocking-refresh-rolls-back',
+    'custom-jwt.fetch-policy-boundary',
   ] as const),
   discovery: Object.freeze({
     grantTypesSupportedAppend: Object.freeze([
@@ -223,7 +226,7 @@ afterAll(async () => {
 });
 
 describe('Phase 2 candidate invariant driver', () => {
-  it('runs the exact legacy five-ID prefix for the closed thirteen-ID profile', async () => {
+  it('runs the exact legacy five-ID prefix for the closed sixteen-ID profile', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
@@ -305,26 +308,20 @@ describe('Phase 2 candidate invariant driver', () => {
       canonicalProfile.candidateInvariantScenarios[0]!
     );
     await Promise.all(
-      [
-        canonicalProfile.candidateInvariantScenarios.slice(1),
-        reordered,
-        [
-          ...canonicalProfile.candidateInvariantScenarios,
-          clientCredentialsCandidateInvariantIds[0],
-        ],
-      ].map(async (candidateInvariantScenarios) =>
-        expect(
-          runClientCredentialsCandidateInvariants(
-            { ...canonicalProfile, candidateInvariantScenarios } as Phase2ProfileRegistries,
-            {
-              target,
-              foreignTarget,
-              fixture,
-              driverPath,
-              controlSocket: path.join(root, 'control.sock'),
-            }
-          )
-        ).rejects.toThrow('Invalid Phase 2 candidate invariant')
+      [canonicalProfile.candidateInvariantScenarios.slice(1), reordered].map(
+        async (candidateInvariantScenarios) =>
+          expect(
+            runClientCredentialsCandidateInvariants(
+              { ...canonicalProfile, candidateInvariantScenarios } as Phase2ProfileRegistries,
+              {
+                target,
+                foreignTarget,
+                fixture,
+                driverPath,
+                controlSocket: path.join(root, 'control.sock'),
+              }
+            )
+          ).rejects.toThrow('Invalid Phase 2 candidate invariant')
       )
     );
 

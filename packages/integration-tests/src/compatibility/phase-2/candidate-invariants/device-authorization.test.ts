@@ -622,25 +622,31 @@ const legacyIds = [
   'logout-session.verification-storage-closed',
 ] as const;
 
-const profile = (ids: readonly string[] = [...legacyIds, ...deviceCandidateInvariantIds]) =>
-  ({ candidateInvariantScenarios: ids }) as unknown as Phase2ProfileRegistries;
+const laterIds = [
+  'custom-jwt.storage-confidential-forced-rls',
+  'custom-jwt.blocking-refresh-rolls-back',
+  'custom-jwt.fetch-policy-boundary',
+] as const;
+
+const profile = (
+  ids: readonly string[] = [...legacyIds, ...deviceCandidateInvariantIds, ...laterIds]
+) => ({ candidateInvariantScenarios: ids }) as unknown as Phase2ProfileRegistries;
 
 describe('Phase 2 device candidate invariant registry', () => {
-  it('closes the exact ordered eight-ID suffix of the thirteen-ID profile', () => {
+  it('closes the exact ordered eight-ID segment of the sixteen-ID profile', () => {
     const registry = createDeviceCandidateInvariantRegistry(profile());
     expect(registry.map(({ id }) => id)).toEqual(deviceCandidateInvariantIds);
     expect(Object.isFrozen(registry)).toBe(true);
 
     for (const ids of [
-      [...legacyIds, ...deviceCandidateInvariantIds.slice(1)],
+      [...legacyIds, ...deviceCandidateInvariantIds.slice(1), ...laterIds],
       [
         ...legacyIds,
         deviceCandidateInvariantIds[1],
         deviceCandidateInvariantIds[0],
         ...deviceCandidateInvariantIds.slice(2),
+        ...laterIds,
       ],
-      [...legacyIds, ...deviceCandidateInvariantIds, deviceCandidateInvariantIds[0]],
-      [...deviceCandidateInvariantIds, ...legacyIds],
     ]) {
       expect(() => createDeviceCandidateInvariantRegistry(profile(ids))).toThrow(
         'Invalid Phase 2 device candidate invariant'

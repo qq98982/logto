@@ -297,9 +297,9 @@ describe('Phase 2 tracked launcher', () => {
         'controls',
         'ids',
         'client-0',
-        'client-166',
+        'client-167',
         'device-0',
-        'device-166',
+        'device-167',
       ]) {
         const message = `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).\n`;
         expect(diagnosticForPhase2Child(message)).toBe(message);
@@ -308,9 +308,9 @@ describe('Phase 2 tracked launcher', () => {
 
     for (const suffix of [
       'client-00',
-      'client-167',
+      'client-168',
       'device-01',
-      'device-167',
+      'device-168',
       'target-extra',
       'private-value',
     ]) {

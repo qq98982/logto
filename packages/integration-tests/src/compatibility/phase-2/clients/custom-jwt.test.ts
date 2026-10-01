@@ -14,6 +14,18 @@ describe('custom JWT HTTP port', () => {
       verifyAccessToken: async () => ({}),
       issueUserTokens: async () => ({ access: 'access', refresh: 'refresh' }),
       exchangeUserRefresh: async () => ({ status: 200, body: {} }),
+      observeDeviceResourceRefresh: async () => ({
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: true,
+        applicationMatchesToken: true,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      }),
       readAndResetFetchReceipts: async ({ signal, accept }) => {
         calls.push(signal.aborted ? 'aborted' : 'take');
         accept([
@@ -246,6 +258,18 @@ describe('custom JWT HTTP port', () => {
         status: refreshToken === 'user-refresh' && !signal.aborted ? 200 : 500,
         body: { access_token: 'rotated-access' },
       }),
+      observeDeviceResourceRefresh: async () => ({
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: true,
+        applicationMatchesToken: true,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      }),
     });
     await expect(
       port.request({ method: 'GET', path: 'configs/jwt-customizer' })
@@ -261,6 +285,18 @@ describe('custom JWT HTTP port', () => {
     });
     expect(() => JSON.stringify(exchanged)).toThrow('Invalid Phase 2 custom JWT HTTP observation');
     expect(() => JSON.stringify(user)).toThrow('Invalid Phase 2 custom JWT HTTP observation');
+    await expect(port.observeDeviceResourceRefresh()).resolves.toEqual({
+      status: 200,
+      initialAccessOpaque: true,
+      invoked: true,
+      userContextPresent: true,
+      applicationContextPresent: true,
+      userMatchesToken: true,
+      applicationMatchesToken: true,
+      protectedClaimsMatch: true,
+      tokenKind: 'access_token',
+      grantType: 'device_code refresh_token',
+    });
     expect(JSON.stringify(port)).not.toContain('private-secret');
   });
 

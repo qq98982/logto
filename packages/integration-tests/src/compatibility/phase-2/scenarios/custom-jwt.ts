@@ -26,6 +26,7 @@ export const customJwtScenarioIds = Object.freeze([
   'custom-jwt.user-refresh-deny',
   'custom-jwt.user-refresh-throw-block',
   'custom-jwt.user-refresh-throw-open-retry',
+  'custom-jwt.device-resource-refresh-context',
 ] as const);
 
 export type CustomJwtScenarioId = (typeof customJwtScenarioIds)[number];
@@ -57,6 +58,20 @@ export type CustomJwtTargetPort = Readonly<{
   exchangeUserRefresh(
     input: Readonly<{ refreshToken: string }>
   ): Promise<Readonly<{ status: number; body: unknown; toJSON?(): never }>>;
+  observeDeviceResourceRefresh(): Promise<
+    Readonly<{
+      status: number;
+      initialAccessOpaque: boolean;
+      invoked: boolean;
+      userContextPresent: boolean;
+      applicationContextPresent: boolean;
+      userMatchesToken: boolean;
+      applicationMatchesToken: boolean;
+      protectedClaimsMatch: boolean;
+      tokenKind: string | null;
+      grantType: string | null;
+    }>
+  >;
   verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
   readAndResetFetchReceipts?(): Promise<readonly CustomJwtFetchReceipt[]>;
 }>;
@@ -133,6 +148,19 @@ const scripts = Object.freeze({
     probe_token_aud: token.aud, probe_token_scope: token.scope,
     probe_token_client_id: token.clientId, probe_token_account_id: token.accountId,
     probe_token_gty: token.gty, probe_token_kind: token.kind, probe_survives: 'yes'
+  });`,
+  device: `const getCustomJwtClaims = async ({ token, context }) => ({
+    probe_invoked: true,
+    probe_user_context_present: context.user !== undefined,
+    probe_application_context_present: context.application !== undefined,
+    probe_user_matches_token: context.user?.id === token.accountId,
+    probe_application_matches_token: context.application?.id === token.clientId,
+    probe_user_id: context.user?.id ?? null,
+    probe_application_id: context.application?.id ?? null,
+    probe_token_account_id: token.accountId ?? null,
+    probe_token_client_id: token.clientId ?? null,
+    probe_token_kind: token.kind,
+    probe_grant_type: token.gty
   });`,
 });
 
@@ -668,6 +696,20 @@ export const runCustomJwtScenarios = async (
       status: userOpen.status,
       issued: typeof tokenBody(userOpen.body).access_token === 'string',
       sameRefreshRemainedUsable: userOpen.status === 200,
+    });
+    await configureUser(scripts.device, true);
+    const deviceRefresh = await port.observeDeviceResourceRefresh();
+    push(customJwtScenarioIds[22], {
+      status: deviceRefresh.status,
+      initialAccessOpaque: deviceRefresh.initialAccessOpaque,
+      invoked: deviceRefresh.invoked,
+      userContextPresent: deviceRefresh.userContextPresent,
+      applicationContextPresent: deviceRefresh.applicationContextPresent,
+      userMatchesToken: deviceRefresh.userMatchesToken,
+      applicationMatchesToken: deviceRefresh.applicationMatchesToken,
+      protectedClaimsMatch: deviceRefresh.protectedClaimsMatch,
+      tokenKind: deviceRefresh.tokenKind,
+      grantType: deviceRefresh.grantType,
     });
     if (
       results.length !== customJwtScenarioIds.length ||

@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering -- Bounded response and receipt validation are confined to this capability adapter. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering, @typescript-eslint/ban-types -- Bounded response and receipt validation are confined to this capability adapter; null is an observed JSON value. */
 import { types as nodeTypes } from 'node:util';
 
 import type {
@@ -36,6 +36,20 @@ export type CustomJwtHttpCapabilities = Readonly<{
   exchangeUserRefresh(
     input: Readonly<{ refreshToken: string; signal: AbortSignal }>
   ): Promise<Readonly<{ status: number; body: unknown }>>;
+  observeDeviceResourceRefresh?(): Promise<
+    Readonly<{
+      status: number;
+      initialAccessOpaque: boolean;
+      invoked: boolean;
+      userContextPresent: boolean;
+      applicationContextPresent: boolean;
+      userMatchesToken: boolean;
+      applicationMatchesToken: boolean;
+      protectedClaimsMatch: boolean;
+      tokenKind: string | null;
+      grantType: string | null;
+    }>
+  >;
   readAndResetFetchReceipts?(
     input: Readonly<{ signal: AbortSignal; accept(value: unknown): void }>
   ): Promise<void>;
@@ -258,6 +272,25 @@ export const createCustomJwtHttpPort = (
         toJSON: (): never => fail(),
       });
     },
+    observeDeviceResourceRefresh: async () => {
+      const observe = capabilities.observeDeviceResourceRefresh ?? fail();
+      const observation = await fenced(async () => observe());
+      if (
+        observation.status !== 200 ||
+        typeof observation.initialAccessOpaque !== 'boolean' ||
+        typeof observation.invoked !== 'boolean' ||
+        typeof observation.userContextPresent !== 'boolean' ||
+        typeof observation.applicationContextPresent !== 'boolean' ||
+        typeof observation.userMatchesToken !== 'boolean' ||
+        typeof observation.applicationMatchesToken !== 'boolean' ||
+        typeof observation.protectedClaimsMatch !== 'boolean' ||
+        (observation.tokenKind !== null && typeof observation.tokenKind !== 'string') ||
+        (observation.grantType !== null && typeof observation.grantType !== 'string')
+      ) {
+        return fail();
+      }
+      return Object.freeze({ ...observation });
+    },
     readAndResetFetchReceipts: async () => {
       const takeReceipts = capabilities.readAndResetFetchReceipts;
       if (!takeReceipts) {
@@ -280,4 +313,4 @@ export const createCustomJwtHttpPort = (
   });
 };
 
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, no-restricted-syntax, @typescript-eslint/member-ordering, @typescript-eslint/ban-types */

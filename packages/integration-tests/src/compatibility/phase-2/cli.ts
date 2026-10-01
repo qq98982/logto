@@ -1,4 +1,5 @@
 /* eslint-disable complexity, max-lines, no-restricted-syntax, no-await-in-loop, no-bitwise, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The closed Phase 2 CLI owns exact grammar, canonical paths, private session lifetime, real mode orchestration, and success-only atomic publication. */
+import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, lstat, mkdtemp, open, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,6 +9,7 @@ import { createLocalJWKSet, jwtVerify } from 'jose';
 import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import type { JsonValue } from '../normalize.js';
+import { runPhase1FixtureCommand } from '../phase-1/clients/command-provisioner.js';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
 import {
@@ -15,13 +17,25 @@ import {
   type CandidateInvariantControlEvidence,
 } from './candidate-invariants/client-credentials.js';
 import {
+  runCustomJwtFetchPolicyCandidateInvariant,
+  type CustomJwtFetchPolicyControlEvidence,
+} from './candidate-invariants/custom-jwt-fetch-policy.js';
+import {
+  createCustomJwtCandidateInvariantExecutor,
+  customJwtCandidateInvariantIds,
+  runCustomJwtCandidateInvariantControls,
+  type CustomJwtCandidateInvariantControlEvidence,
+} from './candidate-invariants/custom-jwt.js';
+import {
   createLiveDeviceCandidateInvariantExecutor,
   runDeviceCandidateInvariants,
   type DeviceCandidateInvariantControlEvidence,
 } from './candidate-invariants/device-authorization.js';
 import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
 import { createCustomJwtHttpPort } from './clients/custom-jwt.js';
+import { createDeviceAuthorizationTransportLease } from './clients/device-authorization.js';
 import { issuePublicUserResourceTokensWithPassword } from './clients/user-token-issuance.js';
+import { phase2InvariantRequestKind } from './driver-protocol.js';
 import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
@@ -91,6 +105,7 @@ import {
   createDeviceAuthorizationScenarioRegistry,
   compareDeviceScenarioProjections,
   deviceAuthorizationScenarioIds,
+  issueDeviceAuthorization,
   runDeviceAuthorizationNegativeControls,
   type DeviceAuthorizationControlResult,
   type DeviceAuthorizationScenarioId,
@@ -431,7 +446,7 @@ type DeviceFailureStage =
   | 'verification-get'
   | 'verification-post';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-6])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateInvariantStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
@@ -495,6 +510,32 @@ const runtimeEntryPath = path.resolve(
 const fail = (): never => {
   throw new TypeError(invalidArguments.trim());
 };
+
+export const projectDeviceResourceRefreshClaims = (
+  claims: Readonly<Record<string, unknown>>,
+  expected: Readonly<{ issuer: string; audience: string; subject: string; clientId: string }>
+) =>
+  Object.freeze({
+    invoked: claims.probe_invoked === true,
+    userContextPresent: claims.probe_user_context_present === true,
+    applicationContextPresent: claims.probe_application_context_present === true,
+    userMatchesToken:
+      claims.probe_user_matches_token === true &&
+      claims.probe_user_id === expected.subject &&
+      claims.probe_token_account_id === expected.subject,
+    applicationMatchesToken:
+      claims.probe_application_matches_token === true &&
+      claims.probe_application_id === expected.clientId &&
+      claims.probe_token_client_id === expected.clientId,
+    protectedClaimsMatch:
+      claims.iss === expected.issuer &&
+      claims.aud === expected.audience &&
+      claims.sub === expected.subject &&
+      claims.client_id === expected.clientId,
+    tokenKind: claims.probe_token_kind === 'AccessToken' ? 'access_token' : null,
+    grantType:
+      claims.probe_grant_type === 'device_code refresh_token' ? 'device_code refresh_token' : null,
+  });
 
 const parseFlagMap = (
   values: readonly string[],
@@ -1026,6 +1067,61 @@ const runTargetScenarios = async (
               signal,
             });
           },
+          observeDeviceResourceRefresh: async () => {
+            const transport = createDeviceAuthorizationTransportLease({
+              target: descriptor.target,
+            });
+            try {
+              const resource = fixture.public.resources.primary.indicator;
+              await issueDeviceAuthorization(
+                transport,
+                { target: descriptor.target, fixture, jwks, state },
+                {
+                  client: 'firstParty',
+                  scope: 'openid offline_access read',
+                  resource,
+                }
+              );
+              const initialAccessOpaque = await transport.withCredentialLease(async (lease) => {
+                const access = lease.getAccessToken();
+                const refresh = lease.getRefreshToken();
+                return (
+                  typeof access === 'string' &&
+                  access.split('.').length !== 3 &&
+                  typeof refresh === 'string' &&
+                  refresh.length > 0
+                );
+              });
+              const refreshed = await transport.requestLifecycle({
+                kind: 'refresh',
+                method: 'POST',
+                proof: {
+                  method: 'public',
+                  clientId: fixture.public.deviceClients.firstParty.id,
+                },
+                resource,
+                scope: 'read',
+              });
+              const claims = await transport.withCredentialLease(async (lease) => {
+                const access = lease.getAccessToken() ?? fail();
+                const verified = await jwtVerify(access, createLocalJWKSet(jwks));
+                return verified.payload;
+              });
+              const projected = projectDeviceResourceRefreshClaims(claims, {
+                issuer: new URL('oidc', descriptor.target.coreUrl).toString(),
+                audience: resource,
+                subject: fixture.status?.user.id ?? fail(),
+                clientId: fixture.public.deviceClients.firstParty.id,
+              });
+              return Object.freeze({
+                status: refreshed.status,
+                initialAccessOpaque,
+                ...projected,
+              });
+            } finally {
+              transport.clear();
+            }
+          },
           readAndResetFetchReceipts: async ({ accept }) =>
             readAndResetPhase2FetchReceipts(prepared, accept),
         });
@@ -1328,7 +1424,10 @@ const executeCandidateInvariants = async (
     identityFence: prepared.fence,
   });
   const invariants: ReadonlyArray<
-    CandidateInvariantControlEvidence | DeviceCandidateInvariantControlEvidence
+    | CandidateInvariantControlEvidence
+    | DeviceCandidateInvariantControlEvidence
+    | CustomJwtCandidateInvariantControlEvidence
+    | CustomJwtFetchPolicyControlEvidence
   > = await runWithPhase2Fixture(provisioner, async (fixture: ProvisionedPhase2Fixture) => {
     await waitForClientCredentialsFixtureReady(target.target, fixture.public);
     const legacy = await runClientCredentialsCandidateInvariants(input.profile, {
@@ -1353,7 +1452,338 @@ const executeCandidateInvariants = async (
       identityFence: prepared.fence,
     });
     const device = await runDeviceCandidateInvariants(input.profile, deviceExecutor);
-    const combined = Object.freeze([...legacy, ...device]);
+    const jwks = await fetchPhase2PublicJwks(target.target);
+    const customJwt = await withPhase2AdminManagementBearer(
+      target.target,
+      fixture,
+      async (bearer, lease) => {
+        const managementPath = 'configs/jwt-customizer';
+        const clientPath = `${managementPath}/client-credentials`;
+        const userPath = `${managementPath}/access-token`;
+        const managementRequest = async (
+          method: 'GET' | 'PUT' | 'DELETE',
+          requestPath: string,
+          body?: unknown
+        ) =>
+          requestPhase2Json({
+            url: new URL(`/api/${requestPath}`, target.target.coreUrl),
+            method,
+            headers: {
+              authorization: `Bearer ${bearer}`,
+              ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+            },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(10_000),
+          });
+        const capture = async (requestPath: string) => {
+          const response = await managementRequest('GET', requestPath);
+          if (response.status !== 200 && response.status !== 404) {
+            return fail();
+          }
+          if (response.status === 404) {
+            return Object.freeze({ exists: false, body: undefined });
+          }
+          const source =
+            typeof response.body === 'object' && response.body !== null
+              ? (response.body as Record<string, unknown>)
+              : fail();
+          const body = Object.freeze({
+            script: source.script,
+            blockIssuanceOnError: source.blockIssuanceOnError,
+            environmentVariables: source.environmentVariables,
+            contextSample: source.contextSample,
+            tokenSample: source.tokenSample,
+          });
+          if (
+            typeof body.script !== 'string' ||
+            typeof body.blockIssuanceOnError !== 'boolean' ||
+            typeof body.environmentVariables !== 'object' ||
+            body.environmentVariables === null ||
+            typeof body.contextSample !== 'object' ||
+            body.contextSample === null ||
+            typeof body.tokenSample !== 'object' ||
+            body.tokenSample === null
+          ) {
+            return fail();
+          }
+          return Object.freeze({ exists: true, body });
+        };
+        const restore = async (
+          requestPath: string,
+          snapshot: Readonly<{ exists: boolean; body: unknown }>
+        ) => {
+          const response = snapshot.exists
+            ? await managementRequest('PUT', requestPath, snapshot.body)
+            : await managementRequest('DELETE', requestPath);
+          if (
+            (snapshot.exists && response.status !== 200 && response.status !== 201) ||
+            (!snapshot.exists && response.status !== 204 && response.status !== 404)
+          ) {
+            return fail();
+          }
+        };
+        const put = async (requestPath: string, body: unknown) => {
+          const response = await managementRequest('PUT', requestPath, body);
+          if (response.status !== 200 && response.status !== 201) {
+            return fail();
+          }
+        };
+        const clientSample = Object.freeze({
+          contextSample: Object.freeze({
+            application: Object.freeze({ id: 'sample', name: 'sample' }),
+          }),
+          tokenSample: Object.freeze({
+            kind: 'ClientCredentials',
+            aud: 'sample',
+            scope: 'read',
+            clientId: 'sample',
+          }),
+        });
+        const userSample = Object.freeze({
+          contextSample: Object.freeze({
+            user: Object.freeze({ id: 'sample', hasPassword: true }),
+            application: Object.freeze({ id: 'sample', name: 'sample' }),
+          }),
+          tokenSample: Object.freeze({
+            kind: 'AccessToken',
+            aud: 'sample',
+            scope: 'read',
+            clientId: 'sample',
+            accountId: 'sample',
+          }),
+        });
+        const issueM2M = async () => {
+          const body = new URLSearchParams({
+            grant_type: 'client_credentials',
+            resource: fixture.public.resources.primary.indicator,
+            scope: 'read write',
+          });
+          return requestPhase2Json({
+            url: new URL('oidc/token', target.target.coreUrl),
+            method: 'POST',
+            headers: {
+              authorization: `Basic ${Buffer.from(
+                `${fixture.public.clients.basic.id}:${lease.getClientSecret('basic')}`
+              ).toString('base64')}`,
+              'content-type': 'application/x-www-form-urlencoded',
+            },
+            body,
+            signal: AbortSignal.timeout(10_000),
+          });
+        };
+        const receiptPort = createCustomJwtHttpPort({
+          assertInvocationFence: async () => prepared.fence.assertStable(),
+          managementRequest: async () => fail(),
+          withM2MSecret: async () => fail(),
+          issueClientCredentials: async () => fail(),
+          verifyAccessToken: async () => fail(),
+          issueUserTokens: async () => fail(),
+          exchangeUserRefresh: async () => fail(),
+          observeDeviceResourceRefresh: async () => fail(),
+          readAndResetFetchReceipts: async ({ accept }) =>
+            readAndResetPhase2FetchReceipts(prepared, accept),
+        });
+        const customJwtExecutor = await createCustomJwtCandidateInvariantExecutor({
+          target: target.target,
+          foreignTarget: target.foreignTarget,
+          fixture,
+          driverPath: invariantDriver.path,
+          controlSocket: invariantDriver.controlSocket,
+          topology: prepared.topology,
+          identityFence: prepared.fence,
+          workflow: Object.freeze({
+            withStorageCanary: async (use) => {
+              const snapshot = await capture(clientPath);
+              const canary = `AsterStorageCanary${randomBytes(24).toString('hex')}`;
+              const script = `const getCustomJwtClaims = async ({ environmentVariables }) => ({ canary: environmentVariables.canary === '${canary}' });`;
+              try {
+                await put(clientPath, {
+                  script,
+                  blockIssuanceOnError: true,
+                  environmentVariables: { canary },
+                  ...clientSample,
+                });
+                const roundTrip = await managementRequest('GET', clientPath);
+                const body =
+                  typeof roundTrip.body === 'object' && roundTrip.body !== null
+                    ? (roundTrip.body as Record<string, unknown>)
+                    : fail();
+                const environment =
+                  typeof body.environmentVariables === 'object' &&
+                  body.environmentVariables !== null
+                    ? (body.environmentVariables as Record<string, unknown>)
+                    : fail();
+                if (
+                  roundTrip.status !== 200 ||
+                  body.script !== script ||
+                  environment.canary !== canary
+                ) {
+                  return fail();
+                }
+                return await use(canary, true);
+              } finally {
+                await restore(clientPath, snapshot);
+              }
+            },
+            withRefreshCredential: async (use) => {
+              const issued = await issuePublicUserResourceTokensWithPassword(
+                target.target,
+                fixture,
+                lease.getSubjectPassword?.() ?? fail(),
+                AbortSignal.timeout(10_000)
+              );
+              return use(issued.refresh);
+            },
+            withBlockingCustomizer: async (use) => {
+              const snapshot = await capture(userPath);
+              try {
+                await put(userPath, {
+                  script: `const getCustomJwtClaims = async () => { throw new Error('blocked'); };`,
+                  blockIssuanceOnError: true,
+                  environmentVariables: {},
+                  ...userSample,
+                });
+                return await use();
+              } finally {
+                await restore(userPath, snapshot);
+              }
+            },
+            installCorrectedCustomizer: async () =>
+              put(userPath, {
+                script: `const getCustomJwtClaims = async () => ({ corrected: true });`,
+                blockIssuanceOnError: true,
+                environmentVariables: {},
+                ...userSample,
+              }),
+            exchangeRefresh: async (refreshCredential) => {
+              const status = fixture.status ?? fail();
+              const response = await requestPhase2Json({
+                url: new URL('/oidc/token', target.target.coreUrl),
+                method: 'POST',
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  grant_type: 'refresh_token',
+                  refresh_token: refreshCredential,
+                  client_id: status.client.id,
+                  resource: status.resource.indicator,
+                }),
+                signal: AbortSignal.timeout(10_000),
+              });
+              const body =
+                typeof response.body === 'object' && response.body !== null
+                  ? (response.body as Record<string, unknown>)
+                  : fail();
+              return Object.freeze({
+                status: response.status,
+                ...(typeof body.error === 'string' ? { error: body.error } : {}),
+                tokenPublished: typeof body.access_token === 'string',
+              });
+            },
+          }),
+        });
+        const stateResults = [];
+        for (const id of customJwtCandidateInvariantIds) {
+          stateResults.push(
+            runCustomJwtCandidateInvariantControls(id, await customJwtExecutor.execute(id))
+          );
+        }
+        const fetchSnapshot = await capture(clientPath);
+        const assertDeniedOriginReachable = async () => {
+          const result = await prepared.fence.run(async () =>
+            runPhase1FixtureCommand({
+              command: invariantDriver.path,
+              args: Object.freeze([]),
+              stdin: JSON.stringify({
+                schemaVersion: 1,
+                kind: phase2InvariantRequestKind,
+                invariantId: 'custom-jwt.fetch-policy-boundary',
+                operation: 'probe',
+                target: Object.freeze({ primary: target.target, foreign: target.foreignTarget }),
+                fixture: fixture.public,
+                private: Object.freeze({}),
+                observation: Object.freeze({}),
+              }),
+              env: Object.freeze({
+                ASTER_PHASE2_CONTROL_SOCKET: invariantDriver.controlSocket,
+                ASTER_CORE_URL: target.target.coreUrl,
+                ASTER_ADMIN_URL: target.target.adminUrl,
+                ASTER_FOREIGN_CORE_URL: target.foreignTarget.coreUrl,
+                ASTER_FOREIGN_ADMIN_URL: target.foreignTarget.adminUrl,
+                LC_ALL: 'C',
+              }),
+              timeoutMs: 120_000,
+              maxStdoutBytes: 65_536,
+              maxStderrBytes: 65_536,
+              shell: false,
+            })
+          );
+          if (
+            result.exitCode !== 0 ||
+            result.signal !== null ||
+            result.stderr !== '' ||
+            result.timedOut ||
+            result.killed ||
+            !result.reaped ||
+            result.stdout.length === 0 ||
+            /[\r\n]/u.test(result.stdout)
+          ) {
+            return fail();
+          }
+          let terminal: unknown;
+          try {
+            terminal = JSON.parse(result.stdout) as unknown;
+          } catch {
+            return fail();
+          }
+          const record =
+            typeof terminal === 'object' && terminal !== null && !Array.isArray(terminal)
+              ? (terminal as Record<string, unknown>)
+              : fail();
+          if (
+            record.schemaVersion !== 1 ||
+            record.kind !== 'phase2-custom-jwt-candidate-invariant-control' ||
+            record.invariantId !== 'custom-jwt.fetch-policy-boundary' ||
+            record.operation !== 'probe' ||
+            JSON.stringify(record.attestation) !== JSON.stringify(prepared.topology) ||
+            typeof record.ok !== 'boolean' ||
+            !record.ok ||
+            Object.keys(record).length !== 6
+          ) {
+            return fail();
+          }
+        };
+        const fetchResult = await runCustomJwtFetchPolicyCandidateInvariant({
+          assertDeniedOriginReachable,
+          installCustomizer: async (kind) =>
+            put(clientPath, {
+              script:
+                kind === 'allowed-fetch'
+                  ? `const getCustomJwtClaims = async () => { const response = await fetch('https://fetch-observer.aster.test:8443/text'); return { policy_claim: response.status === 200 && (await response.text()) === 'bounded-text' ? 'bounded-response' : 'mismatch' }; };`
+                  : `const getCustomJwtClaims = async () => { try { await fetch('https://fetch-observer.aster.test:8444/text'); } catch (error) { return { policy_claim: error?.name === 'TypeError' ? 'caught-TypeError' : 'other' }; } return { policy_claim: 'unexpected' }; };`,
+              blockIssuanceOnError: true,
+              environmentVariables: {},
+              ...clientSample,
+            }),
+          issueM2MAndVerifyClaim: async () => {
+            const response = await issueM2M();
+            if (response.status !== 200) {
+              return fail();
+            }
+            const body =
+              typeof response.body === 'object' && response.body !== null
+                ? (response.body as Record<string, unknown>)
+                : fail();
+            const token = typeof body.access_token === 'string' ? body.access_token : fail();
+            const verified = await jwtVerify(token, createLocalJWKSet(jwks));
+            return verified.payload.policy_claim;
+          },
+          readAndResetSanitizedReceipts: async () => receiptPort.readAndResetFetchReceipts(),
+          restoreConfiguration: async () => restore(clientPath, fetchSnapshot),
+        });
+        return Object.freeze([...stateResults, fetchResult]);
+      }
+    );
+    const combined = Object.freeze([...legacy, ...device, ...customJwt]);
     if (
       combined.length !== input.profile.candidateInvariantScenarios.length ||
       combined.some(({ id }, index) => id !== input.profile.candidateInvariantScenarios[index])

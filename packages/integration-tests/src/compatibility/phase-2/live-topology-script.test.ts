@@ -217,8 +217,8 @@ const runEvidenceValidation = async (
   const invariantPath = path.join(directory, 'invariants.json');
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 167 }, (_, index) => `scenario-${index}`);
-  const invariantIds = Array.from({ length: 13 }, (_, index) => `invariant-${index}`);
+  const differentialScenarioIds = Array.from({ length: 168 }, (_, index) => `scenario-${index}`);
+  const invariantIds = Array.from({ length: 16 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
     differentialScenarios: differentialScenarioIds,
@@ -899,11 +899,11 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 167',
+      'scenarioCount !== 168',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 167',
+      'comparisonCount !== 168',
       'custom-jwt',
-      'invariantCount !== 13',
+      'invariantCount !== 16',
       'differenceCount !== 0',
       'comparison.scenarioId !== profile.differentialScenarios[index]',
       "exactKeys(comparison, ['scenarioId','differenceCount'])",
@@ -940,11 +940,11 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(167, 13, 18)).resolves.toEqual({ code: 0, stderr: '' });
-    await expect(runEvidenceValidation(154, 13, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(167, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(167, 13, 12)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(167, 13, 17)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(168, 16, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(154, 16, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(168, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(168, 16, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(168, 16, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {
@@ -1205,18 +1205,18 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         'controls',
         'ids',
         'client-0',
-        'client-166',
+        'client-167',
         'device-0',
-        'device-166',
+        'device-167',
       ].map(
         (suffix) => `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).`
       )
     );
     const rejectedLines = [
       'Phase 2 client credentials command failed (oracle-sanitizer-client-00).',
-      'Phase 2 client credentials command failed (oracle-sanitizer-client-167).',
+      'Phase 2 client credentials command failed (oracle-sanitizer-client-168).',
       'Phase 2 client credentials command failed (candidate-sanitizer-device-01).',
-      'Phase 2 client credentials command failed (candidate-sanitizer-device-167).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-device-168).',
       'Phase 2 client credentials command failed (oracle-sanitizer-target-extra).',
       'Phase 2 client credentials command failed (oracle-sanitizer-private-value).',
     ];

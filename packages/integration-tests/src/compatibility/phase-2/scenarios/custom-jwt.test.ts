@@ -223,6 +223,7 @@ describe('Phase 2 custom JWT scenarios', () => {
     let userConfigured = false;
     const issuedRefreshTokens = new Set<string>();
     let userMode: 'success' | 'deny' | 'block' | 'open' = 'success';
+    let deviceRelationshipsMatch = true;
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
       verifyAccessToken: verifyJwt,
@@ -396,6 +397,18 @@ describe('Phase 2 custom JWT scenarios', () => {
           },
         };
       },
+      observeDeviceResourceRefresh: async () => ({
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: deviceRelationshipsMatch,
+        applicationMatchesToken: deviceRelationshipsMatch,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      }),
     };
 
     const result = await runCustomJwtScenarios(port, {
@@ -461,6 +474,18 @@ describe('Phase 2 custom JWT scenarios', () => {
       { status: 400, error: 'access_denied', issued: false },
       { status: 400, error: 'invalid_request', issued: false },
       { status: 200, issued: true, sameRefreshRemainedUsable: true },
+      {
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: true,
+        applicationMatchesToken: true,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      },
     ]);
     expect(calls.slice(-2)).toEqual([
       'DELETE configs/jwt-customizer/client-credentials',
@@ -470,10 +495,27 @@ describe('Phase 2 custom JWT scenarios', () => {
       configured: false,
       userConfigured: false,
     });
+    deviceRelationshipsMatch = false;
+    const mismatchedRelationships = await runCustomJwtScenarios(port, {
+      expected: {
+        issuer: 'issuer',
+        subject: 'client',
+        audience: 'resource',
+        clientId: 'client',
+        scope: 'read',
+        userSubject: 'user',
+        userClientId: 'user-client',
+        userApplicationName: 'User Client',
+        userAudience: 'resource',
+        userScope: 'read:profile',
+      },
+    });
+    expect(mismatchedRelationships.at(-1)?.projection).toMatchObject({
+      userMatchesToken: false,
+      applicationMatchesToken: false,
+    });
     const serialized = JSON.stringify(result);
-    expect(serialized).not.toMatch(
-      /access_token|getCustomJwtClaims|custom-jwt-env-marker|signature/u
-    );
+    expect(serialized).not.toMatch(/getCustomJwtClaims|custom-jwt-env-marker|signature/u);
     expect(Object.isFrozen(result)).toBe(true);
   });
 
@@ -497,6 +539,18 @@ describe('Phase 2 custom JWT scenarios', () => {
       exchangeUserRefresh: async () => {
         throw new Error('unexpected refresh');
       },
+      observeDeviceResourceRefresh: async () => ({
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: true,
+        applicationMatchesToken: true,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      }),
     };
 
     await expect(
@@ -699,6 +753,18 @@ describe('Phase 2 custom JWT scenarios', () => {
           },
         };
       },
+      observeDeviceResourceRefresh: async () => ({
+        status: 200,
+        initialAccessOpaque: true,
+        invoked: true,
+        userContextPresent: true,
+        applicationContextPresent: true,
+        userMatchesToken: true,
+        applicationMatchesToken: true,
+        protectedClaimsMatch: true,
+        tokenKind: 'access_token',
+        grantType: 'device_code refresh_token',
+      }),
     };
     const expected = {
       issuer: 'issuer',
