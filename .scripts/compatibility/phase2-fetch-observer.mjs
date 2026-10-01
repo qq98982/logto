@@ -109,7 +109,15 @@ export const startFetchObserver = async ({
         return;
       }
       if (url.pathname === '/reset-connection') {
-        request.socket.destroy();
+        const body = Buffer.concat(chunks);
+        if (request.method !== 'GET' || body.length !== 0) {
+          response.writeHead(400, { 'content-type': 'text/plain', connection: 'close' }).end('bad request');
+          return;
+        }
+        void append(receipt('GET', url.pathname, true, true)).then(
+          () => request.socket.destroy(),
+          () => response.writeHead(503, { connection: 'close' }).end()
+        );
         return;
       }
       if (url.pathname === '/healthz' && request.method === 'GET') {

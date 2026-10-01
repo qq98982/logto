@@ -130,7 +130,18 @@ test('bounded HTTPS observer serves fixed routes and writes only sanitized order
       status: 200,
       body: 'redirected',
     });
+    await expect(
+      request(observerPort, ca, '/reset-connection', { method: 'POST' })
+    ).resolves.toMatchObject({ status: 400 });
     await expect(request(observerPort, ca, '/reset-connection')).rejects.toThrow();
+    const receiptTextAfterReset = await readFile(receipts, 'utf8');
+    const receiptsAfterReset = receiptTextAfterReset
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { path: string });
+    expect(
+      receiptsAfterReset.filter(({ path: receiptPath }) => receiptPath === '/reset-connection')
+    ).toHaveLength(1);
     const unavailable = await request(observerPort, ca, '/receipts');
     expect(unavailable).toMatchObject({ status: 404 });
     const query = await request(observerPort, ca, '/text?unexpected=1');
@@ -152,12 +163,21 @@ test('bounded HTTPS observer serves fixed routes and writes only sanitized order
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(lines).toHaveLength(64);
-    expect(lines.slice(0, 4)).toEqual([
+    expect(lines.slice(0, 5)).toEqual([
       { method: 'GET', path: '/text', headerMatches: true, bodyMatches: true },
       { method: 'POST', path: '/post', headerMatches: true, bodyMatches: true },
       { method: 'GET', path: '/redirect', headerMatches: true, bodyMatches: true },
       { method: 'GET', path: '/final', headerMatches: true, bodyMatches: true },
+      {
+        method: 'GET',
+        path: '/reset-connection',
+        headerMatches: true,
+        bodyMatches: true,
+      },
     ]);
+    expect(
+      lines.filter(({ path: receiptPath }) => receiptPath === '/reset-connection')
+    ).toHaveLength(1);
     expect(JSON.stringify(lines)).not.toContain('bounded-body');
   } finally {
     try {
