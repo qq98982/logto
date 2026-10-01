@@ -457,8 +457,9 @@ const check = () => client.negotiate({schemaVersion: 1, protocolVersion: 2, expe
   });
 check();
 NODE
+  # Default rootless UID 0 maps to the invoking host user, which owns the private mTLS key.
   PROBE_CONTAINER_ID="$(docker_cli create --network "container:$supervisor_id" \
-    --user "$(/usr/bin/id -u):$(/usr/bin/id -g)" --userns keep-id \
+    --user 0:0 \
     --pids-limit 32 --memory 192m --cpus 0.25 --cap-drop ALL \
     --security-opt no-new-privileges --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
     --volume "$SCRIPT_HOST_CA:/probe/ca.pem:ro" \

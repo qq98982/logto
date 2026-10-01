@@ -495,6 +495,58 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(executor).not.toHaveProperty('volumes');
   });
 
+  it('maps rootless container root to the private mTLS owner for the readiness probe', async () => {
+    const harnessPath = path.join(temporaryRoot, 'script-host-probe-userns-harness.sh');
+    const supervisorId = 'a'.repeat(64);
+    const probeId = 'b'.repeat(64);
+    const harness = `#!/usr/bin/env bash
+set -euo pipefail
+source ${JSON.stringify(runnerPath)}
+SCRIPT_HOST_CA=/private/script-host-ca.pem
+SCRIPT_HOST_CLIENT_CERT=/private/script-host-client.pem
+SCRIPT_HOST_CLIENT_KEY=/private/script-host-client.key
+SCRIPT_SUPERVISOR_IMAGE_ID=sha256:${'c'.repeat(64)}
+compose_candidate() { [[ "$*" == 'ps --all -q candidate-script-supervisor' ]] && printf '%s\\n' ${JSON.stringify(supervisorId)}; }
+remove_owned_container() { [[ "$1" == ${JSON.stringify(probeId)} ]]; }
+docker_cli() {
+  case "$1" in
+    inspect)
+      printf '%s\\n' ${JSON.stringify(supervisorId)}
+      ;;
+    create)
+      shift
+      [[ " $* " == *" --network container:${supervisorId} "* ]] || return 1
+      [[ " $* " == *" --user 0:0 "* ]] || return 1
+      [[ " $* " != *" --userns "* ]] || return 1
+      [[ " $* " == *" --cap-drop ALL "* ]] || return 1
+      [[ " $* " == *" --security-opt no-new-privileges "* ]] || return 1
+      [[ " $* " == *" --read-only "* ]] || return 1
+      [[ " $* " == *" --volume /private/script-host-ca.pem:/probe/ca.pem:ro "* ]] || return 1
+      [[ " $* " == *" --volume /private/script-host-client.pem:/probe/client.pem:ro "* ]] || return 1
+      [[ " $* " == *" --volume /private/script-host-client.key:/probe/client.key:ro "* ]] || return 1
+      volume_count=0
+      for argument in "$@"; do
+        [[ "$argument" != --volume ]] || volume_count=$((volume_count + 1))
+      done
+      [[ "$volume_count" == 3 ]] || return 1
+      printf '%s\\n' ${JSON.stringify(probeId)}
+      ;;
+    start)
+      [[ "$*" == ${JSON.stringify(`start --attach ${probeId}`)} ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+wait_for_script_host_serving
+[[ -z "$PROBE_CONTAINER_ID" ]]
+`;
+    await writeFile(harnessPath, harness, { mode: 0o500 });
+
+    await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+  });
+
   it('owns private fetch and script-host material with pinned image provenance', () => {
     for (const required of [
       'ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE',
