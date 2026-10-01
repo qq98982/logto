@@ -1106,6 +1106,18 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     const accepted = ['oracle', 'candidate'].flatMap((target) =>
       [
         'authorize',
+        'approval-authorize',
+        'approval-capture',
+        'approval-verify',
+        'approval-experience-open',
+        'approval-password',
+        'approval-identification',
+        'approval-experience-submit',
+        'approval-resume-initial',
+        'approval-consent-read',
+        'approval-consent-write',
+        'approval-resume-final',
+        'token-poll',
         'initial-lease',
         'refresh-request',
         'refresh-http',
@@ -1119,6 +1131,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (oracle-custom-jwt-21:authorize).',
       'Phase 2 client credentials command failed (candidate-custom-jwt-23:projection).',
       'Phase 2 client credentials command failed (oracle-custom-jwt-22:unknown).',
+      'Phase 2 client credentials command failed (oracle-custom-jwt-22:approval-unknown).',
+      'Phase 2 client credentials command failed (oracle-custom-jwt-22:approval-password:private-value).',
       'Phase 2 client credentials command failed (candidate-custom-jwt-22:jwt-verify:private-value).',
     ];
     await expect(

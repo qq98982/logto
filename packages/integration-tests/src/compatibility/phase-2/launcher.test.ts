@@ -357,6 +357,18 @@ describe('Phase 2 tracked launcher', () => {
     for (const target of ['oracle', 'candidate']) {
       for (const stage of [
         'authorize',
+        'approval-authorize',
+        'approval-capture',
+        'approval-verify',
+        'approval-experience-open',
+        'approval-password',
+        'approval-identification',
+        'approval-experience-submit',
+        'approval-resume-initial',
+        'approval-consent-read',
+        'approval-consent-write',
+        'approval-resume-final',
+        'token-poll',
         'initial-lease',
         'refresh-request',
         'refresh-http',
@@ -371,6 +383,8 @@ describe('Phase 2 tracked launcher', () => {
       'oracle-custom-jwt-21:authorize',
       'candidate-custom-jwt-23:projection',
       'oracle-custom-jwt-22:unknown',
+      'oracle-custom-jwt-22:approval-unknown',
+      'oracle-custom-jwt-22:approval-password:private-value',
       'candidate-custom-jwt-22:jwt-verify:private-value',
     ]) {
       expect(

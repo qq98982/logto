@@ -281,7 +281,10 @@ describe('device resource refresh observation', () => {
       verifiedToken: () => verifiedToken,
       input: {
         transport,
-        issueAuthorization: async () => {
+        approveAuthorization: async () => {
+          await Promise.resolve();
+        },
+        pollToken: async () => {
           await Promise.resolve();
         },
         verifyAccessToken,
@@ -309,6 +312,7 @@ describe('device resource refresh observation', () => {
     });
     expect(harness.stages).toEqual([
       'authorize',
+      'token-poll',
       'initial-lease',
       'refresh-request',
       'refresh-http',
@@ -326,6 +330,7 @@ describe('device resource refresh observation', () => {
     );
     expect(harness.stages).toEqual([
       'authorize',
+      'token-poll',
       'initial-lease',
       'refresh-request',
       'refresh-http',
@@ -342,8 +347,26 @@ describe('device resource refresh observation', () => {
       'authorize',
       (input) => ({
         ...input,
-        issueAuthorization: async () => {
+        approveAuthorization: async () => {
           throw new Error('private user id');
+        },
+      }),
+    ],
+    [
+      'approval-password',
+      (input) => ({
+        ...input,
+        approveAuthorization: async () => {
+          throw new TypeError('Invalid Phase 2 device already-used-code step (approval-password)');
+        },
+      }),
+    ],
+    [
+      'token-poll',
+      (input) => ({
+        ...input,
+        pollToken: async () => {
+          throw new Error('private device code and user id');
         },
       }),
     ],
@@ -1569,6 +1592,18 @@ describe('Phase 2 CLI', () => {
     for (const target of ['oracle', 'candidate'] as const) {
       for (const stage of [
         'authorize',
+        'approval-authorize',
+        'approval-capture',
+        'approval-verify',
+        'approval-experience-open',
+        'approval-password',
+        'approval-identification',
+        'approval-experience-submit',
+        'approval-resume-initial',
+        'approval-consent-read',
+        'approval-consent-write',
+        'approval-resume-final',
+        'token-poll',
         'initial-lease',
         'refresh-request',
         'refresh-http',
@@ -1607,6 +1642,8 @@ describe('Phase 2 CLI', () => {
       'oracle-custom-jwt-21:authorize',
       'oracle-custom-jwt-23:projection',
       'oracle-custom-jwt-22:unknown',
+      'oracle-custom-jwt-22:approval-unknown',
+      'oracle-custom-jwt-22:approval-password:private credential',
       'oracle-custom-jwt-22:jwt-verify:private credential',
     ]) {
       const calls: string[] = [];

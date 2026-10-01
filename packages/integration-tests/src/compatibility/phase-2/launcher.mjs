@@ -225,7 +225,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-22:(authorize|initial-lease|refresh-request|refresh-http|jwt-verify|projection)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-22:(authorize|approval-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection)\)\.\n$/u.test(
       stderr
     )
   ) {

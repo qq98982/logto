@@ -109,7 +109,7 @@ import {
   createDeviceAuthorizationScenarioRegistry,
   compareDeviceScenarioProjections,
   deviceAuthorizationScenarioIds,
-  issueDeviceAuthorization,
+  approveDeviceAuthorization,
   runDeviceAuthorizationNegativeControls,
   type DeviceAuthorizationControlResult,
   type DeviceAuthorizationScenarioId,
@@ -451,6 +451,8 @@ type DeviceFailureStage =
   | 'verification-post';
 type DeviceResourceRefreshFailureStage =
   | 'authorize'
+  | Extract<DeviceFailureStage, `approval-${string}`>
+  | 'token-poll'
   | 'initial-lease'
   | 'refresh-request'
   | 'refresh-http'
@@ -459,7 +461,7 @@ type DeviceResourceRefreshFailureStage =
 const stageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const customJwtStageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-22:(?:authorize|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
 const customJwtFailurePattern =
   /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])\)$/u;
 const candidateInvariantStageFailurePattern =
@@ -568,7 +570,8 @@ export const observeDeviceResourceRefreshContext = async (
       ): Promise<Readonly<{ status: number }>>;
       clear(): void;
     }>;
-    issueAuthorization(): Promise<void>;
+    approveAuthorization(): Promise<void>;
+    pollToken(): Promise<void>;
     verifyAccessToken(token: string): Promise<Readonly<Record<string, unknown>>>;
     recordStage(stage: DeviceResourceRefreshFailureStage): void;
   }>
@@ -576,7 +579,17 @@ export const observeDeviceResourceRefreshContext = async (
   try {
     try {
       input.recordStage('authorize');
-      await input.issueAuthorization();
+      try {
+        await input.approveAuthorization();
+      } catch (error: unknown) {
+        const approvalStage = closedDeviceFailureStage(error);
+        if (approvalStage?.startsWith('approval-') === true) {
+          input.recordStage(approvalStage as Extract<DeviceFailureStage, `approval-${string}`>);
+        }
+        throw new TypeError(invalidDeviceResourceRefreshContext);
+      }
+      input.recordStage('token-poll');
+      await input.pollToken();
       input.recordStage('initial-lease');
       const initialAccessOpaque = await input.transport.withCredentialLease(async (lease) => {
         const access = lease.getAccessToken();
@@ -1152,16 +1165,25 @@ const runTargetScenarios = async (
             const resource = fixture.public.resources.primary.indicator;
             return observeDeviceResourceRefreshContext({
               transport,
-              issueAuthorization: async () => {
-                await issueDeviceAuthorization(
+              approveAuthorization: async () => {
+                await approveDeviceAuthorization(
                   transport,
                   { target: descriptor.target, fixture, jwks, state },
                   {
                     client: 'firstParty',
                     scope: 'openid offline_access read',
                     resource,
+                    traceUsedCodeApproval: true,
                   }
                 );
+              },
+              pollToken: async () => {
+                await transport.pollToken({
+                  proof: {
+                    method: 'public',
+                    clientId: fixture.public.deviceClients.firstParty.id,
+                  },
+                });
               },
               verifyAccessToken: async (access) => {
                 const verified = await jwtVerify(access, createLocalJWKSet(jwks));
