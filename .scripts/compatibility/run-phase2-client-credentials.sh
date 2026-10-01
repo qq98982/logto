@@ -1556,6 +1556,9 @@ const oracle = select(
   ['oracle-primary','oracle-foreign'],
   ['oracle-primary-postgres','oracle-primary-redis','oracle-foreign-postgres','oracle-foreign-redis'],
 );
+for (const name of ['oracle-primary-core','oracle-foreign-core']) {
+  oracle.services[name].environment.DEV_FEATURES_ENABLED = 'true';
+}
 const candidate = select(
   ['candidate-primary-postgres','candidate-primary-init','candidate-primary-core','candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor','candidate-foreign-postgres','candidate-foreign-init','candidate-foreign-core','candidate-fixture-coordinator'],
   ['candidate-primary','candidate-foreign'],

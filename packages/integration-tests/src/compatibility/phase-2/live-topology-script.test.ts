@@ -456,6 +456,37 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(sourceDocument.services).not.toHaveProperty('candidate-fetch-observer');
   });
 
+  it('enables blocking script errors only in the Phase 2 oracle cores', async () => {
+    const directory = await mkdtemp(path.join(temporaryRoot, 'oracle-dev-features-compose-'));
+    const oracleOutput = path.join(directory, 'oracle.json');
+    const candidateOutput = path.join(directory, 'candidate.json');
+    const result = await runEmbeddedNode(embeddedNodeProgram("failure_stage='compose-config'"), [
+      topologyPath,
+      oracleOutput,
+      candidateOutput,
+      '/private/script-ca.pem',
+      '/private/script-client.pem',
+      '/private/script-client.key',
+      '/private/observer-ca.pem',
+    ]);
+    expect(result).toEqual({ code: 0, stderr: '' });
+
+    type Service = { environment: Record<string, string> };
+    const sourceDocument = JSON.parse(await readFile(topologyPath, 'utf8')) as {
+      services: Record<string, Service>;
+    };
+    const oracleDocument = JSON.parse(await readFile(oracleOutput, 'utf8')) as {
+      services: Record<string, Service>;
+    };
+    for (const name of ['oracle-primary-core', 'oracle-foreign-core']) {
+      expect(sourceDocument.services[name]?.environment).not.toHaveProperty('DEV_FEATURES_ENABLED');
+      expect(oracleDocument.services[name]?.environment.DEV_FEATURES_ENABLED).toBe('true');
+    }
+    expect(oracleDocument.services['oracle-fetch-observer']?.environment).not.toHaveProperty(
+      'DEV_FEATURES_ENABLED'
+    );
+  });
+
   it('keeps the shared-network executor on the default rootless user namespace', async () => {
     const directory = await mkdtemp(path.join(temporaryRoot, 'executor-userns-compose-'));
     const oracleOutput = path.join(directory, 'oracle.json');
