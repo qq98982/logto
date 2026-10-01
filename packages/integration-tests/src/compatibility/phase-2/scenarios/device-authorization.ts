@@ -92,6 +92,9 @@ export const deviceAuthorizationScenarioIds = Object.freeze([
 ] as const satisfies readonly Phase2DifferentialScenarioId[]);
 
 export type DeviceAuthorizationScenarioId = (typeof deviceAuthorizationScenarioIds)[number];
+export type WithSubjectPassword = <Result>(
+  use: (password: string) => Promise<Result>
+) => Promise<Result>;
 export type DeviceScenarioProjection =
   | DeviceAuthorizationProjection
   | DeviceLifecycleProjection
@@ -232,6 +235,7 @@ export type DeviceFlowOptions = Readonly<{
   traceUsedCodeApproval?: boolean;
   resource?: string;
   organizationId?: string;
+  withSubjectPassword?: WithSubjectPassword;
 }>;
 
 const diagnostic = 'Invalid Phase 2 device authorization scenario';
@@ -541,7 +545,8 @@ const confirmVerification = async (
 export const completeDeviceApproval = async (
   lease: DeviceAuthorizationTransportLease,
   runtime: DeviceAuthorizationScenarioRuntime,
-  traceUsedCodeApproval = false
+  traceUsedCodeApproval = false,
+  withSubjectPassword?: WithSubjectPassword
 ): Promise<
   Readonly<{
     consentRead: DeviceLifecycleProjection;
@@ -558,17 +563,22 @@ export const completeDeviceApproval = async (
   await runApprovalStep(traceUsedCodeApproval, 'approval-experience-open', async () =>
     lease.requestLifecycle({ kind: 'experience-open', method: 'PUT' })
   );
-  await runApprovalStep(traceUsedCodeApproval, 'approval-password', async () =>
-    runtime.fixture.withSecretLease(async (secret) => {
-      const password = secret.getSubjectPassword?.() ?? fail();
-      return lease.requestLifecycle({
+  await runApprovalStep(traceUsedCodeApproval, 'approval-password', async () => {
+    const provideSubjectPassword: WithSubjectPassword =
+      withSubjectPassword ??
+      (async (use) =>
+        runtime.fixture.withSecretLease(async (secret) =>
+          use(secret.getSubjectPassword?.() ?? fail())
+        ));
+    return provideSubjectPassword(async (password) =>
+      lease.requestLifecycle({
         kind: 'password-verification',
         method: 'POST',
         username: runtime.fixture.status?.user.username ?? fail(),
         password,
-      });
-    })
-  );
+      })
+    );
+  });
   await runApprovalStep(traceUsedCodeApproval, 'approval-identification', async () =>
     lease.requestLifecycle({ kind: 'identification', method: 'POST' })
   );
@@ -611,7 +621,7 @@ export const approveDeviceAuthorization = async (
   await runApprovalStep(traceUsedCodeApproval, 'approval-capture', async () =>
     afterAuthorization?.()
   );
-  return completeDeviceApproval(lease, runtime, traceUsedCodeApproval);
+  return completeDeviceApproval(lease, runtime, traceUsedCodeApproval, options.withSubjectPassword);
 };
 
 export const issueDeviceAuthorization = async (

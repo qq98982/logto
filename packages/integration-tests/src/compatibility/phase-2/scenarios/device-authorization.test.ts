@@ -334,6 +334,158 @@ const expectedPrimaryOperation = (id: DeviceAuthorizationScenarioId): string => 
 };
 
 describe('Phase 2 device authorization scenarios', () => {
+  it('uses a supplied subject-password scope inside an active outer secret lease', async () => {
+    let fixtureLeaseActive = false;
+    let passwordScopeActive = false;
+    const scopedFixture: ProvisionedPhase2Fixture = {
+      ...fixture,
+      withSecretLease: async (use) => {
+        if (fixtureLeaseActive) {
+          throw new TypeError('nested fixture secret lease');
+        }
+        fixtureLeaseActive = true;
+        try {
+          return await use({
+            getClientSecret: () => 'private-machine-secret',
+            getStatusClientSecret: () => 'private-status-secret',
+            getSubjectPassword: () => 'private-supplied-password',
+            toJSON: () => {
+              throw new TypeError('secret');
+            },
+          });
+        } finally {
+          fixtureLeaseActive = false;
+        }
+      },
+    };
+    const lifecycleInputs: unknown[] = [];
+    const lease = {
+      requestAuthorization: async () => authorizationResponse(),
+      requestVerification: async () => authorizationResponse(),
+      requestLifecycle: async (input: { kind: DeviceLifecycleProjection['kind'] }) => {
+        if (input.kind === 'password-verification') {
+          expect(fixtureLeaseActive).toBe(true);
+          expect(passwordScopeActive).toBe(true);
+        }
+        lifecycleInputs.push(input);
+        return lifecycleProjection(input.kind);
+      },
+    } as unknown as DeviceAuthorizationTransportLease;
+
+    const result = await scopedFixture.withSecretLease(async (secret) => {
+      const password = secret.getSubjectPassword?.();
+      if (password === undefined) {
+        throw new TypeError('missing subject password');
+      }
+      return approveDeviceAuthorization(
+        lease,
+        { target, fixture: scopedFixture } as DeviceAuthorizationScenarioRuntime,
+        {
+          client: 'firstParty',
+          withSubjectPassword: async (use) => {
+            passwordScopeActive = true;
+            try {
+              return await use(password);
+            } finally {
+              passwordScopeActive = false;
+            }
+          },
+        }
+      );
+    });
+
+    expect(fixtureLeaseActive).toBe(false);
+    expect(passwordScopeActive).toBe(false);
+    expect(lifecycleInputs).toContainEqual(
+      expect.objectContaining({
+        kind: 'password-verification',
+        password: 'private-supplied-password',
+      })
+    );
+    expect(JSON.stringify(result)).not.toContain('private-supplied-password');
+
+    const failingLease = {
+      ...lease,
+      requestLifecycle: async (input: { kind: DeviceLifecycleProjection['kind'] }) => {
+        if (input.kind === 'password-verification') {
+          expect(fixtureLeaseActive).toBe(true);
+          expect(passwordScopeActive).toBe(true);
+          throw new Error('password request failed');
+        }
+        return lifecycleProjection(input.kind);
+      },
+    } as unknown as DeviceAuthorizationTransportLease;
+    await expect(
+      scopedFixture.withSecretLease(async (secret) => {
+        const password = secret.getSubjectPassword?.();
+        if (password === undefined) {
+          throw new TypeError('missing subject password');
+        }
+        return approveDeviceAuthorization(
+          failingLease,
+          { target, fixture: scopedFixture } as DeviceAuthorizationScenarioRuntime,
+          {
+            client: 'firstParty',
+            withSubjectPassword: async (use) => {
+              passwordScopeActive = true;
+              try {
+                return await use(password);
+              } finally {
+                passwordScopeActive = false;
+              }
+            },
+          }
+        );
+      })
+    ).rejects.toThrow('password request failed');
+    expect(fixtureLeaseActive).toBe(false);
+    expect(passwordScopeActive).toBe(false);
+  });
+
+  it('uses and clears the fixture password lease by default, including on failure', async () => {
+    let fixtureLeaseActive = false;
+    let fixtureLeaseCount = 0;
+    const scopedFixture: ProvisionedPhase2Fixture = {
+      ...fixture,
+      withSecretLease: async (use) => {
+        fixtureLeaseCount += 1;
+        fixtureLeaseActive = true;
+        try {
+          return await use({
+            getClientSecret: () => 'private-machine-secret',
+            getStatusClientSecret: () => 'private-status-secret',
+            getSubjectPassword: () => 'private-default-password',
+            toJSON: () => {
+              throw new TypeError('secret');
+            },
+          });
+        } finally {
+          fixtureLeaseActive = false;
+        }
+      },
+    };
+    const lease = {
+      requestAuthorization: async () => authorizationResponse(),
+      requestVerification: async () => authorizationResponse(),
+      requestLifecycle: async (input: { kind: DeviceLifecycleProjection['kind'] }) => {
+        if (input.kind === 'password-verification') {
+          throw new Error('password request failed');
+        }
+        return lifecycleProjection(input.kind);
+      },
+    } as unknown as DeviceAuthorizationTransportLease;
+
+    await expect(
+      approveDeviceAuthorization(
+        lease,
+        { target, fixture: scopedFixture } as DeviceAuthorizationScenarioRuntime,
+        { client: 'firstParty' }
+      )
+    ).rejects.toThrow('password request failed');
+    expect(fixtureLeaseCount).toBe(1);
+    expect(fixtureLeaseActive).toBe(false);
+  });
+
   it('maps already-used-code approval operations to exact fixed substages', async () => {
     const cases = [
       ['approval-authorize', 'authorize'],

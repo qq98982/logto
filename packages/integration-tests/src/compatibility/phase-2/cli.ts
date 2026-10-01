@@ -1174,6 +1174,7 @@ const runTargetScenarios = async (
                     scope: 'openid offline_access read',
                     resource,
                     traceUsedCodeApproval: true,
+                    withSubjectPassword: async (use) => use(subjectPassword),
                   }
                 );
               },
