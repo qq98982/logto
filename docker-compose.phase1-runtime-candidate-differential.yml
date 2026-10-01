@@ -835,7 +835,7 @@
         "ASTER_SCRIPT_EXPECTED_CLIENT_URI": "spiffe://aster.test/server"
       },
       "healthcheck": {
-        "test": ["CMD", "node", "-e", "const net=require('node:net');const s=net.connect(50051,'127.0.0.1',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));s.setTimeout(2000,()=>{s.destroy();process.exit(1)});"],
+        "test": ["CMD", "node", "-e", "const{connect}=require('node:net'),s=connect(50051,'127.0.0.1',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));s.setTimeout(2000,()=>{s.destroy();process.exit(1)});"],
         "interval": "1s",
         "timeout": "3s",
         "retries": 60

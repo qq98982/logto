@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types -- This contract test keeps the complete security-sensitive runner and cleanup retry harnesses together for source and behavioral auditing. */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmod,
@@ -354,12 +354,30 @@ afterAll(async () => {
 });
 
 describe('Phase 2 client-credentials live topology runner', () => {
-  it('preserves the observer health argv through Podman Docker API tokenization', async () => {
+  it('preserves every Phase 2 Node health argv through Podman Docker API tokenization', async () => {
     const document = JSON.parse(await readFile(topologyPath, 'utf8')) as {
       'x-phase2-services': Record<string, { healthcheck?: { test?: unknown } }>;
     };
-    for (const name of ['oracle-fetch-observer', 'candidate-fetch-observer']) {
-      const testCommand = document['x-phase2-services'][name]?.healthcheck?.test;
+    const nodeHealthchecks = Object.entries(document['x-phase2-services']).filter(
+      ([, service]) =>
+        Array.isArray(service.healthcheck?.test) &&
+        service.healthcheck.test.slice(0, 3).join('\0') === ['CMD', 'node', '-e'].join('\0')
+    );
+    expect(nodeHealthchecks.map(([name]) => name).toSorted()).toEqual([
+      'candidate-fetch-observer',
+      'candidate-script-executor',
+      'candidate-script-supervisor',
+      'oracle-fetch-observer',
+    ]);
+    const invalidSyntax = spawnSync(process.execPath, ['--check', '-'], {
+      input: 'const =;',
+      encoding: 'utf8',
+    });
+    expect(invalidSyntax.status).not.toBe(0);
+    expect(invalidSyntax.signal).toBeNull();
+    expect(invalidSyntax.stderr).not.toBe('');
+    for (const [name, service] of nodeHealthchecks) {
+      const testCommand = service.healthcheck?.test;
       expect(Array.isArray(testCommand)).toBe(true);
       const command = (testCommand as unknown[]).map((value) =>
         typeof value === 'string' ? value : ''
@@ -369,13 +387,28 @@ describe('Phase 2 client-credentials live topology runner', () => {
       const podmanArgv = command.flatMap((argument) => argument.split(/\s+/u));
       expect(podmanArgv).toEqual(command);
       const program = command[3] ?? '';
-      expect(program).toContain("require('node:https')");
-      expect(program).toContain('fetch-observer.aster.test');
-      expect(program).toContain("path:'/healthz'");
-      expect(program).toContain('ASTER_FETCH_OBSERVER_CA_FILE');
-      expect(program).toContain('statusCode===204?0:1');
-      expect(program).toContain(".on('error',()=>process.exit(1))");
-      expect(program).toContain('setTimeout(2000');
+      const syntax = spawnSync(process.execPath, ['--check', '-'], {
+        input: program,
+        encoding: 'utf8',
+      });
+      expect(syntax).toMatchObject({ status: 0, signal: null, stderr: '' });
+      if (name.endsWith('fetch-observer')) {
+        expect(program).toContain("require('node:https')");
+        expect(program).toContain('fetch-observer.aster.test');
+        expect(program).toContain("path:'/healthz'");
+        expect(program).toContain('ASTER_FETCH_OBSERVER_CA_FILE');
+        expect(program).toContain('statusCode===204?0:1');
+      } else if (name === 'candidate-script-supervisor') {
+        expect(program).toContain("require('node:net')");
+        expect(program).toContain("connect(50051,'127.0.0.1'");
+        expect(program).toContain('process.exit(0)');
+      } else {
+        expect(program).toBe('process.kill(1,0)');
+      }
+      if (name !== 'candidate-script-executor') {
+        expect(program).toContain("'error',()=>process.exit(1)");
+        expect(program).toContain('setTimeout(2000');
+      }
     }
   });
 
