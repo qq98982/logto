@@ -20,6 +20,10 @@ const runnerPath = path.join(
   repositoryRoot,
   '.scripts/compatibility/run-phase2-client-credentials.sh'
 );
+const topologyPath = path.join(
+  repositoryRoot,
+  'docker-compose.phase1-runtime-candidate-differential.yml'
+);
 const buildRoot = '/var/tmp/henry-build';
 
 let source = '';
@@ -43,6 +47,19 @@ const runBash = async (scriptPath: string): Promise<Readonly<{ code: number; std
       resolve({ code, stderr: Buffer.concat(stderr).toString('utf8') });
     });
   });
+
+const trapCleanupHarness = (succeeds: boolean): string => `#!/usr/bin/env bash
+set -u
+source ${JSON.stringify(runnerPath)}
+cleanup_calls=0
+cleanup_resources() {
+  cleanup_calls=$((cleanup_calls + 1))
+  [[ "$cleanup_calls" == 2 && ${succeeds ? '1' : '0'} == 1 ]]
+}
+remove_owned_result_directory() { return 0; }
+trap cleanup_trap EXIT
+exit 23
+`;
 
 const grepMatches = async (pattern: string, line: string): Promise<boolean> =>
   new Promise((resolve, reject) => {
@@ -337,6 +354,50 @@ afterAll(async () => {
 });
 
 describe('Phase 2 client-credentials live topology runner', () => {
+  it('disables only periodic health timers in the selected Podman documents', async () => {
+    const directory = await mkdtemp(path.join(temporaryRoot, 'effective-compose-'));
+    const oracleOutput = path.join(directory, 'oracle.json');
+    const candidateOutput = path.join(directory, 'candidate.json');
+    const program = embeddedNodeProgram("failure_stage='compose-config'");
+    const result = await runEmbeddedNode(program, [
+      topologyPath,
+      oracleOutput,
+      candidateOutput,
+      '/private/script-ca.pem',
+      '/private/script-client.pem',
+      '/private/script-client.key',
+      '/private/observer-ca.pem',
+    ]);
+    expect(result).toEqual({ code: 0, stderr: '' });
+
+    const sourceDocument = JSON.parse(await readFile(topologyPath, 'utf8')) as {
+      services: Record<string, { healthcheck?: { interval?: string; test?: unknown } }>;
+      'x-phase2-services': Record<string, { healthcheck?: { interval?: string; test?: unknown } }>;
+    };
+    const outputs = [oracleOutput, candidateOutput].map(
+      async (file) =>
+        JSON.parse(await readFile(file, 'utf8')) as {
+          services: Record<string, { healthcheck?: { interval?: string; test?: unknown } }>;
+        }
+    );
+    for (const output of await Promise.all(outputs)) {
+      for (const [name, service] of Object.entries(output.services)) {
+        const sourceService =
+          sourceDocument.services[name] ?? sourceDocument['x-phase2-services'][name];
+        expect(sourceService).toBeDefined();
+        expect(service.healthcheck?.test).toEqual(sourceService?.healthcheck?.test);
+        if (sourceService?.healthcheck) {
+          expect(sourceService.healthcheck.interval).not.toBe('0s');
+          expect(service.healthcheck?.interval).toBe('0s');
+        } else {
+          expect(service).not.toHaveProperty('healthcheck');
+        }
+      }
+    }
+    expect(sourceDocument.services).not.toHaveProperty('oracle-fetch-observer');
+    expect(sourceDocument.services).not.toHaveProperty('candidate-fetch-observer');
+  });
+
   it('owns private fetch and script-host material with pinned image provenance', () => {
     for (const required of [
       'ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE',
@@ -1512,6 +1573,21 @@ cleanup_resources 23
         '',
       ].join('\n')
     );
+  });
+
+  it('retries trap cleanup after a partial compose-up failure and reports residue', async () => {
+    const retryHarness = path.join(temporaryRoot, 'trap-cleanup-retry-harness.sh');
+    const incompleteHarness = path.join(temporaryRoot, 'trap-cleanup-incomplete-harness.sh');
+    await Promise.all([
+      writeFile(retryHarness, trapCleanupHarness(true), { mode: 0o500 }),
+      writeFile(incompleteHarness, trapCleanupHarness(false), { mode: 0o500 }),
+    ]);
+
+    await expect(runBash(retryHarness)).resolves.toEqual({ code: 23, stderr: '' });
+    await expect(runBash(incompleteHarness)).resolves.toEqual({
+      code: 23,
+      stderr: 'Aster Phase 2 client credentials cleanup incomplete\n',
+    });
   });
 
   it('retains failed owned resources for a second cleanup pass and converges in reverse order', async () => {

@@ -952,11 +952,26 @@ cleanup_resources() {
 }
 
 cleanup_trap() {
-  local status=$?
+  local status=$? cleanup_complete=0 attempt
   trap - EXIT INT TERM HUP
-  cleanup_resources "$status"
-  status=$?
-  exit "$status"
+  for attempt in 1 2; do
+    if cleanup_resources 0; then
+      cleanup_complete=1
+      break
+    fi
+  done
+  if [[ "$status" != 0 ]]; then
+    remove_owned_result_directory "$RESULT_DIR" "$RESULT_DIR_IDENTITY" || cleanup_complete=0
+    remove_owned_result_directory "$RESULT_STAGING_DIR" "$RESULT_STAGING_IDENTITY" || cleanup_complete=0
+  fi
+  if [[ "$cleanup_complete" != 1 ]]; then
+    printf 'Aster Phase 2 client credentials cleanup incomplete\n' >&2
+  fi
+  if [[ "$status" != 0 ]]; then
+    exit "$status"
+  fi
+  [[ "$cleanup_complete" == 1 ]] || exit 1
+  exit 0
 }
 
 git_text() {
@@ -1549,6 +1564,32 @@ for (const name of ['candidate-fetch-observer','candidate-script-supervisor','ca
 }
 oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
 oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
+const healthcheckIntervals = {
+  'oracle-primary-postgres': '3s', 'oracle-primary-redis': '3s', 'oracle-primary-core': '3s',
+  'oracle-fetch-observer': '1s', 'oracle-foreign-postgres': '3s',
+  'oracle-foreign-redis': '3s', 'oracle-foreign-core': '3s',
+  'candidate-primary-postgres': '2s', 'candidate-primary-core': '2s',
+  'candidate-fetch-observer': '1s', 'candidate-script-supervisor': '1s',
+  'candidate-script-executor': '1s', 'candidate-foreign-postgres': '2s',
+  'candidate-foreign-core': '2s', 'candidate-fixture-coordinator': '1s',
+};
+for (const output of [oracle, candidate]) {
+  for (const [name, service] of Object.entries(output.services)) {
+    const expectedInterval = healthcheckIntervals[name];
+    if (expectedInterval === undefined) {
+      if (service.healthcheck !== undefined) throw new Error('unexpected healthcheck');
+      continue;
+    }
+    const healthcheck = service.healthcheck;
+    if (!healthcheck || healthcheck.interval !== expectedInterval ||
+        !Array.isArray(healthcheck.test) || healthcheck.test.length < 2 ||
+        typeof healthcheck.timeout !== 'string' || !/^[1-9][0-9]*s$/u.test(healthcheck.timeout) ||
+        !Number.isInteger(healthcheck.retries) || healthcheck.retries < 1) {
+      throw new Error('healthcheck contract');
+    }
+    healthcheck.interval = '0s';
+  }
+}
 candidate.services['candidate-primary-core'].environment = {
   ...candidate.services['candidate-primary-core'].environment,
   ASTER_SCRIPT_HOST_ADDRESS: 'candidate-script-supervisor:50051',
