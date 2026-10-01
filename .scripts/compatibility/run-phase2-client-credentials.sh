@@ -1783,8 +1783,8 @@ NODE
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-invariant-device-7-(prepare|approval|issuance|evidence-(open|values|validation|lease)|driver-unclassified)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-invariant-device-7-(prepare|approval|issuance|evidence-(open|values|validation|lease)|driver-unclassified)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-([0-9]|1[0-9]|2[0-3])\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-([0-9]|1[0-9]|2[0-3])\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-([0-9]|1[0-9]|2[0-3])(:http-[1-5][0-9]{2}|:issuance-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)))?\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-([0-9]|1[0-9]|2[0-3])(:http-[1-5][0-9]{2}|:issuance-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)))?\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-fetch-[0-5]\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-fetch-[0-5]\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2

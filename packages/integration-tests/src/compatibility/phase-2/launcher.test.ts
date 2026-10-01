@@ -21,6 +21,32 @@ import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 const executeFile = promisify(execFile);
 
 describe('Phase 2 tracked launcher', () => {
+  it('passes closed custom JWT failure details through the child result boundary', () => {
+    for (const stage of [
+      'candidate-custom-jwt-19:http-500',
+      'oracle-custom-jwt-19:issuance-token-http',
+      'candidate-custom-jwt-19:issuance-bridge-http-502',
+    ]) {
+      const stderr = `Phase 2 client credentials command failed (${stage}).\n`;
+      expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+      expect(
+        diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
+      ).toBe(stderr);
+    }
+    for (const stderr of [
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-999).\n',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:issuance-private-secret).\n',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500).\nprivate-secret',
+    ]) {
+      expect(diagnosticForPhase2Child(stderr)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+      expect(
+        diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
+      ).toBe('Phase 2 client credentials launcher child failed (stderr).\n');
+    }
+  });
+
   it('identifies only closed batch failure modes', async () => {
     expect(diagnosticForPhase2Batch(new Error('differential'))).toBe(
       'Phase 2 client credentials batch failed (differential).\n'

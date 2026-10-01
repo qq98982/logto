@@ -187,12 +187,16 @@ export const diagnosticForPhase2Child = (stderr) => {
     /^Phase 2 client credentials command failed \((oracle|candidate)\/logout\.([a-z-]+)\)\.\n$/u.exec(
       stderr
     );
-  if (logoutMatch && closedLogoutSessionScenarioIds.has(logoutMatch[2])) return stderr;
+  if (logoutMatch && closedLogoutSessionScenarioIds.has(logoutMatch[2])) {
+    return stderr;
+  }
   const accountMatch =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/account-sessions\.([a-z-]+)\)\.\n$/u.exec(
       stderr
     );
-  if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) return stderr;
+  if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&
@@ -204,12 +208,16 @@ export const diagnosticForPhase2Child = (stderr) => {
     /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+):projection-id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)\)\.\n$/u.exec(
       stderr
     );
-  if (deviceIdMatch && closedDeviceScenarioIds.has(deviceIdMatch[2])) return stderr;
+  if (deviceIdMatch && closedDeviceScenarioIds.has(deviceIdMatch[2])) {
+    return stderr;
+  }
   const deviceMatch =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/(device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(?:lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?\)\.\n$/u.exec(
       stderr
     );
-  if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) return stderr;
+  if (deviceMatch && closedDeviceScenarioIds.has(deviceMatch[2])) {
+    return stderr;
+  }
   if (
     /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7]))\)\.\n$/u.test(
       stderr
@@ -252,6 +260,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)-custom-jwt-([0-9]|1[0-9]|2[0-3]):(http-[1-5][0-9]{2}|issuance-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)))\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer|comparison|logout-session|custom-jwt(-([0-9]|1[0-9]|2[0-3]))?|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
@@ -262,13 +277,21 @@ export const diagnosticForPhase2Child = (stderr) => {
     : diagnostic;
 };
 export const diagnosticForPhase2ChildResult = (result) => {
-  if (result.timedOut) return childDiagnostic('timeout');
-  if (result.signal !== null) return childDiagnostic('signal');
+  if (result.timedOut) {
+    return childDiagnostic('timeout');
+  }
+  if (result.signal !== null) {
+    return childDiagnostic('signal');
+  }
   if (result.code === 1) {
     const named = diagnosticForPhase2Child(result.stderr);
-    if (named !== diagnostic) return named;
+    if (named !== diagnostic) {
+      return named;
+    }
   }
-  if (result.stderr !== '') return childDiagnostic('stderr');
+  if (result.stderr !== '') {
+    return childDiagnostic('stderr');
+  }
   return childDiagnostic('exit-code');
 };
 export const diagnosticForPhase2Batch = (error) =>

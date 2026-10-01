@@ -224,6 +224,9 @@ const textOrNull = (value: unknown): string | null =>
   value === null || typeof value === 'string' ? value : fail();
 const assertStatus = (response: Readonly<{ status: number }>, expected: number): void => {
   if (response.status !== expected) {
+    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599) {
+      throw new TypeError(`Phase 2 custom JWT response status rejected (${response.status})`);
+    }
     fail();
   }
 };
@@ -234,7 +237,12 @@ const assertError = (response: CustomJwtHttpResponse, status: number, code: stri
   }
 };
 const fixedFailure = (
-  stage: 'primary' | 'cleanup' | 'primary+cleanup' | `primary:${number}`
+  stage:
+    | 'primary'
+    | 'cleanup'
+    | 'primary+cleanup'
+    | `primary:${number}`
+    | `primary:${number}:${string}`
 ): TypeError => new TypeError(`Phase 2 custom JWT scenario failed (${stage})`);
 const fixedFetchFailure = (index: number): TypeError =>
   new TypeError(`Phase 2 custom JWT fetch scenario failed (primary:${index})`);
@@ -418,6 +426,7 @@ export const runCustomJwtScenarios = async (
   let collected: readonly CustomJwtScenarioEvidence[] | undefined;
   let primaryFailed = false;
   let primaryFailureIndex: number | undefined;
+  let primaryFailureDetail: string | undefined;
   try {
     const missing = await port.request({ method: 'GET', path });
     assertError(missing, 404, 'entity.not_exists_with_id');
@@ -726,9 +735,22 @@ export const runCustomJwtScenarios = async (
       fail();
     }
     collected = Object.freeze(results);
-  } catch {
+  } catch (error: unknown) {
     primaryFailed = true;
     primaryFailureIndex = results.length;
+    const message = error instanceof Error ? error.message : '';
+    const status = /^Phase 2 custom JWT response status rejected \(([1-5][0-9]{2})\)$/u.exec(
+      message
+    )?.[1];
+    const issuance =
+      /^Invalid Phase 2 public user token issuance \((admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh))\)$/u.exec(
+        message
+      )?.[1];
+    primaryFailureDetail = status
+      ? `http-${status}`
+      : issuance
+        ? `issuance-${issuance}`
+        : undefined;
   }
   try {
     const cleanupResults = await Promise.all(
@@ -753,7 +775,9 @@ export const runCustomJwtScenarios = async (
   if (primaryFailed) {
     throw fixedFailure(
       primaryFailureIndex !== undefined && primaryFailureIndex <= customJwtScenarioIds.length
-        ? `primary:${primaryFailureIndex}`
+        ? primaryFailureDetail
+          ? `primary:${primaryFailureIndex}:${primaryFailureDetail}`
+          : `primary:${primaryFailureIndex}`
         : 'primary'
     );
   }

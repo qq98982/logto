@@ -1209,6 +1209,33 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
   });
 
+  it('forwards only closed custom JWT HTTP and user issuance failure details', async () => {
+    const patterns = [...source.matchAll(/\/usr\/bin\/grep -E(?:q)? '([^']+)'/gu)]
+      .map((match) => match[1])
+      .filter((pattern): pattern is string => pattern?.includes(':issuance-') === true);
+    expect(patterns).toHaveLength(2);
+    const accepted = [
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500).',
+      'Phase 2 client credentials command failed (oracle-custom-jwt-19:issuance-token-http).',
+    ];
+    const rejected = [
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-999).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:issuance-private-secret).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500-private-secret).',
+      'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500).\rprivate-secret',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: accepted.length * patterns.length }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
+  });
+
   it('forwards only closed consent composite projection diagnostics', async () => {
     const patterns = Array.from(
       source.matchAll(

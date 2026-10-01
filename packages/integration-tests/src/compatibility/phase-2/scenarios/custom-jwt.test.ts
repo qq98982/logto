@@ -300,6 +300,8 @@ describe('Phase 2 custom JWT scenarios', () => {
     let userMode: 'success' | 'deny' | 'block' | 'open' = 'success';
     let deviceRelationshipsMatch = true;
     let failDeviceRefresh = false;
+    let issuanceFailure: Error | undefined;
+    let deniedRefreshStatus = 400;
     const calls: string[] = [];
     const port: CustomJwtTargetPort = {
       verifyAccessToken: verifyJwt,
@@ -431,6 +433,9 @@ describe('Phase 2 custom JWT scenarios', () => {
         };
       },
       issueUserTokens: async () => {
+        if (issuanceFailure) {
+          throw issuanceFailure;
+        }
         const refresh = `refresh-token-${issuedRefreshTokens.size + 1}`;
         issuedRefreshTokens.add(refresh);
         return {
@@ -446,7 +451,7 @@ describe('Phase 2 custom JWT scenarios', () => {
           throw new Error('unknown refresh');
         }
         if (userMode === 'deny') {
-          return { status: 400, body: { error: 'access_denied' } };
+          return { status: deniedRefreshStatus, body: { error: 'access_denied' } };
         }
         if (userMode === 'block') {
           return { status: 400, body: { error: 'invalid_request' } };
@@ -615,6 +620,32 @@ describe('Phase 2 custom JWT scenarios', () => {
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/getCustomJwtClaims|custom-jwt-env-marker|signature/u);
     expect(Object.isFrozen(result)).toBe(true);
+    failDeviceRefresh = false;
+    const expected = {
+      issuer: 'issuer',
+      subject: 'client',
+      audience: 'resource',
+      clientId: 'client',
+      scope: 'read',
+      userSubject: 'user',
+      userClientId: 'user-client',
+      userApplicationName: 'User Client',
+      userAudience: 'resource',
+      userScope: 'read:profile',
+    };
+    deniedRefreshStatus = 500;
+    await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
+      'Phase 2 custom JWT scenario failed (primary:19:http-500)'
+    );
+    deniedRefreshStatus = 400;
+    issuanceFailure = new TypeError('Invalid Phase 2 public user token issuance (token-http)');
+    await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
+      'Phase 2 custom JWT scenario failed (primary:16:issuance-token-http)'
+    );
+    issuanceFailure = new Error('private-secret');
+    await expect(runCustomJwtScenarios(port, { expected })).rejects.toThrow(
+      'Phase 2 custom JWT scenario failed (primary:16)'
+    );
   });
 
   it('cleans the customizer when target collection fails', async () => {

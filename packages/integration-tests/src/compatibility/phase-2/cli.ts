@@ -466,9 +466,9 @@ const candidateAdminBearerStageFailurePattern =
 const candidateAdminConsumerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-consumer-unknown)$/u;
 const customJwtStageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])|custom-jwt-fetch-[0-5]|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(custom-jwt-(?:[0-9]|1[0-9]|2[0-3])(?::(?:http-[1-5][0-9]{2}|issuance-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh))))?|custom-jwt-fetch-[0-5]|custom-jwt-22:(?:authorize|approval-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final)|token-poll|initial-lease|refresh-request|refresh-http|jwt-verify|projection))$/u;
 const customJwtFailurePattern =
-  /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])\)$/u;
+  /^Phase 2 custom JWT scenario failed \(primary:([0-9]|1[0-9]|2[0-3])(?::(http-[1-5][0-9]{2}|issuance-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh))))?\)$/u;
 const customJwtFetchFailurePattern =
   /^Phase 2 custom JWT fetch scenario failed \(primary:([0-5])\)$/u;
 const candidateInvariantStageFailurePattern =
@@ -504,16 +504,17 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
       error instanceof Error &&
       error.message === 'Invalid Phase 2 Admin Management bearer flow (consumer)'
     ) {
-      const failureIndex =
+      const failure =
         consumerError instanceof Error
-          ? customJwtFailurePattern.exec(consumerError.message)?.[1]
+          ? customJwtFailurePattern.exec(consumerError.message)
           : undefined;
+      const failureIndex = failure?.[1];
       if (failureIndex !== undefined) {
         const stage = deviceStage();
         throw new Error(
           failureIndex === '22' && stage !== undefined
             ? `Phase 2 stage failed: candidate-custom-jwt-22:${stage}`
-            : `Phase 2 stage failed: candidate-custom-jwt-${failureIndex}`
+            : `Phase 2 stage failed: candidate-custom-jwt-${failureIndex}${failure?.[2] ? `:${failure[2]}` : ''}`
         );
       }
       const fetchFailureIndex =
@@ -1396,15 +1397,18 @@ const runTargetScenarios = async (
         }
         throw new Error('Phase 2 stage failed: candidate-fixture');
       }
-      const failureIndex =
-        error instanceof Error ? customJwtFailurePattern.exec(error.message)?.[1] : undefined;
+      const failure =
+        error instanceof Error ? customJwtFailurePattern.exec(error.message) : undefined;
+      const failureIndex = failure?.[1];
       if (failureIndex !== undefined) {
         if (failureIndex === '22' && deviceFailureStage !== undefined) {
           throw new Error(
             `Phase 2 stage failed: ${descriptor.kind}-custom-jwt-22:${deviceFailureStage}`
           );
         }
-        throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt-${failureIndex}`);
+        throw new Error(
+          `Phase 2 stage failed: ${descriptor.kind}-custom-jwt-${failureIndex}${failure?.[2] ? `:${failure[2]}` : ''}`
+        );
       }
       const fetchFailureIndex =
         error instanceof Error ? customJwtFetchFailurePattern.exec(error.message)?.[1] : undefined;

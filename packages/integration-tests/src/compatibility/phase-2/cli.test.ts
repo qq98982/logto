@@ -143,6 +143,19 @@ const noDeviceStage = () => undefined;
 
 describe('candidate fixture diagnostics', () => {
   it('classifies the raw consumer failure before the admin wrapper erases it', async () => {
+    await Promise.all(
+      ['http-500', 'issuance-token-http'].map(async (detail) =>
+        expect(
+          withCandidateAdminBearerDiagnostic(
+            wrapCandidateConsumer,
+            async () => {
+              throw new Error(`Phase 2 custom JWT scenario failed (primary:19:${detail})`);
+            },
+            noDeviceStage
+          )
+        ).rejects.toThrow(`Phase 2 stage failed: candidate-custom-jwt-19:${detail}`)
+      )
+    );
     await expect(
       withCandidateAdminBearerDiagnostic(
         wrapCandidateConsumer,
@@ -190,6 +203,8 @@ describe('candidate fixture diagnostics', () => {
       [
         new Error('Phase 2 custom JWT scenario failed (primary:22):private'),
         new Error('Phase 2 custom JWT scenario failed (primary:22)\nprivate'),
+        new Error('Phase 2 custom JWT scenario failed (primary:19:private-secret)'),
+        new Error('Phase 2 custom JWT scenario failed (primary:19:http-500)\nprivate-secret'),
       ].map(async (privateFailure) =>
         expect(
           withCandidateAdminBearerDiagnostic(
@@ -1927,7 +1942,11 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('preserves the closed admin consumer stage through both command paths', async () => {
+  it.each([
+    'candidate-admin-consumer-unknown',
+    'candidate-custom-jwt-19:http-500',
+    'candidate-custom-jwt-19:issuance-token-http',
+  ])('preserves the closed %s stage through both command paths', async (stage) => {
     for (const mode of ['differential', 'candidate-invariants'] as const) {
       const calls: string[] = [];
       const output = path.join(root, `phase-2-client-credentials-${mode}.json`);
@@ -1953,17 +1972,15 @@ describe('Phase 2 CLI', () => {
         {
           ...dependencies(calls),
           executeDifferential: async () => {
-            throw new Error('Phase 2 stage failed: candidate-admin-consumer-unknown');
+            throw new Error(`Phase 2 stage failed: ${stage}`);
           },
           executeCandidateInvariants: async () => {
-            throw new Error('Phase 2 stage failed: candidate-admin-consumer-unknown');
+            throw new Error(`Phase 2 stage failed: ${stage}`);
           },
         }
       );
       expect(code).toBe(1);
-      expect(calls).toContain(
-        'stderr:Phase 2 client credentials command failed (candidate-admin-consumer-unknown).'
-      );
+      expect(calls).toContain(`stderr:Phase 2 client credentials command failed (${stage}).`);
       // eslint-disable-next-line no-await-in-loop -- Failed commands must not publish an artifact before the next invocation.
       await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
     }
