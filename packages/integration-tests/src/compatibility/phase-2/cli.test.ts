@@ -632,8 +632,8 @@ describe('device resource refresh observation', () => {
 describe('Phase 2 fixture recipe routing', () => {
   it('selects the candidate invariant recipe only for candidate-invariants', () => {
     expect(phase2FixtureRecipeForMode('candidate-invariants')).toBe('phase2CandidateInvariants');
-    expect(phase2FixtureRecipeForMode('oracle')).toBe('dataProtocol');
-    expect(phase2FixtureRecipeForMode('differential')).toBe('dataProtocol');
+    expect(phase2FixtureRecipeForMode('oracle')).toBe('fullPhase1');
+    expect(phase2FixtureRecipeForMode('differential')).toBe('fullPhase1');
   });
 });
 

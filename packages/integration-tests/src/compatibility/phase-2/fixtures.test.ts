@@ -91,29 +91,60 @@ const foreignCoordinatorIsolation = {
   cookieKeyId: '3'.repeat(32),
   signingKeyId: '4'.repeat(32),
 };
+const adminCoordinatorIsolation = {
+  persistenceId: primaryCoordinatorIsolation.persistenceId,
+  cookieKeyId: '5'.repeat(32),
+  signingKeyId: '6'.repeat(32),
+};
 const phase2ForeignAllocationId = (allocationId: string) =>
   `phase2-foreign-${createHash('sha256').update(allocationId).digest('hex')}`;
 const phase2AdminAllocationId = (allocationId: string) =>
-  `phase2-admin-${createHash('sha256').update(allocationId).digest('hex').slice(0, 32)}`;
+  `phase2-admin-${createHash('sha256').update(allocationId).digest('hex')}`;
 
-const adminProvisionResult = (allocationId: string): CommandRunnerResult =>
+const candidateCoordinatorPublic = (
+  allocationId: string,
+  recipe: 'fullPhase1' | 'phase2CandidateInvariants' = 'fullPhase1'
+) => ({
+  schemaVersion: 1,
+  recipe,
+  allocations: [
+    {
+      allocationId,
+      role: 'data',
+      target: 'primary',
+      isolation: primaryCoordinatorIsolation,
+      entities: primaryCoordinatorEntities,
+    },
+    {
+      allocationId: phase2AdminAllocationId(allocationId),
+      role: 'admin',
+      target: 'primary',
+      isolation: adminCoordinatorIsolation,
+      entities: adminCoordinatorEntities,
+    },
+    ...(recipe === 'phase2CandidateInvariants'
+      ? [
+          {
+            allocationId: phase2ForeignAllocationId(allocationId),
+            role: 'foreign',
+            target: 'foreign',
+            isolation: foreignCoordinatorIsolation,
+            entities: foreignCoordinatorEntities,
+          },
+        ]
+      : []),
+  ],
+});
+
+const candidateProvisionResult = (
+  allocationId: string,
+  recipe: 'fullPhase1' | 'phase2CandidateInvariants' = 'fullPhase1'
+): CommandRunnerResult =>
   commandResult(
     JSON.stringify({
       schemaVersion: 1,
       operation: 'provision',
-      public: {
-        schemaVersion: 1,
-        recipe: 'adminConsole',
-        allocations: [
-          {
-            allocationId,
-            role: 'admin',
-            target: 'primary',
-            isolation: primaryCoordinatorIsolation,
-            entities: adminCoordinatorEntities,
-          },
-        ],
-      },
+      public: candidateCoordinatorPublic(allocationId, recipe),
     })
   );
 
@@ -558,36 +589,22 @@ describe('Phase 2 fixture lifecycle', () => {
   it('uses the Aster fixture coordinator with a secret-safe closed descriptor', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;
-    let cleanupCalls = 0;
+    let allocationActive = false;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
       const { operation } = descriptor;
       if (operation === 'provision') {
-        if (descriptor.recipe === 'adminConsole') {
-          return adminProvisionResult(phase2AdminAllocationId('candidate-fixture'));
+        if (descriptor.recipe !== 'fullPhase1' || allocationActive) {
+          return rejectedCommandResult();
         }
-        return commandResult(
-          JSON.stringify({
-            schemaVersion: 1,
-            operation: 'provision',
-            public: {
-              schemaVersion: 1,
-              recipe: 'dataProtocol',
-              allocations: [
-                {
-                  allocationId: 'candidate-fixture',
-                  role: 'data',
-                  target: 'primary',
-                  isolation: primaryCoordinatorIsolation,
-                  entities: primaryCoordinatorEntities,
-                },
-              ],
-            },
-          })
-        );
+        allocationActive = true;
+        return candidateProvisionResult('candidate-fixture');
       }
       if (operation === 'projectState') {
+        if (!allocationActive) {
+          return rejectedCommandResult();
+        }
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
@@ -596,10 +613,11 @@ describe('Phase 2 fixture lifecycle', () => {
           })
         );
       }
-      cleanupCalls += 1;
-      return cleanupCalls % 2 === 1
-        ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
-        : rejectedCommandResult();
+      if (!allocationActive) {
+        return rejectedCommandResult();
+      }
+      allocationActive = false;
+      return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
     };
     const secrets = [
       'a'.repeat(32),
@@ -698,8 +716,14 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(provision).toMatchObject({
       schemaVersion: 1,
       operation: 'provision',
-      recipe: 'dataProtocol',
+      recipe: 'fullPhase1',
       allocationId: 'candidate-fixture',
+      seeds: {
+        passwords: [
+          { logicalId: 'phase1-user', value: 'd'.repeat(32) },
+          { logicalId: 'phase1-admin', value: 'e'.repeat(32) },
+        ],
+      },
       profile: {
         fixtures: {
           phase2: {
@@ -820,63 +844,43 @@ describe('Phase 2 fixture lifecycle', () => {
           JSON.stringify(args) === JSON.stringify(['fixture', 'apply'])
       )
     ).toBe(true);
-    expect(requests).toHaveLength(8);
-    expect(fencedCalls).toBe(8);
-    const projectDescriptor = JSON.parse(requests[2]?.stdin ?? '{}') as {
+    expect(requests).toHaveLength(4);
+    expect(fencedCalls).toBe(4);
+    expect(allocationActive).toBe(false);
+    const projectDescriptor = JSON.parse(requests[1]?.stdin ?? '{}') as {
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
     };
-    const cleanupDescriptors = [requests[6], requests[7]].map((request) =>
+    const cleanupDescriptors = [requests[2], requests[3]].map((request) =>
       JSON.parse(request?.stdin ?? '{}')
     ) as Array<{
       public?: { recipe?: string; allocations?: Array<{ allocationId?: string }> };
     }>;
     for (const descriptor of [projectDescriptor, ...cleanupDescriptors]) {
-      expect(descriptor.public).toMatchObject({
-        recipe: 'dataProtocol',
-        allocations: [{ allocationId: 'candidate-fixture' }],
-      });
+      expect(descriptor.public).toEqual(candidateCoordinatorPublic('candidate-fixture'));
       expect(descriptor.public).not.toHaveProperty('clients');
     }
   });
 
   it('uses one phase2CandidateInvariants composite allocation for provision, projection, and cleanup', async () => {
     const requests: CommandRunnerRequest[] = [];
-    let cleanupCalls = 0;
+    let allocationActive = false;
     const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
       if (descriptor.operation === 'provision') {
-        if (descriptor.recipe === 'adminConsole') {
-          return adminProvisionResult(phase2AdminAllocationId('candidate-invariants-fixture'));
+        if (descriptor.recipe !== 'phase2CandidateInvariants' || allocationActive) {
+          return rejectedCommandResult();
         }
-        return commandResult(
-          JSON.stringify({
-            schemaVersion: 1,
-            operation: 'provision',
-            public: {
-              schemaVersion: 1,
-              recipe: 'phase2CandidateInvariants',
-              allocations: [
-                {
-                  allocationId: 'candidate-invariants-fixture',
-                  role: 'data',
-                  target: 'primary',
-                  isolation: primaryCoordinatorIsolation,
-                  entities: primaryCoordinatorEntities,
-                },
-                {
-                  allocationId: phase2ForeignAllocationId('candidate-invariants-fixture'),
-                  role: 'foreign',
-                  target: 'foreign',
-                  isolation: foreignCoordinatorIsolation,
-                  entities: foreignCoordinatorEntities,
-                },
-              ],
-            },
-          })
+        allocationActive = true;
+        return candidateProvisionResult(
+          'candidate-invariants-fixture',
+          'phase2CandidateInvariants'
         );
       }
       if (descriptor.operation === 'projectState') {
+        if (!allocationActive) {
+          return rejectedCommandResult();
+        }
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
@@ -885,10 +889,11 @@ describe('Phase 2 fixture lifecycle', () => {
           })
         );
       }
-      cleanupCalls += 1;
-      return cleanupCalls % 2 === 1
-        ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
-        : rejectedCommandResult();
+      if (!allocationActive) {
+        return rejectedCommandResult();
+      }
+      allocationActive = false;
+      return commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
     };
     const sensitiveValues = [
       'e'.repeat(32),
@@ -911,41 +916,21 @@ describe('Phase 2 fixture lifecycle', () => {
     const fixture = await provisioner.provision();
     await provisioner.projectState(fixture);
     await provisioner.cleanup(fixture);
+    expect(allocationActive).toBe(false);
 
     const descriptors = requests.map(({ stdin }) => JSON.parse(stdin) as Record<string, unknown>);
     expect(descriptors.map(({ recipe }) => recipe)).toEqual([
       'phase2CandidateInvariants',
-      'adminConsole',
       'phase2CandidateInvariants',
-      'adminConsole',
-      'adminConsole',
-      'adminConsole',
       'phase2CandidateInvariants',
       'phase2CandidateInvariants',
     ]);
     for (const descriptor of descriptors.filter(
       ({ recipe }, index) => recipe === 'phase2CandidateInvariants' && index > 0
     )) {
-      expect(descriptor.public).toEqual({
-        schemaVersion: 1,
-        recipe: 'phase2CandidateInvariants',
-        allocations: [
-          {
-            allocationId: 'candidate-invariants-fixture',
-            role: 'data',
-            target: 'primary',
-            isolation: primaryCoordinatorIsolation,
-            entities: primaryCoordinatorEntities,
-          },
-          {
-            allocationId: phase2ForeignAllocationId('candidate-invariants-fixture'),
-            role: 'foreign',
-            target: 'foreign',
-            isolation: foreignCoordinatorIsolation,
-            entities: foreignCoordinatorEntities,
-          },
-        ],
-      });
+      expect(descriptor.public).toEqual(
+        candidateCoordinatorPublic('candidate-invariants-fixture', 'phase2CandidateInvariants')
+      );
       expect(JSON.stringify(descriptor)).not.toMatch(/e{32}|f{32}|g{32}|h{32}/u);
     }
   });
@@ -1132,6 +1117,7 @@ describe('Phase 2 fixture lifecycle', () => {
     ],
   ])('rejects coordinator public output with %s', async (_label, primaryAllocation) => {
     let cleanupCalls = 0;
+    let provisionCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -1140,12 +1126,19 @@ describe('Phase 2 fixture lifecycle', () => {
       recipe: 'phase2CandidateInvariants',
       createAllocationId: () => 'invalid-public-fixture',
       createSecret: (() => {
-        const secrets = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+        const secrets = [
+          'a'.repeat(32),
+          'b'.repeat(32),
+          'c'.repeat(32),
+          'd'.repeat(32),
+          'e'.repeat(32),
+        ];
         return () => secrets.shift() ?? 'unexpected';
       })(),
       runner: async (request) => {
         const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
         if (descriptor.operation === 'provision') {
+          provisionCalls += 1;
           const foreignIsolation =
             _label === 'a primary suffix on foreign persistence'
               ? {
@@ -1172,6 +1165,13 @@ describe('Phase 2 fixture lifecycle', () => {
                 allocations: [
                   primaryAllocation,
                   {
+                    allocationId: phase2AdminAllocationId('invalid-public-fixture'),
+                    role: 'admin',
+                    target: 'primary',
+                    isolation: adminCoordinatorIsolation,
+                    entities: adminCoordinatorEntities,
+                  },
+                  {
                     allocationId:
                       _label === 'wrong foreign allocation ID'
                         ? 'phase2-foreign-wrong'
@@ -1194,6 +1194,66 @@ describe('Phase 2 fixture lifecycle', () => {
     });
 
     await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(provisionCalls).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [
+      'a different primary database',
+      {
+        ...adminCoordinatorIsolation,
+        persistenceId: 'postgresql:2:aster_phase1_candidate_primary',
+      },
+    ],
+    [
+      'a reused data cookie key',
+      { ...adminCoordinatorIsolation, cookieKeyId: primaryCoordinatorIsolation.cookieKeyId },
+    ],
+    [
+      'a signing key reused as a cookie key',
+      { ...adminCoordinatorIsolation, cookieKeyId: primaryCoordinatorIsolation.signingKeyId },
+    ],
+    [
+      'the same admin signing and cookie key',
+      { ...adminCoordinatorIsolation, signingKeyId: adminCoordinatorIsolation.cookieKeyId },
+    ],
+    ['the wrong child allocation ID', adminCoordinatorIsolation],
+  ])('rejects composite admin authority with %s', async (label, isolation) => {
+    let provisionCalls = 0;
+    let cleanupCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'invalid-admin-fixture',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      runner: async (request) => {
+        const descriptor = JSON.parse(request.stdin) as { operation?: string };
+        if (descriptor.operation === 'provision') {
+          provisionCalls += 1;
+          const publicMap = candidateCoordinatorPublic('invalid-admin-fixture');
+          const admin = publicMap.allocations[1];
+          if (!admin) {
+            throw new Error('fake coordinator admin allocation missing');
+          }
+          admin.isolation = isolation;
+          if (label === 'the wrong child allocation ID') {
+            admin.allocationId = 'phase2-admin-wrong';
+          }
+          return commandResult(
+            JSON.stringify({ schemaVersion: 1, operation: 'provision', public: publicMap })
+          );
+        }
+        cleanupCalls += 1;
+        return cleanupCalls === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
+      },
+    });
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(provisionCalls).toBeGreaterThan(0);
   });
 
   it('reconciles one failed candidate provision and retries the exact descriptor once', async () => {
@@ -1204,8 +1264,8 @@ describe('Phase 2 fixture lifecycle', () => {
       requests.push(request);
       const descriptor = JSON.parse(request.stdin) as { operation?: string; recipe?: string };
       if (descriptor.operation === 'provision') {
-        if (descriptor.recipe === 'adminConsole') {
-          return adminProvisionResult(phase2AdminAllocationId('candidate-retry'));
+        if (descriptor.recipe !== 'fullPhase1') {
+          return rejectedCommandResult();
         }
         provisionAttempts += 1;
         if (provisionAttempts === 1) {
@@ -1215,25 +1275,7 @@ describe('Phase 2 fixture lifecycle', () => {
             stderr: 'Aster compatibility fixture command failed\n',
           };
         }
-        return commandResult(
-          JSON.stringify({
-            schemaVersion: 1,
-            operation: 'provision',
-            public: {
-              schemaVersion: 1,
-              recipe: 'dataProtocol',
-              allocations: [
-                {
-                  allocationId: 'candidate-retry',
-                  role: 'data',
-                  target: 'primary',
-                  isolation: primaryCoordinatorIsolation,
-                  entities: primaryCoordinatorEntities,
-                },
-              ],
-            },
-          })
-        );
+        return candidateProvisionResult('candidate-retry');
       }
       if (descriptor.operation === 'cleanup') {
         cleanupCalls += 1;
@@ -1274,14 +1316,11 @@ describe('Phase 2 fixture lifecycle', () => {
       'cleanup',
       'cleanup',
       'provision',
-      'provision',
-      'cleanup',
-      'cleanup',
       'cleanup',
       'cleanup',
     ]);
     const provisions = requests.filter(({ stdin }) => JSON.parse(stdin).operation === 'provision');
-    expect(provisions).toHaveLength(3);
+    expect(provisions).toHaveLength(2);
     expect(provisions[0]?.stdin).toBe(provisions[1]?.stdin);
     expect(JSON.parse(provisions[0]?.stdin ?? '{}')).toHaveProperty(
       'profile.fixtures.phase2.subjectPrimaryEmail',
@@ -1289,15 +1328,20 @@ describe('Phase 2 fixture lifecycle', () => {
     );
     expect(JSON.parse(requests[1]?.stdin ?? '{}')).not.toHaveProperty('public');
     expect(JSON.parse(requests[2]?.stdin ?? '{}')).not.toHaveProperty('public');
+    expect(JSON.parse(requests[4]?.stdin ?? '{}')).toHaveProperty('public');
     expect(JSON.parse(requests[5]?.stdin ?? '{}')).toHaveProperty('public');
-    expect(JSON.parse(requests[6]?.stdin ?? '{}')).toHaveProperty('public');
-    expect(JSON.parse(requests[7]?.stdin ?? '{}')).toHaveProperty('public');
-    expect(JSON.parse(requests[8]?.stdin ?? '{}')).toHaveProperty('public');
   });
 
   it('rejects coordinator output that leaks the private subject password', async () => {
-    const planted = ['a'.repeat(32), 'b'.repeat(32), 'c'.repeat(32), 'd'.repeat(32)];
+    const planted = [
+      'a'.repeat(32),
+      'b'.repeat(32),
+      'c'.repeat(32),
+      'd'.repeat(32),
+      'e'.repeat(32),
+    ];
     let cleanupCalls = 0;
+    let provisionCalls = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
       target: candidate,
@@ -1313,16 +1357,24 @@ describe('Phase 2 fixture lifecycle', () => {
             ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
             : rejectedCommandResult();
         }
+        provisionCalls += 1;
+        const publicMap = candidateCoordinatorPublic('candidate-leak');
+        const [data] = publicMap.allocations;
+        if (!data) {
+          throw new Error('fake coordinator data allocation missing');
+        }
+        data.isolation = { ...primaryCoordinatorIsolation, cookieKeyId: 'd'.repeat(32) };
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
             operation: 'provision',
-            public: { leaked: 'd'.repeat(32) },
+            public: publicMap,
           })
         );
       },
     });
     await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(provisionCalls).toBeGreaterThan(0);
   });
 
   it('generates production candidate secrets as exact 32 lowercase alphanumeric characters', async () => {
@@ -1338,28 +1390,7 @@ describe('Phase 2 fixture lifecycle', () => {
         const input = JSON.parse(request.stdin);
         if (input.operation === 'provision') {
           provisionDescriptors.push(input);
-          if (input.recipe === 'adminConsole') {
-            return adminProvisionResult(phase2AdminAllocationId('production-secrets'));
-          }
-          return commandResult(
-            JSON.stringify({
-              schemaVersion: 1,
-              operation: 'provision',
-              public: {
-                schemaVersion: 1,
-                recipe: 'dataProtocol',
-                allocations: [
-                  {
-                    allocationId: 'production-secrets',
-                    role: 'data',
-                    target: 'primary',
-                    isolation: primaryCoordinatorIsolation,
-                    entities: primaryCoordinatorEntities,
-                  },
-                ],
-              },
-            })
-          );
+          return candidateProvisionResult('production-secrets');
         }
         if (input.operation === 'projectState') {
           return commandResult(
@@ -1432,28 +1463,7 @@ describe('Phase 2 fixture lifecycle', () => {
       runner: async (request) => {
         const descriptor = JSON.parse(request.stdin) as { operation?: string; recipe?: string };
         if (descriptor.operation === 'provision') {
-          if (descriptor.recipe === 'adminConsole') {
-            return adminProvisionResult(phase2AdminAllocationId('noop-candidate'));
-          }
-          return commandResult(
-            JSON.stringify({
-              schemaVersion: 1,
-              operation: 'provision',
-              public: {
-                schemaVersion: 1,
-                recipe: 'dataProtocol',
-                allocations: [
-                  {
-                    allocationId: 'noop-candidate',
-                    role: 'data',
-                    target: 'primary',
-                    isolation: primaryCoordinatorIsolation,
-                    entities: primaryCoordinatorEntities,
-                  },
-                ],
-              },
-            })
-          );
+          return candidateProvisionResult('noop-candidate');
         }
         if (descriptor.operation === 'cleanup') {
           candidateCleanupRecipes.push(descriptor.recipe ?? 'missing');
@@ -1474,12 +1484,7 @@ describe('Phase 2 fixture lifecycle', () => {
     await expect(candidateProvisioner.cleanup(candidateFixture)).rejects.toThrow(
       'Phase 2 fixture cleanup failed'
     );
-    expect(candidateCleanupRecipes).toEqual([
-      'adminConsole',
-      'adminConsole',
-      'dataProtocol',
-      'dataProtocol',
-    ]);
+    expect(candidateCleanupRecipes).toEqual(['fullPhase1', 'fullPhase1']);
   });
 
   it('runs cleanup when fixture use fails and does not publish leased secrets', async () => {

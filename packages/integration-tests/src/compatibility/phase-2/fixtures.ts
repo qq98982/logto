@@ -102,7 +102,7 @@ type ReferenceProvisionerOptions = Readonly<{
   createAllocationId?: () => string;
 }>;
 
-export type Phase2CandidateFixtureRecipe = 'dataProtocol' | 'phase2CandidateInvariants';
+export type Phase2CandidateFixtureRecipe = 'fullPhase1' | 'phase2CandidateInvariants';
 
 type CandidateProvisionerOptions = Readonly<{
   target: TargetConfig;
@@ -128,7 +128,6 @@ type FixtureState = {
   }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
-  adminCoordinatorPublic?: Readonly<Record<string, unknown>>;
   previousDefaultResourceId?: string;
   previousSignInExperience?: unknown;
   previousAccountCenter?: unknown;
@@ -653,7 +652,7 @@ const allocationSuffix = (allocationId: string): string =>
   createHash('sha256').update(allocationId).digest('hex').slice(0, 16);
 
 const adminAllocationIdFor = (allocationId: string): string =>
-  `phase2-admin-${createHash('sha256').update(allocationId).digest('hex').slice(0, 32)}`;
+  `phase2-admin-${createHash('sha256').update(allocationId).digest('hex')}`;
 
 const statusUsername = (allocationId: string): string =>
   `phase1_user_a_${allocationSuffix(allocationId)}`;
@@ -1515,46 +1514,37 @@ const parseCommandOutput = (
 const validateCoordinatorPublic = (
   value: unknown,
   allocationId: string,
-  recipe: Phase2CandidateFixtureRecipe | 'adminConsole'
+  recipe: Phase2CandidateFixtureRecipe
 ): Readonly<Record<string, unknown>> => {
   const publicMap = exactRecord(value, ['schemaVersion', 'recipe', 'allocations']);
   const allocations = own(publicMap, 'allocations');
   const foreignAllocationId = `phase2-foreign-${createHash('sha256')
     .update(allocationId)
     .digest('hex')}`;
-  const expectedAllocations =
-    recipe === 'adminConsole'
+  const expectedAllocations = [
+    {
+      role: 'data',
+      target: 'primary',
+      allocationId,
+      entities: phase2PrimaryCoordinatorEntities,
+    },
+    {
+      role: 'admin',
+      target: 'primary',
+      allocationId: adminAllocationIdFor(allocationId),
+      entities: phase2AdminCoordinatorEntities,
+    },
+    ...(recipe === 'phase2CandidateInvariants'
       ? ([
           {
-            role: 'admin',
-            target: 'primary',
-            allocationId,
-            entities: phase2AdminCoordinatorEntities,
+            role: 'foreign',
+            target: 'foreign',
+            allocationId: foreignAllocationId,
+            entities: phase2ForeignCoordinatorEntities,
           },
         ] as const)
-      : recipe === 'phase2CandidateInvariants'
-        ? ([
-            {
-              role: 'data',
-              target: 'primary',
-              allocationId,
-              entities: phase2PrimaryCoordinatorEntities,
-            },
-            {
-              role: 'foreign',
-              target: 'foreign',
-              allocationId: foreignAllocationId,
-              entities: phase2ForeignCoordinatorEntities,
-            },
-          ] as const)
-        : ([
-            {
-              role: 'data',
-              target: 'primary',
-              allocationId,
-              entities: phase2PrimaryCoordinatorEntities,
-            },
-          ] as const);
+      : []),
+  ] as const;
   if (
     own(publicMap, 'schemaVersion') !== 1 ||
     own(publicMap, 'recipe') !== recipe ||
@@ -1621,10 +1611,11 @@ const validateCoordinatorPublic = (
   const persistenceIds = closedAllocations.map(({ isolation }) => isolation.persistenceId);
   const cookieKeyIds = closedAllocations.map(({ isolation }) => isolation.cookieKeyId);
   const signingKeyIds = closedAllocations.map(({ isolation }) => isolation.signingKeyId);
+  const [dataPersistenceId, adminPersistenceId, foreignPersistenceId] = persistenceIds;
   if (
-    new Set(persistenceIds).size !== persistenceIds.length ||
-    new Set(cookieKeyIds).size !== cookieKeyIds.length ||
-    new Set(signingKeyIds).size !== signingKeyIds.length
+    dataPersistenceId !== adminPersistenceId ||
+    (recipe === 'phase2CandidateInvariants' && foreignPersistenceId === dataPersistenceId) ||
+    new Set([...cookieKeyIds, ...signingKeyIds]).size !== 2 * closedAllocations.length
   ) {
     return fail();
   }
@@ -1645,7 +1636,7 @@ export const createCandidatePhase2FixtureProvisioner = (
   const runner = options.runner ?? runPhase1FixtureCommand;
   const createAllocationId = options.createAllocationId ?? randomUUID;
   const createSecret = options.createSecret ?? (() => randomBytes(16).toString('hex'));
-  const recipe = options.recipe ?? 'dataProtocol';
+  const recipe = options.recipe ?? 'fullPhase1';
   const states = new WeakMap<object, FixtureState>();
 
   const run = async (
@@ -1698,7 +1689,7 @@ export const createCandidatePhase2FixtureProvisioner = (
     state: FixtureState,
     allocation: Readonly<{
       allocationId: string;
-      recipe: Phase2CandidateFixtureRecipe | 'adminConsole';
+      recipe: Phase2CandidateFixtureRecipe;
       public?: Readonly<Record<string, unknown>>;
     }>
   ): Promise<void> => {
@@ -1726,30 +1717,11 @@ export const createCandidatePhase2FixtureProvisioner = (
       return state.cleanup;
     }
     const cleanup = (async () => {
-      const failures: unknown[] = [];
-      if (state.adminAllocationId) {
-        try {
-          await cleanupAllocation(state, {
-            allocationId: state.adminAllocationId,
-            recipe: 'adminConsole',
-            public: state.adminCoordinatorPublic,
-          });
-        } catch (error: unknown) {
-          failures.push(error);
-        }
-      }
-      try {
-        await cleanupAllocation(state, {
-          allocationId: state.allocationId,
-          recipe,
-          public: state.coordinatorPublic,
-        });
-      } catch (error: unknown) {
-        failures.push(error);
-      }
-      if (failures.length > 0) {
-        throw new AggregateError(failures, cleanupFailure);
-      }
+      await cleanupAllocation(state, {
+        allocationId: state.allocationId,
+        recipe,
+        public: state.coordinatorPublic,
+      });
     })();
     state.cleanup = cleanup;
     try {
@@ -1894,25 +1866,13 @@ export const createCandidatePhase2FixtureProvisioner = (
         seeds: Object.freeze({
           passwords: Object.freeze([
             Object.freeze({ logicalId: 'phase1-user', value: subjectPassword }),
+            Object.freeze({ logicalId: 'phase1-admin', value: adminPassword }),
           ]),
           clientSecrets: Object.freeze([
             Object.freeze({ logicalId: logicalClientIds.basic, value: secrets.basic }),
             Object.freeze({ logicalId: logicalClientIds.post, value: secrets.post }),
             Object.freeze({ logicalId: statusConfidentialClientId, value: statusConfidential }),
           ]),
-        }),
-      });
-      const adminDescriptor = Object.freeze({
-        schemaVersion: 1,
-        operation: 'provision',
-        recipe: 'adminConsole',
-        allocationId: adminAllocationId,
-        profile: Object.freeze({ fixtures: frozenCandidateFixtures }),
-        seeds: Object.freeze({
-          passwords: Object.freeze([
-            Object.freeze({ logicalId: 'phase1-admin', value: adminPassword }),
-          ]),
-          clientSecrets: Object.freeze([]),
         }),
       });
       const failures: unknown[] = [];
@@ -1929,22 +1889,6 @@ export const createCandidatePhase2FixtureProvisioner = (
           own(result, 'public'),
           allocationId,
           recipe
-        );
-        let adminResult: Record<string, unknown>;
-        try {
-          adminResult = await run(adminDescriptor, 'provision', state.sensitiveValues);
-        } catch (error: unknown) {
-          failures.push(error);
-          await cleanupAllocation(state, {
-            allocationId: adminAllocationId,
-            recipe: 'adminConsole',
-          });
-          adminResult = await run(adminDescriptor, 'provision', state.sensitiveValues);
-        }
-        state.adminCoordinatorPublic = validateCoordinatorPublic(
-          own(adminResult, 'public'),
-          adminAllocationId,
-          'adminConsole'
         );
         const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
         const fixture = createFixture(publicFixture, secrets, state, {
@@ -1981,7 +1925,7 @@ export const createCandidatePhase2FixtureProvisioner = (
     },
     projectState: async (fixture: ProvisionedPhase2Fixture): Promise<unknown> => {
       const state = states.get(fixture as object);
-      if (!state || state.revoked || !state.adminAllocationId || !state.adminCoordinatorPublic) {
+      if (!state || state.revoked || !state.adminAllocationId || !state.coordinatorPublic) {
         return fail();
       }
       const dataResult = await run(
@@ -1996,21 +1940,6 @@ export const createCandidatePhase2FixtureProvisioner = (
         state.sensitiveValues
       );
       const dataProjection = snapshotClosedDataGraph(own(dataResult, 'projection'));
-      const adminResult = await run(
-        Object.freeze({
-          schemaVersion: 1,
-          operation: 'projectState',
-          recipe: 'adminConsole',
-          allocationId: state.adminAllocationId,
-          public: state.adminCoordinatorPublic,
-        }),
-        'projectState',
-        state.sensitiveValues
-      );
-      const adminProjection = snapshotClosedDataGraph(own(adminResult, 'projection'));
-      if (!adminProjection) {
-        return fail();
-      }
       return dataProjection ?? fail();
     },
     cleanup: async (fixture: ProvisionedPhase2Fixture): Promise<void> => {

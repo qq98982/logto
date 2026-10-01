@@ -1083,7 +1083,7 @@ const projectDiscovery = async (
 export const phase2FixtureRecipeForMode = (
   mode: Phase2CliCommand['mode']
 ): Phase2CandidateFixtureRecipe =>
-  mode === 'candidate-invariants' ? 'phase2CandidateInvariants' : 'dataProtocol';
+  mode === 'candidate-invariants' ? 'phase2CandidateInvariants' : 'fullPhase1';
 
 const provisionerFor = (
   prepared: PreparedPhase2Target,
