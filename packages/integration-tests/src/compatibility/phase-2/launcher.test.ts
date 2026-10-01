@@ -128,6 +128,7 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-fixture-body-cleanup',
       ...Array.from({ length: 6 }, (_, index) => `oracle-custom-jwt-fetch-${index}`),
       ...Array.from({ length: 6 }, (_, index) => `candidate-custom-jwt-fetch-${index}`),
+      ...Array.from({ length: 5 }, (_, index) => `candidate-invariant-legacy-${index}`),
     ]) {
       const message = `Phase 2 client credentials command failed (${diagnostic}).\n`;
       expect(diagnosticForPhase2Child(message)).toBe(message);
@@ -136,6 +137,9 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-custom-jwt-fetch-6',
       'candidate-custom-jwt-fetch-01',
       'candidate-custom-jwt-fetch-0-private',
+      'candidate-invariant-legacy-5',
+      'candidate-invariant-legacy-00',
+      'candidate-invariant-legacy-0-private-secret',
     ]) {
       expect(
         diagnosticForPhase2Child(`Phase 2 client credentials command failed (${diagnostic}).\n`)

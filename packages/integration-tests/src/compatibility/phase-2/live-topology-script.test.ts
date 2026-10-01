@@ -1209,6 +1209,36 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
   });
 
+  it('forwards only closed legacy invariant indices', async () => {
+    const patterns = Array.from(
+      source.matchAll(
+        /\/usr\/bin\/grep -E[q]? '([^'\n]+)' "\$RUN_DIR\/evidence-sequence\.stderr"/gu
+      ),
+      (match) => match[1]
+    ).filter((pattern): pattern is string => pattern?.includes('invariant-legacy') === true);
+    expect(patterns).toHaveLength(2);
+    const accepted = Array.from(
+      { length: 5 },
+      (_, index) =>
+        `Phase 2 client credentials command failed (candidate-invariant-legacy-${index}).`
+    );
+    const rejected = [
+      'Phase 2 client credentials command failed (candidate-invariant-legacy-5).',
+      'Phase 2 client credentials command failed (candidate-invariant-legacy-00).',
+      'Phase 2 client credentials command failed (candidate-invariant-legacy-0-private-secret).',
+    ];
+    await expect(
+      Promise.all(
+        accepted.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: accepted.length * patterns.length }, () => true));
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => patterns.map(async (pattern) => grepMatches(pattern, line)))
+      )
+    ).resolves.toEqual(Array.from({ length: rejected.length * patterns.length }, () => false));
+  });
+
   it('forwards only closed custom JWT HTTP and user issuance failure details', async () => {
     const patterns = [...source.matchAll(/\/usr\/bin\/grep -E(?:q)? '([^']+)'/gu)]
       .map((match) => match[1])

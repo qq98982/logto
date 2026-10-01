@@ -472,7 +472,7 @@ const customJwtFailurePattern =
 const customJwtFetchFailurePattern =
   /^Phase 2 custom JWT fetch scenario failed \(primary:([0-5])\)$/u;
 const candidateInvariantStageFailurePattern =
-  /^Phase 2 stage failed: (candidate)-(invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
+  /^Phase 2 stage failed: (candidate)-(invariant-legacy-[0-4]|invariant-device-(?:[0-7]|1-(?:private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(?:arm|abort|foreign-poll-(?:error|invalid-client|authorization-pending|status)|response|finish)|7-(?:prepare|approval|issuance|evidence-(?:open|values|validation|lease)|driver-unclassified|private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(?:input|query|match)|normalized-(?:input|query|match))))$/u;
 const commandFailurePattern =
   /^Phase 2 command stage failed: (oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)$/u;
 const profileScenarioIdIsClosed = (value: string): boolean =>

@@ -254,6 +254,13 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
+    /^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
+  if (
     /^Phase 2 client credentials command failed \(candidate-admin-bearer-(admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)\.\n$/u.test(
       stderr
     )

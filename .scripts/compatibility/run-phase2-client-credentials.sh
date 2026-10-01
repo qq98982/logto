@@ -1780,6 +1780,9 @@ try {
   process.exitCode = 1;
 }
 NODE
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-invariant-device-7-(prepare|approval|issuance|evidence-(open|values|validation|lease)|driver-unclassified)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-invariant-device-7-(prepare|approval|issuance|evidence-(open|values|validation|lease)|driver-unclassified)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi

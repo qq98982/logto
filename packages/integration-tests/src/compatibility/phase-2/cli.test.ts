@@ -1986,6 +1986,41 @@ describe('Phase 2 CLI', () => {
     }
   });
 
+  it.each([0, 4])(
+    'preserves failed legacy invariant %i through the command boundary',
+    async (index) => {
+      const calls: string[] = [];
+      const output = path.join(root, 'phase-2-client-credentials-candidate-invariants.json');
+      const code = await runPhase2CliMain(
+        [
+          'candidate-invariants',
+          '--profile',
+          profilePath,
+          '--schema',
+          schemaPath,
+          '--target',
+          candidateTargetPath,
+          '--output',
+          output,
+          '--temp-root',
+          root,
+        ],
+        undefined,
+        {
+          ...dependencies(calls),
+          executeCandidateInvariants: async () => {
+            throw new Error(`Phase 2 stage failed: candidate-invariant-legacy-${index}`);
+          },
+        }
+      );
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (candidate-invariant-legacy-${index}).`
+      );
+      await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  );
+
   it('preserves the execution stage when differential cleanup also fails', async () => {
     const calls: string[] = [];
     const output = path.join(root, 'phase-2-client-credentials-differential.json');

@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment -- Stateful temporary paths, captured runner calls, and hostile JSON mutations are intrinsic to these lifecycle and protocol tests. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment -- One private driver contract keeps lifecycle, diagnostic masking and hostile JSON controls together with their stateful temporary paths and captured calls. */
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -299,6 +299,44 @@ describe('Phase 2 candidate invariant driver', () => {
     expect(serialized).not.toMatch(/Authorization\s*:/u);
   });
 
+  it.each([0, 1, 2, 3, 4])(
+    'names failed invariant %i without exposing its driver error',
+    async (index) => {
+      const requested: string[] = [];
+      await expect(
+        runClientCredentialsCandidateInvariants(profile, {
+          target,
+          foreignTarget,
+          fixture,
+          driverPath,
+          controlSocket: path.join(root, 'control.sock'),
+          topology,
+          runner: async (request) => {
+            const descriptor = JSON.parse(request.stdin) as {
+              invariantId: (typeof clientCredentialsCandidateInvariantIds)[number];
+            };
+            requested.push(descriptor.invariantId);
+            if (requested.length === index + 1) {
+              throw new Error('private-driver-secret');
+            }
+            return result(
+              JSON.stringify({
+                schemaVersion: 1,
+                kind: 'phase2-client-credentials-candidate-invariant',
+                invariantId: descriptor.invariantId,
+                projection: clientCredentialsCandidateInvariantExpectedProjection(
+                  descriptor.invariantId
+                ),
+                attestation: topology,
+              })
+            );
+          },
+        })
+      ).rejects.toThrow(`Phase 2 stage failed: candidate-invariant-legacy-${index}`);
+      expect(requested).toEqual(clientCredentialsCandidateInvariantIds.slice(0, index + 1));
+    }
+  );
+
   it('rejects profile drift, extra output, credential output, and unavailable drivers', async () => {
     const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
     const reordered = canonicalProfile.candidateInvariantScenarios.toSpliced(
@@ -350,7 +388,7 @@ describe('Phase 2 candidate invariant driver', () => {
         topology,
         runner: extraRunner,
       })
-    ).rejects.toThrow('Invalid Phase 2 candidate invariant');
+    ).rejects.toThrow('Phase 2 stage failed: candidate-invariant-legacy-0');
 
     const leakingRunner = async (): Promise<CommandRunnerResult> =>
       result('', `driver leaked ${basicSecret}`);
@@ -364,7 +402,7 @@ describe('Phase 2 candidate invariant driver', () => {
         topology,
         runner: leakingRunner,
       })
-    ).rejects.toThrow('Invalid Phase 2 candidate invariant');
+    ).rejects.toThrow('Phase 2 stage failed: candidate-invariant-legacy-0');
 
     await expect(
       runClientCredentialsCandidateInvariants(profile, {
@@ -390,4 +428,4 @@ describe('Phase 2 candidate invariant driver', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment */

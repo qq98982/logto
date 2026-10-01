@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, no-restricted-syntax, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, unicorn/consistent-function-scoping -- This candidate-only boundary owns an exact private driver protocol, per-invariant invocation closures, four closed projections, and their positive/negative controls. */
+/* eslint-disable max-lines, no-restricted-syntax, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types -- This candidate-only boundary owns an exact private driver protocol, per-invariant invocation closures, four closed projections, and their positive/negative controls. */
 import { constants as fsConstants } from 'node:fs';
 import { access, lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -430,38 +430,44 @@ export const runClientCredentialsCandidateInvariants = async (
 
   await options.fixture.withSecretLease(async (lease) => {
     const secrets = Object.freeze([lease.getClientSecret('basic'), lease.getClientSecret('post')]);
-    for (const id of clientCredentialsCandidateInvariantIds) {
-      const descriptor = Object.freeze({
-        schemaVersion: 1,
-        kind: phase2InvariantRequestKind,
-        invariantId: id,
-        target: Object.freeze({
-          primary: options.target,
-          foreign: options.foreignTarget,
-        }),
-        fixture: options.fixture.public,
-        credentials: Object.freeze({
-          basic: secrets[0],
-          post: secrets[1],
-        }),
-      });
-      const invoke = async () =>
-        requireResult(
-          await runner({
-            command: driverPath,
-            args: Object.freeze([]),
-            stdin: JSON.stringify(descriptor),
-            env: environment,
-            timeoutMs,
-            maxStdoutBytes: maximumOutputBytes,
-            maxStderrBytes: maximumOutputBytes,
-            shell: false,
-          })
-        );
-      const raw = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
-      assertInvariantEvidenceSafe({ stdout: raw.stdout, stderr: raw.stderr }, secrets);
-      const projection = parseTerminal(raw.stdout, id, secrets, options.topology ?? fail());
-      results.push(runClientCredentialsCandidateInvariantControls(id, projection));
+    for (const [index, id] of clientCredentialsCandidateInvariantIds.entries()) {
+      try {
+        const descriptor = Object.freeze({
+          schemaVersion: 1,
+          kind: phase2InvariantRequestKind,
+          invariantId: id,
+          target: Object.freeze({
+            primary: options.target,
+            foreign: options.foreignTarget,
+          }),
+          fixture: options.fixture.public,
+          credentials: Object.freeze({
+            basic: secrets[0],
+            post: secrets[1],
+          }),
+        });
+        const invoke = async () =>
+          requireResult(
+            await runner({
+              command: driverPath,
+              args: Object.freeze([]),
+              stdin: JSON.stringify(descriptor),
+              env: environment,
+              timeoutMs,
+              maxStdoutBytes: maximumOutputBytes,
+              maxStderrBytes: maximumOutputBytes,
+              shell: false,
+            })
+          );
+        const raw = options.identityFence
+          ? await options.identityFence.run(invoke)
+          : await invoke();
+        assertInvariantEvidenceSafe({ stdout: raw.stdout, stderr: raw.stderr }, secrets);
+        const projection = parseTerminal(raw.stdout, id, secrets, options.topology ?? fail());
+        results.push(runClientCredentialsCandidateInvariantControls(id, projection));
+      } catch {
+        throw new TypeError(`Phase 2 stage failed: candidate-invariant-legacy-${index}`);
+      }
     }
   });
   return Object.freeze(results);
@@ -471,4 +477,4 @@ export const clientCredentialsCandidateInvariantExpectedProjection = (
   id: ClientCredentialsCandidateInvariantId
 ): ClientCredentialsCandidateInvariantProjection => expectedProjections[id];
 
-/* eslint-enable max-lines, no-restricted-syntax, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, unicorn/consistent-function-scoping */
+/* eslint-enable max-lines, no-restricted-syntax, no-await-in-loop, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types */
