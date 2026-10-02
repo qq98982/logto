@@ -458,6 +458,14 @@ describe('Phase 2 client-credentials live topology runner', () => {
     }
     expect(sourceDocument.services).not.toHaveProperty('oracle-fetch-observer');
     expect(sourceDocument.services).not.toHaveProperty('candidate-fetch-observer');
+    for (const name of ['oracle-fetch-observer', 'candidate-fetch-observer']) {
+      const command = JSON.stringify(sourceDocument['x-phase2-services'][name]?.healthcheck?.test);
+      expect(command).toContain("hostname:'127.0.0.1'");
+      expect(command).toContain("servername:'fetch-observer.aster.test'");
+      expect(command).toContain("host:'fetch-observer.aster.test:8443'");
+      expect(command).toContain('ASTER_FETCH_OBSERVER_CA_FILE');
+      expect(command).not.toContain("hostname:'fetch-observer.aster.test'");
+    }
   });
 
   it('enables blocking script errors only in the Phase 2 oracle cores', async () => {

@@ -795,7 +795,7 @@
         "ASTER_FETCH_OBSERVER_CA_FILE": "/run/aster-fetch-observer/tls/ca.pem"
       },
       "healthcheck": {
-        "test": ["CMD", "node", "-e", "const{readFileSync}=require('node:fs'),{get}=require('node:https'),r=get({hostname:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
+        "test": ["CMD", "node", "-e", "const{readFileSync}=require('node:fs'),{get}=require('node:https'),r=get({hostname:'127.0.0.1',servername:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
         "interval": "1s",
         "timeout": "3s",
         "retries": 60
@@ -832,7 +832,7 @@
         "ASTER_FETCH_OBSERVER_DENIED_PORT": "8444"
       },
       "healthcheck": {
-        "test": ["CMD", "node", "-e", "const{readFileSync}=require('node:fs'),{get}=require('node:https'),r=get({hostname:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
+        "test": ["CMD", "node", "-e", "const{readFileSync}=require('node:fs'),{get}=require('node:https'),r=get({hostname:'127.0.0.1',servername:'fetch-observer.aster.test',port:8443,path:'/healthz',headers:{host:'fetch-observer.aster.test:8443'},ca:readFileSync(process.env.ASTER_FETCH_OBSERVER_CA_FILE)},x=>process.exit(x.statusCode===204?0:1));r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)});"],
         "interval": "1s",
         "timeout": "3s",
         "retries": 60
