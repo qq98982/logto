@@ -196,7 +196,7 @@ export const observeVerificationCodePrivate = async (
     headers,
     body: JSON.stringify(body),
     redirect: 'manual',
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(30_000),
   });
   return project(input.surface, input.operation, response);
 };

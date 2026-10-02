@@ -51,7 +51,7 @@ describe('Phase 2 verification-code scenario registry', () => {
           return projection(404, 'error', 'session.verification_session_not_found');
         }
         if (consumed.has(handle)) {
-          return projection(400, 'error', 'verification_code.not_found');
+          return projection(404, 'error', 'session.verification_session_not_found');
         }
         consumed.add(handle);
         return projection(200, 'verified');

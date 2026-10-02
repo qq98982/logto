@@ -358,7 +358,7 @@ export const runVerificationCodeScenarios = async (
     surface: 'experience',
     ...success.secret,
   });
-  assertProjection(consumedReplay, 400, 'error', 'verification_code.not_found');
+  assertProjection(consumedReplay, 404, 'error', 'session.verification_session_not_found');
 
   const account = await runtime.runAccountLifecycle(recipient('account'));
   assertProjection(account.requested, 201, 'created');
