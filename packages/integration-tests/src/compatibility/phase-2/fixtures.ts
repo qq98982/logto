@@ -1,5 +1,6 @@
 /* eslint-disable max-lines, complexity, max-params, no-await-in-loop, no-restricted-syntax, no-constant-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition -- This boundary owns two real fixture protocols, reverse compensation, reconciliation, secret leases, and hostile command/API results. */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createConnection } from 'node:net';
 import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../config.js';
@@ -61,17 +62,22 @@ export type Phase2StatusPublic = Readonly<{
   resource: Readonly<{ id: string; indicator: string; scopeName: string }>;
 }>;
 
+export type Phase2VerificationPeerPublic = Readonly<{ id: string; username: string }>;
+
 export type Phase2FixtureSecretLease = {
   getClientSecret(logicalClient: 'basic' | 'post'): string;
   getStatusClientSecret(): string;
   getSubjectPassword?(): string;
   getAdminPassword?(): string;
+  getVerificationPeerPassword?(): string;
+  takeVerificationCode?(recipient: string): Promise<string>;
   toJSON(): never;
 };
 
 export type ProvisionedPhase2Fixture = {
   readonly public: Phase2FixturePublic;
   readonly status?: Phase2StatusPublic;
+  readonly verificationPeer?: Phase2VerificationPeerPublic;
   withSecretLease<Result>(
     use: (lease: Phase2FixtureSecretLease) => Promise<Result>
   ): Promise<Result>;
@@ -125,6 +131,7 @@ type FixtureState = {
     statusConfidential: string;
     subjectPassword: string;
     adminPassword?: string;
+    verificationPeerPassword?: string;
   }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
@@ -196,6 +203,10 @@ const phase2PrimaryCoordinatorEntities = Object.freeze([
   ['scope', 'default-scope', 'default-scope'],
   ['organization', 'phase2-org', 'phase2-org'],
 ] as const);
+const phase2InvariantPrimaryCoordinatorEntities = Object.freeze([
+  ...phase2PrimaryCoordinatorEntities,
+  ['user', 'phase2-verification-peer', 'vcode-peer'] as const,
+]);
 const phase2ForeignCoordinatorEntities = Object.freeze([
   ['tenant', 'default', 'default'],
   ['application', 'phase2-device-first', 'phase2-device-first'],
@@ -436,12 +447,15 @@ const createFixture = (
   publicFixture: Phase2FixturePublic,
   secrets: FixtureState['secrets'],
   state: FixtureState,
-  status: Phase2StatusPublic
+  status: Phase2StatusPublic,
+  takeVerificationCode?: (recipient: string) => Promise<string>,
+  verificationPeer?: Phase2VerificationPeerPublic
 ): ProvisionedPhase2Fixture => {
   let leaseActive = false;
   const fixture = Object.freeze({
     public: publicFixture,
     status,
+    ...(verificationPeer && { verificationPeer }),
     withSecretLease: async <Result>(
       use: (lease: Phase2FixtureSecretLease) => Promise<Result>
     ): Promise<Result> => {
@@ -476,6 +490,22 @@ const createFixture = (
             return secrets.adminPassword ?? fail();
           },
         }),
+        ...(secrets.verificationPeerPassword && {
+          getVerificationPeerPassword: () => {
+            if (!leaseActive || state.revoked) {
+              return fail();
+            }
+            return secrets.verificationPeerPassword ?? fail();
+          },
+        }),
+        ...(takeVerificationCode && {
+          takeVerificationCode: async (recipient: string) => {
+            if (!leaseActive || state.revoked) {
+              return fail();
+            }
+            return takeVerificationCode(recipient);
+          },
+        }),
         toJSON: (): never => fail(),
       });
       try {
@@ -486,6 +516,54 @@ const createFixture = (
     },
   });
   return fixture;
+};
+
+const takeOracleVerificationCode = async (recipient: string): Promise<string> => {
+  const socketPath = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+  if (
+    typeof socketPath !== 'string' ||
+    !socketPath.startsWith('/') ||
+    !socketPath.endsWith('/oracle-verification-smtp.sock') ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) ||
+    recipient.length > 256
+  ) {
+    return fail();
+  }
+  return new Promise<string>((resolve, reject) => {
+    const socket = createConnection(socketPath);
+    let output = '';
+    const timer = setTimeout(
+      () => socket.destroy(new Error('verification delivery timeout')),
+      5000
+    );
+    const rejectClosed = (): void => {
+      reject(new Error('verification delivery unavailable'));
+    };
+    socket.setEncoding('utf8');
+    socket.once('connect', () => socket.write(`${JSON.stringify({ recipient })}\n`));
+    socket.on('data', (chunk: string) => {
+      output += chunk;
+      if (Buffer.byteLength(output) > 128) {
+        socket.destroy();
+      }
+    });
+    socket.once('error', rejectClosed);
+    socket.once('close', () => {
+      clearTimeout(timer);
+      try {
+        const parsed = JSON.parse(output) as unknown;
+        const response = exactRecord(parsed, ['code']);
+        const code = own(response, 'code');
+        if (typeof code !== 'string' || !/^\d{6}$/u.test(code)) {
+          rejectClosed();
+          return;
+        }
+        resolve(code);
+      } catch {
+        rejectClosed();
+      }
+    });
+  });
 };
 
 const revoke = (state: FixtureState): void => {
@@ -1325,8 +1403,45 @@ export const createReferencePhase2FixtureProvisioner = (
           await referenceCall(request, 'GET', 'sign-in-exp', undefined, [200])
         );
         state.previousSignInExperience = signInExperience;
+        const emailConnector = exactRecord(
+          await referenceCall(request, 'POST', 'connectors', {
+            connectorId: 'simple-mail-transfer-protocol',
+            config: {
+              host: 'oracle-primary-smtp',
+              port: 2525,
+              auth: { type: 'login', user: 'fixture', pass: subjectPassword },
+              fromEmail: 'aster@phase2.example.invalid',
+              templates: [
+                'SignIn',
+                'Register',
+                'ForgotPassword',
+                'Generic',
+                'BindNewIdentifier',
+              ].map((usageType) => ({
+                usageType,
+                contentType: 'text/plain',
+                subject: 'Aster verification code',
+                content: 'code={{code}}',
+              })),
+              logger: false,
+              debug: false,
+              disableFileAccess: true,
+              disableUrlAccess: true,
+              secure: false,
+              ignoreTLS: true,
+              requireTLS: false,
+              connectionTimeout: 5000,
+              greetingTimeout: 5000,
+              socketTimeout: 5000,
+              dnsTimeout: 5000,
+            },
+          })
+        );
+        const emailConnectorId = safeId(own(emailConnector, 'id'));
+        add('verification-email-connector', `connectors/${encodeURIComponent(emailConnectorId)}`);
         await referenceCall(request, 'PATCH', 'sign-in-exp', {
           signInMode: 'SignInAndRegister',
+          verificationCodePolicy: { expirationDuration: 60, maxRetryAttempts: 10 },
           signUp: { identifiers: [], password: false, verify: false },
           signIn: {
             methods: [
@@ -1361,23 +1476,29 @@ export const createReferencePhase2FixtureProvisioner = (
           deviceMissingGrantId,
           deviceIneligibleWebId,
         });
-        const fixture = createFixture(publicFixture, state.secrets, state, {
-          user: Object.freeze({ id: statusUserId, username }),
-          client: Object.freeze({
-            id: statusClientId,
-            name: `Phase 2 ${marker} status client`,
-            redirectUri: statusRedirectUri,
-          }),
-          confidentialClient: Object.freeze({
-            id: referenceStatusConfidentialClientId,
-            redirectUri: statusRedirectUri,
-          }),
-          resource: Object.freeze({
-            id: statusResourceId,
-            indicator: statusIndicator,
-            scopeName: 'read:profile',
-          }),
-        });
+        const fixture = createFixture(
+          publicFixture,
+          state.secrets,
+          state,
+          {
+            user: Object.freeze({ id: statusUserId, username }),
+            client: Object.freeze({
+              id: statusClientId,
+              name: `Phase 2 ${marker} status client`,
+              redirectUri: statusRedirectUri,
+            }),
+            confidentialClient: Object.freeze({
+              id: referenceStatusConfidentialClientId,
+              redirectUri: statusRedirectUri,
+            }),
+            resource: Object.freeze({
+              id: statusResourceId,
+              indicator: statusIndicator,
+              scopeName: 'read:profile',
+            }),
+          },
+          takeOracleVerificationCode
+        );
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {
@@ -1492,7 +1613,7 @@ const requireRejectedCommandResult = (value: unknown): CommandRunnerResult => {
 
 const parseCommandOutput = (
   result: CommandRunnerResult,
-  operation: 'provision' | 'projectState' | 'cleanup',
+  operation: 'provision' | 'projectState' | 'cleanup' | 'takeVerificationDelivery',
   secrets: readonly string[]
 ): Record<string, unknown> => {
   try {
@@ -1526,7 +1647,10 @@ const validateCoordinatorPublic = (
       role: 'data',
       target: 'primary',
       allocationId,
-      entities: phase2PrimaryCoordinatorEntities,
+      entities:
+        recipe === 'phase2CandidateInvariants'
+          ? phase2InvariantPrimaryCoordinatorEntities
+          : phase2PrimaryCoordinatorEntities,
     },
     {
       role: 'admin',
@@ -1641,7 +1765,7 @@ export const createCandidatePhase2FixtureProvisioner = (
 
   const run = async (
     descriptor: Readonly<Record<string, unknown>>,
-    operation: 'provision' | 'projectState' | 'cleanup',
+    operation: 'provision' | 'projectState' | 'cleanup' | 'takeVerificationDelivery',
     secrets: readonly string[]
   ): Promise<Record<string, unknown>> => {
     const invoke = async () =>
@@ -1740,12 +1864,20 @@ export const createCandidatePhase2FixtureProvisioner = (
       const statusConfidential = createSecret();
       const subjectPassword = createSecret();
       const adminPassword = createSecret();
+      const verificationPeerPassword =
+        recipe === 'phase2CandidateInvariants'
+          ? createHash('sha256')
+              .update(`verification-peer:${adminPassword}`)
+              .digest('hex')
+              .slice(0, 32)
+          : undefined;
       const secrets = Object.freeze({
         basic,
         post,
         statusConfidential,
         subjectPassword,
         adminPassword,
+        verificationPeerPassword,
       });
       if (
         secrets.basic === secrets.post ||
@@ -1758,11 +1890,19 @@ export const createCandidatePhase2FixtureProvisioner = (
         adminPassword === secrets.post ||
         adminPassword === statusConfidential ||
         adminPassword === subjectPassword ||
+        (verificationPeerPassword !== undefined &&
+          (verificationPeerPassword === secrets.basic ||
+            verificationPeerPassword === secrets.post ||
+            verificationPeerPassword === statusConfidential ||
+            verificationPeerPassword === subjectPassword ||
+            verificationPeerPassword === adminPassword)) ||
         !/^[a-z0-9]{32}$/u.test(secrets.basic) ||
         !/^[a-z0-9]{32}$/u.test(secrets.post) ||
         !/^[a-z0-9]{32}$/u.test(statusConfidential) ||
         !/^[a-z0-9]{32}$/u.test(subjectPassword) ||
-        !/^[a-z0-9]{32}$/u.test(adminPassword)
+        !/^[a-z0-9]{32}$/u.test(adminPassword) ||
+        (verificationPeerPassword !== undefined &&
+          !/^[a-z0-9]{32}$/u.test(verificationPeerPassword))
       ) {
         return fail();
       }
@@ -1776,6 +1916,7 @@ export const createCandidatePhase2FixtureProvisioner = (
           statusConfidential,
           subjectPassword,
           adminPassword,
+          ...(verificationPeerPassword === undefined ? [] : [verificationPeerPassword]),
         ]),
         revoked: false,
       };
@@ -1815,6 +1956,15 @@ export const createCandidatePhase2FixtureProvisioner = (
             'urn:aster:scope:sessions',
           ]),
           resourceScopeIds: Object.freeze(['phase1-read-profile']),
+        }),
+        verificationCode: Object.freeze({
+          smtpPort: 2525 as const,
+          ...(recipe === 'phase2CandidateInvariants' && {
+            peerAccount: Object.freeze({
+              userId: 'vcode-peer',
+              username: 'phase2-verification-peer',
+            }),
+          }),
         }),
         deviceClients: Object.freeze([
           Object.freeze({
@@ -1867,6 +2017,14 @@ export const createCandidatePhase2FixtureProvisioner = (
           passwords: Object.freeze([
             Object.freeze({ logicalId: 'phase1-user', value: subjectPassword }),
             Object.freeze({ logicalId: 'phase1-admin', value: adminPassword }),
+            ...(recipe === 'phase2CandidateInvariants'
+              ? [
+                  Object.freeze({
+                    logicalId: 'phase2-verification-peer',
+                    value: verificationPeerPassword ?? fail(),
+                  }),
+                ]
+              : []),
           ]),
           clientSecrets: Object.freeze([
             Object.freeze({ logicalId: logicalClientIds.basic, value: secrets.basic }),
@@ -1891,23 +2049,61 @@ export const createCandidatePhase2FixtureProvisioner = (
           recipe
         );
         const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
-        const fixture = createFixture(publicFixture, secrets, state, {
-          user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
-          client: Object.freeze({
-            id: 'phase1-browser',
-            name: getPhase1FixtureRuntimeText('Phase 1 Consent Client', allocationId),
-            redirectUri: statusRedirectUri,
-          }),
-          confidentialClient: Object.freeze({
-            id: statusConfidentialClientId,
-            redirectUri: statusRedirectUri,
-          }),
-          resource: Object.freeze({
-            id: 'phase1-api',
-            indicator: candidateStatusIndicator(allocationId),
-            scopeName: `read:profile_a_${allocationSuffix(allocationId)}`,
-          }),
-        });
+        const fixture = createFixture(
+          publicFixture,
+          secrets,
+          state,
+          {
+            user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
+            client: Object.freeze({
+              id: 'phase1-browser',
+              name: getPhase1FixtureRuntimeText('Phase 1 Consent Client', allocationId),
+              redirectUri: statusRedirectUri,
+            }),
+            confidentialClient: Object.freeze({
+              id: statusConfidentialClientId,
+              redirectUri: statusRedirectUri,
+            }),
+            resource: Object.freeze({
+              id: 'phase1-api',
+              indicator: candidateStatusIndicator(allocationId),
+              scopeName: `read:profile_a_${allocationSuffix(allocationId)}`,
+            }),
+          },
+          async (recipient) => {
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) || recipient.length > 256) {
+              return fail();
+            }
+            const result = await run(
+              Object.freeze({
+                schemaVersion: 1,
+                operation: 'takeVerificationDelivery',
+                recipe,
+                allocationId,
+                public: state.coordinatorPublic ?? fail(),
+                recipient,
+              }),
+              'takeVerificationDelivery',
+              state.sensitiveValues
+            );
+            const code = own(result, 'code');
+            if (
+              Object.keys(result).length !== 3 ||
+              !['schemaVersion', 'operation', 'code'].every((key) => Object.hasOwn(result, key)) ||
+              typeof code !== 'string' ||
+              !/^\d{6}$/u.test(code)
+            ) {
+              return fail();
+            }
+            return code;
+          },
+          recipe === 'phase2CandidateInvariants'
+            ? Object.freeze({
+                id: 'vcode-peer',
+                username: 'phase2-verification-peer',
+              })
+            : undefined
+        );
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {

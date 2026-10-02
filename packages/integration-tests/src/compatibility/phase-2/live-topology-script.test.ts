@@ -217,8 +217,8 @@ const runEvidenceValidation = async (
   const invariantPath = path.join(directory, 'invariants.json');
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 168 }, (_, index) => `scenario-${index}`);
-  const invariantIds = Array.from({ length: 16 }, (_, index) => `invariant-${index}`);
+  const differentialScenarioIds = Array.from({ length: 176 }, (_, index) => `scenario-${index}`);
+  const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
     differentialScenarios: differentialScenarioIds,
@@ -441,7 +441,11 @@ describe('Phase 2 client-credentials live topology runner', () => {
     for (const output of await Promise.all(outputs)) {
       for (const [name, service] of Object.entries(output.services)) {
         const sourceService =
-          sourceDocument.services[name] ?? sourceDocument['x-phase2-services'][name];
+          sourceDocument.services[name] ??
+          sourceDocument['x-phase2-services'][name] ??
+          (name === 'oracle-primary-smtp'
+            ? sourceDocument.services['candidate-primary-smtp']
+            : undefined);
         expect(sourceService).toBeDefined();
         expect(service.healthcheck?.test).toEqual(sourceService?.healthcheck?.test);
         if (sourceService?.healthcheck) {
@@ -930,11 +934,11 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 168',
+      'scenarioCount !== 176',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 168',
+      'comparisonCount !== 176',
       'custom-jwt',
-      'invariantCount !== 16',
+      'invariantCount !== 24',
       'differenceCount !== 0',
       'comparison.scenarioId !== profile.differentialScenarios[index]',
       "exactKeys(comparison, ['scenarioId','differenceCount'])",
@@ -971,11 +975,11 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(168, 16, 18)).resolves.toEqual({ code: 0, stderr: '' });
-    await expect(runEvidenceValidation(154, 16, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(168, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(168, 16, 12)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(168, 16, 17)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(176, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(176, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(176, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(176, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {
@@ -1436,18 +1440,18 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         'controls',
         'ids',
         'client-0',
-        'client-167',
+        'client-175',
         'device-0',
-        'device-167',
+        'device-175',
       ].map(
         (suffix) => `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).`
       )
     );
     const rejectedLines = [
       'Phase 2 client credentials command failed (oracle-sanitizer-client-00).',
-      'Phase 2 client credentials command failed (oracle-sanitizer-client-168).',
+      'Phase 2 client credentials command failed (oracle-sanitizer-client-176).',
       'Phase 2 client credentials command failed (candidate-sanitizer-device-01).',
-      'Phase 2 client credentials command failed (candidate-sanitizer-device-168).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-device-176).',
       'Phase 2 client credentials command failed (oracle-sanitizer-target-extra).',
       'Phase 2 client credentials command failed (oracle-sanitizer-private-value).',
     ];

@@ -35,6 +35,11 @@ import {
   runDeviceCandidateInvariantControls,
 } from './candidate-invariants/device-authorization.js';
 import {
+  runVerificationCodeCandidateInvariantControls,
+  verificationCodeCandidateInvariantExpectedProjection,
+  verificationCodeCandidateInvariantIds,
+} from './candidate-invariants/verification-code.js';
+import {
   closedDeviceFailureStage,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
@@ -711,6 +716,7 @@ const profile: Phase2ProfileRegistries = Object.freeze({
     'client-credentials.signing-failure-rolls-back',
     'client-credentials.user-authority-unchanged',
     'logout-session.verification-storage-closed',
+    ...verificationCodeCandidateInvariantIds,
     ...deviceCandidateInvariantIds,
     ...customJwtCandidateInvariantIds,
     ...customJwtFetchPolicyCandidateInvariantIds,
@@ -838,6 +844,12 @@ const dependencies = (
           runClientCredentialsCandidateInvariantControls(
             id,
             clientCredentialsCandidateInvariantExpectedProjection(id)
+          )
+        ),
+        ...verificationCodeCandidateInvariantIds.map((id) =>
+          runVerificationCodeCandidateInvariantControls(
+            id,
+            verificationCodeCandidateInvariantExpectedProjection(id)
           )
         ),
         ...deviceCandidateInvariantIds.map((id) =>

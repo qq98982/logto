@@ -61,6 +61,10 @@ const primaryCoordinatorEntities = [
   ['scope', 'default-scope', 'default-scope'],
   ['organization', 'phase2-org', 'phase2-org'],
 ].map(([kind, logicalId, runtimeId]) => ({ kind, logicalId, runtimeId }));
+const invariantPrimaryCoordinatorEntities = [
+  ...primaryCoordinatorEntities,
+  { kind: 'user', logicalId: 'phase2-verification-peer', runtimeId: 'vcode-peer' },
+];
 const foreignCoordinatorEntities = [
   { kind: 'tenant', logicalId: 'default', runtimeId: 'default' },
   {
@@ -113,7 +117,10 @@ const candidateCoordinatorPublic = (
       role: 'data',
       target: 'primary',
       isolation: primaryCoordinatorIsolation,
-      entities: primaryCoordinatorEntities,
+      entities:
+        recipe === 'phase2CandidateInvariants'
+          ? invariantPrimaryCoordinatorEntities
+          : primaryCoordinatorEntities,
     },
     {
       allocationId: phase2AdminAllocationId(allocationId),
@@ -277,6 +284,7 @@ describe('Phase 2 fixture lifecycle', () => {
         'getClientSecret',
         'getStatusClientSecret',
         'getSubjectPassword',
+        'takeVerificationCode',
         'toJSON',
       ]);
       expect(lease.getClientSecret('basic')).toBe('ReferenceSecretValue000000000001');
@@ -426,7 +434,8 @@ describe('Phase 2 fixture lifecycle', () => {
     await provisioner.cleanup(fixture);
 
     const deletes = admin.calls.filter(({ method }) => method === 'DELETE').map(({ path }) => path);
-    expect(deletes.slice(0, 12)).toEqual([
+    expect(deletes.slice(0, 13)).toEqual([
+      'connectors/organization-role-10',
       'applications/application-8',
       'applications/application-7',
       'applications/application-6',
@@ -440,7 +449,7 @@ describe('Phase 2 fixture lifecycle', () => {
       'organizations/organization-1/users/user-1',
       'users/user-1',
     ]);
-    expect(deletes.slice(12, 17)).toEqual([
+    expect(deletes.slice(13, 18)).toEqual([
       'organizations/organization-1/applications/application-1/roles/organization-role-3',
       'organizations/organization-1/applications/application-1',
       'organization-roles/organization-role-3',
@@ -702,6 +711,7 @@ describe('Phase 2 fixture lifecycle', () => {
         'getClientSecret',
         'getStatusClientSecret',
         'getSubjectPassword',
+        'takeVerificationCode',
         'toJSON',
       ]);
       expect(lease.getStatusClientSecret()).toBe('c'.repeat(32));
@@ -914,6 +924,13 @@ describe('Phase 2 fixture lifecycle', () => {
     });
 
     const fixture = await provisioner.provision();
+    expect(fixture.verificationPeer).toEqual({
+      id: 'vcode-peer',
+      username: 'phase2-verification-peer',
+    });
+    await fixture.withSecretLease(async (lease) => {
+      expect(lease.getVerificationPeerPassword?.()).toMatch(/^[a-z0-9]{32}$/u);
+    });
     await provisioner.projectState(fixture);
     await provisioner.cleanup(fixture);
     expect(allocationActive).toBe(false);
@@ -925,6 +942,26 @@ describe('Phase 2 fixture lifecycle', () => {
       'phase2CandidateInvariants',
       'phase2CandidateInvariants',
     ]);
+    expect(descriptors[0]).toMatchObject({
+      profile: {
+        fixtures: {
+          phase2: {
+            verificationCode: {
+              smtpPort: 2525,
+              peerAccount: {
+                userId: 'vcode-peer',
+                username: 'phase2-verification-peer',
+              },
+            },
+          },
+        },
+      },
+      seeds: {
+        passwords: expect.arrayContaining([
+          expect.objectContaining({ logicalId: 'phase2-verification-peer' }),
+        ]),
+      },
+    });
     for (const descriptor of descriptors.filter(
       ({ recipe }, index) => recipe === 'phase2CandidateInvariants' && index > 0
     )) {

@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(168);
+    expect(registries.differentialScenarios).toHaveLength(176);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -109,6 +109,14 @@ describe('Phase 2 profile loader', () => {
       'custom-jwt.fetch-not-found',
       'custom-jwt.fetch-redirect',
       'custom-jwt.fetch-reset-connection',
+      'verification-code.experience-request-verify',
+      'verification-code.experience-recipient-mismatch',
+      'verification-code.experience-replaced-current',
+      'verification-code.experience-retry-cap',
+      'verification-code.recipient-send-cap',
+      'verification-code.failed-delivery-preserves-current',
+      'verification-code.experience-consumed-replay',
+      'verification-code.account-request-verify-replay',
     ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
@@ -117,6 +125,14 @@ describe('Phase 2 profile loader', () => {
       'client-credentials.signing-failure-rolls-back',
       'client-credentials.user-authority-unchanged',
       'logout-session.verification-storage-closed',
+      'verification-code.cross-tenant-owner-rejected',
+      'verification-code.cross-account-owner-rejected',
+      'verification-code.cross-client-owner-rejected',
+      'verification-code.wrong-audience-rejected',
+      'verification-code.retry-budget-committed',
+      'verification-code.concurrent-single-consumer',
+      'verification-code.failed-delivery-state-preserved',
+      'verification-code.envelope-secret-absent',
       'device-authorization.forced-rls-isolation',
       'device-authorization.credentials-digest-only',
       'device-authorization.cross-tenant-lookup-rejected',
@@ -129,7 +145,7 @@ describe('Phase 2 profile loader', () => {
       'custom-jwt.blocking-refresh-rolls-back',
       'custom-jwt.fetch-policy-boundary',
     ]);
-    expect(registries.candidateInvariantScenarios).toHaveLength(16);
+    expect(registries.candidateInvariantScenarios).toHaveLength(24);
     expect(registries.discovery).toEqual({
       grantTypesSupportedAppend: [
         'client_credentials',
@@ -154,10 +170,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '99172f76481c6af8d929fc00aa84360162b1f5d2d385437b8f0ae432191d8ccd'
+      '042677694eb5b1fa7f21bccb96b2a09d3e12b88d5c2ea2ec942f0f5de71500c5'
     );
     expect(registries.schemaSha256).toBe(
-      'a5706d026940dee59fd2566601f7e5d04472c507ccbdfa862b1acb41ec6d1c8c'
+      '59dbfc9240d30e65fb2356def869579003de5564dd03ea8f234efa0265caedca'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

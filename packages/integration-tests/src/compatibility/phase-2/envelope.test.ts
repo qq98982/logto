@@ -23,6 +23,11 @@ import {
   runDeviceCandidateInvariantControls,
 } from './candidate-invariants/device-authorization.js';
 import {
+  runVerificationCodeCandidateInvariantControls,
+  verificationCodeCandidateInvariantExpectedProjection,
+  verificationCodeCandidateInvariantIds,
+} from './candidate-invariants/verification-code.js';
+import {
   assertPhase2TargetEvidenceIsSanitized,
   createPhase2EvidenceEnvelope,
   Phase2SanitizerFailure,
@@ -169,7 +174,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 169 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 177 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -240,7 +245,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 169 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 177 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -433,8 +438,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 168-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 168 }, (_, index) => ({
+  it('publishes the full 176-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 176 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));
@@ -473,11 +478,12 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('accepts only the exact ordered sixteen candidate invariant proofs', () => {
+  it('accepts only the exact ordered candidate invariant proofs', () => {
     const candidateProfile = {
       ...profile,
       candidateInvariantScenarios: [
         ...clientCredentialsCandidateInvariantIds,
+        ...verificationCodeCandidateInvariantIds,
         ...deviceCandidateInvariantIds,
         ...customJwtCandidateInvariantIds,
         ...customJwtFetchPolicyCandidateInvariantIds,
@@ -488,6 +494,12 @@ describe('Phase 2 public provenance envelope', () => {
         runClientCredentialsCandidateInvariantControls(
           id,
           clientCredentialsCandidateInvariantExpectedProjection(id)
+        )
+      ),
+      ...verificationCodeCandidateInvariantIds.map((id) =>
+        runVerificationCodeCandidateInvariantControls(
+          id,
+          verificationCodeCandidateInvariantExpectedProjection(id)
         )
       ),
       ...deviceCandidateInvariantIds.map((id) =>

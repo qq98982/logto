@@ -268,19 +268,19 @@ describe('Phase 2 device authorization projection', () => {
     );
   });
 
-  it('accepts closed 168-entry root scenario and comparison arrays without widening others', () => {
-    const scenarios = Array.from({ length: 169 }, (_, index) => ({ id: `scenario-${index}` }));
-    const comparisons = Array.from({ length: 169 }, (_, index) => ({
+  it('accepts closed 176-entry root scenario and comparison arrays without widening others', () => {
+    const scenarios = Array.from({ length: 177 }, (_, index) => ({ id: `scenario-${index}` }));
+    const comparisons = Array.from({ length: 177 }, (_, index) => ({
       id: `comparison-${index}`,
     }));
     expect(() =>
-      assertDeviceAuthorizationEvidenceIsSanitized({ scenarios: scenarios.slice(0, 168) })
+      assertDeviceAuthorizationEvidenceIsSanitized({ scenarios: scenarios.slice(0, 176) })
     ).not.toThrow();
     expect(() => assertDeviceAuthorizationEvidenceIsSanitized({ scenarios })).toThrow(
       'Invalid Phase 2 device authorization projection'
     );
     expect(() =>
-      assertDeviceAuthorizationEvidenceIsSanitized({ comparisons: comparisons.slice(0, 168) })
+      assertDeviceAuthorizationEvidenceIsSanitized({ comparisons: comparisons.slice(0, 176) })
     ).not.toThrow();
     expect(() => assertDeviceAuthorizationEvidenceIsSanitized({ comparisons })).toThrow(
       'Invalid Phase 2 device authorization projection'
@@ -294,7 +294,7 @@ describe('Phase 2 device authorization projection', () => {
       })
     ).toThrow('Invalid Phase 2 device authorization projection');
     const sparseComparisons = [{ id: 'comparison-0' }];
-    sparseComparisons.length = 168;
+    sparseComparisons.length = 176;
     expect(() =>
       assertDeviceAuthorizationEvidenceIsSanitized({ comparisons: sparseComparisons })
     ).toThrow('Invalid Phase 2 device authorization projection');

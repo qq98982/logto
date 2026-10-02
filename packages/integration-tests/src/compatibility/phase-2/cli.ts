@@ -31,6 +31,14 @@ import {
   runDeviceCandidateInvariants,
   type DeviceCandidateInvariantControlEvidence,
 } from './candidate-invariants/device-authorization.js';
+import {
+  createCommandVerificationCodePersistenceProbe,
+  createLiveVerificationCodeCandidateInvariantExecutor,
+} from './candidate-invariants/verification-code-live.js';
+import {
+  runVerificationCodeCandidateInvariants,
+  type VerificationCodeCandidateInvariantControlEvidence,
+} from './candidate-invariants/verification-code.js';
 import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
 import { createCustomJwtHttpPort } from './clients/custom-jwt.js';
 import {
@@ -38,7 +46,11 @@ import {
   type DeviceCredentialLease,
   type DeviceLifecycleRequest,
 } from './clients/device-authorization.js';
-import { issuePublicUserResourceTokensWithPassword } from './clients/user-token-issuance.js';
+import {
+  issueConfidentialUserTokens,
+  issuePublicUserResourceTokensWithPassword,
+  issuePublicUserTokens,
+} from './clients/user-token-issuance.js';
 import { phase2InvariantRequestKind } from './driver-protocol.js';
 import {
   assertPhase2TargetEvidenceIsSanitized,
@@ -65,6 +77,7 @@ import {
 import { createClientCredentialsJwtAudit } from './projections/client-credentials.js';
 import { compareLogoutSessionProjections } from './projections/logout-session.js';
 import { compareTokenStatus } from './projections/token-status.js';
+import { compareVerificationCodeProjections } from './projections/verification-code.js';
 import {
   inspectLaunchedPhase2HarnessSource,
   recheckCleanPhase2HarnessSource,
@@ -126,6 +139,12 @@ import {
   tokenStatusScenarioIds,
   type TokenStatusScenarioResult,
 } from './scenarios/token-status.js';
+import {
+  createVerificationCodeScenarioRuntime,
+  runVerificationCodeScenarios,
+  verificationCodeScenarioIds,
+  type VerificationCodeScenarioResult,
+} from './scenarios/verification-code.js';
 
 export type Phase2CliCommand =
   | Readonly<{
@@ -205,6 +224,7 @@ type TargetScenarioEvidence = Readonly<{
     | TokenStatusScenarioResult
     | LogoutSessionScenarioResult
     | DeviceAuthorizationScenarioResult
+    | VerificationCodeScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
   >;
@@ -423,7 +443,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -460,7 +480,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 const candidateAdminConsumerStageFailurePattern =
@@ -1190,6 +1210,18 @@ const runTargetScenarios = async (
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-logout-session`);
     }
+    let verificationCodeScenarios: readonly VerificationCodeScenarioResult[];
+    try {
+      verificationCodeScenarios = await runVerificationCodeScenarios(
+        profile,
+        await createVerificationCodeScenarioRuntime(descriptor.target, fixture)
+      );
+    } catch (error: unknown) {
+      if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
+        throw error;
+      }
+      throw new Error(`Phase 2 stage failed: ${descriptor.kind}-verification-code`);
+    }
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1426,6 +1458,7 @@ const runTargetScenarios = async (
       ...deviceScenarios,
       ...customJwtScenarios,
       ...customJwtFetchScenarios,
+      ...verificationCodeScenarios,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -1570,6 +1603,20 @@ const executeDifferential = async (
     const isDevice = (deviceAuthorizationScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    const isVerificationCode = (verificationCodeScenarioIds as readonly string[]).includes(
+      oracleScenario.id
+    );
+    if (isVerificationCode) {
+      const found = compareVerificationCodeProjections(
+        oracleScenario.projection,
+        candidateScenario.projection,
+        oracleScenario.id
+      );
+      if (found.length > 0) {
+        throw new Error(`Phase 2 stage failed: candidate-verification-code:${oracleScenario.id}`);
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
     const found = isLogoutSession
       ? compareLogoutSessionProjections(
           oracleScenario.projection as LogoutSessionScenarioResult['projection'],
@@ -1686,6 +1733,7 @@ const executeCandidateInvariants = async (
   });
   const invariants: ReadonlyArray<
     | CandidateInvariantControlEvidence
+    | VerificationCodeCandidateInvariantControlEvidence
     | DeviceCandidateInvariantControlEvidence
     | CustomJwtCandidateInvariantControlEvidence
     | CustomJwtFetchPolicyControlEvidence
@@ -1700,6 +1748,57 @@ const executeCandidateInvariants = async (
       topology: prepared.topology,
       identityFence: prepared.fence,
     });
+    const [verificationOwner, verificationCrossClient] = await Promise.all([
+      issuePublicUserTokens(target.target, fixture),
+      issueConfidentialUserTokens(target.target, fixture),
+    ]);
+    const verification = await withPhase2AdminManagementBearer(
+      target.target,
+      fixture,
+      async (crossTenantBearer, lease) => {
+        const wrongAudienceBearer = await (async () => {
+          const response = await fetch(new URL('/oidc/token', target.target.coreUrl), {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              client_id: fixture.public.clients.post.id,
+              client_secret: lease.getClientSecret('post'),
+              resource: fixture.public.resources.primary.indicator,
+              scope: fixture.public.scopes.read.name,
+            }),
+            redirect: 'manual',
+            signal: AbortSignal.timeout(10_000),
+          });
+          const body = (await response.json()) as Record<string, unknown>;
+          return response.status === 200 && typeof body.access_token === 'string'
+            ? body.access_token
+            : fail();
+        })();
+        const persistenceProbe = createCommandVerificationCodePersistenceProbe({
+          target: target.target,
+          foreignTarget: target.foreignTarget,
+          fixture,
+          driverPath: invariantDriver.path,
+          controlSocket: invariantDriver.controlSocket,
+          topology: prepared.topology,
+          identityFence: prepared.fence,
+        });
+        return runVerificationCodeCandidateInvariants(
+          input.profile,
+          await createLiveVerificationCodeCandidateInvariantExecutor({
+            target: target.target,
+            fixture,
+            lease,
+            ownerBearer: verificationOwner.access,
+            crossClientBearer: verificationCrossClient.access,
+            crossTenantBearer,
+            wrongAudienceBearer,
+            persistenceProbe,
+          })
+        );
+      }
+    );
     const deviceExecutor = await createLiveDeviceCandidateInvariantExecutor({
       profile: input.profile,
       target: target.target,
@@ -2044,7 +2143,7 @@ const executeCandidateInvariants = async (
         return Object.freeze([...stateResults, fetchResult]);
       }
     );
-    const combined = Object.freeze([...legacy, ...device, ...customJwt]);
+    const combined = Object.freeze([...legacy, ...verification, ...device, ...customJwt]);
     if (
       combined.length !== input.profile.candidateInvariantScenarios.length ||
       combined.some(({ id }, index) => id !== input.profile.candidateInvariantScenarios[index])

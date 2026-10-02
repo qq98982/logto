@@ -11,11 +11,11 @@ readonly REDIS_IMAGE='docker.io/library/redis:6-alpine@sha256:d0c875bdacfb5c4d2c
 readonly EXPECTED_ASTER_SOURCE='https://github.com/qq98982/aster.git'
 readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
-  oracle-fetch-observer
+  oracle-fetch-observer oracle-primary-smtp
   oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core
 )
 readonly CANDIDATE_SERVICES=(
-  candidate-primary-postgres candidate-primary-init candidate-primary-core
+  candidate-primary-postgres candidate-primary-init candidate-primary-core candidate-primary-smtp
   candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator
@@ -1037,9 +1037,11 @@ assert_expected_fixture_images() {
        "$exit_code" == 0 && "$health" == healthy ]] || return 1
   done <<EOF
 oracle|oracle-fetch-observer|$ORACLE_IMAGE_ID
+oracle|oracle-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
 candidate|candidate-fetch-observer|$ORACLE_IMAGE_ID
 candidate|candidate-script-supervisor|$SCRIPT_SUPERVISOR_IMAGE_ID
 candidate|candidate-script-executor|$SCRIPT_EXECUTOR_IMAGE_ID
+candidate|candidate-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
 EOF
 }
 
@@ -1221,13 +1223,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 168 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 176 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 168 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 176 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1237,13 +1239,13 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 168 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 176 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
 if (!exactKeys(invariants.payload, ['schemaVersion','mode','invariants']) ||
     invariants.payload.schemaVersion !== 1 || invariants.payload.mode !== 'candidate-invariants' ||
-    invariantCount !== 16 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
+    invariantCount !== 24 || !exact(invariants.payload.invariants.map(({id}) => id), profile.candidateInvariantScenarios) ||
     invariants.payload.invariants.some((entry) =>
       !exactKeys(entry, ['id','candidate','positiveControl','negativeControl']) ||
       entry.positiveControl?.detected !== true || entry.negativeControl?.detected !== true ||
@@ -1489,6 +1491,8 @@ ASTER_PHASE2_ORACLE_OBSERVER_CERT=$OBSERVER_SERVER_CERT
 ASTER_PHASE2_ORACLE_OBSERVER_KEY=$OBSERVER_SERVER_KEY
 ASTER_PHASE2_ORACLE_OBSERVER_CA=$FETCH_OBSERVER_CA
 ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT=$ORACLE_OBSERVER_RECEIPT
+ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=$SCRIPT_SUPERVISOR_IMAGE_ID
+ASTER_PHASE1_FIXTURE_DIRECTORY=$FIXTURE_DIRECTORY
 ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_SECRET_VAULT_KEK=$(random_hex 32)
 ASTER_PHASE1_ORACLE_PRIMARY_STATUS_API_KEY=$(random_hex 32)
@@ -1534,6 +1538,12 @@ import { open, readFile } from 'node:fs/promises';
 const [source, oracleOutput, candidateOutput, scriptCa, scriptCert, scriptKey, observerCa] = process.argv.slice(2);
 const document = JSON.parse(await readFile(source, 'utf8'));
 const phase2Services = document['x-phase2-services'];
+document.services['oracle-primary-smtp'] = structuredClone(document.services['candidate-primary-smtp']);
+document.services['oracle-primary-smtp'].environment.ASTER_SMTP_BIND = '0.0.0.0';
+document.services['oracle-primary-smtp'].environment.ASTER_SMTP_CONTROL_SOCKET =
+  '${ASTER_PHASE1_FIXTURE_DIRECTORY}/oracle-verification-smtp.sock';
+delete document.services['oracle-primary-smtp'].network_mode;
+document.services['oracle-primary-smtp'].networks = ['oracle-primary'];
 const select = (services, networks, volumes) => {
   const output = { services: {}, networks: {}, volumes: {} };
   for (const name of services) {
@@ -1552,7 +1562,7 @@ const select = (services, networks, volumes) => {
   return output;
 };
 const oracle = select(
-  ['oracle-primary-postgres','oracle-primary-redis','oracle-primary-core','oracle-fetch-observer','oracle-foreign-postgres','oracle-foreign-redis','oracle-foreign-core'],
+  ['oracle-primary-postgres','oracle-primary-redis','oracle-primary-core','oracle-fetch-observer','oracle-primary-smtp','oracle-foreign-postgres','oracle-foreign-redis','oracle-foreign-core'],
   ['oracle-primary','oracle-foreign'],
   ['oracle-primary-postgres','oracle-primary-redis','oracle-foreign-postgres','oracle-foreign-redis'],
 );
@@ -1560,7 +1570,7 @@ for (const name of ['oracle-primary-core','oracle-foreign-core']) {
   oracle.services[name].environment.DEV_FEATURES_ENABLED = 'true';
 }
 const candidate = select(
-  ['candidate-primary-postgres','candidate-primary-init','candidate-primary-core','candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor','candidate-foreign-postgres','candidate-foreign-init','candidate-foreign-core','candidate-fixture-coordinator'],
+  ['candidate-primary-postgres','candidate-primary-init','candidate-primary-core','candidate-primary-smtp','candidate-fetch-observer','candidate-script-supervisor','candidate-script-executor','candidate-foreign-postgres','candidate-foreign-init','candidate-foreign-core','candidate-fixture-coordinator'],
   ['candidate-primary','candidate-foreign'],
   ['candidate-primary-postgres','candidate-foreign-postgres','candidate-primary-keyring','candidate-foreign-keyring'],
 );
@@ -1575,9 +1585,10 @@ oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
 oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 const healthcheckIntervals = {
   'oracle-primary-postgres': '3s', 'oracle-primary-redis': '3s', 'oracle-primary-core': '3s',
-  'oracle-fetch-observer': '1s', 'oracle-foreign-postgres': '3s',
+  'oracle-fetch-observer': '1s', 'oracle-primary-smtp': '1s', 'oracle-foreign-postgres': '3s',
   'oracle-foreign-redis': '3s', 'oracle-foreign-core': '3s',
   'candidate-primary-postgres': '2s', 'candidate-primary-core': '2s',
+  'candidate-primary-smtp': '1s',
   'candidate-fetch-observer': '1s', 'candidate-script-supervisor': '1s',
   'candidate-script-executor': '1s', 'candidate-foreign-postgres': '2s',
   'candidate-foreign-core': '2s', 'candidate-fixture-coordinator': '1s',
@@ -1641,6 +1652,7 @@ NODE
   start_compose_stage oracle dependencies oracle-primary-postgres oracle-primary-redis oracle-foreign-postgres oracle-foreign-redis || { fail; return 1; }
   start_compose_stage oracle observer oracle-fetch-observer || { fail; return 1; }
   start_compose_stage oracle core oracle-primary-core oracle-foreign-core || { fail; return 1; }
+  start_compose_stage oracle smtp oracle-primary-smtp || { fail; return 1; }
   CANDIDATE_PROJECT_STARTED=1
   start_compose_stage candidate postgres candidate-primary-postgres candidate-foreign-postgres || { fail; return 1; }
   start_compose_stage candidate init candidate-primary-init candidate-foreign-init || { fail; return 1; }
@@ -1648,6 +1660,7 @@ NODE
   start_compose_stage candidate script-host candidate-script-supervisor candidate-script-executor || { fail; return 1; }
   wait_for_script_host_serving || { failure_stage='script-host-readiness'; fail; return 1; }
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
+  start_compose_stage candidate smtp candidate-primary-smtp || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
   failure_stage='service-closure-oracle'
@@ -1704,6 +1717,7 @@ NODE
   launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
   failure_stage='evidence-sequence'
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
+    ASTER_PHASE2_ORACLE_SMTP_SOCKET="$FIXTURE_DIRECTORY/oracle-verification-smtp.sock" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
     "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {
@@ -1804,8 +1818,8 @@ NODE
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-fixture-(provision|readiness|public-jwks|cleanup|body-cleanup)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-fixture-(provision|readiness|public-jwks|cleanup|body-cleanup)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|(client|device)-([0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|(client|device)-([0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7])))?|comparison|logout-session|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|(client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|(client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)/device-consent\.[a-z-]+:projection-(firstIssued|consent|completion)-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/device-consent\.[a-z-]+:projection-(firstIssued|consent|completion)-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2

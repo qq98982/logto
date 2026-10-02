@@ -309,13 +309,18 @@ try:
       "custom-jwt.storage-confidential-forced-rls",
       "custom-jwt.blocking-refresh-rolls-back",
       "custom-jwt.fetch-policy-boundary"}
+    verification={
+      "verification-code.retry-budget-committed",
+      "verification-code.concurrent-single-consumer",
+      "verification-code.failed-delivery-state-preserved",
+      "verification-code.envelope-secret-absent"}
     invariant=value["invariantId"]
     if invariant in legacy:
       exact(value,["schemaVersion","kind","invariantId","target","fixture","credentials"])
       exact(value["credentials"],["basic","post"])
       text(value["credentials"]["basic"],r"^[^\x00-\x20\x7f]{1,256}$"); text(value["credentials"]["post"],r"^[^\x00-\x20\x7f]{1,256}$")
       if value["credentials"]["basic"] == value["credentials"]["post"]: raise ValueError()
-    elif invariant in device or invariant in custom_jwt:
+    elif invariant in device or invariant in custom_jwt or invariant in verification:
       operation=value.get("operation")
       base=["schemaVersion","kind","invariantId","operation","target","fixture","private","observation"]
       exact(value,base+(["handle"] if "handle" in value else []))
@@ -329,6 +334,8 @@ try:
       device_only={"deviceCode"}
       refresh_only={"refreshCredential"}
       canary_only={"canary"}
+      verification_private={"recipient"}
+      verification_secret={"recipient","code"}
       if private_keys == code_keys:
         for item in value["private"].values(): text(item,r"^[^\x00-\x1f\x7f]{1,4096}$")
       elif private_keys == device_only:
@@ -347,6 +354,9 @@ try:
         for name in ("clientSecrets","tokens"):
           if type(value["private"][name]) is not list or not 1 <= len(value["private"][name]) <= 4: raise ValueError()
           for item in value["private"][name]: text(item,r"^[^\x00-\x1f\x7f]{1,16384}$")
+      elif invariant in verification and private_keys in (verification_private,verification_secret):
+        text(value["private"]["recipient"],r"^[^\x00-\x20\x7f@]+@[^\x00-\x20\x7f@]+\.[^\x00-\x20\x7f@]+$")
+        if "code" in value["private"]: text(value["private"]["code"],r"^[0-9]{6}$")
       elif private_keys: raise ValueError()
       allowed={
         "device-authorization.forced-rls-isolation":{"probe":(set(),set())},
@@ -371,7 +381,12 @@ try:
           "restore":(set(),{"status","error","tokenPublished"}),
           "finish":(set(),{"status","tokenPublished"}),"abort":(set(),set())},
         "custom-jwt.fetch-policy-boundary":{"probe":(set(),set())},
+        "verification-code.retry-budget-committed":{"probe":(verification_private,{"stage"})},
+        "verification-code.concurrent-single-consumer":{"probe":(verification_private,{"stage"})},
+        "verification-code.failed-delivery-state-preserved":{"probe":(verification_private,{"stage"})},
+        "verification-code.envelope-secret-absent":{"probe":(verification_private,{"stage"}),"probe-secret":(verification_secret,{"stage"})},
       }
+      if invariant == "verification-code.envelope-secret-absent" and private_keys == verification_secret: operation="probe-secret"
       expected=allowed.get(invariant,{}).get(operation)
       if expected is None or private_keys != expected[0] or observation_keys != expected[1]: raise ValueError()
       for observed in value["observation"].values():
@@ -748,6 +763,72 @@ fi
 
 if [[ "$operation" != legacy ]]; then
   case "$invariant_id:$operation" in
+    verification-code.retry-budget-committed:probe)
+      recipient="$(value '.private.recipient')"
+      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" <<'SQL'
+SELECT jsonb_build_object(
+  'failedAttempts',failed_attempts,
+  'envelopeCleared',ciphertext IS NULL AND nonce IS NULL AND wrapping_key_id IS NULL)
+FROM aster_tenant.verification_codes
+WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient');
+SQL
+      )" || die
+      printf '%s' "$projection" | "$JQ_BIN" -e '.failedAttempts==10 and .envelopeCleared==true' >/dev/null || die
+      terminal "$projection"
+      ;;
+    verification-code.concurrent-single-consumer:probe)
+      recipient="$(value '.private.recipient')"
+      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" <<'SQL'
+SELECT jsonb_build_object('consumed',verified_at IS NOT NULL AND ciphertext IS NULL AND nonce IS NULL AND wrapping_key_id IS NULL)
+FROM aster_tenant.verification_codes
+WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient');
+SQL
+      )" || die
+      printf '%s' "$projection" | "$JQ_BIN" -e '.consumed==true' >/dev/null || die
+      terminal "$projection"
+      ;;
+    verification-code.failed-delivery-state-preserved:probe)
+      recipient="$(value '.private.recipient')"
+      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" <<'SQL'
+SELECT jsonb_build_object(
+  'successfulSendReceipts',(SELECT count(*) FROM aster_tenant.verification_send_receipts WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient')),
+  'replacementRows',GREATEST(count(*)-1,0),
+  'unverified',bool_and(verified_at IS NULL AND ciphertext IS NOT NULL))
+FROM aster_tenant.verification_codes
+WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient');
+SQL
+      )" || die
+      printf '%s' "$projection" | "$JQ_BIN" -e '.successfulSendReceipts==1 and .replacementRows==0 and .unverified==true' >/dev/null || die
+      terminal "$projection"
+      ;;
+    verification-code.envelope-secret-absent:probe-secret)
+      recipient="$(value '.private.recipient')"; code="$(value '.private.code')"
+      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" --set="code=$code" <<'SQL'
+SELECT jsonb_build_object(
+  'forcedRls',c.relforcerowsecurity,
+  'clearCodeColumns',CASE WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='aster_tenant' AND table_name='verification_codes' AND column_name ~ '(code|secret|plaintext)' AND column_name NOT IN ('code_expires_at')) THEN 'present' ELSE 'absent' END,
+  'codeAbsentFromRows',NOT EXISTS(SELECT 1 FROM aster_tenant.verification_codes WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient') AND (position(convert_to(:'code','UTF8') in ciphertext)>0 OR position(convert_to(:'code','UTF8') in nonce)>0 OR position(:'code' in wrapping_key_id)>0)),
+  'ciphertextPresent',bool_and(v.ciphertext IS NOT NULL AND octet_length(v.ciphertext)=22 AND octet_length(v.nonce)=24))
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+JOIN aster_tenant.verification_codes v ON v.tenant_id='default' AND v.recipient_normalized=lower(:'recipient')
+WHERE n.nspname='aster_tenant' AND c.relname='verification_codes'
+GROUP BY c.relforcerowsecurity;
+SQL
+      )" || die
+      printf '%s' "$projection" | "$JQ_BIN" -e '.forcedRls==true and .clearCodeColumns=="absent" and .codeAbsentFromRows==true and .ciphertextPresent==true' >/dev/null || die
+      terminal "$projection"
+      ;;
+    verification-code.envelope-secret-absent:probe)
+      recipient="$(value '.private.recipient')"
+      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" <<'SQL'
+SELECT jsonb_build_object('ciphertextCleared',bool_and(ciphertext IS NULL AND nonce IS NULL AND wrapping_key_id IS NULL))
+FROM aster_tenant.verification_codes
+WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient');
+SQL
+      )" || die
+      printf '%s' "$projection" | "$JQ_BIN" -e '.ciphertextCleared==true' >/dev/null || die
+      terminal "$projection"
+      ;;
     custom-jwt.fetch-policy-boundary:probe)
       reachability_response="$(
         printf 'GET /healthz HTTP/1.1\r\nHost: fetch-observer.aster.test:8444\r\nConnection: close\r\n\r\n' |

@@ -352,7 +352,8 @@
         "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json",
         "ASTER_PHASE1_DATA_ISSUER": "http://localhost:3321/oidc",
         "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3421/oidc",
-        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3421"
+        "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3421",
+        "ASTER_ISOLATED_EMAIL_FIXTURE": "true"
       },
       "healthcheck": {
         "test": [
@@ -384,6 +385,41 @@
       ],
       "stop_signal": "SIGTERM",
       "stop_grace_period": "20s"
+    },
+    "candidate-primary-smtp": {
+      "image": "${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:?required}",
+      "entrypoint": [
+        "node",
+        "-e"
+      ],
+      "command": [
+        "const net=require('node:net'),fs=require('node:fs');const socketPath=process.env.ASTER_SMTP_CONTROL_SOCKET;const deliveries=new Map(),counts=new Map();const clean=()=>{try{fs.unlinkSync(socketPath)}catch(error){if(error.code!=='ENOENT')throw error}};clean();const smtp=net.createServer((socket)=>{let input='',recipient=null,data=false,message='',auth=0;socket.setTimeout(3000,()=>socket.destroy());socket.write('220 aster-fixture ESMTP\\r\\n');socket.on('data',(chunk)=>{input+=chunk;while(input.includes('\\r\\n')){const index=input.indexOf('\\r\\n'),line=input.slice(0,index);input=input.slice(index+2);if(data){if(line==='.') {const key=recipient?.toLowerCase(),match=/code=(\\d{6})(?:\\D|$)/u.exec(message),count=key?(counts.get(key)??0):0,reject=(key?.startsWith('delivery-failure@')||key?.startsWith('failed-delivery-state-preserved@'))&&count>0;if(key&&match&&!reject){deliveries.set(key,match[1]);counts.set(key,count+1)}message='';data=false;socket.write(reject?'550 controlled rejection\\r\\n':'250 accepted\\r\\n')}else if(Buffer.byteLength(message)+Buffer.byteLength(line)<=65536)message+=line+'\\n';else socket.destroy();continue}if(auth===1){auth=2;socket.write('334 UGFzc3dvcmQ6\\r\\n')}else if(auth===2){auth=0;socket.write('235 authenticated\\r\\n')}else if(/^AUTH LOGIN\\s+/iu.test(line)){auth=2;socket.write('334 UGFzc3dvcmQ6\\r\\n')}else if(/^AUTH LOGIN$/iu.test(line)){auth=1;socket.write('334 VXNlcm5hbWU6\\r\\n')}else if(/^AUTH PLAIN(?:\\s+.*)?$/iu.test(line))socket.write('235 authenticated\\r\\n');else if(/^(?:EHLO|HELO) /iu.test(line))socket.write('250-aster-fixture\\r\\n250 AUTH LOGIN PLAIN\\r\\n');else if(/^MAIL FROM:/iu.test(line))socket.write('250 ok\\r\\n');else if(/^RCPT TO:/iu.test(line)){recipient=/^RCPT TO:\\s*<([^>]+)>/iu.exec(line)?.[1]??null;socket.write(recipient?'250 ok\\r\\n':'501 invalid\\r\\n')}else if(line==='DATA'){data=true;socket.write('354 continue\\r\\n')}else if(line==='QUIT')socket.end('221 bye\\r\\n');else socket.write('250 ok\\r\\n')}})});smtp.maxConnections=16;smtp.listen(2525,process.env.ASTER_SMTP_BIND);const control=net.createServer((socket)=>{let input='';socket.setTimeout(2000,()=>socket.destroy());socket.on('data',(chunk)=>{input+=chunk;if(Buffer.byteLength(input)>1024){socket.destroy();return}if(!input.endsWith('\\n'))return;let request;try{request=JSON.parse(input)}catch{socket.destroy();return}const recipient=typeof request.recipient==='string'?request.recipient.toLowerCase():'';const code=deliveries.get(recipient);if(!code){socket.end('{\"error\":\"not_found\"}\\n');return}deliveries.delete(recipient);socket.end(JSON.stringify({code})+'\\n')})});control.maxConnections=8;control.listen(socketPath,()=>fs.chmodSync(socketPath,0o600));const stop=()=>{smtp.close();control.close(()=>{clean();process.exit(0)})};process.on('SIGTERM',stop);process.on('SIGINT',stop);"
+      ],
+      "environment": {
+        "ASTER_SMTP_BIND": "127.0.0.1",
+        "ASTER_SMTP_CONTROL_SOCKET": "${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}/verification-smtp.sock"
+      },
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "test -S \"$${ASTER_SMTP_CONTROL_SOCKET}\""
+        ],
+        "interval": "1s",
+        "timeout": "2s",
+        "retries": 60
+      },
+      "network_mode": "service:candidate-primary-core",
+      "volumes": [
+        "${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}:${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}:rw"
+      ],
+      "user": "${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}",
+      "userns_mode": "host",
+      "read_only": true,
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "stop_signal": "SIGTERM",
+      "stop_grace_period": "5s"
     },
     "candidate-foreign-postgres": {
       "image": "${ASTER_PHASE1_POSTGRES_IMAGE:?required}",

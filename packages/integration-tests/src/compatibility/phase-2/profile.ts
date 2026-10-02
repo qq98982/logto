@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '99172f76481c6af8d929fc00aa84360162b1f5d2d385437b8f0ae432191d8ccd';
-const expectedSchemaSha256 = 'a5706d026940dee59fd2566601f7e5d04472c507ccbdfa862b1acb41ec6d1c8c';
+const expectedProfileSha256 = '042677694eb5b1fa7f21bccb96b2a09d3e12b88d5c2ea2ec942f0f5de71500c5';
+const expectedSchemaSha256 = '59dbfc9240d30e65fb2356def869579003de5564dd03ea8f234efa0265caedca';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -194,6 +194,14 @@ const differentialScenarioIds = [
   'custom-jwt.fetch-not-found',
   'custom-jwt.fetch-redirect',
   'custom-jwt.fetch-reset-connection',
+  'verification-code.experience-request-verify',
+  'verification-code.experience-recipient-mismatch',
+  'verification-code.experience-replaced-current',
+  'verification-code.experience-retry-cap',
+  'verification-code.recipient-send-cap',
+  'verification-code.failed-delivery-preserves-current',
+  'verification-code.experience-consumed-replay',
+  'verification-code.account-request-verify-replay',
 ] as const;
 const deviceOperationIds = [
   'device.authorize',
@@ -221,6 +229,14 @@ const candidateInvariantIds = [
   'client-credentials.signing-failure-rolls-back',
   'client-credentials.user-authority-unchanged',
   'logout-session.verification-storage-closed',
+  'verification-code.cross-tenant-owner-rejected',
+  'verification-code.cross-account-owner-rejected',
+  'verification-code.cross-client-owner-rejected',
+  'verification-code.wrong-audience-rejected',
+  'verification-code.retry-budget-committed',
+  'verification-code.concurrent-single-consumer',
+  'verification-code.failed-delivery-state-preserved',
+  'verification-code.envelope-secret-absent',
   'device-authorization.forced-rls-isolation',
   'device-authorization.credentials-digest-only',
   'device-authorization.cross-tenant-lookup-rejected',

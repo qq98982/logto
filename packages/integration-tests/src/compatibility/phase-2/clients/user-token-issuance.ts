@@ -133,6 +133,7 @@ const issueUserTokens = async (
   requestFetch: typeof fetch = fetch,
   options: Readonly<{
     subjectPassword?: string;
+    subjectUsername?: string;
     resourceAtCodeExchange?: boolean;
     signal?: AbortSignal;
   }> = {}
@@ -211,7 +212,10 @@ const issueUserTokens = async (
       const verification = await jsonBody(
         await requireStatus(
           await send(endpoint('/api/experience/verification/password'), 'POST', {
-            identifier: { type: 'username', value: status.user.username },
+            identifier: {
+              type: 'username',
+              value: options.subjectUsername ?? status.user.username,
+            },
             password,
           }),
           200
@@ -346,6 +350,17 @@ export const issuePublicUserResourceTokensWithPassword = async (
     subjectPassword,
     resourceAtCodeExchange: true,
     signal,
+  }) as Promise<IssuedPublicUserTokens>;
+
+export const issuePublicUserTokensForSubject = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  subject: Readonly<{ username: string; password: string }>,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserTokens> =>
+  issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+    subjectPassword: subject.password,
+    subjectUsername: subject.username,
   }) as Promise<IssuedPublicUserTokens>;
 
 export const issueConfidentialUserSession = async (

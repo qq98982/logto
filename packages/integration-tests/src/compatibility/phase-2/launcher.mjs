@@ -197,6 +197,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   if (accountMatch && closedAccountSessionScenarioIds.has(accountMatch[2])) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/verification-code\.(?:experience-(?:request-verify|recipient-mismatch|replaced-current|retry-cap|consumed-replay)|recipient-send-cap|failed-delivery-preserves-current|account-request-verify-replay)\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&
@@ -219,7 +226,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-5][0-9]|16[0-7]))\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5]))\)\.\n$/u.test(
       stderr
     )
   ) {
@@ -736,12 +743,23 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     return fail();
   }
   const runtime = await dependencies.identity(entryPath);
+  const oracleSmtpSocket = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+  if (
+    oracleSmtpSocket !== undefined &&
+    (typeof oracleSmtpSocket !== 'string' ||
+      !path.isAbsolute(oracleSmtpSocket) ||
+      path.normalize(oracleSmtpSocket) !== oracleSmtpSocket ||
+      !oracleSmtpSocket.endsWith('/oracle-verification-smtp.sock'))
+  ) {
+    return fail();
+  }
   const environment = Object.freeze({
     ASTER_PHASE2_HARNESS_HEAD: before.head,
     ASTER_PHASE2_HARNESS_TREE: before.tree,
     ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
+    ...(oracleSmtpSocket === undefined ? {} : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),
   });
   const value = Object.freeze({ entryPath, environment, runtime });
   preparedRuntimes.set(dependencies, Object.freeze({ source: before, runtime, value }));
