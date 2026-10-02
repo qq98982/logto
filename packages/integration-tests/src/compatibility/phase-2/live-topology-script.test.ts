@@ -466,6 +466,26 @@ describe('Phase 2 client-credentials live topology runner', () => {
       expect(command).toContain('ASTER_FETCH_OBSERVER_CA_FILE');
       expect(command).not.toContain("hostname:'fetch-observer.aster.test'");
     }
+    const generated = await Promise.all(outputs);
+    const oracle = generated[0]!;
+    const candidate = generated[1]!;
+    expect(oracle.services['oracle-primary-smtp']).toMatchObject({
+      networks: { 'oracle-primary': { ipv4_address: '172.30.231.49' } },
+    });
+    expect(oracle.services['oracle-primary-core']).toMatchObject({
+      extra_hosts: [
+        'oracle-primary-postgres=172.30.231.10',
+        'oracle-primary-redis=172.30.231.11',
+        'oracle-primary-smtp=172.30.231.49',
+        'fetch-observer.aster.test=172.30.231.50',
+      ],
+    });
+    expect(candidate.services['candidate-primary-core']).toMatchObject({
+      extra_hosts: [
+        'fetch-observer.aster.test=172.30.241.50',
+        'candidate-script-supervisor=172.30.241.51',
+      ],
+    });
   });
 
   it('enables blocking script errors only in the Phase 2 oracle cores', async () => {

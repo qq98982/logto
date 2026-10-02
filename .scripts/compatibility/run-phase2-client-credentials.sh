@@ -1543,7 +1543,9 @@ document.services['oracle-primary-smtp'].environment.ASTER_SMTP_BIND = '0.0.0.0'
 document.services['oracle-primary-smtp'].environment.ASTER_SMTP_CONTROL_SOCKET =
   '${ASTER_PHASE1_FIXTURE_DIRECTORY}/oracle-verification-smtp.sock';
 delete document.services['oracle-primary-smtp'].network_mode;
-document.services['oracle-primary-smtp'].networks = ['oracle-primary'];
+document.services['oracle-primary-smtp'].networks = {
+  'oracle-primary': { ipv4_address: '172.30.231.49' },
+};
 const select = (services, networks, volumes) => {
   const output = { services: {}, networks: {}, volumes: {} };
   for (const name of services) {

@@ -58,6 +58,7 @@ const measuredCandidateServices = [
   'candidate-primary-postgres',
   'candidate-primary-init',
   'candidate-primary-core',
+  'candidate-primary-smtp',
   'candidate-foreign-postgres',
   'candidate-foreign-init',
   'candidate-foreign-core',
@@ -84,7 +85,12 @@ describe('runtime-candidate differential topology', () => {
       image: ['$', '{ASTER_PHASE1_ORACLE_IMAGE:?required}'].join(''),
       entrypoint: ['node'],
       command: ['/opt/aster-fixture/phase2-fetch-observer.mjs'],
-      networks: { 'oracle-primary': { aliases: ['fetch-observer.aster.test'] } },
+      networks: {
+        'oracle-primary': {
+          ipv4_address: '172.30.231.50',
+          aliases: ['fetch-observer.aster.test'],
+        },
+      },
     });
     expect(candidateObserver).toMatchObject({
       networks: {
@@ -116,7 +122,12 @@ describe('runtime-candidate differential topology', () => {
         ASTER_SCRIPT_PRIVATE_KEY_FILE: '/run/aster-script-host/tls/server.key',
         ASTER_SCRIPT_EXPECTED_CLIENT_URI: 'spiffe://aster.test/server',
       },
-      networks: { 'candidate-primary': { aliases: ['candidate-script-supervisor'] } },
+      networks: {
+        'candidate-primary': {
+          ipv4_address: '172.30.241.51',
+          aliases: ['candidate-script-supervisor'],
+        },
+      },
     });
     expect(executor).toMatchObject({
       image: [
@@ -128,6 +139,41 @@ describe('runtime-candidate differential topology', () => {
       environment: { ASTER_SCRIPT_SUPERVISOR_ADDRESS: '127.0.0.1:50052' },
     });
     expect(JSON.stringify(executor)).not.toContain('process.exit(0)');
+    expect(document.services['oracle-primary-core']).toMatchObject({
+      networks: { 'oracle-primary': { ipv4_address: '172.30.231.12' } },
+      extra_hosts: [
+        'oracle-primary-postgres=172.30.231.10',
+        'oracle-primary-redis=172.30.231.11',
+        'oracle-primary-smtp=172.30.231.49',
+        'fetch-observer.aster.test=172.30.231.50',
+      ],
+    });
+    expect(document.services['candidate-primary-core']).toMatchObject({
+      extra_hosts: [
+        'fetch-observer.aster.test=172.30.241.50',
+        'candidate-script-supervisor=172.30.241.51',
+      ],
+    });
+    for (const [name, network, subnet] of [
+      ['oracle-foreign', 'oracle-foreign', '172.30.232'],
+      ['oracle-phase0', 'oracle-phase0', '172.30.233'],
+    ] as const) {
+      expect(document.services[`${name}-postgres`]).toMatchObject({
+        networks: { [network]: { ipv4_address: `${subnet}.10` } },
+      });
+      expect(document.services[`${name}-redis`]).toMatchObject({
+        networks: { [network]: { ipv4_address: `${subnet}.11` } },
+      });
+      expect(document.services[`${name}-core`]).toMatchObject({
+        networks: { [network]: { ipv4_address: `${subnet}.12` } },
+        extra_hosts: [`${name}-postgres=${subnet}.10`, `${name}-redis=${subnet}.11`],
+      });
+    }
+    expect(document.networks).toMatchObject({
+      'oracle-primary': { internal: true, ipam: { config: [{ subnet: '172.30.231.0/24' }] } },
+      'oracle-foreign': { internal: true, ipam: { config: [{ subnet: '172.30.232.0/24' }] } },
+      'oracle-phase0': { internal: true, ipam: { config: [{ subnet: '172.30.233.0/24' }] } },
+    });
     expect(document.services['candidate-foreign-core']?.environment).not.toHaveProperty(
       'ASTER_SCRIPT_HOST_ADDRESS'
     );
@@ -384,11 +430,52 @@ describe('runtime-candidate differential topology', () => {
       [...oracleServices, ...measuredCandidateServices, ...phase0CandidateServices].toSorted()
     );
     for (const service of oracleServices) {
-      expect(document.services[service]).toEqual(formal.services[service]);
+      const {
+        networks: _actualNetworks,
+        extra_hosts: _actualHosts,
+        ...actual
+      } = document.services[service] ?? {};
+      const {
+        networks: _formalNetworks,
+        extra_hosts: _formalHosts,
+        ...reviewed
+      } = formal.services[service] ?? {};
+      expect(actual).toEqual(reviewed);
     }
     for (const service of measuredCandidateServices) {
-      expect(document.services[service]).toEqual(candidate.services[service]);
+      if (service === 'candidate-primary-smtp') {
+        continue;
+      } else if (service === 'candidate-primary-core') {
+        const {
+          extra_hosts: _hosts,
+          environment: actualEnvironment,
+          ...actual
+        } = document.services[service] ?? {};
+        const { environment: reviewedEnvironment, ...reviewed } = candidate.services[service] ?? {};
+        const { ASTER_ISOLATED_EMAIL_FIXTURE: _emailFixture, ...actualBaseEnvironment } =
+          (actualEnvironment ?? {}) as Record<string, unknown>;
+        expect(actual).toEqual(reviewed);
+        expect(actualBaseEnvironment).toEqual(reviewedEnvironment);
+      } else {
+        expect(document.services[service]).toEqual(candidate.services[service]);
+      }
     }
+    expect(document.services['candidate-primary-smtp']).toMatchObject({
+      image: ['$', '{ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:?required}'].join(''),
+      network_mode: 'service:candidate-primary-core',
+      environment: {
+        ASTER_SMTP_BIND: '127.0.0.1',
+        ASTER_SMTP_CONTROL_SOCKET: [
+          '$',
+          '{ASTER_PHASE1_FIXTURE_DIRECTORY:?required}/verification-smtp.sock',
+        ].join(''),
+      },
+      read_only: true,
+      security_opt: ['no-new-privileges:true'],
+    });
+    expect(JSON.stringify(document.services['candidate-primary-smtp'])).not.toMatch(
+      /(?:DB_URL|POSTGRES|REDIS_URL|SECRET_VAULT|STATUS_API_KEY)/u
+    );
   });
 
   it('defines one isolated reference-mirror Phase 0 candidate stack', async () => {
@@ -464,11 +551,15 @@ describe('runtime-candidate differential topology', () => {
         'candidate-phase0-redis',
       ].toSorted()
     );
-    for (const service of Object.values(document.services)) {
+    for (const [name, service] of Object.entries(document.services)) {
       expect(service).not.toHaveProperty('ports');
       expect(service).not.toHaveProperty('privileged');
       expect(service).not.toHaveProperty('cap_add');
-      expect(service).not.toHaveProperty('network_mode');
+      if (name === 'candidate-primary-smtp') {
+        expect(service).toHaveProperty('network_mode', 'service:candidate-primary-core');
+      } else {
+        expect(service).not.toHaveProperty('network_mode');
+      }
       expect(JSON.stringify(service)).not.toContain('docker.sock');
     }
     expect(source).not.toMatch(/\b(?:anchors|extends|include|profiles):/u);
