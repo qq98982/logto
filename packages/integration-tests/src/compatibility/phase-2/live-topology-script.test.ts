@@ -483,8 +483,24 @@ describe('Phase 2 client-credentials live topology runner', () => {
     });
     expect(candidate.services['candidate-primary-core']).toMatchObject({
       extra_hosts: [
+        'candidate-primary-postgres=172.30.241.10',
         'fetch-observer.aster.test=172.30.241.50',
         'candidate-script-supervisor=172.30.241.51',
+      ],
+    });
+    expect(candidate.services['candidate-primary-init']).toMatchObject({
+      extra_hosts: ['candidate-primary-postgres=172.30.241.10'],
+    });
+    expect(candidate.services['candidate-foreign-init']).toMatchObject({
+      extra_hosts: ['candidate-foreign-postgres=172.30.242.10'],
+    });
+    expect(candidate.services['candidate-foreign-core']).toMatchObject({
+      extra_hosts: ['candidate-foreign-postgres=172.30.242.10'],
+    });
+    expect(candidate.services['candidate-fixture-coordinator']).toMatchObject({
+      extra_hosts: [
+        'candidate-primary-postgres=172.30.241.10',
+        'candidate-foreign-postgres=172.30.242.10',
       ],
     });
   });

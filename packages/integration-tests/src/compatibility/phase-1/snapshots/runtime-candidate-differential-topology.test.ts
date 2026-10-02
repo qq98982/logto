@@ -72,6 +72,13 @@ const phase0CandidateServices = [
   'candidate-phase0-redis',
   'candidate-phase0-core',
 ] as const;
+const candidateReachabilityOverrides = new Set([
+  'candidate-primary-init',
+  'candidate-primary-core',
+  'candidate-foreign-init',
+  'candidate-foreign-core',
+  'candidate-fixture-coordinator',
+]);
 describe('runtime-candidate differential topology', () => {
   it('defines the isolated Phase 2 fetch observer and real script host slice', async () => {
     const document = await readCompose(topologyPath);
@@ -150,8 +157,30 @@ describe('runtime-candidate differential topology', () => {
     });
     expect(document.services['candidate-primary-core']).toMatchObject({
       extra_hosts: [
+        'candidate-primary-postgres=172.30.241.10',
         'fetch-observer.aster.test=172.30.241.50',
         'candidate-script-supervisor=172.30.241.51',
+      ],
+    });
+    expect(document.services['candidate-primary-init']).toMatchObject({
+      extra_hosts: ['candidate-primary-postgres=172.30.241.10'],
+    });
+    expect(document.services['candidate-foreign-init']).toMatchObject({
+      extra_hosts: ['candidate-foreign-postgres=172.30.242.10'],
+    });
+    expect(document.services['candidate-foreign-core']).toMatchObject({
+      extra_hosts: ['candidate-foreign-postgres=172.30.242.10'],
+    });
+    expect(document.services['candidate-fixture-coordinator']).toMatchObject({
+      extra_hosts: [
+        'candidate-primary-postgres=172.30.241.10',
+        'candidate-foreign-postgres=172.30.242.10',
+      ],
+    });
+    expect(document.services['candidate-phase0-core']).toMatchObject({
+      extra_hosts: [
+        'candidate-phase0-postgres=172.30.243.10',
+        'candidate-phase0-redis=172.30.243.11',
       ],
     });
     for (const [name, network, subnet] of [
@@ -419,6 +448,7 @@ describe('runtime-candidate differential topology', () => {
     expect(state).toContain('...(options.environment?.ASTER_PHASE1_ENGINE_SOCKET && {');
   });
 
+  // eslint-disable-next-line complexity -- Reviewed service exceptions remain explicit and closed.
   it('copies reviewed Oracle and measured candidate services exactly', async () => {
     const [document, formal, candidate] = await Promise.all([
       readCompose(topologyPath),
@@ -456,6 +486,10 @@ describe('runtime-candidate differential topology', () => {
           (actualEnvironment ?? {}) as Record<string, unknown>;
         expect(actual).toEqual(reviewed);
         expect(actualBaseEnvironment).toEqual(reviewedEnvironment);
+      } else if (candidateReachabilityOverrides.has(service)) {
+        const { extra_hosts: _actualHosts, ...actual } = document.services[service] ?? {};
+        const { extra_hosts: _reviewedHosts, ...reviewed } = candidate.services[service] ?? {};
+        expect(actual).toEqual(reviewed);
       } else {
         expect(document.services[service]).toEqual(candidate.services[service]);
       }

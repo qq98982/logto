@@ -309,6 +309,7 @@
         "ASTER_PHASE1_PRIMARY_CONFIG_FILE": "${ASTER_PHASE1_PRIMARY_CONFIG_FILE:?required}",
         "ASTER_PHASE1_PRIMARY_MASTER_KEY_FILE": "/var/lib/aster/primary/aster-master-key.json"
       },
+      "extra_hosts": ["candidate-primary-postgres=172.30.241.10"],
       "networks": {
         "candidate-primary": {
           "ipv4_address": "172.30.241.11"
@@ -352,6 +353,7 @@
         "ASTER_ISOLATED_EMAIL_FIXTURE": "true"
       },
       "extra_hosts": [
+        "candidate-primary-postgres=172.30.241.10",
         "fetch-observer.aster.test=172.30.241.50",
         "candidate-script-supervisor=172.30.241.51"
       ],
@@ -491,6 +493,7 @@
         "ASTER_PHASE1_FOREIGN_CONFIG_FILE": "${ASTER_PHASE1_FOREIGN_CONFIG_FILE:?required}",
         "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json"
       },
+      "extra_hosts": ["candidate-foreign-postgres=172.30.242.10"],
       "networks": {
         "candidate-foreign": {
           "ipv4_address": "172.30.242.11"
@@ -532,6 +535,7 @@
         "ASTER_PHASE1_ADMIN_ISSUER": "http://localhost:3422/oidc",
         "ASTER_PHASE1_ADMIN_ORIGIN": "http://localhost:3002"
       },
+      "extra_hosts": ["candidate-foreign-postgres=172.30.242.10"],
       "healthcheck": {
         "test": [
           "CMD-SHELL",
@@ -591,6 +595,10 @@
         "ASTER_PHASE1_FOREIGN_MASTER_KEY_FILE": "/var/lib/aster/foreign/aster-master-key.json",
         "ASTER_FIXTURE_SOCKET": "${ASTER_PHASE1_FIXTURE_SOCKET:?required}"
       },
+      "extra_hosts": [
+        "candidate-primary-postgres=172.30.241.10",
+        "candidate-foreign-postgres=172.30.242.10"
+      ],
       "healthcheck": {
         "test": [
           "CMD-SHELL",
@@ -767,6 +775,10 @@
         "STATUS_API_KEY": "${ASTER_PHASE1_CANDIDATE_PHASE0_STATUS_API_KEY:?required}",
         "TRUST_PROXY_HEADER": "1"
       },
+      "extra_hosts": [
+        "candidate-phase0-postgres=172.30.243.10",
+        "candidate-phase0-redis=172.30.243.11"
+      ],
       "healthcheck": {
         "test": [
           "CMD-SHELL",
