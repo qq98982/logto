@@ -40,6 +40,19 @@ for (const name of candidates) {
   service.userns_mode = 'keep-id';
 }
 
+const smtpFixture = document.services['candidate-primary-smtp'];
+if (smtpFixture?.userns_mode !== 'host' || smtpFixture.network_mode !== 'service:candidate-primary-core' ||
+    smtpFixture.tmpfs !== undefined ||
+    smtpFixture.user !== '${ASTER_PHASE1_RUNTIME_UID:?required}:${ASTER_PHASE1_RUNTIME_GID:?required}' ||
+    smtpFixture.read_only !== true ||
+    JSON.stringify(smtpFixture.security_opt) !== JSON.stringify(['no-new-privileges:true']) ||
+    JSON.stringify(Object.keys(smtpFixture.environment ?? {}).sort()) !==
+      JSON.stringify(['ASTER_SMTP_BIND', 'ASTER_SMTP_CONTROL_SOCKET']) ||
+    smtpFixture.volumes?.length !== 1 ||
+    !smtpFixture.volumes[0]?.includes('${ASTER_PHASE1_FIXTURE_DIRECTORY:?required}')) {
+  throw new Error('unexpected candidate SMTP topology');
+}
+
 const publishedCorePorts = {
   'oracle-primary-core': [3001, 3411],
   'oracle-foreign-core': [3001, 3002],

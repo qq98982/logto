@@ -1,4 +1,4 @@
-/* eslint-disable no-template-curly-in-string -- Shell contract assertions compare literal expansions. */
+/* eslint-disable max-lines, no-template-curly-in-string -- Keep one exact topology contract together. */
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -83,6 +83,15 @@ it('keeps bounded private candidate tmpfs and all other differential authority u
           userns_mode: 'keep-id',
           ...(ports ? { ports } : {}),
         });
+      } else if (name === 'candidate-primary-smtp') {
+        expect(service).not.toHaveProperty('tmpfs');
+        expect(service).toMatchObject({
+          userns_mode: 'host',
+          network_mode: 'service:candidate-primary-core',
+          read_only: true,
+          security_opt: ['no-new-privileges:true'],
+        });
+        expect(generated).toEqual(service);
       } else if (name === 'candidate-primary-postgres' || name === 'candidate-foreign-postgres') {
         expect(generated).toEqual({
           ...service,
@@ -139,7 +148,13 @@ it('starts every Podman service after its healthy or completed dependencies', as
       seen.add(name);
     }
   }
-  expect(seen).toEqual(new Set(Object.keys(topology.services)));
+  expect(seen).toEqual(
+    new Set(Object.keys(topology.services).filter((name) => name !== 'candidate-primary-smtp'))
+  );
+  expect(topology.services['candidate-primary-smtp']).toMatchObject({
+    network_mode: 'service:candidate-primary-core',
+    userns_mode: 'host',
+  });
   expect(runner).toContain('compose up --no-deps --detach "${service}"');
   expect(runner).toContain(
     'if [[ -n "${ENGINE_SOCKET}" ]]; then\n    validate_engine_socket "${ENGINE_SOCKET}"'
@@ -162,7 +177,6 @@ it('starts every Podman service after its healthy or completed dependencies', as
   );
   expect(runner).toContain('done\nfailure_stage=topology-readiness\n[[ -S "${FIXTURE_SOCKET}" ]]');
 });
-
 it('resolves only a single owned Podman loopback port and leaves Docker direct-IP routing intact', async () => {
   const runner = await readFile(launcher, 'utf8');
   const start = runner.indexOf('container_published_port() {');
@@ -404,4 +418,5 @@ it('bounds Podman RPCs by remaining startup time without extending later gate wo
     ])
   ).rejects.toMatchObject({ code: 42 });
 });
+/* eslint-enable max-lines */
 /* eslint-enable no-template-curly-in-string */

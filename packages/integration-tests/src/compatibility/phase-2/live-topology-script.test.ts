@@ -471,6 +471,7 @@ describe('Phase 2 client-credentials live topology runner', () => {
     const candidate = generated[1]!;
     expect(oracle.services['oracle-primary-smtp']).toMatchObject({
       networks: { 'oracle-primary': { ipv4_address: '172.30.231.49' } },
+      userns_mode: 'keep-id',
     });
     expect(oracle.services['oracle-primary-core']).toMatchObject({
       extra_hosts: [
@@ -547,6 +548,21 @@ describe('Phase 2 client-credentials live topology runner', () => {
     };
     expect(candidate.services['candidate-fetch-observer']?.userns_mode).toBe('keep-id');
     expect(candidate.services['candidate-script-supervisor']?.userns_mode).toBe('keep-id');
+    expect(candidate.services['candidate-primary-smtp']).toMatchObject({
+      userns_mode: 'container:fixture-candidate-project-candidate-primary-core',
+      network_mode: 'service:candidate-primary-core',
+      user: [
+        '$',
+        '{ASTER_PHASE1_RUNTIME_UID:?required}:$',
+        '{ASTER_PHASE1_RUNTIME_GID:?required}',
+      ].join(''),
+      environment: { ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/verification-smtp.sock' },
+      volumes: [['$', '{ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw'].join('')],
+    });
+    expect(candidate.services['candidate-primary-core']).toHaveProperty(
+      'container_name',
+      'fixture-candidate-project-candidate-primary-core'
+    );
     const executor = candidate.services['candidate-script-executor'];
     expect(executor).toBeDefined();
     expect(executor).not.toHaveProperty('userns_mode');
@@ -645,6 +661,8 @@ wait_for_script_host_serving
     expect(source).toContain('/usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"');
     expect(source).toContain("candidate.services[name].userns_mode = 'keep-id'");
     expect(source).toContain("delete candidate.services['candidate-script-executor'].userns_mode");
+    expect(source).toContain("oracle.services['oracle-primary-smtp'].userns_mode = 'keep-id'");
+    expect(source).toContain(['userns_mode = `container:$', '{candidateCoreContainer}`'].join(''));
     expect(source).toContain('--pids-limit 32 --memory 192m --cpus 0.25 --cap-drop ALL');
     expect(source).toContain('process.exit(0)');
     const trap = source.indexOf('trap cleanup_trap EXIT', source.indexOf('main() {'));

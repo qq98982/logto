@@ -1533,9 +1533,15 @@ EOF
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" "$NODE_BIN" "$PODMAN_GENERATOR" \
     "$SOURCE_COMPOSE" "$RUN_DIR" "$generated" >/dev/null 2>&1 || { fail; return 1; }
   "$NODE_BIN" --input-type=module - "$generated" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" \
-    "$SCRIPT_HOST_CA" "$SCRIPT_HOST_CLIENT_CERT" "$SCRIPT_HOST_CLIENT_KEY" "$FETCH_OBSERVER_CA" <<'NODE'
+    "$SCRIPT_HOST_CA" "$SCRIPT_HOST_CLIENT_CERT" "$SCRIPT_HOST_CLIENT_KEY" "$FETCH_OBSERVER_CA" \
+    "$CANDIDATE_PROJECT_NAME" <<'NODE'
 import { open, readFile } from 'node:fs/promises';
-const [source, oracleOutput, candidateOutput, scriptCa, scriptCert, scriptKey, observerCa] = process.argv.slice(2);
+const [source, oracleOutput, candidateOutput, scriptCa, scriptCert, scriptKey, observerCa,
+  candidateProject = 'fixture-candidate-project'] = process.argv.slice(2);
+if (!/^aster-phase2-client-credentials-[0-9a-f]{16}$/.test(candidateProject) &&
+    candidateProject !== 'fixture-candidate-project') {
+  throw new Error('candidate project name contract');
+}
 const document = JSON.parse(await readFile(source, 'utf8'));
 const phase2Services = document['x-phase2-services'];
 document.services['oracle-primary-smtp'] = structuredClone(document.services['candidate-primary-smtp']);
@@ -1576,6 +1582,14 @@ const candidate = select(
   ['candidate-primary','candidate-foreign'],
   ['candidate-primary-postgres','candidate-foreign-postgres','candidate-primary-keyring','candidate-foreign-keyring'],
 );
+const candidateCoreContainer = `${candidateProject}-candidate-primary-core`;
+candidate.services['candidate-primary-core'].container_name = candidateCoreContainer;
+candidate.services['candidate-primary-smtp'].userns_mode = `container:${candidateCoreContainer}`;
+candidate.services['candidate-primary-smtp'].environment.ASTER_SMTP_CONTROL_SOCKET =
+  '/run/aster-smtp/verification-smtp.sock';
+candidate.services['candidate-primary-smtp'].volumes = [
+  '${ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw',
+];
 for (const name of ['candidate-fetch-observer','candidate-script-supervisor']) {
   candidate.services[name].userns_mode = 'keep-id';
   candidate.services[name].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
@@ -1585,6 +1599,7 @@ candidate.services['candidate-script-executor'].tmpfs =
   ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
 oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
+oracle.services['oracle-primary-smtp'].userns_mode = 'keep-id';
 const healthcheckIntervals = {
   'oracle-primary-postgres': '3s', 'oracle-primary-redis': '3s', 'oracle-primary-core': '3s',
   'oracle-fetch-observer': '1s', 'oracle-primary-smtp': '1s', 'oracle-foreign-postgres': '3s',
