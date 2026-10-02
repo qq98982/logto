@@ -119,4 +119,46 @@ it('rejects a launched environment when the verified entry capability is absent'
     })
   ).rejects.toThrow('Invalid Phase 2 provenance');
 });
+
+it('accepts only the canonical optional oracle SMTP socket launcher environment', async () => {
+  const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
+  const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
+  const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
+  const capability = 'c'.repeat(64);
+  const environment = {
+    ASTER_PHASE2_HARNESS_HEAD: headOutput.trim(),
+    ASTER_PHASE2_HARNESS_TREE: treeOutput.trim(),
+    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
+    ASTER_PHASE2_ORACLE_SMTP_SOCKET:
+      '/var/tmp/henry-build/phase2-fixture/oracle-verification-smtp.sock',
+    LC_ALL: 'C',
+    PATH: '/usr/bin:/bin',
+  };
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+
+  const invalidEnvironments = [
+    { ...environment, ASTER_PHASE2_ORACLE_SMTP_SOCKET: 'oracle-verification-smtp.sock' },
+    {
+      ...environment,
+      ASTER_PHASE2_ORACLE_SMTP_SOCKET:
+        '/var/tmp/henry-build/phase2-fixture/../oracle-verification-smtp.sock',
+    },
+    {
+      ...environment,
+      ASTER_PHASE2_ORACLE_SMTP_SOCKET:
+        '/var/tmp/henry-build/phase2-fixture/candidate-verification-smtp.sock',
+    },
+    { ...environment, ASTER_PHASE2_UNEXPECTED: 'present' },
+  ];
+  await invalidEnvironments.reduce(async (previous, invalidEnvironment) => {
+    await previous;
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  }, Promise.resolve());
+});
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

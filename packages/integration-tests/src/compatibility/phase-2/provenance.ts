@@ -80,6 +80,9 @@ const launcherEnvironmentKeys = Object.freeze([
   'LC_ALL',
   'PATH',
 ]);
+const launcherEnvironmentKeysWithOracleSmtp = Object.freeze(
+  [...launcherEnvironmentKeys, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET'].toSorted()
+);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -280,12 +283,22 @@ export const inspectLaunchedPhase2HarnessSource = async (
   environment: Readonly<Record<string, string | undefined>> = process.env
 ): Promise<Phase2SourceIdentity> => {
   const keys = Object.keys(environment).toSorted();
+  const oracleSmtpSocket = environment.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+  const expectedKeys =
+    oracleSmtpSocket === undefined
+      ? launcherEnvironmentKeys
+      : launcherEnvironmentKeysWithOracleSmtp;
   if (
-    keys.length !== launcherEnvironmentKeys.length ||
-    keys.some((key, index) => key !== launcherEnvironmentKeys[index]) ||
+    keys.length !== expectedKeys.length ||
+    keys.some((key, index) => key !== expectedKeys[index]) ||
     environment.LC_ALL !== 'C' ||
     typeof environment.PATH !== 'string' ||
-    environment.PATH.length === 0
+    environment.PATH.length === 0 ||
+    (oracleSmtpSocket !== undefined &&
+      (typeof oracleSmtpSocket !== 'string' ||
+        !path.isAbsolute(oracleSmtpSocket) ||
+        path.normalize(oracleSmtpSocket) !== oracleSmtpSocket ||
+        !oracleSmtpSocket.endsWith('/oracle-verification-smtp.sock')))
   ) {
     return fail();
   }
