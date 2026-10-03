@@ -142,6 +142,7 @@ import {
 import {
   createVerificationCodeScenarioRuntime,
   runVerificationCodeScenarios,
+  VerificationCodeScenarioFailure,
   verificationCodeScenarioIds,
   type VerificationCodeScenarioResult,
 } from './scenarios/verification-code.js';
@@ -499,6 +500,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (clientCredentialsScenarioIds as readonly string[]).includes(value) ||
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
   (logoutSessionScenarioIds as readonly string[]).includes(value) ||
+  (verificationCodeScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -1217,6 +1219,9 @@ const runTargetScenarios = async (
         await createVerificationCodeScenarioRuntime(descriptor.target, fixture)
       );
     } catch (error: unknown) {
+      if (error instanceof VerificationCodeScenarioFailure) {
+        throw new TypeError(`Phase 2 scenario failed: ${descriptor.kind}/${error.scenarioId}`);
+      }
       if (error instanceof Error && scenarioFailurePattern.test(error.message)) {
         throw error;
       }

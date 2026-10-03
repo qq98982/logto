@@ -255,6 +255,13 @@ export type VerificationCodeScenarioResult = Readonly<{
     | Readonly<Record<string, unknown>>;
 }>;
 
+export class VerificationCodeScenarioFailure extends Error {
+  constructor(public readonly scenarioId: (typeof verificationCodeScenarioIds)[number]) {
+    super('Phase 2 verification-code scenario failed');
+    this.name = 'VerificationCodeScenarioFailure';
+  }
+}
+
 const fail = (): never => {
   throw new TypeError('Invalid Phase 2 verification-code registry');
 };
@@ -301,85 +308,101 @@ export const runVerificationCodeScenarios = async (
     });
   };
 
-  const success = await request(recipient('success'));
-  const successVerified = await runtime.verify({
-    identifier: recipient('success'),
-    surface: 'experience',
-    ...success.secret,
-  });
-  assertProjection(successVerified, 200, 'verified');
+  let activeScenarioId: (typeof verificationCodeScenarioIds)[number] =
+    verificationCodeScenarioIds[0];
+  try {
+    const success = await request(recipient('success'));
+    const successVerified = await runtime.verify({
+      identifier: recipient('success'),
+      surface: 'experience',
+      ...success.secret,
+    });
+    assertProjection(successVerified, 200, 'verified');
 
-  const mismatch = await request(recipient('recipient'));
-  const recipientMismatch = await runtime.verify({
-    identifier: recipient('wrong-recipient'),
-    surface: 'experience',
-    ...mismatch.secret,
-  });
-  assertProjection(recipientMismatch, 400, 'error', 'verification_code.email_mismatch');
+    activeScenarioId = verificationCodeScenarioIds[1];
+    const mismatch = await request(recipient('recipient'));
+    const recipientMismatch = await runtime.verify({
+      identifier: recipient('wrong-recipient'),
+      surface: 'experience',
+      ...mismatch.secret,
+    });
+    assertProjection(recipientMismatch, 400, 'error', 'verification_code.email_mismatch');
 
-  const old = await request(recipient('replacement'));
-  const current = await request(recipient('replacement'));
-  const replaced = await runtime.verify({
-    identifier: recipient('replacement'),
-    surface: 'experience',
-    ...old.secret,
-  });
-  assertProjection(replaced, 404, 'error', 'session.verification_session_not_found');
-  const currentVerified = await runtime.verify({
-    identifier: recipient('replacement'),
-    surface: 'experience',
-    ...current.secret,
-  });
-  assertProjection(currentVerified, 200, 'verified');
+    activeScenarioId = verificationCodeScenarioIds[2];
+    const old = await request(recipient('replacement'));
+    const current = await request(recipient('replacement'));
+    const replaced = await runtime.verify({
+      identifier: recipient('replacement'),
+      surface: 'experience',
+      ...old.secret,
+    });
+    assertProjection(replaced, 404, 'error', 'session.verification_session_not_found');
+    const currentVerified = await runtime.verify({
+      identifier: recipient('replacement'),
+      surface: 'experience',
+      ...current.secret,
+    });
+    assertProjection(currentVerified, 200, 'verified');
 
-  const retries = await runtime.runRetryCap(recipient('retry'));
-  if (retries.length !== 12) {
-    return fail();
+    activeScenarioId = verificationCodeScenarioIds[3];
+    const retries = await runtime.runRetryCap(recipient('retry'));
+    if (retries.length !== 12) {
+      return fail();
+    }
+    for (const entry of retries.slice(0, 10)) {
+      assertProjection(entry, 400, 'error', 'verification_code.code_mismatch');
+    }
+    for (const entry of retries.slice(10)) {
+      assertProjection(entry, 400, 'error', 'verification_code.exceed_max_try');
+    }
+
+    activeScenarioId = verificationCodeScenarioIds[4];
+    const sendCap = await runtime.runSendCap(recipient('send-cap'));
+    if (sendCap.accepted !== 10) {
+      return fail();
+    }
+    assertProjection(sendCap.capped, 429, 'error', 'request.message_rate_limited');
+
+    activeScenarioId = verificationCodeScenarioIds[5];
+    const failedDelivery = await runtime.runFailedDelivery(recipient('delivery-failure'));
+    assertProjection(failedDelivery.failed, 400, 'error');
+    assertProjection(failedDelivery.previous, 200, 'verified');
+
+    activeScenarioId = verificationCodeScenarioIds[6];
+    const consumedReplay = await runtime.verify({
+      identifier: recipient('success'),
+      surface: 'experience',
+      ...success.secret,
+    });
+    assertProjection(consumedReplay, 404, 'error', 'session.verification_session_not_found');
+
+    activeScenarioId = verificationCodeScenarioIds[7];
+    const account = await runtime.runAccountLifecycle(recipient('account'));
+    assertProjection(account.requested, 201, 'created');
+    assertProjection(account.verified, 200, 'verified');
+    assertProjection(account.replay, 400, 'error', 'verification_code.not_found');
+
+    return Object.freeze([
+      Object.freeze({
+        id: verificationCodeScenarioIds[0],
+        projection: Object.freeze({ request: success.projection, verify: successVerified }),
+      }),
+      Object.freeze({ id: verificationCodeScenarioIds[1], projection: recipientMismatch }),
+      Object.freeze({
+        id: verificationCodeScenarioIds[2],
+        projection: Object.freeze({ replaced, current: currentVerified }),
+      }),
+      Object.freeze({
+        id: verificationCodeScenarioIds[3],
+        projection: Object.freeze([...retries]),
+      }),
+      Object.freeze({ id: verificationCodeScenarioIds[4], projection: sendCap }),
+      Object.freeze({ id: verificationCodeScenarioIds[5], projection: failedDelivery }),
+      Object.freeze({ id: verificationCodeScenarioIds[6], projection: consumedReplay }),
+      Object.freeze({ id: verificationCodeScenarioIds[7], projection: account }),
+    ]);
+  } catch {
+    throw new VerificationCodeScenarioFailure(activeScenarioId);
   }
-  for (const entry of retries.slice(0, 10)) {
-    assertProjection(entry, 400, 'error', 'verification_code.code_mismatch');
-  }
-  for (const entry of retries.slice(10)) {
-    assertProjection(entry, 400, 'error', 'verification_code.exceed_max_try');
-  }
-
-  const sendCap = await runtime.runSendCap(recipient('send-cap'));
-  if (sendCap.accepted !== 10) {
-    return fail();
-  }
-  assertProjection(sendCap.capped, 429, 'error', 'request.message_rate_limited');
-
-  const failedDelivery = await runtime.runFailedDelivery(recipient('delivery-failure'));
-  assertProjection(failedDelivery.failed, 400, 'error');
-  assertProjection(failedDelivery.previous, 200, 'verified');
-
-  const consumedReplay = await runtime.verify({
-    identifier: recipient('success'),
-    surface: 'experience',
-    ...success.secret,
-  });
-  assertProjection(consumedReplay, 404, 'error', 'session.verification_session_not_found');
-
-  const account = await runtime.runAccountLifecycle(recipient('account'));
-  assertProjection(account.requested, 201, 'created');
-  assertProjection(account.verified, 200, 'verified');
-  assertProjection(account.replay, 400, 'error', 'verification_code.not_found');
-
-  return Object.freeze([
-    Object.freeze({
-      id: verificationCodeScenarioIds[0],
-      projection: Object.freeze({ request: success.projection, verify: successVerified }),
-    }),
-    Object.freeze({ id: verificationCodeScenarioIds[1], projection: recipientMismatch }),
-    Object.freeze({
-      id: verificationCodeScenarioIds[2],
-      projection: Object.freeze({ replaced, current: currentVerified }),
-    }),
-    Object.freeze({ id: verificationCodeScenarioIds[3], projection: Object.freeze([...retries]) }),
-    Object.freeze({ id: verificationCodeScenarioIds[4], projection: sendCap }),
-    Object.freeze({ id: verificationCodeScenarioIds[5], projection: failedDelivery }),
-    Object.freeze({ id: verificationCodeScenarioIds[6], projection: consumedReplay }),
-    Object.freeze({ id: verificationCodeScenarioIds[7], projection: account }),
-  ]);
 };
 /* eslint-enable max-lines, no-await-in-loop, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, unicorn/no-await-expression-member, unicorn/consistent-function-scoping */

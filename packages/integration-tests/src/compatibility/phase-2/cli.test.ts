@@ -1527,6 +1527,43 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('preserves an exact closed verification-code scenario failure for the launcher', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw new TypeError(
+            'Phase 2 scenario failed: candidate/verification-code.failed-delivery-preserves-current'
+          );
+        },
+      }
+    );
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate/verification-code.failed-delivery-preserves-current).'
+    );
+    expect(calls.join(' ')).not.toContain('private');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('preserves an exact closed device scenario failure for the launcher', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');
     const calls: string[] = [];
