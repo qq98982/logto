@@ -129,8 +129,7 @@ it('accepts only the canonical optional oracle SMTP socket launcher environment'
     ASTER_PHASE2_HARNESS_HEAD: headOutput.trim(),
     ASTER_PHASE2_HARNESS_TREE: treeOutput.trim(),
     ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
-    ASTER_PHASE2_ORACLE_SMTP_SOCKET:
-      '/var/tmp/henry-build/phase2-fixture/oracle-verification-smtp.sock',
+    ASTER_PHASE2_ORACLE_SMTP_SOCKET: '/var/tmp/henry-build/phase2-fixture/oracle-smtp.sock',
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
   };
@@ -140,11 +139,10 @@ it('accepts only the canonical optional oracle SMTP socket launcher environment'
   ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
 
   const invalidEnvironments = [
-    { ...environment, ASTER_PHASE2_ORACLE_SMTP_SOCKET: 'oracle-verification-smtp.sock' },
+    { ...environment, ASTER_PHASE2_ORACLE_SMTP_SOCKET: 'oracle-smtp.sock' },
     {
       ...environment,
-      ASTER_PHASE2_ORACLE_SMTP_SOCKET:
-        '/var/tmp/henry-build/phase2-fixture/../oracle-verification-smtp.sock',
+      ASTER_PHASE2_ORACLE_SMTP_SOCKET: '/var/tmp/henry-build/phase2-fixture/../oracle-smtp.sock',
     },
     {
       ...environment,

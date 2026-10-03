@@ -1381,6 +1381,7 @@ main() {
   PRIMARY_CONFIG_FILE="$CONFIG_DIR/candidate-primary.conf"
   FOREIGN_CONFIG_FILE="$CONFIG_DIR/candidate-foreign.conf"
   FIXTURE_SOCKET="$FIXTURE_DIRECTORY/aster-fixture.sock"
+  ORACLE_SMTP_SOCKET="$FIXTURE_DIRECTORY/oracle-smtp.sock"
   ORACLE_STATE_DRIVER="$HOST_BIN_DIRECTORY/oracle-state-driver"
   CANDIDATE_STATE_DRIVER="$HOST_BIN_DIRECTORY/candidate-state-driver"
   CANDIDATE_INVARIANT_DRIVER="$HOST_BIN_DIRECTORY/candidate-invariant-driver"
@@ -1408,9 +1409,10 @@ main() {
   ORACLE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/oracle-fetch-observer.ndjson"
   CANDIDATE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/candidate-fetch-observer.ndjson"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
-  readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
+  readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
+  [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
   [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
   generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
@@ -1547,7 +1549,10 @@ const phase2Services = document['x-phase2-services'];
 document.services['oracle-primary-smtp'] = structuredClone(document.services['candidate-primary-smtp']);
 document.services['oracle-primary-smtp'].environment.ASTER_SMTP_BIND = '0.0.0.0';
 document.services['oracle-primary-smtp'].environment.ASTER_SMTP_CONTROL_SOCKET =
-  '${ASTER_PHASE1_FIXTURE_DIRECTORY}/oracle-verification-smtp.sock';
+  '/run/aster-smtp/oracle-smtp.sock';
+document.services['oracle-primary-smtp'].volumes = [
+  '${ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw',
+];
 delete document.services['oracle-primary-smtp'].network_mode;
 document.services['oracle-primary-smtp'].networks = {
   'oracle-primary': { ipv4_address: '172.30.231.49' },
@@ -1734,7 +1739,7 @@ NODE
   launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
   failure_stage='evidence-sequence'
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
-    ASTER_PHASE2_ORACLE_SMTP_SOCKET="$FIXTURE_DIRECTORY/oracle-verification-smtp.sock" \
+    ASTER_PHASE2_ORACLE_SMTP_SOCKET="$ORACLE_SMTP_SOCKET" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
     "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {

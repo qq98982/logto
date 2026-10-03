@@ -298,7 +298,7 @@ export const inspectLaunchedPhase2HarnessSource = async (
       (typeof oracleSmtpSocket !== 'string' ||
         !path.isAbsolute(oracleSmtpSocket) ||
         path.normalize(oracleSmtpSocket) !== oracleSmtpSocket ||
-        !oracleSmtpSocket.endsWith('/oracle-verification-smtp.sock')))
+        !oracleSmtpSocket.endsWith('/oracle-smtp.sock')))
   ) {
     return fail();
   }

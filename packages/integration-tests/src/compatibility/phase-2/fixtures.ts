@@ -523,7 +523,7 @@ const takeOracleVerificationCode = async (recipient: string): Promise<string> =>
   if (
     typeof socketPath !== 'string' ||
     !socketPath.startsWith('/') ||
-    !socketPath.endsWith('/oracle-verification-smtp.sock') ||
+    !socketPath.endsWith('/oracle-smtp.sock') ||
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) ||
     recipient.length > 256
   ) {

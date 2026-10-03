@@ -472,6 +472,10 @@ describe('Phase 2 client-credentials live topology runner', () => {
     expect(oracle.services['oracle-primary-smtp']).toMatchObject({
       networks: { 'oracle-primary': { ipv4_address: '172.30.231.49' } },
       userns_mode: 'keep-id',
+      environment: {
+        ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/oracle-smtp.sock',
+      },
+      volumes: [['$', '{ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw'].join('')],
     });
     expect(oracle.services['oracle-primary-core']).toMatchObject({
       extra_hosts: [
