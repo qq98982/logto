@@ -1786,31 +1786,46 @@ const differentialCommand = Object.freeze(['differential', '--profile', profile,
 const invariantCommand = Object.freeze(['candidate-invariants', '--profile', profile,
   '--schema', schema, '--target', candidateTarget, '--output', invariantOutput,
   '--temp-root', temporaryRoot]);
+let sequenceStage = 'oracle-run';
 try {
   await runBatch('oracle', oracleCommand);
+  sequenceStage = 'oracle-artifact-set';
   await assertExactArtifacts(['phase-2-client-credentials-oracle.json']);
+  sequenceStage = 'oracle-artifact-identity';
   const oracleIdentity = await immutableArtifact(oracleOutput);
+  sequenceStage = 'differential-run';
   await runBatch('differential', differentialCommand);
+  sequenceStage = 'differential-artifact-set';
   await assertExactArtifacts(['phase-2-client-credentials-oracle.json',
     'phase-2-client-credentials-differential.json']);
+  sequenceStage = 'oracle-identity-after-differential';
   if (JSON.stringify(await immutableArtifact(oracleOutput)) !== JSON.stringify(oracleIdentity)) {
     throw new Error('differential');
   }
+  sequenceStage = 'differential-artifact-identity';
   await immutableArtifact(differentialOutput);
+  sequenceStage = 'candidate-invariants-run';
   await runBatch('candidate-invariants', invariantCommand);
+  sequenceStage = 'candidate-invariants-artifact-set';
   await assertExactArtifacts(['phase-2-client-credentials-oracle.json',
     'phase-2-client-credentials-differential.json',
     'phase-2-client-credentials-candidate-invariants.json']);
+  sequenceStage = 'oracle-identity-after-invariants';
   if (JSON.stringify(await immutableArtifact(oracleOutput)) !== JSON.stringify(oracleIdentity)) {
     throw new Error('candidate-invariants');
   }
+  sequenceStage = 'final-artifact-identities';
   await immutableArtifact(differentialOutput);
   await immutableArtifact(invariantOutput);
 } catch (error) {
+  process.stderr.write(`Phase 2 evidence sequence failed (${sequenceStage}).\n`);
   process.stderr.write(diagnosticForPhase2Batch(error));
   process.exitCode = 1;
 }
 NODE
+    if /usr/bin/grep -Eq '^Phase 2 evidence sequence failed \((oracle-run|oracle-artifact-set|oracle-artifact-identity|differential-run|differential-artifact-set|oracle-identity-after-differential|differential-artifact-identity|candidate-invariants-run|candidate-invariants-artifact-set|oracle-identity-after-invariants|final-artifact-identities)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 evidence sequence failed \((oracle-run|oracle-artifact-set|oracle-artifact-identity|differential-run|differential-artifact-set|oracle-identity-after-differential|differential-artifact-identity|candidate-invariants-run|candidate-invariants-artifact-set|oracle-identity-after-invariants|final-artifact-identities)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi

@@ -977,7 +977,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     const result = await runEvidenceSequence('differential-failure');
 
     expect(result.code).toBe(1);
-    expect(result.stderr).toBe('Phase 2 client credentials batch failed (differential).\n');
+    expect(result.stderr).toBe(
+      'Phase 2 evidence sequence failed (differential-run).\nPhase 2 client credentials batch failed (differential).\n'
+    );
     expect(result.commands.map(([mode]) => mode)).toEqual(['oracle', 'differential']);
   });
 
@@ -988,7 +990,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
       expect(result.code).toBe(1);
       expect(result.stderr).toMatch(
-        /^Phase 2 client credentials batch failed \((?:artifact|differential)\)\.\n$/u
+        /^Phase 2 evidence sequence failed \((?:differential-artifact-set|oracle-identity-after-differential)\)\.\nPhase 2 client credentials batch failed \((?:artifact|differential)\)\.\n$/u
       );
       expect(result.commands.map(([mode]) => mode)).toEqual(['oracle', 'differential']);
     }
@@ -1059,6 +1061,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('^Phase 2 client credentials command failed ');
     expect(source).toContain('^Phase 2 client credentials launcher child failed ');
     expect(source).toContain('^Phase 2 client credentials batch failed ');
+    expect(source).toContain('^Phase 2 evidence sequence failed ');
     expect(source).toContain(
       'lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario'
     );
