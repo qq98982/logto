@@ -11,6 +11,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const diagnostic = 'Phase 2 client credentials launcher failed.\n';
 const childDiagnostic = (failureClass) =>
   `Phase 2 client credentials launcher child failed (${failureClass}).\n`;
+const stderrDiagnostic = (stderr) =>
+  childDiagnostic(
+    `stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}`
+  );
 const batchFailureModes = new Set(['oracle', 'differential', 'candidate-invariants']);
 const closedScenarioIds = new Set([
   'basic-explicit-resource',
@@ -304,7 +308,7 @@ export const diagnosticForPhase2ChildResult = (result) => {
     }
   }
   if (result.stderr !== '') {
-    return childDiagnostic('stderr');
+    return stderrDiagnostic(result.stderr);
   }
   return childDiagnostic('exit-code');
 };

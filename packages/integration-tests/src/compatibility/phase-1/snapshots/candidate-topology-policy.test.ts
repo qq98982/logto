@@ -264,7 +264,7 @@ const assertCandidateTopology = (
     `host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer ${shellVariable(
       'ASTER_PHASE1_CORE_CIDR'
     )} trust`,
-    `host all postgres,aster_admin ${shellVariable('ASTER_PHASE1_COORDINATOR_CIDR')} trust`,
+    `host all postgres,aster_admin,aster_control_resolver,aster_request ${shellVariable('ASTER_PHASE1_COORDINATOR_CIDR')} trust`,
     'host all all 0.0.0.0/0 reject',
     'host all all ::/0 reject',
     'chmod 0600 "$PGDATA/pg_hba.conf"',
@@ -482,7 +482,7 @@ local all all trust
 host all postgres 172.30.241.11/32 trust
 host all aster_migrator,aster_admin,aster_maintainer 172.30.241.11/32 trust
 host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer 172.30.241.12/32 trust
-host all postgres,aster_admin 172.30.241.13/32 trust
+host all postgres,aster_admin,aster_control_resolver,aster_request 172.30.241.13/32 trust
 host all all 0.0.0.0/0 reject
 host all all ::/0 reject
 `);

@@ -1852,8 +1852,8 @@ NODE
     if /usr/bin/grep -Eq "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
-    if /usr/bin/grep -Eq '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr-bytes-[1-9][0-9]*-sha256-[0-9a-f]{64}|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr-bytes-[1-9][0-9]*-sha256-[0-9a-f]{64}|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials batch failed \((oracle|differential|candidate-invariants)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2

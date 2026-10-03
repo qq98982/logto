@@ -1,5 +1,6 @@
 /* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -43,7 +44,9 @@ describe('Phase 2 tracked launcher', () => {
       );
       expect(
         diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
-      ).toBe('Phase 2 client credentials launcher child failed (stderr).\n');
+      ).toBe(
+        `Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}).\n`
+      );
     }
   });
 
@@ -520,7 +523,9 @@ describe('Phase 2 tracked launcher', () => {
         stderr: 'private stderr',
         timedOut: false,
       })
-    ).toBe('Phase 2 client credentials launcher child failed (stderr).\n');
+    ).toBe(
+      `Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength('private stderr'))}-sha256-${createHash('sha256').update('private stderr').digest('hex')}).\n`
+    );
     expect(
       diagnosticForPhase2ChildResult({
         code: 7,

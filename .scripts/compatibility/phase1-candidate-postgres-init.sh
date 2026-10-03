@@ -54,7 +54,7 @@ local all all trust
 host all postgres ${ASTER_PHASE1_INIT_CIDR} trust
 host all aster_migrator,aster_admin,aster_maintainer ${ASTER_PHASE1_INIT_CIDR} trust
 host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer ${ASTER_PHASE1_CORE_CIDR} trust
-host all postgres,aster_admin ${ASTER_PHASE1_COORDINATOR_CIDR} trust
+host all postgres,aster_admin,aster_control_resolver,aster_request ${ASTER_PHASE1_COORDINATOR_CIDR} trust
 host all all 0.0.0.0/0 reject
 host all all ::/0 reject
 EOF
