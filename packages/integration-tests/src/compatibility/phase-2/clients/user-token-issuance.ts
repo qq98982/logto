@@ -1,5 +1,6 @@
 /* eslint-disable complexity, max-lines, max-params, no-restricted-syntax, no-await-in-loop, no-control-regex, @typescript-eslint/no-unnecessary-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- This bounded transport keeps cookies, password, verifier and issued credentials inside one private flow. */
 import { createHash, randomBytes } from 'node:crypto';
+import { inspect } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
@@ -16,6 +17,22 @@ export type IssuedPublicUserSession = IssuedPublicUserTokens &
     getIdToken(): string;
     getCookieHeader(): string;
   }>;
+
+export type NativeCallbackClient = Readonly<{
+  clientId: string;
+  redirectUri: string;
+  expectedIssuer: string;
+  resourceIndicator: string;
+  resourceScope: string;
+}>;
+
+export type NativeCallbackHandoff = Readonly<{
+  getCallbackUrl(): string;
+  getVerifier(): string;
+  getState(): string;
+  getNonce(): string;
+  toJSON(): never;
+}>;
 
 const diagnostic = 'Invalid Phase 2 public user token issuance';
 const fail = (): never => {
@@ -136,16 +153,50 @@ const issueUserTokens = async (
     subjectUsername?: string;
     resourceAtCodeExchange?: boolean;
     signal?: AbortSignal;
+    nativeClient?: NativeCallbackClient;
+    stopAtNativeCallback?: boolean;
   }> = {}
-): Promise<IssuedPublicUserTokens | IssuedPublicUserSession> => {
+): Promise<IssuedPublicUserTokens | IssuedPublicUserSession | NativeCallbackHandoff> => {
   let stage = 'admission';
   try {
     const target = validateTargetConfig(targetInput);
     const status = fixture.status ?? fail();
-    const client = clientKind === 'confidential' ? status.confidentialClient : status.client;
+    if (
+      options.nativeClient &&
+      (options.nativeClient.clientId === status.client.id ||
+        options.nativeClient.resourceScope !== 'session:exchange')
+    ) {
+      return fail();
+    }
+    if (options.nativeClient) {
+      const nativeRedirect = new URL(options.nativeClient.redirectUri);
+      const expectedIssuer = new URL(options.nativeClient.expectedIssuer);
+      if (
+        nativeRedirect.search !== '' ||
+        nativeRedirect.hash !== '' ||
+        expectedIssuer.username !== '' ||
+        expectedIssuer.password !== '' ||
+        expectedIssuer.search !== '' ||
+        expectedIssuer.hash !== ''
+      ) {
+        return fail();
+      }
+    }
+    const client = options.nativeClient
+      ? {
+          id: bounded(options.nativeClient.clientId, 256),
+          redirectUri: bounded(options.nativeClient.redirectUri),
+        }
+      : clientKind === 'confidential'
+        ? status.confidentialClient
+        : status.client;
+    const resource = options.nativeClient?.resourceIndicator ?? status.resource.indicator;
+    const resourceScope = options.nativeClient?.resourceScope ?? status.resource.scopeName;
     const origin = new URL(target.coreUrl);
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const state = options.stopAtNativeCallback ? randomBytes(32).toString('base64url') : undefined;
+    const nonce = options.stopAtNativeCallback ? randomBytes(32).toString('base64url') : undefined;
     const cookies = new Map<string, string>();
     const endpoint = (path: string): URL => new URL(path, origin);
     const send = async (
@@ -187,15 +238,18 @@ const issueUserTokens = async (
       redirect_uri: client.redirectUri,
       response_type: 'code',
       prompt: 'login consent',
-      scope:
-        'openid offline_access profile email address phone ' +
-        status.resource.scopeName +
-        (captureBrowserSession
-          ? ` ${target.label === 'oracle' ? 'urn:logto:scope:sessions' : 'urn:aster:scope:sessions'}`
-          : ''),
-      resource: status.resource.indicator,
+      scope: options.stopAtNativeCallback
+        ? `openid offline_access profile ${resourceScope}`
+        : 'openid offline_access profile email address phone ' +
+          resourceScope +
+          (captureBrowserSession
+            ? ` ${target.label === 'oracle' ? 'urn:logto:scope:sessions' : 'urn:aster:scope:sessions'}`
+            : ''),
+      resource,
       code_challenge: challenge,
       code_challenge_method: 'S256',
+      ...(state === undefined ? {} : { state }),
+      ...(nonce === undefined ? {} : { nonce }),
     }).toString();
     stage = 'authorization';
     await discard(await requireStatus(await send(authorization, 'GET'), 303));
@@ -265,10 +319,48 @@ const issueUserTokens = async (
     );
     const location = new URL(bounded(resumed.headers.get('location')));
     await resumed.body?.cancel();
-    if (location.origin + location.pathname !== client.redirectUri) {
+    const expectedRedirect = new URL(client.redirectUri);
+    const invalidNativeCallback =
+      options.stopAtNativeCallback &&
+      (expectedRedirect.search !== '' ||
+        expectedRedirect.hash !== '' ||
+        location.protocol !== expectedRedirect.protocol ||
+        location.username !== expectedRedirect.username ||
+        location.password !== expectedRedirect.password ||
+        location.hostname !== expectedRedirect.hostname ||
+        location.port !== expectedRedirect.port ||
+        location.pathname !== expectedRedirect.pathname ||
+        location.hash !== '' ||
+        [...location.searchParams.keys()].some(
+          (key) => key !== 'code' && key !== 'state' && key !== 'iss'
+        ) ||
+        location.searchParams.getAll('code').length !== 1 ||
+        location.searchParams.getAll('state').length !== 1 ||
+        location.searchParams.get('state') !== state ||
+        location.searchParams.getAll('iss').length !== 1 ||
+        location.searchParams.get('iss') !== options.nativeClient?.expectedIssuer);
+    if (
+      options.stopAtNativeCallback
+        ? invalidNativeCallback
+        : location.origin + location.pathname !== client.redirectUri
+    ) {
       return fail();
     }
     const code = bounded(location.searchParams.get('code'), 4096);
+    if (options.stopAtNativeCallback) {
+      if (!options.nativeClient || state === undefined || nonce === undefined) {
+        return fail();
+      }
+      const callbackUrl = location.href;
+      return Object.freeze({
+        getCallbackUrl: () => callbackUrl,
+        getVerifier: () => verifier,
+        getState: () => state,
+        getNonce: () => nonce,
+        toJSON: (): never => fail(),
+        [inspect.custom]: () => 'NativeCallbackHandoff(<redacted>)',
+      });
+    }
     stage = 'token-http';
     const exchangeCode = async (authorization?: string): Promise<Response> =>
       requireStatus(
@@ -280,7 +372,7 @@ const issueUserTokens = async (
             code,
             code_verifier: verifier,
             redirect_uri: client.redirectUri,
-            ...(options.resourceAtCodeExchange ? { resource: status.resource.indicator } : {}),
+            ...(options.resourceAtCodeExchange ? { resource } : {}),
             ...(clientKind === 'public' ? { client_id: client.id } : {}),
           }),
           authorization
@@ -325,6 +417,17 @@ const issueUserTokens = async (
     throw new TypeError(diagnostic + ' (' + stage + ')');
   }
 };
+
+export const stopPublicNativeAtCallback = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  nativeClient: NativeCallbackClient,
+  requestFetch: typeof fetch = fetch
+): Promise<NativeCallbackHandoff> =>
+  issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+    nativeClient,
+    stopAtNativeCallback: true,
+  }) as Promise<NativeCallbackHandoff>;
 
 export const issuePublicUserTokens = async (
   targetInput: TargetConfig,

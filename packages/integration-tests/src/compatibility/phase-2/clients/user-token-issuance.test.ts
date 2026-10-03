@@ -1,4 +1,6 @@
-/* eslint-disable @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake transport records the private authorization sequence. */
+/* eslint-disable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake transport records the private authorization sequence and bounded Native callback matrix. */
+import { inspect } from 'node:util';
+
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
@@ -7,6 +9,7 @@ import {
   issueConfidentialUserSession,
   issueConfidentialUserTokens,
   issuePublicUserTokens,
+  stopPublicNativeAtCallback,
 } from './user-token-issuance.js';
 
 const target: TargetConfig = {
@@ -14,6 +17,7 @@ const target: TargetConfig = {
   coreUrl: 'https://candidate.example/',
   adminUrl: 'https://candidate-admin.example/',
 };
+const expectedIssuer = 'https://identity.example/oidc';
 
 const fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'> = {
   status: {
@@ -75,7 +79,242 @@ const flow = (
   return { fetch: requestFetch, requests };
 };
 
+const nativeCallbackFlow = (
+  callback: (state: string) => string
+): Readonly<{ fetch: typeof fetch; requests: Array<{ url: URL; init: RequestInit }> }> => {
+  const requests: Array<{ url: URL; init: RequestInit }> = [];
+  const replies = [
+    response(303, undefined, { 'set-cookie': 'aster-session=private-cookie; Path=/; HttpOnly' }),
+    response(204),
+    response(200, { verificationId: 'private-verification' }),
+    response(204),
+    response(200, { redirectTo: 'https://candidate.example/oidc/bridge' }),
+    response(303),
+    response(200, {}),
+    response(200, { redirectTo: 'https://candidate.example/oidc/resume' }),
+  ];
+  const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requests.push({ url: new URL(String(input)), init: init ?? {} });
+    if (requests.length === 9) {
+      return response(303, undefined, {
+        location: callback(requests[0]?.url.searchParams.get('state') ?? ''),
+      });
+    }
+    return replies[requests.length - 1] ?? response(500, { private: 'unexpected' });
+  }) as typeof fetch;
+  return { fetch: requestFetch, requests };
+};
+
 describe('Phase 2 public user token issuance transport', () => {
+  it('stops an explicitly selected Native client at its exact state-bound callback before exchange', async () => {
+    const requests: Array<{ url: URL; init: RequestInit }> = [];
+    const replies = [
+      response(303, undefined, { 'set-cookie': 'aster-session=private-cookie; Path=/; HttpOnly' }),
+      response(204),
+      response(200, { verificationId: 'private-verification' }),
+      response(204),
+      response(200, { redirectTo: 'https://candidate.example/oidc/bridge' }),
+      response(303),
+      response(200, {}),
+      response(200, { redirectTo: 'https://candidate.example/oidc/resume' }),
+    ];
+    const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({ url, init: init ?? {} });
+      if (requests.length === 9) {
+        const state = requests[0]?.url.searchParams.get('state');
+        return response(303, undefined, {
+          location: `https://native.example/logto-callback?code=private-code&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+        });
+      }
+      return replies[requests.length - 1] ?? response(500, { private: 'unexpected' });
+    }) as typeof fetch;
+    const handoff = await stopPublicNativeAtCallback(
+      target,
+      fixture,
+      {
+        clientId: 'actual-native-client',
+        redirectUri: 'https://native.example/logto-callback',
+        expectedIssuer,
+        resourceIndicator: 'https://native-api.example/api',
+        resourceScope: 'session:exchange',
+      },
+      requestFetch
+    );
+
+    expect(requests).toHaveLength(9);
+    expect(requests.some(({ url }) => url.pathname === '/oidc/token')).toBe(false);
+    expect(requests[0]?.url.searchParams.get('client_id')).toBe('actual-native-client');
+    expect(requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile session:exchange'
+    );
+    expect(requests[0]?.url.searchParams.get('resource')).toBe('https://native-api.example/api');
+    expect(handoff.getCallbackUrl()).toBe(
+      `https://native.example/logto-callback?code=private-code&state=${handoff.getState()}&iss=${encodeURIComponent(expectedIssuer)}`
+    );
+    expect(requests[0]?.url.searchParams.get('state')).toBe(handoff.getState());
+    expect(requests[0]?.url.searchParams.get('nonce')).toBe(handoff.getNonce());
+    expect(handoff.getVerifier()).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(inspect(handoff)).toBe('NativeCallbackHandoff(<redacted>)');
+    expect(() => JSON.stringify(handoff)).toThrow('Invalid Phase 2 public user token issuance');
+  });
+
+  it('refuses generic-client fallback before starting a Native authorization', async () => {
+    const calls = { value: 0 };
+    await expect(
+      stopPublicNativeAtCallback(
+        target,
+        fixture,
+        {
+          clientId: 'public-client',
+          redirectUri: 'https://native.example/logto-callback',
+          expectedIssuer,
+          resourceIndicator: 'https://native-api.example/api',
+          resourceScope: 'session:exchange',
+        },
+        async () => {
+          calls.value += 1;
+          return response(500);
+        }
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (admission)');
+    expect(calls.value).toBe(0);
+  });
+
+  it.each([
+    [
+      'wrong state',
+      'https://native.example/logto-callback',
+      (state: string) =>
+        `https://native.example/logto-callback?code=x&state=${state}x&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign HTTPS host',
+      'https://native.example/logto-callback',
+      (state: string) =>
+        `https://foreign.example/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign HTTPS port',
+      'https://native.example/logto-callback',
+      (state: string) =>
+        `https://native.example:444/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign HTTPS path',
+      'https://native.example/logto-callback',
+      (state: string) =>
+        `https://native.example/foreign-path?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign custom scheme',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `foreign://mobile/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign custom host',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://foreign/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign custom path',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/foreign-path?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'foreign credentials',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://user@mobile/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'duplicate code',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?code=x&code=y&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'duplicate state',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?code=x&state=${state}&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'callback error',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?error=denied&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+    [
+      'extra response field',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}&extra=value`,
+    ],
+    [
+      'missing issuer',
+      'box-ai://mobile/logto-callback',
+      (state: string) => `box-ai://mobile/logto-callback?code=x&state=${state}`,
+    ],
+    [
+      'wrong issuer',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?code=x&state=${state}&iss=${encodeURIComponent('https://foreign.example/oidc')}`,
+    ],
+    [
+      'duplicate issuer',
+      'box-ai://mobile/logto-callback',
+      (state: string) =>
+        `box-ai://mobile/logto-callback?code=x&state=${state}&iss=${encodeURIComponent(expectedIssuer)}&iss=${encodeURIComponent(expectedIssuer)}`,
+    ],
+  ])('rejects Native %s before token exchange', async (_name, redirectUri, callback) => {
+    const transport = nativeCallbackFlow(callback);
+    await expect(
+      stopPublicNativeAtCallback(
+        target,
+        fixture,
+        {
+          clientId: 'actual-native-client',
+          redirectUri,
+          expectedIssuer,
+          resourceIndicator: 'https://native-api.example/api',
+          resourceScope: 'session:exchange',
+        },
+        transport.fetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (resume)');
+    expect(transport.requests.some(({ url }) => url.pathname === '/oidc/token')).toBe(false);
+  });
+
+  it.each([
+    'box-ai://mobile/logto-callback?registered=query',
+    'box-ai://mobile/logto-callback#registered-fragment',
+  ])('rejects configured Native query or fragment before network use', async (redirectUri) => {
+    const calls = { value: 0 };
+    await expect(
+      stopPublicNativeAtCallback(
+        target,
+        fixture,
+        {
+          clientId: 'actual-native-client',
+          redirectUri,
+          expectedIssuer,
+          resourceIndicator: 'https://native-api.example/api',
+          resourceScope: 'session:exchange',
+        },
+        async () => {
+          calls.value += 1;
+          return response(500);
+        }
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (admission)');
+    expect(calls.value).toBe(0);
+  });
+
   it('rotates a public refresh credential for the fixture resource without exposing it', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = [];
     const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -210,4 +449,4 @@ describe('Phase 2 public user token issuance transport', () => {
     );
   });
 });
-/* eslint-enable @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
