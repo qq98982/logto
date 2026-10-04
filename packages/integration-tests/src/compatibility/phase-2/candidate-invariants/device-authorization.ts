@@ -359,8 +359,10 @@ export const createDeviceCandidateInvariantRegistry = (
   profile: Phase2ProfileRegistries
 ): readonly DeviceCandidateInvariant[] => {
   const all = profile.candidateInvariantScenarios;
-  const segment = all.slice(5, 5 + deviceCandidateInvariantIds.length);
+  const start = all.indexOf(deviceCandidateInvariantIds[0]);
+  const segment = all.slice(start, start + deviceCandidateInvariantIds.length);
   if (
+    start < 0 ||
     segment.length !== deviceCandidateInvariantIds.length ||
     segment.some((id, index) => id !== deviceCandidateInvariantIds[index])
   ) {

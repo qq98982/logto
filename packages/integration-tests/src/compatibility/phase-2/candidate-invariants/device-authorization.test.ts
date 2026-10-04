@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import type { DeviceAuthorizationProjection } from '../clients/device-authorization.js';
 import { createDeviceAuthorizationTransportLease } from '../clients/device-authorization.js';
-import type { Phase2ProfileRegistries } from '../profile.js';
+import { loadPhase2Profile, type Phase2ProfileRegistries } from '../profile.js';
 
 import {
   createDeviceCandidateInvariantRegistry,
@@ -17,6 +17,18 @@ import {
   runDeviceCandidateInvariantControls,
   runDeviceCandidateInvariants,
 } from './device-authorization.js';
+import { verificationCodeCandidateInvariantIds } from './verification-code.js';
+
+const canonicalProfilePaths = Object.freeze({
+  profilePath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.json'
+  ),
+  schemaPath: path.resolve(
+    process.cwd(),
+    'src/compatibility/phase-2/testing/phase-2-profile.schema.json'
+  ),
+});
 
 describe('Phase 2 digest-only invariant diagnostics', () => {
   it.each([
@@ -629,24 +641,39 @@ const laterIds = [
 ] as const;
 
 const profile = (
-  ids: readonly string[] = [...legacyIds, ...deviceCandidateInvariantIds, ...laterIds]
+  ids: readonly string[] = [
+    ...legacyIds,
+    ...verificationCodeCandidateInvariantIds,
+    ...deviceCandidateInvariantIds,
+    ...laterIds,
+  ]
 ) => ({ candidateInvariantScenarios: ids }) as unknown as Phase2ProfileRegistries;
 
 describe('Phase 2 device candidate invariant registry', () => {
-  it('closes the exact ordered eight-ID segment of the sixteen-ID profile', () => {
-    const registry = createDeviceCandidateInvariantRegistry(profile());
+  it('closes the exact ordered eight-ID segment of the canonical profile', async () => {
+    const canonicalProfile = await loadPhase2Profile(canonicalProfilePaths);
+    const registry = createDeviceCandidateInvariantRegistry(canonicalProfile);
     expect(registry.map(({ id }) => id)).toEqual(deviceCandidateInvariantIds);
     expect(Object.isFrozen(registry)).toBe(true);
+    const start = canonicalProfile.candidateInvariantScenarios.indexOf(
+      deviceCandidateInvariantIds[0]
+    );
+    expect(start).toBe(legacyIds.length + verificationCodeCandidateInvariantIds.length);
 
     for (const ids of [
-      [...legacyIds, ...deviceCandidateInvariantIds.slice(1), ...laterIds],
-      [
-        ...legacyIds,
+      canonicalProfile.candidateInvariantScenarios.toSpliced(start, 1),
+      canonicalProfile.candidateInvariantScenarios.toSpliced(
+        start,
+        2,
         deviceCandidateInvariantIds[1],
-        deviceCandidateInvariantIds[0],
-        ...deviceCandidateInvariantIds.slice(2),
-        ...laterIds,
-      ],
+        deviceCandidateInvariantIds[0]
+      ),
+      canonicalProfile.candidateInvariantScenarios.toSpliced(start + 4, 1),
+      canonicalProfile.candidateInvariantScenarios.toSpliced(
+        start,
+        0,
+        deviceCandidateInvariantIds[0]
+      ),
     ]) {
       expect(() => createDeviceCandidateInvariantRegistry(profile(ids))).toThrow(
         'Invalid Phase 2 device candidate invariant'
