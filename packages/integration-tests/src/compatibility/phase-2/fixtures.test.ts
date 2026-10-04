@@ -7,6 +7,7 @@ import type {
   CommandRunnerResult,
 } from '../phase-1/clients/command-provisioner.js';
 
+import { issueCandidateInvariantUserTokens } from './cli.js';
 import { observeClientCredentialsToken } from './clients/client-credentials.js';
 import {
   createCandidatePhase2FixtureProvisioner,
@@ -1618,6 +1619,69 @@ describe('Phase 2 fixture lifecycle', () => {
       )
     ).rejects.toThrow('scenario failed');
     expect(admin.calls.some(({ method }) => method === 'DELETE')).toBe(true);
+  });
+
+  it('sequences candidate invariant token setup within one fixture lease authority', async () => {
+    const admin = createReferenceAdmin();
+    const provisioner = createReferencePhase2FixtureProvisioner({
+      target: oracle,
+      foreignTarget: oracleForeign,
+      request: admin.request,
+      createAllocationId: () => 'candidate-token-sequence',
+    });
+    const fixture = await provisioner.provision();
+    const events: string[] = [];
+    try {
+      const issued = await issueCandidateInvariantUserTokens(
+        async () =>
+          fixture.withSecretLease(async (lease) => {
+            events.push('public-start');
+            expect(lease.getSubjectPassword?.()).toBeDefined();
+            await new Promise<void>((resolve) => {
+              setImmediate(resolve);
+            });
+            events.push('public-end');
+            return 'owner-token';
+          }),
+        async () =>
+          fixture.withSecretLease(async (lease) => {
+            events.push('confidential-start');
+            expect(lease.getStatusClientSecret()).toBeDefined();
+            events.push('confidential-end');
+            return 'cross-client-token';
+          })
+      );
+      expect(issued).toEqual({
+        verificationOwner: 'owner-token',
+        verificationCrossClient: 'cross-client-token',
+      });
+      expect(events).toEqual([
+        'public-start',
+        'public-end',
+        'confidential-start',
+        'confidential-end',
+      ]);
+
+      let confidentialCalls = 0;
+      await expect(
+        issueCandidateInvariantUserTokens(
+          async () =>
+            fixture.withSecretLease(async () => {
+              throw new Error('public setup failed');
+            }),
+          async () => {
+            confidentialCalls += 1;
+            return 'must-not-run';
+          }
+        )
+      ).rejects.toThrow('public setup failed');
+      expect(confidentialCalls).toBe(0);
+      await expect(
+        fixture.withSecretLease(async (lease) => lease.getClientSecret('basic'))
+      ).resolves.toBeDefined();
+    } finally {
+      await provisioner.cleanup(fixture);
+    }
   });
 
   it('runs fixture cleanup after a hanging token transport reaches its deadline', async () => {

@@ -1802,6 +1802,15 @@ const executeDifferential = async (
   });
 };
 
+export const issueCandidateInvariantUserTokens = async <Owner, CrossClient>(
+  issuePublic: () => Promise<Owner>,
+  issueConfidential: () => Promise<CrossClient>
+): Promise<Readonly<{ verificationOwner: Owner; verificationCrossClient: CrossClient }>> => {
+  const verificationOwner = await issuePublic();
+  const verificationCrossClient = await issueConfidential();
+  return Object.freeze({ verificationOwner, verificationCrossClient });
+};
+
 const executeCandidateInvariants = async (
   input: Readonly<{
     profile: Phase2ProfileRegistries;
@@ -1837,10 +1846,10 @@ const executeCandidateInvariants = async (
       topology: prepared.topology,
       identityFence: prepared.fence,
     });
-    const [verificationOwner, verificationCrossClient] = await Promise.all([
-      issuePublicUserTokens(target.target, fixture),
-      issueConfidentialUserTokens(target.target, fixture),
-    ]);
+    const { verificationOwner, verificationCrossClient } = await issueCandidateInvariantUserTokens(
+      async () => issuePublicUserTokens(target.target, fixture),
+      async () => issueConfidentialUserTokens(target.target, fixture)
+    );
     const verification = await withPhase2AdminManagementBearer(
       target.target,
       fixture,
