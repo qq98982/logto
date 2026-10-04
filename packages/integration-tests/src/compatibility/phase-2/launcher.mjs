@@ -3,7 +3,7 @@
 
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
+import { constants as fsConstants, writeFileSync } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,7 +15,43 @@ const stderrDiagnostic = (stderr) =>
   childDiagnostic(
     `stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}`
   );
-const batchFailureModes = new Set(['oracle', 'differential', 'candidate-invariants']);
+const batchFailureModes = new Set([
+  'oracle',
+  'differential',
+  'differential-artifact-set',
+  'differential-oracle-mutated',
+  'differential-artifact',
+  'candidate-invariants',
+]);
+const cleanupDiagnostics = new Set([
+  'Phase 2 client credentials launcher failed.\n',
+  'Phase 2 client credentials command failed (candidate-fixture-cleanup).\n',
+  'Phase 2 client credentials command failed (candidate-fixture-cleanup-first).\n',
+  'Phase 2 client credentials command failed (candidate-fixture-cleanup-first-command).\n',
+  'Phase 2 client credentials command failed (candidate-fixture-cleanup-first-ack).\n',
+  'Phase 2 client credentials command failed (candidate-fixture-cleanup-replay).\n',
+]);
+export const writeClosedChildDiagnostic = (args, diagnostic) => {
+  const index = args.indexOf('--temp-root');
+  const temporaryRoot = args[index + 1];
+  if (
+    index < 0 ||
+    typeof temporaryRoot !== 'string' ||
+    !path.isAbsolute(temporaryRoot) ||
+    (!cleanupDiagnostics.has(diagnostic) &&
+      !/^Phase 2 client credentials launcher child failed \((?:exit-code|timeout|signal|stderr-bytes-[1-9][0-9]{0,5}-sha256-[0-9a-f]{64})\)\.\n$/u.test(
+        diagnostic
+      ))
+  ) {
+    return false;
+  }
+  writeFileSync(path.join(temporaryRoot, '.closed-child-diagnostic'), diagnostic, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o600,
+  });
+  return true;
+};
 const closedScenarioIds = new Set([
   'basic-explicit-resource',
   'post-explicit-resource',
@@ -292,7 +328,7 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
-  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer|comparison|logout-session|custom-jwt(-([0-9]|1[0-9]|2[0-3]))?|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
+  return /^Phase 2 client credentials command failed \((oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer|comparison|logout-session|custom-jwt(-([0-9]|1[0-9]|2[0-3]))?|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other))\)\.\n$/u.test(
     stderr
   ) ||
     /^Phase 2 client credentials command failed \((oracle|candidate|differential)-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup)\)\.\n$/u.test(
@@ -710,8 +746,10 @@ const defaultDependencies = Object.freeze({
       capability
     );
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
-      process.stderr.write(diagnosticForPhase2ChildResult(result));
-      return 1;
+      const childResultDiagnostic = diagnosticForPhase2ChildResult(result);
+      writeClosedChildDiagnostic(args, childResultDiagnostic);
+      process.stderr.write(childResultDiagnostic);
+      throw new Error(childResultDiagnostic);
     }
     process.stdout.write(result.stdout);
     return 0;

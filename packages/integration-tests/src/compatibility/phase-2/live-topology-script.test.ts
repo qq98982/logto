@@ -566,7 +566,44 @@ describe('Phase 2 client-credentials live topology runner', () => {
         }
       >;
     };
-    expect(candidate.services['candidate-fetch-observer']?.userns_mode).toBe('keep-id');
+    const oracle = JSON.parse(await readFile(oracleOutput, 'utf8')) as typeof candidate;
+    expect(candidate.services['candidate-fetch-observer']?.userns_mode).toBe('host');
+    expect(candidate.services['candidate-fetch-observer']?.user).toBe('0:0');
+    expect(candidate.services['candidate-fetch-observer']?.volumes).toContain(
+      [
+        '$',
+        '{ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT_DIRECTORY}:/run/aster-fetch-observer/receipts:rw',
+      ].join('')
+    );
+    expect(candidate.services['candidate-fetch-observer']?.volumes).not.toContain(
+      [
+        '$',
+        '{ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT_DIRECTORY}:/run/aster-fetch-observer/receipts:rw',
+      ].join('')
+    );
+    expect(oracle.services['oracle-fetch-observer']?.volumes).toContain(
+      [
+        '$',
+        '{ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT_DIRECTORY}:/run/aster-fetch-observer/receipts:rw',
+      ].join('')
+    );
+    expect(oracle.services['oracle-fetch-observer']?.volumes).not.toContain(
+      [
+        '$',
+        '{ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT_DIRECTORY}:/run/aster-fetch-observer/receipts:rw',
+      ].join('')
+    );
+    for (const observer of [
+      candidate.services['candidate-fetch-observer'],
+      oracle.services['oracle-fetch-observer'],
+    ]) {
+      expect(observer?.userns_mode).toBe('host');
+      expect(observer?.user).toBe('0:0');
+      expect(observer?.tmpfs).toEqual([
+        '/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777',
+        '/run/aster-fetch-observer:rw,noexec,nosuid,nodev,size=1m,mode=0755',
+      ]);
+    }
     expect(candidate.services['candidate-script-supervisor']?.userns_mode).toBe('keep-id');
     expect(candidate.services['candidate-primary-smtp']).toMatchObject({
       userns_mode: 'container:fixture-candidate-project-candidate-primary-core',
@@ -653,8 +690,9 @@ wait_for_script_host_serving
       'SCRIPT_SUPERVISOR_IMAGE_ID',
       'SCRIPT_EXECUTOR_IMAGE_ID',
       'phase2-fetch-observer.mjs',
-      'oracle-fetch-observer.ndjson',
-      'candidate-fetch-observer.ndjson',
+      'ORACLE_OBSERVER_RECEIPT_DIRECTORY',
+      'CANDIDATE_OBSERVER_RECEIPT_DIRECTORY',
+      '/run/aster-fetch-observer/receipts/observations.ndjson',
       'fetch-observer-ca.pem',
       'script-host-ca.pem',
       'script-host-client.pem',
@@ -679,7 +717,12 @@ wait_for_script_host_serving
     expect(source).toContain('assert_runtime_identity_unchanged');
     expect(source).toContain('PROBE_CONTAINER_ID');
     expect(source).toContain('/usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"');
-    expect(source).toContain("candidate.services[name].userns_mode = 'keep-id'");
+    expect(source).toContain(
+      "candidate.services['candidate-script-supervisor'].userns_mode = 'keep-id'"
+    );
+    expect(source).toContain("candidate.services['candidate-fetch-observer'].userns_mode = 'host'");
+    expect(source).toContain("oracle.services['oracle-fetch-observer'].userns_mode = 'host'");
+    expect(source).toContain("oracle.services['oracle-fetch-observer'].user = '0:0'");
     expect(source).toContain("delete candidate.services['candidate-script-executor'].userns_mode");
     expect(source).toContain("oracle.services['oracle-primary-smtp'].userns_mode = 'keep-id'");
     expect(source).toContain(['userns_mode = `container:$', '{candidateCoreContainer}`'].join(''));

@@ -1597,7 +1597,7 @@ describe('Phase 2 fixture lifecycle', () => {
     });
     const candidateFixture = await candidateProvisioner.provision();
     await expect(candidateProvisioner.cleanup(candidateFixture)).rejects.toThrow(
-      'Phase 2 fixture cleanup failed'
+      'Phase 2 fixture cleanup replay failed'
     );
     expect(candidateCleanupRecipes).toEqual(['fullPhase1', 'fullPhase1']);
   });

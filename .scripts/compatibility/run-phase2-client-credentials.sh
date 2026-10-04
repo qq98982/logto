@@ -1356,16 +1356,19 @@ main() {
   FOREIGN_KEYRING_DIRECTORY="$RUN_DIR/candidate-foreign-keys"
   EVIDENCE_DIR="$RUN_DIR/evidence"
   TLS_DIRECTORY="$RUN_DIR/tls"
-  OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/fetch-observer-receipts"
+  ORACLE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/oracle-fetch-observer-receipts"
+  CANDIDATE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/candidate-fetch-observer-receipts"
   SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
   for directory in "$PRIVATE_HOME" "$CONFIG_DIR" "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
-    "$OBSERVER_RECEIPT_DIRECTORY" "$SCRIPT_HOST_STATE"; do
+    "$ORACLE_OBSERVER_RECEIPT_DIRECTORY" "$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY" \
+    "$SCRIPT_HOST_STATE"; do
     /usr/bin/mkdir -m 700 -- "$directory"
   done
   readonly PRIVATE_HOME CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
   readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY EVIDENCE_DIR
-  readonly TLS_DIRECTORY OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE
+  readonly TLS_DIRECTORY ORACLE_OBSERVER_RECEIPT_DIRECTORY
+  readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE
 
   ORACLE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   CANDIDATE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
@@ -1406,8 +1409,8 @@ main() {
   SCRIPT_HOST_CLIENT_KEY="$TLS_DIRECTORY/script-host-client.key"
   SCRIPT_HOST_CLIENT_CSR="$TLS_DIRECTORY/script-host-client.csr"
   SCRIPT_HOST_CLIENT_EXT="$TLS_DIRECTORY/script-host-client.ext"
-  ORACLE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/oracle-fetch-observer.ndjson"
-  CANDIDATE_OBSERVER_RECEIPT="$OBSERVER_RECEIPT_DIRECTORY/candidate-fetch-observer.ndjson"
+  ORACLE_OBSERVER_RECEIPT="$ORACLE_OBSERVER_RECEIPT_DIRECTORY/observations.ndjson"
+  CANDIDATE_OBSERVER_RECEIPT="$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY/observations.ndjson"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
@@ -1493,6 +1496,7 @@ ASTER_PHASE2_ORACLE_OBSERVER_CERT=$OBSERVER_SERVER_CERT
 ASTER_PHASE2_ORACLE_OBSERVER_KEY=$OBSERVER_SERVER_KEY
 ASTER_PHASE2_ORACLE_OBSERVER_CA=$FETCH_OBSERVER_CA
 ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT=$ORACLE_OBSERVER_RECEIPT
+ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT_DIRECTORY=$ORACLE_OBSERVER_RECEIPT_DIRECTORY
 ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=$SCRIPT_SUPERVISOR_IMAGE_ID
 ASTER_PHASE1_FIXTURE_DIRECTORY=$FIXTURE_DIRECTORY
 ASTER_PHASE1_ORACLE_PRIMARY_POSTGRES_PASSWORD=$(random_hex 32)
@@ -1513,6 +1517,7 @@ ASTER_PHASE2_CANDIDATE_OBSERVER_CERT=$OBSERVER_SERVER_CERT
 ASTER_PHASE2_CANDIDATE_OBSERVER_KEY=$OBSERVER_SERVER_KEY
 ASTER_PHASE2_CANDIDATE_OBSERVER_CA=$FETCH_OBSERVER_CA
 ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT=$CANDIDATE_OBSERVER_RECEIPT
+ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT_DIRECTORY=$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY
 ASTER_PHASE2_SCRIPT_HOST_CA=$SCRIPT_HOST_CA
 ASTER_PHASE2_SCRIPT_HOST_SERVER_CERT=$SCRIPT_HOST_SERVER_CERT
 ASTER_PHASE2_SCRIPT_HOST_SERVER_KEY=$SCRIPT_HOST_SERVER_KEY
@@ -1587,6 +1592,20 @@ const candidate = select(
   ['candidate-primary','candidate-foreign'],
   ['candidate-primary-postgres','candidate-foreign-postgres','candidate-primary-keyring','candidate-foreign-keyring'],
 );
+for (const [observer, source] of [
+  [oracle.services['oracle-fetch-observer'], '${ASTER_PHASE2_ORACLE_OBSERVER_RECEIPT_DIRECTORY}'],
+  [candidate.services['candidate-fetch-observer'], '${ASTER_PHASE2_CANDIDATE_OBSERVER_RECEIPT_DIRECTORY}'],
+]) {
+  observer.volumes = observer.volumes.map((mount) =>
+    mount.endsWith('/run/aster-fetch-observer/receipts/observations.ndjson:rw')
+      ? `${source}:/run/aster-fetch-observer/receipts:rw`
+      : mount
+  );
+}
+oracle.services['oracle-fetch-observer'].environment.ASTER_FETCH_OBSERVER_RECEIPT_FILE =
+  '/run/aster-fetch-observer/receipts/observations.ndjson';
+candidate.services['candidate-fetch-observer'].environment.ASTER_FETCH_OBSERVER_RECEIPT_FILE =
+  '/run/aster-fetch-observer/receipts/observations.ndjson';
 const candidateCoreContainer = `${candidateProject}-candidate-primary-core`;
 candidate.services['candidate-primary-core'].container_name = candidateCoreContainer;
 candidate.services['candidate-primary-smtp'].userns_mode = `container:${candidateCoreContainer}`;
@@ -1595,15 +1614,23 @@ candidate.services['candidate-primary-smtp'].environment.ASTER_SMTP_CONTROL_SOCK
 candidate.services['candidate-primary-smtp'].volumes = [
   '${ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw',
 ];
-for (const name of ['candidate-fetch-observer','candidate-script-supervisor']) {
-  candidate.services[name].userns_mode = 'keep-id';
-  candidate.services[name].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
-}
+candidate.services['candidate-fetch-observer'].userns_mode = 'host';
+candidate.services['candidate-fetch-observer'].user = '0:0';
+candidate.services['candidate-fetch-observer'].tmpfs = [
+  '/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777',
+  '/run/aster-fetch-observer:rw,noexec,nosuid,nodev,size=1m,mode=0755',
+];
+candidate.services['candidate-script-supervisor'].userns_mode = 'keep-id';
+candidate.services['candidate-script-supervisor'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
 delete candidate.services['candidate-script-executor'].userns_mode;
 candidate.services['candidate-script-executor'].tmpfs =
   ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
-oracle.services['oracle-fetch-observer'].userns_mode = 'keep-id';
-oracle.services['oracle-fetch-observer'].tmpfs = ['/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777'];
+oracle.services['oracle-fetch-observer'].userns_mode = 'host';
+oracle.services['oracle-fetch-observer'].user = '0:0';
+oracle.services['oracle-fetch-observer'].tmpfs = [
+  '/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777',
+  '/run/aster-fetch-observer:rw,noexec,nosuid,nodev,size=1m,mode=0755',
+];
 oracle.services['oracle-primary-smtp'].userns_mode = 'keep-id';
 const healthcheckIntervals = {
   'oracle-primary-postgres': '3s', 'oracle-primary-redis': '3s', 'oracle-primary-core': '3s',

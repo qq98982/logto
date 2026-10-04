@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-mutating-methods -- The fake callback transport records the private authorization sequence. */
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The guarded fake lease and callback transport record active scope and the private authorization sequence. */
 import type { TargetConfig } from '../model.js';
 
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
@@ -25,6 +25,7 @@ const response = (
 const selectedFixture = (): ProvisionedPhase2Fixture & {
   public: Phase2FixturePublicWithSelectedNative;
 } => {
+  let leaseActive = false;
   const publicFixture = {
     allocationId: 'selected-native-callback',
     clients: {
@@ -103,20 +104,33 @@ const selectedFixture = (): ProvisionedPhase2Fixture & {
     },
     withSecretLease: async <Result>(
       use: (lease: Phase2FixtureSecretLease) => Promise<Result>
-    ): Promise<Result> =>
-      use({
-        getClientSecret: () => 'unused',
-        getStatusClientSecret: () => 'unused',
-        getSelectedNativePassword: () => 'private-native-password',
-        toJSON: (): never => {
-          throw new Error('private');
-        },
-      }),
+    ): Promise<Result> => {
+      if (leaseActive) {
+        throw new Error('lease');
+      }
+      leaseActive = true;
+      try {
+        return await use({
+          getClientSecret: () => 'unused',
+          getStatusClientSecret: () => 'unused',
+          getSelectedNativePassword: () => {
+            if (!leaseActive) {
+              throw new Error('lease');
+            }
+            return 'private-native-password';
+          },
+          toJSON: (): never => {
+            throw new Error('private');
+          },
+        });
+      } finally {
+        leaseActive = false;
+      }
+    },
   });
 };
 
-test('selected Native caller binds actual metadata and returned user before token exchange', async () => {
-  const requests: Array<{ url: URL; init: RequestInit }> = [];
+const callbackFetch = (requests: Array<{ url: URL; init: RequestInit }>): typeof fetch => {
   const replies = [
     response(303, undefined, { 'set-cookie': 'interaction=private; Path=/' }),
     response(204),
@@ -127,7 +141,7 @@ test('selected Native caller binds actual metadata and returned user before toke
     response(200, {}),
     response(200, { redirectTo: 'https://candidate.example/oidc/resume' }),
   ];
-  const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+  return (async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = new URL(String(input));
     requests.push({ url, init: init ?? {} });
     if (requests.length === 9) {
@@ -138,6 +152,11 @@ test('selected Native caller binds actual metadata and returned user before toke
     }
     return replies[requests.length - 1] ?? response(500, { private: 'unexpected' });
   }) as typeof fetch;
+};
+
+test('selected Native caller binds actual metadata and returned user before token exchange', async () => {
+  const requests: Array<{ url: URL; init: RequestInit }> = [];
+  const requestFetch = callbackFetch(requests);
   const handoff = await stopSelectedNativeAtCallback(
     target,
     selectedFixture(),
@@ -160,4 +179,31 @@ test('selected Native caller binds actual metadata and returned user before toke
   expect(handoff.getCallbackUrl()).toContain(`iss=${encodeURIComponent(expectedIssuer)}`);
 });
 
-/* eslint-enable @silverhand/fp/no-mutating-methods */
+test('selected Native callback reuses an active getter and revokes it after scope', async () => {
+  const fixture = selectedFixture();
+  const requests: Array<{ url: URL; init: RequestInit }> = [];
+  let retainedGetter: (() => string) | undefined;
+  await fixture.withSecretLease(async (lease) => {
+    retainedGetter = lease.getSelectedNativePassword;
+    await stopSelectedNativeAtCallback(target, fixture, expectedIssuer, callbackFetch(requests), {
+      getSelectedNativePassword: lease.getSelectedNativePassword,
+    });
+  });
+
+  expect(requests).toHaveLength(9);
+  expect(retainedGetter).toBeDefined();
+  expect(() => retainedGetter?.()).toThrow('lease');
+});
+
+test('selected Native callback keeps generic nested leases rejected', async () => {
+  const fixture = selectedFixture();
+  const requests: Array<{ url: URL; init: RequestInit }> = [];
+  await fixture.withSecretLease(async () => {
+    await expect(
+      stopSelectedNativeAtCallback(target, fixture, expectedIssuer, callbackFetch(requests))
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (admission)');
+  });
+  expect(requests).toHaveLength(0);
+});
+
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

@@ -58,6 +58,7 @@ export type CommonNativeScenarioContext = Readonly<{
   adapter?: NativeCodePkceAdapter;
   prepareCallback?: typeof stopSelectedNativeAtCallback;
   withFixture?: typeof withSelectedNativeFixture;
+  getSelectedNativePassword?: () => string;
 }>;
 
 const diagnostic = 'Invalid Phase 2 common Native scenario';
@@ -188,7 +189,10 @@ export const observeCommonNativeCodePkce = async (
     context.target,
     context.fixture,
     endpoints.issuer,
-    requestFetch
+    requestFetch,
+    context.getSelectedNativePassword
+      ? { getSelectedNativePassword: context.getSelectedNativePassword }
+      : undefined
   );
   if (
     handoff.getState() === handoff.getNonce() ||
@@ -326,12 +330,18 @@ export const createCommonNativeScenarioRegistry = (
           {
             request: context.managementRequest,
             target: context.target,
+            ...(context.getSelectedNativePassword && {
+              getSelectedNativePassword: context.getSelectedNativePassword,
+            }),
           } satisfies SelectedNativeFixtureOptions,
           async (fixture) =>
             observeCommonNativeCodePkce({
               target: context.target,
               fixture,
               jwks: context.jwks,
+              ...(context.getSelectedNativePassword && {
+                getSelectedNativePassword: context.getSelectedNativePassword,
+              }),
               ...(context.requestFetch && { requestFetch: context.requestFetch }),
               ...(context.now && { now: context.now }),
               ...(context.adapter && { adapter: context.adapter }),

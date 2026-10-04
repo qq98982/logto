@@ -16,12 +16,30 @@ import {
   diagnosticForPhase2Batch,
   launchPhase2,
   launchPhase2Batch,
+  writeClosedChildDiagnostic,
 } from './launcher.mjs';
 import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 
 const executeFile = promisify(execFile);
 
 describe('Phase 2 tracked launcher', () => {
+  it('writes only a closed cleanup diagnostic into the owned temporary root', async () => {
+    const root = await mkdtemp('/var/tmp/henry-build/phase2-closed-diagnostic-');
+    const diagnostic =
+      'Phase 2 client credentials command failed (candidate-fixture-cleanup-first).\n';
+    expect(writeClosedChildDiagnostic(['differential', '--temp-root', root], diagnostic)).toBe(
+      true
+    );
+    const file = path.join(root, '.closed-child-diagnostic');
+    await expect(readFile(file, 'utf8')).resolves.toBe(diagnostic);
+    const state = await lstat(file);
+    expect(state.nlink).toBe(1);
+    expect(state.mode % 512).toBe(0o600);
+    expect(writeClosedChildDiagnostic(['differential', '--temp-root', root], 'private')).toBe(
+      false
+    );
+    await rm(root, { recursive: true });
+  });
   it('passes closed custom JWT failure details through the child result boundary', () => {
     for (const stage of [
       'candidate-custom-jwt-19:http-500',

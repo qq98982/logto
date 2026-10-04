@@ -55,6 +55,7 @@ type SelectedSignInMethod = Readonly<{
 export type SelectedNativeFixtureOptions = Readonly<{
   request: Phase2AdminRequestFunction;
   target: TargetConfig;
+  getSelectedNativePassword?: () => string;
 }>;
 
 const call = async (
@@ -278,7 +279,7 @@ const provisionSelectedNative = async (
   fixture: ProvisionedPhase2Fixture,
   request: Phase2AdminRequestFunction,
   cleanup: SelectedNativeCleanup[],
-  targetLabel: TargetConfig['label']
+  getSelectedNativePassword?: () => string
 ): Promise<Phase2SelectedNativePublic> => {
   const suffix = createHash('sha256')
     .update(fixture.public.allocationId)
@@ -316,15 +317,18 @@ const provisionSelectedNative = async (
   const roleId = safeId(own(role, 'id'));
   cleanup.push(Object.freeze({ path: `roles/${encodeURIComponent(roleId)}` }));
   assertRole(role, roleId);
-  const identity = await fixture.withSecretLease(async (lease) => {
-    const getPassword = lease.getSelectedNativePassword ?? fail();
-    return exactRecord(
+  const createIdentity = async (getPassword: () => string) =>
+    exactRecord(
       await call(request, 'POST', 'users', {
         primaryEmail,
         password: getPassword(),
       })
     );
-  });
+  const identity = getSelectedNativePassword
+    ? await createIdentity(getSelectedNativePassword)
+    : await fixture.withSecretLease(async (lease) =>
+        createIdentity(lease.getSelectedNativePassword ?? fail())
+      );
   const identityId = safeId(own(identity, 'id'));
   cleanup.push(Object.freeze({ path: `users/${encodeURIComponent(identityId)}` }));
   assertIdentity(identity, primaryEmail, identityId);
@@ -388,7 +392,12 @@ export const withSelectedNativeFixture = async <Result>(
     }
   ) => Promise<Result>
 ): Promise<Result> => {
-  if (fixture.public.selectedNative !== undefined || typeof use !== 'function') {
+  if (
+    fixture.public.selectedNative !== undefined ||
+    typeof use !== 'function' ||
+    (options.getSelectedNativePassword !== undefined &&
+      typeof options.getSelectedNativePassword !== 'function')
+  ) {
     return fail();
   }
   const target = validateTargetConfig(options.target);
@@ -403,7 +412,7 @@ export const withSelectedNativeFixture = async <Result>(
       fixture,
       options.request,
       cleanup,
-      target.label
+      options.getSelectedNativePassword
     );
     const overlay = Object.freeze({
       ...fixture,

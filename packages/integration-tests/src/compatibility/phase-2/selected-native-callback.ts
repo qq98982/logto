@@ -1,3 +1,4 @@
+/* eslint-disable max-params -- The callback boundary keeps target, fixture, issuer, transport, and optional Native password authority explicit. */
 import type { TargetConfig } from '../model.js';
 
 import {
@@ -12,19 +13,43 @@ const fail = (): never => {
   throw new TypeError(diagnostic);
 };
 
+export type SelectedNativeCallbackOptions = Readonly<{
+  getSelectedNativePassword?: () => string;
+}>;
+
 export const stopSelectedNativeAtCallback = async (
   target: TargetConfig,
   fixture: ProvisionedPhase2Fixture & { public: Phase2FixturePublicWithSelectedNative },
   expectedIssuer: string,
-  requestFetch: typeof fetch = fetch
+  requestFetch: typeof fetch = fetch,
+  options: SelectedNativeCallbackOptions = {}
 ): Promise<NativeCallbackHandoff> => {
   const selected = fixture.public.selectedNative;
+  if (
+    options.getSelectedNativePassword !== undefined &&
+    typeof options.getSelectedNativePassword !== 'function'
+  ) {
+    return fail();
+  }
+  const withSecretLease = options.getSelectedNativePassword
+    ? async <Result>(
+        use: (
+          lease: Readonly<{ getSelectedNativePassword(): string; toJSON(): never }>
+        ) => Promise<Result>
+      ): Promise<Result> =>
+        use(
+          Object.freeze({
+            getSelectedNativePassword: options.getSelectedNativePassword ?? fail(),
+            toJSON: (): never => fail(),
+          })
+        )
+    : fixture.withSecretLease;
   const handoff = await stopPublicNativeAtCallback(
     target,
     fixture,
     {
       identity: selected.identity,
-      withSecretLease: fixture.withSecretLease,
+      withSecretLease,
     },
     {
       clientId: selected.clientId,
@@ -40,3 +65,5 @@ export const stopSelectedNativeAtCallback = async (
   }
   return handoff;
 };
+
+/* eslint-enable max-params */

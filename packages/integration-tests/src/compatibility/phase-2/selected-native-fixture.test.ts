@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake Management transport records lease state plus ordered setup and compensation. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake Management transport records lease state plus ordered setup, compensation, and guarded active-lease reuse. */
 import type {
   Phase2AdminRequest,
   Phase2AdminRequestFunction,
@@ -284,6 +284,43 @@ describe('selected Native public Management fixture', () => {
     expect(requests.some(({ method }) => method === 'DELETE')).toBe(false);
   });
 
+  it('reuses one active password lease and revokes its getter after the Admin callback', async () => {
+    const base = fixture();
+    const requests: Phase2AdminRequest[] = [];
+    let retainedGetter: (() => string) | undefined;
+    await base.withSecretLease(async (lease) => {
+      retainedGetter = lease.getSelectedNativePassword;
+      await withSelectedNativeFixture(
+        base,
+        {
+          request: management(requests),
+          target: candidate,
+          getSelectedNativePassword: lease.getSelectedNativePassword,
+        },
+        async (selected) => selected.public.selectedNative.identity.id
+      );
+    });
+
+    expect(requests.some(({ method, path }) => method === 'POST' && path === 'users')).toBe(true);
+    expect(retainedGetter).toBeDefined();
+    expect(() => retainedGetter?.()).toThrow('lease');
+  });
+
+  it('keeps nested secret leases rejected when no active getter capability is supplied', async () => {
+    const base = fixture();
+    const requests: Phase2AdminRequest[] = [];
+    await base.withSecretLease(async () => {
+      await expect(
+        withSelectedNativeFixture(
+          base,
+          { request: management(requests), target: candidate },
+          async () => 'unused'
+        )
+      ).rejects.toThrow('lease');
+    });
+    expect(requests.some(({ method, path }) => method === 'POST' && path === 'users')).toBe(false);
+  });
+
   it('compensates reference objects in reverse order after use', async () => {
     const requests: Phase2AdminRequest[] = [];
     await withSelectedNativeFixture(
@@ -392,4 +429,4 @@ describe('selected Native public Management fixture', () => {
   });
 });
 
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

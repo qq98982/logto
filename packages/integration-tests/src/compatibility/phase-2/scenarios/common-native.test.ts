@@ -1,15 +1,14 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- The controlled token server records a bounded request sequence and builds one deliberately narrowed fixture without publishing private values. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- The controlled token and Management servers exercise the complete Native fixture and callback boundary without publishing private values. */
 import { exportJWK, generateKeyPair, SignJWT, type JSONWebKeySet } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
-import type { ProvisionedPhase2Fixture } from '../fixtures.js';
+import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 import type { Phase2FixturePublicWithSelectedNative } from '../selected-native-fixture.js';
 
 import {
   commonNativeScenarioIds,
   createCommonNativeScenarioRegistry,
   observeCommonNativeCodePkce,
-  type CommonNativeScenarioContext,
   validateCommonNativeDiscovery,
 } from './common-native.js';
 
@@ -19,8 +18,8 @@ const target: TargetConfig = Object.freeze({
   adminUrl: 'https://identity-admin.example/',
 });
 const issuer = 'https://identity.example/oidc';
-const redirectUri = 'https://app.example/wechat/logto-callback';
-const resource = 'https://app.example/api';
+const redirectUri = 'https://app.example.test/wechat/logto-callback';
+const resource = 'https://app.example.test/api';
 const subject = 'native-user';
 const clientId = 'native-client';
 const now = 1_700_000_000;
@@ -32,9 +31,7 @@ const privateValues = Object.freeze([
   'private-refresh',
   'private-profile-token',
 ]);
-const unusedManagementRequest = async (): Promise<never> => {
-  throw new Error('Management request must be consumed by fixture setup');
-};
+const selectedNativePassword = () => 'private-native-password-A1!';
 
 const selectedFixture = (): ProvisionedPhase2Fixture & {
   public: Phase2FixturePublicWithSelectedNative;
@@ -101,10 +98,104 @@ const selectedFixture = (): ProvisionedPhase2Fixture & {
         identity: { id: subject, primaryEmail: 'native@example.invalid' },
       },
     },
+    status: {
+      user: { id: 'generic-user', username: 'generic-user' },
+      client: {
+        id: 'generic-public-client',
+        name: 'generic public client',
+        redirectUri: 'https://generic.example/callback',
+      },
+      confidentialClient: {
+        id: 'generic-confidential-client',
+        redirectUri: 'https://generic.example/confidential-callback',
+      },
+      resource: {
+        id: 'generic-resource',
+        indicator: 'https://generic.example/api',
+        scopeName: 'generic:read',
+      },
+    },
     withSecretLease: async () => {
       throw new Error('unused');
     },
   }) as ProvisionedPhase2Fixture & { public: Phase2FixturePublicWithSelectedNative };
+
+const baseFixture = (): ProvisionedPhase2Fixture => {
+  const value = selectedFixture();
+  const { selectedNative, ...publicFixture } = value.public;
+  void selectedNative;
+  return { ...value, public: publicFixture };
+};
+
+const selectedNativeManagement = (): Phase2AdminRequestFunction => {
+  let methods: ReadonlyArray<Readonly<Record<string, unknown>>> = [
+    {
+      identifier: 'username',
+      password: true,
+      verificationCode: false,
+      isPasswordPrimary: true,
+    },
+  ];
+  let identity: Readonly<Record<string, unknown>> = {};
+  const resourceValue = { id: 'selected-resource', indicator: resource, accessTokenTtl: 300 };
+  const scope = {
+    id: 'selected-scope',
+    resourceId: resourceValue.id,
+    name: 'session:exchange',
+  };
+  const role = { id: 'selected-role', isDefault: true };
+  const application = {
+    id: clientId,
+    type: 'Native',
+    isThirdParty: false,
+    oidcClientMetadata: { redirectUris: [redirectUri], postLogoutRedirectUris: [] },
+  };
+  return async ({ method, path, body }) => {
+    if (method === 'GET' && path === 'sign-in-exp') {
+      return { signIn: { methods } };
+    }
+    if (method === 'PATCH' && path === 'sign-in-exp') {
+      methods = (body as { signIn: { methods: typeof methods } }).signIn.methods;
+      return { signIn: { methods } };
+    }
+    if (method === 'POST' && path === 'resources') {
+      return resourceValue;
+    }
+    if (method === 'POST' && path === `resources/${resourceValue.id}/scopes`) {
+      return scope;
+    }
+    if (method === 'POST' && path === 'roles') {
+      return role;
+    }
+    if (method === 'POST' && path === 'users') {
+      identity = {
+        id: subject,
+        primaryEmail: (body as { primaryEmail: string }).primaryEmail,
+        hasPassword: true,
+      };
+      return identity;
+    }
+    if (method === 'POST' && path === 'applications') {
+      return application;
+    }
+    if (method === 'GET' && path === `applications/${clientId}`) {
+      return application;
+    }
+    if (method === 'GET' && path === 'resources') {
+      return [{ ...resourceValue, scopes: [scope] }];
+    }
+    if (method === 'GET' && path === 'roles') {
+      return [role];
+    }
+    if (method === 'GET' && path === `roles/${role.id}/scopes`) {
+      return [scope];
+    }
+    if (method === 'GET' && path === 'users') {
+      return [identity];
+    }
+    throw new Error('unexpected selected Native Management request');
+  };
+};
 
 const createJwtFixture = async (
   options: Readonly<{
@@ -119,8 +210,8 @@ const createJwtFixture = async (
   const jwks: JSONWebKeySet = {
     keys: [{ ...publicJwk, kid: 'native-key', alg: 'ES384', use: 'sig' }],
   };
-  const signId = async () =>
-    new SignJWT({ nonce: options.nonce ?? privateValues[3] })
+  const signId = async (nonce = options.nonce ?? privateValues[3]) =>
+    new SignJWT({ nonce })
       .setProtectedHeader({ alg: 'ES384', kid: 'native-key' })
       .setIssuer(issuer)
       .setAudience(clientId)
@@ -140,6 +231,7 @@ const createJwtFixture = async (
   return Object.freeze({
     jwks,
     idToken: await signId(),
+    idTokenForNonce: signId,
     resourceToken: await signResource(),
     refreshedResourceToken: await signResource(subject, options.refreshedIssuedAt ?? now),
     profileSubject: options.profileSubject ?? subject,
@@ -213,6 +305,72 @@ const transport =
     }
     throw new Error('unexpected request');
   };
+
+const nativeCallbackTransport = (
+  tokens: Awaited<ReturnType<typeof createJwtFixture>>,
+  calls: string[]
+): typeof fetch => {
+  const tokenTransport = transport(tokens, calls);
+  let state: string | undefined;
+  let nonce: string | undefined;
+  return async (input, init) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? 'GET';
+    calls.push(`${method} ${url.pathname}`);
+    if (url.pathname === '/oidc/auth') {
+      state = url.searchParams.get('state') ?? undefined;
+      nonce = url.searchParams.get('nonce') ?? undefined;
+      return new Response(null, {
+        status: 303,
+        headers: { 'set-cookie': 'interaction=native; Path=/; HttpOnly' },
+      });
+    }
+    if (url.pathname === '/api/experience' && method === 'PUT') {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/api/experience/verification/password' && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as { password?: unknown };
+      expect(body.password).toBe(selectedNativePassword());
+      return Response.json({ verificationId: 'native-verification' });
+    }
+    if (url.pathname === '/api/experience/identification' && method === 'POST') {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === '/api/experience/submit' && method === 'POST') {
+      return Response.json({ redirectTo: `${target.coreUrl}bridge` });
+    }
+    if (url.pathname === '/bridge') {
+      return new Response(null, { status: 303 });
+    }
+    if (url.pathname === '/api/interaction/consent' && method === 'GET') {
+      return Response.json({});
+    }
+    if (url.pathname === '/api/interaction/consent' && method === 'POST') {
+      return Response.json({ redirectTo: `${target.coreUrl}resume` });
+    }
+    if (url.pathname === '/resume') {
+      const location = new URL(redirectUri);
+      location.searchParams.set('code', privateValues[0]!);
+      location.searchParams.set('state', state ?? 'missing');
+      location.searchParams.set('iss', issuer);
+      return new Response(null, { status: 303, headers: { location: location.href } });
+    }
+    if (
+      url.pathname === '/oidc/token' &&
+      init?.body instanceof URLSearchParams &&
+      init.body.get('grant_type') === 'authorization_code'
+    ) {
+      return Response.json({
+        token_type: 'Bearer',
+        access_token: tokens.resourceToken,
+        refresh_token: privateValues[4],
+        id_token: await tokens.idTokenForNonce(nonce ?? 'missing'),
+      });
+    }
+    calls.pop();
+    return tokenTransport(input, init);
+  };
+};
 
 const observe = async (
   tokenOptions: Parameters<typeof createJwtFixture>[0] = {},
@@ -373,33 +531,34 @@ describe('common Native code PKCE scenario', () => {
     ).toThrow('Invalid Phase 2 common Native scenario');
   });
 
-  it('runs the registry through the supplied Management setup boundary', async () => {
+  it('keeps the active Native password capability through default setup and callback only', async () => {
     const tokens = await createJwtFixture();
     const calls: string[] = [];
-    let selected = false;
     const registry = createCommonNativeScenarioRegistry({
       differentialScenarios: commonNativeScenarioIds,
     });
+    let active = true;
+    const guardedPassword = () => {
+      if (!active) {
+        throw new Error('inactive Native password lease');
+      }
+      return selectedNativePassword();
+    };
     const result = await registry[0].run({
       target,
-      fixture: selectedFixture(),
-      managementRequest: unusedManagementRequest,
+      fixture: baseFixture(),
+      managementRequest: selectedNativeManagement(),
+      getSelectedNativePassword: guardedPassword,
       jwks: tokens.jwks,
-      requestFetch: transport(tokens, calls),
+      requestFetch: nativeCallbackTransport(tokens, calls),
       now: () => now,
-      prepareCallback: async () => handoff(),
-      withFixture: (async (_fixture, options, use) => {
-        expect(options.request).toBe(unusedManagementRequest);
-        expect(options.target).toBe(target);
-        selected = true;
-        return use(selectedFixture());
-      }) as NonNullable<CommonNativeScenarioContext['withFixture']>,
     });
+    active = false;
 
-    expect(selected).toBe(true);
+    expect(() => guardedPassword()).toThrow('inactive Native password lease');
     expect(result.id).toBe('common.native.code-pkce');
     expect(result.projection.expectedSubject).toBe(true);
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions */

@@ -491,7 +491,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 const candidateAdminConsumerStageFailurePattern =
@@ -575,7 +575,22 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
   }
 };
 
-type CandidateFixturePhase = 'provision' | 'readiness' | 'public-jwks' | 'cleanup' | 'body-cleanup';
+type CandidateFixturePhase =
+  | 'provision'
+  | 'readiness'
+  | 'public-jwks'
+  | 'cleanup-first'
+  | 'cleanup-first-command'
+  | 'cleanup-first-command-transport'
+  | 'cleanup-first-command-timeout'
+  | 'cleanup-first-command-signal'
+  | 'cleanup-first-command-nonzero'
+  | 'cleanup-first-command-malformed'
+  | 'cleanup-first-command-response'
+  | 'cleanup-first-command-unknown'
+  | 'cleanup-first-ack'
+  | 'cleanup-replay'
+  | 'body-cleanup';
 const candidateFixturePhase = (name: CandidateFixturePhase) =>
   new Error(`Phase 2 stage failed: candidate-fixture-${name}`);
 
@@ -609,9 +624,17 @@ export const runPhase2TargetFixture = async <Jwks, Result>({
           cleanup: async (fixture: ProvisionedPhase2Fixture) => {
             try {
               await provisioner.cleanup(fixture);
-            } catch {
+            } catch (error: unknown) {
               cleanupState.failed = true;
-              throw candidateFixturePhase('cleanup');
+              throw candidateFixturePhase(
+                error instanceof Error && error.message.includes('replay')
+                  ? 'cleanup-replay'
+                  : error instanceof Error && error.message.includes('first command')
+                    ? (`cleanup-first-command-${/^Phase 2 fixture cleanup first command-(transport|timeout|signal|nonzero|malformed|response|unknown) failed$/u.exec(error.message)?.[1] ?? 'unknown'}` as CandidateFixturePhase)
+                    : error instanceof Error && error.message.includes('first ack')
+                      ? 'cleanup-first-ack'
+                      : 'cleanup-first'
+              );
             }
           },
         }
@@ -1241,18 +1264,26 @@ const runTargetScenarios = async (
     let commonNativeScenarios: readonly CommonNativeScenarioResult[];
     try {
       const scenario = createCommonNativeScenarioRegistry(profile)[0];
-      const run = async (managementRequest: Phase2AdminRequestFunction) =>
+      const run = async (
+        managementRequest: Phase2AdminRequestFunction,
+        getSelectedNativePassword?: () => string
+      ) =>
         scenario.run({
           target: descriptor.target,
           fixture,
           managementRequest,
           jwks,
+          ...(getSelectedNativePassword && { getSelectedNativePassword }),
         });
       const result =
         descriptor.kind === 'candidate'
           ? await withCandidateAdminBearerDiagnostic<CommonNativeScenarioResult>(
               async (use) => withPhase2AdminManagementBearer(descriptor.target, fixture, use),
-              async (bearer) => run(createBearerPhase2AdminRequest(descriptor.target, bearer))
+              async (bearer, lease) =>
+                run(
+                  createBearerPhase2AdminRequest(descriptor.target, bearer),
+                  lease.getSelectedNativePassword ?? fail()
+                )
             )
           : await run(createReferencePhase2AdminRequest(descriptor.target));
       commonNativeScenarios = Object.freeze([result]);

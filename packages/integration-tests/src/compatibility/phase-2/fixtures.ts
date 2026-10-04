@@ -1855,9 +1855,10 @@ export const createCandidatePhase2FixtureProvisioner = (
     operation: 'provision' | 'projectState' | 'cleanup' | 'takeVerificationDelivery',
     secrets: readonly string[]
   ): Promise<Record<string, unknown>> => {
-    const invoke = async () =>
-      requireCommandResult(
-        await runner({
+    const invoke = async () => {
+      let raw;
+      try {
+        raw = await runner({
           command: options.executablePath,
           args: Object.freeze(['fixture', 'apply']),
           stdin: JSON.stringify(descriptor),
@@ -1866,10 +1867,48 @@ export const createCandidatePhase2FixtureProvisioner = (
           maxStdoutBytes: maximumCommandOutputBytes,
           maxStderrBytes: maximumCommandOutputBytes,
           shell: false,
-        })
-      );
+        });
+      } catch {
+        if (operation === 'cleanup') {
+          throw new Error('Phase 2 fixture cleanup command transport failed');
+        }
+        throw new Error(failure);
+      }
+      try {
+        if (operation === 'cleanup' && raw.timedOut) {
+          throw new Error('Phase 2 fixture cleanup command timeout failed');
+        }
+        if (operation === 'cleanup' && (raw.signal !== null || raw.killed)) {
+          throw new Error('Phase 2 fixture cleanup command signal failed');
+        }
+        if (operation === 'cleanup' && raw.exitCode !== 0) {
+          throw new Error('Phase 2 fixture cleanup command nonzero failed');
+        }
+        return requireCommandResult(raw);
+      } catch {
+        if (operation === 'cleanup') {
+          throw new Error(
+            raw.timedOut
+              ? 'Phase 2 fixture cleanup command timeout failed'
+              : raw.signal !== null || raw.killed
+                ? 'Phase 2 fixture cleanup command signal failed'
+                : raw.exitCode === 0
+                  ? 'Phase 2 fixture cleanup command malformed failed'
+                  : 'Phase 2 fixture cleanup command nonzero failed'
+          );
+        }
+        throw new Error(failure);
+      }
+    };
     const result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
-    return parseCommandOutput(result, operation, secrets);
+    try {
+      return parseCommandOutput(result, operation, secrets);
+    } catch {
+      if (operation === 'cleanup') {
+        throw new Error('Phase 2 fixture cleanup command response failed');
+      }
+      throw new Error(failure);
+    }
   };
 
   const runRejected = async (
@@ -1912,13 +1951,28 @@ export const createCandidatePhase2FixtureProvisioner = (
         allocationId: allocation.allocationId,
         ...(allocation.public && { public: allocation.public }),
       });
-      const result = await run(descriptor, 'cleanup', state.sensitiveValues);
-      if (own(result, 'ok') !== true) {
-        return fail(cleanupFailure);
+      let result;
+      try {
+        result = await run(descriptor, 'cleanup', state.sensitiveValues);
+      } catch (error: unknown) {
+        const category =
+          error instanceof Error
+            ? /^Phase 2 fixture cleanup command (transport|timeout|signal|nonzero|malformed|response) failed$/u.exec(
+                error.message
+              )?.[1]
+            : undefined;
+        throw new Error(`Phase 2 fixture cleanup first command-${category ?? 'unknown'} failed`);
       }
-      await runRejected(descriptor, state.sensitiveValues);
-    } catch {
-      return fail(cleanupFailure);
+      if (own(result, 'ok') !== true) {
+        throw new Error('Phase 2 fixture cleanup first ack failed');
+      }
+      try {
+        await runRejected(descriptor, state.sensitiveValues);
+      } catch {
+        throw new Error('Phase 2 fixture cleanup replay failed');
+      }
+    } catch (error: unknown) {
+      throw error instanceof Error ? error : new Error(cleanupFailure);
     }
   };
 
