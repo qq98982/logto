@@ -150,6 +150,10 @@ type Harness = Readonly<{
   normalizedInitialLeak: string;
   secretScanQueryFailure: string;
   clearSchemaLeak: string;
+  verificationForcedRlsFailure: string;
+  verificationSchemaFailure: string;
+  verificationCodeLeak: string;
+  verificationCiphertextFailure: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -245,6 +249,10 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const normalizedInitialLeak = path.join(root, 'normalized-initial-leak');
   const secretScanQueryFailure = path.join(root, 'secret-scan-query-failure');
   const clearSchemaLeak = path.join(root, 'clear-schema-leak');
+  const verificationForcedRlsFailure = path.join(root, 'verification-forced-rls-failure');
+  const verificationSchemaFailure = path.join(root, 'verification-schema-failure');
+  const verificationCodeLeak = path.join(root, 'verification-code-leak');
+  const verificationCiphertextFailure = path.join(root, 'verification-ciphertext-failure');
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -369,6 +377,24 @@ if [[ "$1" == exec ]]; then
   fi
   if [[ "$input" == *'relforcerowsecurity'* && "$input" == *'account_verification_records'* ]]; then
     printf '%s' '{"forcedRls":true,"columns":["tenant_id","verification_digest","account_id","verification_method","issued_at","expires_at"],"privileges":["INSERT","SELECT"],"recordCount":0}'
+    exit 0
+  fi
+  if [[ "$input" == *"'forcedRls',c.relforcerowsecurity"* && "$input" == *"relname='verification_codes'"* ]]; then
+    [[ "$copy_data" == $'a\\\\\\\\x62@phase2.example.invalid\t864209' ]] || exit 1
+    forced_rls=true
+    clear_code_columns=absent
+    code_absent=true
+    ciphertext_present=true
+    [[ -f '${verificationForcedRlsFailure}' ]] && forced_rls=false
+    [[ -f '${verificationSchemaFailure}' ]] && clear_code_columns=present
+    [[ -f '${verificationCodeLeak}' ]] && code_absent=false
+    [[ -f '${verificationCiphertextFailure}' ]] && ciphertext_present=false
+    printf '{"forcedRls":%s,"clearCodeColumns":"%s","codeAbsentFromRows":%s,"ciphertextPresent":%s}' "$forced_rls" "$clear_code_columns" "$code_absent" "$ciphertext_present"
+    exit 0
+  fi
+  if [[ "$input" == *"'ciphertextCleared'"* && "$input" == *'verification_codes'* ]]; then
+    [[ "$copy_data" == $'a\\\\\\\\x62@phase2.example.invalid' ]] || exit 1
+    printf '%s' '{"ciphertextCleared":true}'
     exit 0
   fi
   if [[ "$input" == *'relforcerowsecurity'* && "$input" == *"relname='device_authorizations'"* ]]; then
@@ -643,6 +669,10 @@ exec /usr/bin/python3.12 "$@"
     normalizedInitialLeak,
     secretScanQueryFailure,
     clearSchemaLeak,
+    verificationForcedRlsFailure,
+    verificationSchemaFailure,
+    verificationCodeLeak,
+    verificationCiphertextFailure,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -1975,6 +2005,117 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       stderr: 'Phase 2 client credentials invariant driver failed.\n',
     });
     await expect(readFile(harness.calls, 'utf8')).rejects.toThrow();
+  });
+
+  it('routes verification envelope probes by validated secret presence and preserves storage denials', async () => {
+    const harness = await createHarness();
+    const recipient = 'a\\x62@phase2.example.invalid';
+    const beforeRequest = deviceInvariantRequest(
+      'verification-code.envelope-secret-absent',
+      'probe',
+      { recipient, code: '864209' },
+      { stage: 'before-consumption' }
+    );
+    const afterRequest = deviceInvariantRequest(
+      'verification-code.envelope-secret-absent',
+      'probe',
+      { recipient },
+      { stage: 'after-consumption' }
+    );
+
+    const before = await invoke(harness.invariant, JSON.stringify(beforeRequest), harness.env);
+    expect(before.code).toBe(0);
+    expect(before.stderr).toBe('');
+    expect(JSON.parse(before.stdout)).toMatchObject({
+      invariantId: 'verification-code.envelope-secret-absent',
+      projection: {
+        forcedRls: true,
+        clearCodeColumns: 'absent',
+        codeAbsentFromRows: true,
+        ciphertextPresent: true,
+      },
+    });
+
+    const after = await invoke(harness.invariant, JSON.stringify(afterRequest), harness.env);
+    expect(after.code).toBe(0);
+    expect(after.stderr).toBe('');
+    expect(JSON.parse(after.stdout)).toMatchObject({
+      invariantId: 'verification-code.envelope-secret-absent',
+      projection: { ciphertextCleared: true },
+    });
+
+    const callsBeforeMalformed = await readFile(harness.calls, 'utf8');
+    const sqlBeforeMalformed = await readFile(harness.sql, 'utf8');
+    const malformed = await invoke(
+      harness.invariant,
+      JSON.stringify({ ...beforeRequest, private: { recipient, code: '12345' } }),
+      harness.env
+    );
+    expect(malformed).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await expect(readFile(harness.calls, 'utf8')).resolves.toBe(callsBeforeMalformed);
+    await expect(readFile(harness.sql, 'utf8')).resolves.toBe(sqlBeforeMalformed);
+
+    await writeFile(harness.verificationForcedRlsFailure, '', { mode: 0o600 });
+    const unforced = await invoke(harness.invariant, JSON.stringify(beforeRequest), harness.env);
+    expect(unforced).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await rm(harness.verificationForcedRlsFailure);
+
+    await writeFile(harness.verificationSchemaFailure, '', { mode: 0o600 });
+    const clearSchema = await invoke(harness.invariant, JSON.stringify(beforeRequest), harness.env);
+    expect(clearSchema).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await rm(harness.verificationSchemaFailure);
+
+    await writeFile(harness.verificationCodeLeak, '', { mode: 0o600 });
+    const clearCode = await invoke(harness.invariant, JSON.stringify(beforeRequest), harness.env);
+    expect(clearCode).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+    await rm(harness.verificationCodeLeak);
+
+    await writeFile(harness.verificationCiphertextFailure, '', { mode: 0o600 });
+    const ciphertextShape = await invoke(
+      harness.invariant,
+      JSON.stringify(beforeRequest),
+      harness.env
+    );
+    expect(ciphertextShape).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'Phase 2 client credentials invariant driver failed.\n',
+    });
+
+    const secret = '864209';
+    const encodedSecret = Buffer.from(secret).toString('base64');
+    const calls = await readFile(harness.calls, 'utf8');
+    const sql = await readFile(harness.sql, 'utf8');
+    const copyInvocation = calls
+      .split('\n')
+      .find((line) => line.includes('phase2_private_verification_code'));
+    expect(copyInvocation?.match(/--command=/gu)).toHaveLength(3);
+    expect(copyInvocation).toContain('COPY');
+    expect(calls).not.toContain('--set=code');
+    expect(calls).not.toContain('--set=recipient');
+    expect(sql).toContain("'forcedRls',c.relforcerowsecurity");
+    expect(sql).toContain("'ciphertextCleared'");
+    expect(sql).toContain('GROUP BY c.relforcerowsecurity,secrets.recipient,secrets.code');
+    for (const output of [calls, sql, before.stdout, before.stderr, after.stdout, after.stderr]) {
+      expect(output).not.toContain(secret);
+      expect(output).not.toContain(encodedSecret);
+    }
   });
 
   it('proves digest-only state from a real code-bound row without putting clear codes in argv', async () => {

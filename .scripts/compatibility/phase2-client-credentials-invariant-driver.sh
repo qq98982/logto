@@ -386,7 +386,9 @@ try:
         "verification-code.failed-delivery-state-preserved":{"probe":(verification_private,{"stage"})},
         "verification-code.envelope-secret-absent":{"probe":(verification_private,{"stage"}),"probe-secret":(verification_secret,{"stage"})},
       }
-      if invariant == "verification-code.envelope-secret-absent" and private_keys == verification_secret: operation="probe-secret"
+      if invariant == "verification-code.envelope-secret-absent" and private_keys == verification_secret:
+        operation="probe-secret"
+        value["operation"]=operation
       expected=allowed.get(invariant,{}).get(operation)
       if expected is None or private_keys != expected[0] or observation_keys != expected[1]: raise ValueError()
       for observed in value["observation"].values():
@@ -803,29 +805,21 @@ SQL
       ;;
     verification-code.envelope-secret-absent:probe-secret)
       recipient="$(value '.private.recipient')"; code="$(value '.private.code')"
-      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" --set="code=$code" <<'SQL'
-SELECT jsonb_build_object(
-  'forcedRls',c.relforcerowsecurity,
-  'clearCodeColumns',CASE WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='aster_tenant' AND table_name='verification_codes' AND column_name ~ '(code|secret|plaintext)' AND column_name NOT IN ('code_expires_at')) THEN 'present' ELSE 'absent' END,
-  'codeAbsentFromRows',NOT EXISTS(SELECT 1 FROM aster_tenant.verification_codes WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient') AND (position(convert_to(:'code','UTF8') in ciphertext)>0 OR position(convert_to(:'code','UTF8') in nonce)>0 OR position(:'code' in wrapping_key_id)>0)),
-  'ciphertextPresent',bool_and(v.ciphertext IS NOT NULL AND octet_length(v.ciphertext)=22 AND octet_length(v.nonce)=24))
-FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-JOIN aster_tenant.verification_codes v ON v.tenant_id='default' AND v.recipient_normalized=lower(:'recipient')
-WHERE n.nspname='aster_tenant' AND c.relname='verification_codes'
-GROUP BY c.relforcerowsecurity;
-SQL
-      )" || die
+      copy_recipient="${recipient//\\/\\\\}"
+      projection="$(printf '%s\t%s\n' "$copy_recipient" "$code" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_verification_code(recipient text,code text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_verification_code FROM STDIN;' \
+        --command=$'SELECT jsonb_build_object(\n  \'forcedRls\',c.relforcerowsecurity,\n  \'clearCodeColumns\',CASE WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=\'aster_tenant\' AND table_name=\'verification_codes\' AND column_name ~ \'(code|secret|plaintext)\' AND column_name NOT IN (\'code_expires_at\')) THEN \'present\' ELSE \'absent\' END,\n  \'codeAbsentFromRows\',NOT EXISTS(SELECT 1 FROM aster_tenant.verification_codes WHERE tenant_id=\'default\' AND recipient_normalized=lower(secrets.recipient) AND (position(convert_to(secrets.code,\'UTF8\') in ciphertext)>0 OR position(convert_to(secrets.code,\'UTF8\') in nonce)>0 OR position(secrets.code in wrapping_key_id)>0)),\n  \'ciphertextPresent\',bool_and(v.ciphertext IS NOT NULL AND octet_length(v.ciphertext)=22 AND v.nonce IS NOT NULL AND octet_length(v.nonce)=24))\nFROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace\nCROSS JOIN phase2_private_verification_code secrets\nJOIN aster_tenant.verification_codes v ON v.tenant_id=\'default\' AND v.recipient_normalized=lower(secrets.recipient)\nWHERE n.nspname=\'aster_tenant\' AND c.relname=\'verification_codes\'\nGROUP BY c.relforcerowsecurity,secrets.recipient,secrets.code;')" || die
       printf '%s' "$projection" | "$JQ_BIN" -e '.forcedRls==true and .clearCodeColumns=="absent" and .codeAbsentFromRows==true and .ciphertextPresent==true' >/dev/null || die
       terminal "$projection"
       ;;
     verification-code.envelope-secret-absent:probe)
       recipient="$(value '.private.recipient')"
-      projection="$(run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres --set="recipient=$recipient" <<'SQL'
-SELECT jsonb_build_object('ciphertextCleared',bool_and(ciphertext IS NULL AND nonce IS NULL AND wrapping_key_id IS NULL))
-FROM aster_tenant.verification_codes
-WHERE tenant_id='default' AND recipient_normalized=lower(:'recipient');
-SQL
-      )" || die
+      copy_recipient="${recipient//\\/\\\\}"
+      projection="$(printf '%s\n' "$copy_recipient" | run_sql "$primary_postgres_id" aster_phase1_candidate_primary postgres \
+        --command='CREATE TEMP TABLE phase2_private_verification_recipient(recipient text) ON COMMIT DROP;' \
+        --command='COPY phase2_private_verification_recipient FROM STDIN;' \
+        --command=$'SELECT jsonb_build_object(\'ciphertextCleared\',bool_and(ciphertext IS NULL AND nonce IS NULL AND wrapping_key_id IS NULL))\nFROM aster_tenant.verification_codes CROSS JOIN phase2_private_verification_recipient input\nWHERE tenant_id=\'default\' AND recipient_normalized=lower(input.recipient);')" || die
       printf '%s' "$projection" | "$JQ_BIN" -e '.ciphertextCleared==true' >/dev/null || die
       terminal "$projection"
       ;;
