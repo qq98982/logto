@@ -72,6 +72,45 @@ describe('Phase 2 base-preservation live runner', () => {
     expect(source).toContain('hash-object --no-filters -- "$PHASE1_RUNNER"');
     expect(source).toContain('transform_phase1_runner');
     expect(source).not.toContain('docker-compose.phase1-runtime-candidate-differential.yml');
+    expect(source).toContain('ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE="$SCRIPT_SUPERVISOR_IMAGE"');
+    expect(source).toContain('ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE="$SCRIPT_EXECUTOR_IMAGE"');
+  });
+
+  it('requires distinct immutable script host image IDs before deriving the runner', async () => {
+    const harness = path.join(temporaryRoot, 'script-host-input-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nload_required_script_host_images\nprintf '%s\\n%s\\n' "$SCRIPT_SUPERVISOR_IMAGE" "$SCRIPT_EXECUTOR_IMAGE"\n`,
+      { mode: 0o500 }
+    );
+    const supervisor = `sha256:${'1'.repeat(64)}`;
+    const executor = `sha256:${'2'.repeat(64)}`;
+    const run = async (environment: NodeJS.ProcessEnv) =>
+      executeFile('/usr/bin/bash', [harness], {
+        env: { PATH: '/usr/bin:/bin', ...environment },
+      });
+
+    await expect(
+      run({
+        ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE: supervisor,
+        ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE: executor,
+      })
+    ).resolves.toMatchObject({ stdout: `${supervisor}\n${executor}\n` });
+    await expect(run({ ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE: executor })).rejects.toBeDefined();
+    await expect(
+      run({
+        ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE: 'localhost/supervisor:latest',
+        ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE: executor,
+      })
+    ).rejects.toBeDefined();
+    await expect(
+      run({
+        ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE: supervisor,
+        ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE: supervisor,
+      })
+    ).rejects.toBeDefined();
   });
 
   it('binds the negative control to the exact live discovery scenario failure', () => {
@@ -114,6 +153,18 @@ describe('Phase 2 base-preservation live runner', () => {
       '--harness-commit "83d08f0821345d1bdc01491152949cc6f044ecfb"'
     );
     expect(generatedSource).not.toContain('raw-phase1-negative-control');
+    const supervisorEnvironment = [
+      'ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=',
+      '$',
+      '{ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:?required}',
+    ].join('');
+    const executorEnvironment = [
+      'ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE=',
+      '$',
+      '{ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE:?required}',
+    ].join('');
+    expect(generatedSource.split(supervisorEnvironment)).toHaveLength(2);
+    expect(generatedSource.split(executorEnvironment)).toHaveLength(2);
     const mappedWait = `wait "\${NODE_RUN_PID}" || {
   node_run_status=$?
   case "\${node_run_status}" in
@@ -166,6 +217,70 @@ describe('Phase 2 base-preservation live runner', () => {
     expect(generatedSource).not.toContain(
       `PHASE2_PROFILE_SOURCE="${phase1Root}/compatibility/phase-2-profile.json"`
     );
+  });
+
+  it('carries only the two script host IDs through the generated clean environment boundary', async () => {
+    const generated = path.join(temporaryRoot, 'script-host-env-derived-runner.sh');
+    const harness = path.join(temporaryRoot, 'script-host-env-transform-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash\nset -euo pipefail\nsource ${JSON.stringify(
+        runnerPath
+      )}\nNODE_BIN="$(command -v node)"\ntransform_phase1_runner ${JSON.stringify(
+        path.join(repositoryRoot, acceptedPhase1Runner)
+      )} ${JSON.stringify(generated)}\n`,
+      { mode: 0o500 }
+    );
+    await executeFile('/usr/bin/bash', [harness]);
+    const generatedSource = await readFile(generated, 'utf8');
+    const composeEnvironment = ['$', '{COMPOSE_ENV}'].join('');
+    const producerStart = generatedSource.indexOf(`cat >"${composeEnvironment}" <<EOF\n`);
+    const producerEnd = generatedSource.indexOf('\nEOF\n', producerStart);
+    expect(producerStart).toBeGreaterThan(0);
+    expect(producerEnd).toBeGreaterThan(producerStart);
+    const scriptHostLines = generatedSource
+      .slice(producerStart, producerEnd)
+      .split('\n')
+      .filter((line) => line.startsWith('ASTER_PHASE2_SCRIPT_'));
+    expect(scriptHostLines).toHaveLength(2);
+
+    const producer = path.join(temporaryRoot, 'script-host-env-producer.sh');
+    const output = path.join(temporaryRoot, 'script-host-compose.env');
+    await writeFile(
+      producer,
+      `#!/usr/bin/env bash\nset -euo pipefail\numask 077\noutput=$1\ncat >"$output" <<EOF\n${scriptHostLines.join(
+        '\n'
+      )}\nEOF\nchmod 0600 "$output"\n`,
+      { mode: 0o500 }
+    );
+    const supervisor = `sha256:${'3'.repeat(64)}`;
+    const executor = `sha256:${'4'.repeat(64)}`;
+    await executeFile('/usr/bin/env', [
+      '-i',
+      'PATH=/usr/bin:/bin',
+      `ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=${supervisor}`,
+      `ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE=${executor}`,
+      'ASTER_UNRELATED_AUTHORITY=must-not-cross',
+      '/usr/bin/bash',
+      producer,
+      output,
+    ]);
+    const [contents, metadata] = await Promise.all([readFile(output, 'utf8'), stat(output)]);
+    expect(contents).toBe(
+      `ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=${supervisor}\nASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE=${executor}\n`
+    );
+    expect(contents).not.toContain('ASTER_UNRELATED_AUTHORITY');
+    expect(metadata.mode % 0o1000).toBe(0o600);
+    await expect(
+      executeFile('/usr/bin/env', [
+        '-i',
+        'PATH=/usr/bin:/bin',
+        `ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=${supervisor}`,
+        '/usr/bin/bash',
+        producer,
+        path.join(temporaryRoot, 'missing-executor.env'),
+      ])
+    ).rejects.toBeDefined();
   });
 
   it('writes one parseable cleanup descriptor JSON document terminated by LF', async () => {

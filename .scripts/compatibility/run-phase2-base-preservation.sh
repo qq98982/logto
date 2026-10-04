@@ -26,6 +26,8 @@ PHASE1_ASTER_ROOT=''
 PHASE2_ASTER_ROOT=''
 PHASE1_ASTER_SOURCE_IDENTITY=''
 PHASE2_ASTER_SOURCE_IDENTITY=''
+SCRIPT_SUPERVISOR_IMAGE=''
+SCRIPT_EXECUTOR_IMAGE=''
 
 fail() {
   printf '%s\n' 'Aster Phase 2 base-preservation live gate failed.' >&2
@@ -124,6 +126,17 @@ load_required_aster_roots() {
   PHASE2_ASTER_ROOT=$phase2
   PHASE1_ASTER_SOURCE_IDENTITY=$phase1_identity
   PHASE2_ASTER_SOURCE_IDENTITY=$phase2_identity
+}
+
+load_required_script_host_images() {
+  [[ -n "${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE+x}" \
+    && -n "${ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE+x}" ]] || return 1
+  [[ "$ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE" =~ ^sha256:[0-9a-f]{64}$ \
+    && "$ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE" =~ ^sha256:[0-9a-f]{64}$ \
+    && "$ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE" != "$ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE" ]] \
+    || return 1
+  SCRIPT_SUPERVISOR_IMAGE=$ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE
+  SCRIPT_EXECUTOR_IMAGE=$ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE
 }
 
 validate_engine_socket() {
@@ -402,6 +415,10 @@ replaceExact(
   '  ASTER_PHASE1_EVIDENCE_DIR="${EVIDENCE_DIR}"\n  ASTER_PHASE2_CANDIDATE_SOURCE_COMMIT="${CANDIDATE_SOURCE_COMMIT}"\n)'
 );
 replaceExact(
+  'ASTER_PHASE1_HOST_FIXTURE_IMAGE=${HOST_FIXTURE_IMAGE}\n',
+  'ASTER_PHASE1_HOST_FIXTURE_IMAGE=${HOST_FIXTURE_IMAGE}\nASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE=${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE:?required}\nASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE=${ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE:?required}\n'
+);
+replaceExact(
   'CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:data:signing")"\n\nNODE_RUN_TOKEN=',
   'CANDIDATE_FOREIGN_SIGNING_KEY_SET_SHA256="$(domain_sha256 "${foreign_key_id}:data:signing")"\nCANDIDATE_SOURCE_COMMIT="$("${GIT_AUTHORITY[@]}" -C "${PHASE2_ASTER_ROOT}" rev-parse HEAD)"\n[[ "${CANDIDATE_SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || fail\n[[ -z "$("${GIT_AUTHORITY[@]}" -C "${PHASE2_ASTER_ROOT}" status --porcelain=v1 --untracked-files=all)" ]] || fail\nreadonly CANDIDATE_SOURCE_COMMIT\n\nNODE_RUN_TOKEN='
 );
@@ -542,6 +559,8 @@ run_transformed_topology() {
   ASTER_PHASE2_BASE_SCRIPT_DIR="$SCRIPT_DIR" \
   ASTER_PHASE2_BASE_STAGING_ROOT="$STAGING_ROOT" \
   ASTER_PHASE2_BASE_CLEANUP_DESCRIPTOR="$CLEANUP_DESCRIPTOR" \
+  ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE="$SCRIPT_SUPERVISOR_IMAGE" \
+  ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE="$SCRIPT_EXECUTOR_IMAGE" \
     /usr/bin/bash "$generated" >/dev/null 2>&1
 }
 
@@ -604,8 +623,10 @@ main() {
   status="$($GIT_BIN --no-replace-objects -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" || { fail; return 1; }
   [[ "$H_HEAD" =~ ^[0-9a-f]{40}$ && "$H_TREE" =~ ^[0-9a-f]{40}$ && -z "$status" ]] || { fail; return 1; }
   load_required_aster_roots || { fail; return 1; }
+  load_required_script_host_images || { fail; return 1; }
   readonly PHASE1_ASTER_ROOT PHASE2_ASTER_ROOT
   readonly PHASE1_ASTER_SOURCE_IDENTITY PHASE2_ASTER_SOURCE_IDENTITY
+  readonly SCRIPT_SUPERVISOR_IMAGE SCRIPT_EXECUTOR_IMAGE
   local build_root="${ASTER_PHASE1_BUILD_ROOT:-$DEFAULT_BUILD_ROOT}"
   require_private_root "$build_root" || { fail; return 1; }
   BUILD_ROOT="$build_root"
