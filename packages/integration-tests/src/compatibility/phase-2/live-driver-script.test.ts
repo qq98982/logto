@@ -434,7 +434,9 @@ if [[ "$1" == exec ]]; then
     exit 0
   fi
   if [[ "$input" == *"information_schema.columns"* && "$input" == *"token_families"* ]]; then
-    if [[ -f '${clearSchemaLeak}' || "$input" != *"AND NOT (table_name='token_families' AND column_name='id_token_projection')"* ]]; then
+    if [[ -f '${clearSchemaLeak}' \
+      || "$input" != *"(table_name='token_families' AND column_name='id_token_projection')"* \
+      || "$input" != *"(table_name='interactions' AND column_name='registration_password_hash')"* ]]; then
       printf '%s' 1
     else
       printf '%s' 0
@@ -2554,8 +2556,9 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(sql).toContain("SET LOCAL statement_timeout='20s'");
     expect(sql).toContain("SET LOCAL lock_timeout='5s'");
     expect(sql).toContain("position(decode(variants.encoded,'base64')");
+    expect(sql).toContain("(table_name='token_families' AND column_name='id_token_projection')");
     expect(sql).toContain(
-      "AND NOT (table_name='token_families' AND column_name='id_token_projection')"
+      "(table_name='interactions' AND column_name='registration_password_hash')"
     );
     expect(sql).not.toContain('string_agg(body');
   });

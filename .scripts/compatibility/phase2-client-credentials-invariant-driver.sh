@@ -1279,7 +1279,10 @@ SQL
 SELECT count(*) FROM information_schema.columns
 WHERE table_schema='aster_tenant' AND table_name IN ('device_authorizations','interactions','grants','sessions','token_families','refresh_tokens','session_access_tokens')
   AND column_name ~* '(^|_)(password|client_secret|device_code|user_code|xsrf|access_token|refresh_token|id_token)($|_)'
-  AND NOT (table_name='token_families' AND column_name='id_token_projection');
+  AND NOT (
+    (table_name='token_families' AND column_name='id_token_projection')
+    OR (table_name='interactions' AND column_name='registration_password_hash')
+  );
 SQL
       )" || device_secret_fail schema-query
       [[ "$clear_columns" == 0 ]] || device_secret_fail schema-clear-columns
