@@ -174,7 +174,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 177 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 178 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -245,7 +245,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 177 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 178 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -265,6 +265,12 @@ describe('Phase 2 public provenance envelope', () => {
         ],
       })
     ).toBe('device-1');
+    expect(
+      sanitizerStageOf({
+        ...safeEvidence,
+        scenarios: [{ id: 'common.native.code-pkce', projection: { privateKey: 'planted' } }],
+      })
+    ).toBe('native-0');
   });
 
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
@@ -438,8 +444,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 176-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 176 }, (_, index) => ({
+  it('publishes the full 177-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 177 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

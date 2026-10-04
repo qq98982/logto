@@ -208,6 +208,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.native\.code-pkce\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&
@@ -230,7 +237,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5]))\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176)\)\.\n$/u.test(
       stderr
     )
   ) {
@@ -763,7 +770,9 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
-    ...(oracleSmtpSocket === undefined ? {} : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),
+    ...(oracleSmtpSocket === undefined
+      ? {}
+      : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),
   });
   const value = Object.freeze({ entryPath, environment, runtime });
   preparedRuntimes.set(dependencies, Object.freeze({ source: before, runtime, value }));

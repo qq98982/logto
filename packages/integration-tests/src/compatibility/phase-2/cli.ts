@@ -61,9 +61,12 @@ import {
   type Phase2TargetProvenance,
 } from './envelope.js';
 import {
+  createBearerPhase2AdminRequest,
   createCandidatePhase2FixtureProvisioner,
+  createReferencePhase2AdminRequest,
   createReferencePhase2FixtureProvisioner,
   runWithPhase2Fixture,
+  type Phase2AdminRequestFunction,
   type Phase2CandidateFixtureRecipe,
   type Phase2FixtureSecretLease,
   type Phase2FixtureProvisioner,
@@ -110,6 +113,12 @@ import {
   type ClientCredentialsControlResult,
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
+import {
+  commonNativeScenarioIds,
+  compareCommonNativeCodePkceProjections,
+  createCommonNativeScenarioRegistry,
+  type CommonNativeScenarioResult,
+} from './scenarios/common-native.js';
 import {
   compareCustomJwtProjections,
   customJwtFetchScenarioIds,
@@ -226,6 +235,7 @@ type TargetScenarioEvidence = Readonly<{
     | LogoutSessionScenarioResult
     | DeviceAuthorizationScenarioResult
     | VerificationCodeScenarioResult
+    | CommonNativeScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
   >;
@@ -444,7 +454,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -481,7 +491,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 const candidateAdminConsumerStageFailurePattern =
@@ -501,6 +511,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (tokenStatusScenarioIds as readonly string[]).includes(value) ||
   (logoutSessionScenarioIds as readonly string[]).includes(value) ||
   (verificationCodeScenarioIds as readonly string[]).includes(value) ||
+  (commonNativeScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -509,7 +520,7 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
     use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>
   ) => Promise<Result>,
   use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>,
-  deviceStage: () => DeviceResourceRefreshFailureStage | undefined
+  deviceStage?: () => DeviceResourceRefreshFailureStage | undefined
 ): Promise<Result> => {
   let consumerError: unknown;
   try {
@@ -532,7 +543,7 @@ export const withCandidateAdminBearerDiagnostic = async <Result>(
           : undefined;
       const failureIndex = failure?.[1];
       if (failureIndex !== undefined) {
-        const stage = deviceStage();
+        const stage = deviceStage?.();
         throw new Error(
           failureIndex === '22' && stage !== undefined
             ? `Phase 2 stage failed: candidate-custom-jwt-22:${stage}`
@@ -1227,6 +1238,34 @@ const runTargetScenarios = async (
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-verification-code`);
     }
+    let commonNativeScenarios: readonly CommonNativeScenarioResult[];
+    try {
+      const scenario = createCommonNativeScenarioRegistry(profile)[0];
+      const run = async (managementRequest: Phase2AdminRequestFunction) =>
+        scenario.run({
+          target: descriptor.target,
+          fixture,
+          managementRequest,
+          jwks,
+        });
+      const result =
+        descriptor.kind === 'candidate'
+          ? await withCandidateAdminBearerDiagnostic<CommonNativeScenarioResult>(
+              async (use) => withPhase2AdminManagementBearer(descriptor.target, fixture, use),
+              async (bearer) => run(createBearerPhase2AdminRequest(descriptor.target, bearer))
+            )
+          : await run(createReferencePhase2AdminRequest(descriptor.target));
+      commonNativeScenarios = Object.freeze([result]);
+    } catch (error: unknown) {
+      if (
+        descriptor.kind === 'candidate' &&
+        error instanceof Error &&
+        candidateAdminBearerStageFailurePattern.test(error.message)
+      ) {
+        throw error;
+      }
+      throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${commonNativeScenarioIds[0]}`);
+    }
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1464,6 +1503,7 @@ const runTargetScenarios = async (
       ...customJwtScenarios,
       ...customJwtFetchScenarios,
       ...verificationCodeScenarios,
+      ...commonNativeScenarios,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -1611,6 +1651,19 @@ const executeDifferential = async (
     const isVerificationCode = (verificationCodeScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    const isCommonNative = (commonNativeScenarioIds as readonly string[]).includes(
+      oracleScenario.id
+    );
+    if (isCommonNative) {
+      const found = compareCommonNativeCodePkceProjections(
+        oracleScenario.projection as CommonNativeScenarioResult['projection'],
+        candidateScenario.projection as CommonNativeScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(`Phase 2 scenario failed: candidate/${commonNativeScenarioIds[0]}`);
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
     if (isVerificationCode) {
       const found = compareVerificationCodeProjections(
         oracleScenario.projection,

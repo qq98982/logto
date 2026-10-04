@@ -10,6 +10,7 @@ import type {
 import { observeClientCredentialsToken } from './clients/client-credentials.js';
 import {
   createCandidatePhase2FixtureProvisioner,
+  createBearerPhase2AdminRequest,
   createReferencePhase2AdminRequest,
   createReferencePhase2FixtureProvisioner,
   phase2FixtureContract,
@@ -548,6 +549,43 @@ describe('Phase 2 fixture lifecycle', () => {
       })
     ).rejects.toThrow('Phase 2 fixture operation failed');
     expect(requested).toHaveLength(1);
+  });
+
+  it('reuses the selected Management transport with one bounded bearer authority', async () => {
+    const requests: Array<Readonly<{ url: string; authorization: string | undefined }>> = [];
+    const request = createBearerPhase2AdminRequest(
+      candidate,
+      'candidate-management-bearer',
+      async (input, init) => {
+        requests.push(
+          Object.freeze({
+            url: String(input),
+            authorization: new Headers(init?.headers).get('authorization') ?? undefined,
+          })
+        );
+        return new Response('[]', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+    );
+    await expect(
+      request({
+        method: 'GET',
+        path: 'resources',
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).resolves.toEqual([]);
+    expect(requests).toEqual([
+      {
+        url: 'http://127.0.0.1:4201/api/resources',
+        authorization: 'Bearer candidate-management-bearer',
+      },
+    ]);
+    expect(() => createBearerPhase2AdminRequest(candidate, 'bad bearer')).toThrow(
+      'Phase 2 fixture operation failed'
+    );
   });
 
   it('reconciles owned reference rows after partial provisioning failure', async () => {

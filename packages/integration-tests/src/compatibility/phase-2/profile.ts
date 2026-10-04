@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '042677694eb5b1fa7f21bccb96b2a09d3e12b88d5c2ea2ec942f0f5de71500c5';
-const expectedSchemaSha256 = '59dbfc9240d30e65fb2356def869579003de5564dd03ea8f234efa0265caedca';
+const expectedProfileSha256 = '39521165d6c1291549b24d42dfcba69d02ced138981634c0f57ae855d5daa515';
+const expectedSchemaSha256 = '76fcbcd2942222cdc64d155359aa4e0d326cea8d6cfc9d97064e775cc3011a95';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -202,6 +202,7 @@ const differentialScenarioIds = [
   'verification-code.failed-delivery-preserves-current',
   'verification-code.experience-consumed-replay',
   'verification-code.account-request-verify-replay',
+  'common.native.code-pkce',
 ] as const;
 const deviceOperationIds = [
   'device.authorize',

@@ -640,8 +640,12 @@ const readBoundedResponseBody = async (
   return bytes;
 };
 
-export const createReferencePhase2AdminRequest =
-  (target: TargetConfig, requestFetch: typeof fetch = fetch): Phase2AdminRequestFunction =>
+const createPhase2AdminRequest =
+  (
+    target: TargetConfig,
+    createHeaders: () => Headers,
+    requestFetch: typeof fetch
+  ): Phase2AdminRequestFunction =>
   async (input) => {
     if (!/^[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/u.test(input.path) || input.path.startsWith('/')) {
       return fail();
@@ -662,7 +666,7 @@ export const createReferencePhase2AdminRequest =
     ) {
       return fail();
     }
-    const headers = new Headers({ 'development-user-id': 'integration-test-admin-user' });
+    const headers = createHeaders();
     if (input.body !== undefined) {
       headers.set('content-type', 'application/json');
     }
@@ -695,6 +699,38 @@ export const createReferencePhase2AdminRequest =
     }
     return exactRecord(value);
   };
+
+export const createReferencePhase2AdminRequest = (
+  target: TargetConfig,
+  requestFetch: typeof fetch = fetch
+): Phase2AdminRequestFunction =>
+  createPhase2AdminRequest(
+    target,
+    () => new Headers({ 'development-user-id': 'integration-test-admin-user' }),
+    requestFetch
+  );
+
+export const createBearerPhase2AdminRequest = (
+  target: TargetConfig,
+  bearer: string,
+  requestFetch: typeof fetch = fetch
+): Phase2AdminRequestFunction => {
+  if (
+    bearer.length === 0 ||
+    Buffer.byteLength(bearer) > 8192 ||
+    [...bearer].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 0x20 || code === 0x7f;
+    })
+  ) {
+    return fail();
+  }
+  return createPhase2AdminRequest(
+    target,
+    () => new Headers({ authorization: `Bearer ${bearer}` }),
+    requestFetch
+  );
+};
 
 const referenceCall = async (
   request: Phase2AdminRequestFunction,

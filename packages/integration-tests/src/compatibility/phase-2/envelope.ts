@@ -43,6 +43,7 @@ import {
   type Phase2PublicHarnessProvenance,
   type Phase2SourceIdentity,
 } from './provenance.js';
+import { commonNativeScenarioIds } from './scenarios/common-native.js';
 import {
   deviceAuthorizationScenarioIds,
   publishDeviceScenarioProjection,
@@ -166,7 +167,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 176).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 177).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -350,7 +351,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 176).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 177).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -373,6 +374,10 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
           scenario.projection as DeviceScenarioProjection,
           scenario.id as DeviceAuthorizationScenarioId
         );
+      });
+    } else if ((commonNativeScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`native-${index}`, () => {
+        assertWithBothSanitizers(scenario.projection);
       });
     } else {
       assertSanitizedAt(`client-${index}`, () => {
