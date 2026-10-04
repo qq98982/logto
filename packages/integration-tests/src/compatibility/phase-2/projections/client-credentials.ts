@@ -130,6 +130,8 @@ const allowedSensitiveMetadataKeys = new Set([
   'setCookieCount',
   'userDigestBytes',
 ]);
+const isAllowedSensitiveMetadata = (object: Record<string, unknown>, key: string): boolean =>
+  allowedSensitiveMetadataKeys.has(key) || (key === 'idTokenAlgorithm' && object[key] === 'ES384');
 const jwtProofs = new WeakMap<object, Readonly<{ jwt: object; issuedAt: number; jwtId: string }>>();
 const consumedJwtProofs = new WeakSet<object>();
 
@@ -608,7 +610,7 @@ const inspectEvidence = (
   if (
     (typeof object.kty === 'string' && normalizedKeys.some((key) => privateJwkMembers.has(key))) ||
     Object.keys(object).some(
-      (key) => forbiddenKeyPattern.test(key) && !allowedSensitiveMetadataKeys.has(key)
+      (key) => forbiddenKeyPattern.test(key) && !isAllowedSensitiveMetadata(object, key)
     )
   ) {
     return fail();

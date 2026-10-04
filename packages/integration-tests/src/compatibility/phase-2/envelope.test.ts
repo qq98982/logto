@@ -273,6 +273,74 @@ describe('Phase 2 public provenance envelope', () => {
     ).toBe('native-0');
   });
 
+  it('accepts only the verified Native ID token algorithm metadata at row 177', () => {
+    const clientScenario = {
+      id: 'client-credentials.basic-explicit-resource',
+      projection: { http: { status: 200 } },
+    };
+    const nativeProjection = {
+      applicationType: 'Native',
+      firstParty: true,
+      pkce: 'S256',
+      stateNonceDistinct: true,
+      issuerBound: true,
+      discoverySameOrigin: true,
+      jwksSameOrigin: true,
+      userinfoEndpoint: '/oidc/me',
+      idTokenAlgorithm: 'ES384',
+      expectedSubject: true,
+      resourceToken: 'jwt',
+      resourceScope: 'session:exchange',
+      resourceTtlSeconds: 300,
+      profileToken: 'opaque',
+      profileSubject: true,
+      resourceRefresh: 'jwt',
+      resourceRefreshTtlSeconds: 300,
+      targetOwnedCleanup: true,
+    };
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [
+        ...Array.from({ length: 176 }, () => clientScenario),
+        { id: 'common.native.code-pkce', projection: nativeProjection },
+      ],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const idTokenAlgorithm of [
+      'RS256',
+      'Bearer private-value',
+      'arbitrary',
+      { algorithm: 'ES384' },
+    ] as const) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [
+            ...evidence.scenarios.slice(0, -1),
+            {
+              id: 'common.native.code-pkce',
+              projection: { ...nativeProjection, idTokenAlgorithm },
+            },
+          ],
+        })
+      ).toBe('native-176');
+    }
+    expect(
+      sanitizerStageOf({
+        ...evidence,
+        scenarios: [
+          ...evidence.scenarios.slice(0, -1),
+          {
+            id: 'common.native.code-pkce',
+            projection: { ...nativeProjection, id_token_algorithm: 'ES384' },
+          },
+        ],
+      })
+    ).toBe('native-176');
+  });
+
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
     const artifactProfile = {
       ...profile,
