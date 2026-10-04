@@ -45,6 +45,21 @@ export type Phase2FixturePublic = Readonly<{
     primary: 'provisioned';
     foreign: 'unchanged';
   }>;
+  selectedNative?: Phase2SelectedNativePublic;
+}>;
+
+export type Phase2SelectedNativePublic = Readonly<{
+  clientId: string;
+  applicationType: 'Native';
+  redirectUri: string;
+  resource: Readonly<{
+    id: string;
+    indicator: string;
+    accessTokenTtl: 300;
+    scope: Readonly<{ id: string; name: 'session:exchange' }>;
+  }>;
+  defaultUserRoleId: string;
+  identity: Readonly<{ id: string; primaryEmail: string }>;
 }>;
 
 type Phase2DeviceClientPublic = Readonly<{
@@ -70,6 +85,7 @@ export type Phase2FixtureSecretLease = {
   getSubjectPassword?(): string;
   getAdminPassword?(): string;
   getVerificationPeerPassword?(): string;
+  getSelectedNativePassword?(): string;
   takeVerificationCode?(recipient: string): Promise<string>;
   toJSON(): never;
 };
@@ -92,6 +108,7 @@ export type Phase2FixtureProvisioner = {
 export type Phase2AdminRequest = Readonly<{
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
+  query?: Readonly<Record<string, string>>;
   body?: unknown;
   expectedStatuses: readonly number[];
   responseKind: 'object' | 'array' | 'created' | 'empty' | 'status';
@@ -119,6 +136,7 @@ type CandidateProvisionerOptions = Readonly<{
   identityFence?: Phase2InvocationFence;
   createAllocationId?: () => string;
   createSecret?: () => string;
+  createSelectedNativePassword?: () => string;
   recipe?: Phase2CandidateFixtureRecipe;
 }>;
 
@@ -132,6 +150,7 @@ type FixtureState = {
     subjectPassword: string;
     adminPassword?: string;
     verificationPeerPassword?: string;
+    selectedNativePassword?: string;
   }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
@@ -498,6 +517,14 @@ const createFixture = (
             return secrets.verificationPeerPassword ?? fail();
           },
         }),
+        ...(secrets.selectedNativePassword && {
+          getSelectedNativePassword: () => {
+            if (!leaseActive || state.revoked) {
+              return fail();
+            }
+            return secrets.selectedNativePassword ?? fail();
+          },
+        }),
         ...(takeVerificationCode && {
           takeVerificationCode: async (recipient: string) => {
             if (!leaseActive || state.revoked) {
@@ -613,17 +640,35 @@ const readBoundedResponseBody = async (
   return bytes;
 };
 
-const createFetchAdminRequest =
+export const createReferencePhase2AdminRequest =
   (target: TargetConfig, requestFetch: typeof fetch = fetch): Phase2AdminRequestFunction =>
   async (input) => {
     if (!/^[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/u.test(input.path) || input.path.startsWith('/')) {
+      return fail();
+    }
+    const query = Object.entries(input.query ?? {});
+    if (
+      query.length > 8 ||
+      query.some(
+        ([key, value]) =>
+          !/^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(key) ||
+          value.length === 0 ||
+          Buffer.byteLength(value) > 256 ||
+          [...value].some((character) => {
+            const code = character.codePointAt(0) ?? 0;
+            return code <= 0x1f || code === 0x7f;
+          })
+      )
+    ) {
       return fail();
     }
     const headers = new Headers({ 'development-user-id': 'integration-test-admin-user' });
     if (input.body !== undefined) {
       headers.set('content-type', 'application/json');
     }
-    const response = await requestFetch(new URL(`/api/${input.path}`, target.coreUrl), {
+    const url = new URL(`/api/${input.path}`, target.coreUrl);
+    url.search = new URLSearchParams(query).toString();
+    const response = await requestFetch(url, {
       method: input.method,
       headers,
       redirect: 'manual',
@@ -874,7 +919,7 @@ export const createReferencePhase2FixtureProvisioner = (
   const target = validateTargetConfig(options.target);
   const foreignTarget = validateTargetConfig(options.foreignTarget);
   assertPairwiseTargets(target, foreignTarget);
-  const request = options.request ?? createFetchAdminRequest(target);
+  const request = options.request ?? createReferencePhase2AdminRequest(target);
   const createAllocationId = options.createAllocationId ?? randomUUID;
   const states = new WeakMap<object, FixtureState & { journal: ReferenceCleanup[] }>();
 
@@ -959,6 +1004,7 @@ export const createReferencePhase2FixtureProvisioner = (
       const allocationId = safeAllocationId(createAllocationId());
       const marker = `${markerPrefix}${allocationId}`;
       const subjectPassword = `${randomBytes(20).toString('base64url')}A1!`;
+      const selectedNativePassword = `${randomBytes(20).toString('base64url')}A1!`;
       const state: FixtureState & { journal: ReferenceCleanup[] } = {
         allocationId,
         secrets: Object.freeze({
@@ -966,8 +1012,9 @@ export const createReferencePhase2FixtureProvisioner = (
           post: '',
           statusConfidential: '',
           subjectPassword,
+          selectedNativePassword,
         }),
-        sensitiveValues: Object.freeze([subjectPassword]),
+        sensitiveValues: Object.freeze([subjectPassword, selectedNativePassword]),
         revoked: false,
         journal: [],
       };
@@ -1100,12 +1147,14 @@ export const createReferencePhase2FixtureProvisioner = (
           post: post.secret,
           statusConfidential: statusConfidentialSecret,
           subjectPassword,
+          selectedNativePassword,
         });
         state.sensitiveValues = Object.freeze([
           basic.secret,
           post.secret,
           statusConfidentialSecret,
           subjectPassword,
+          selectedNativePassword,
         ]);
         const primary = await createResource('primary', primaryIndicator);
         const defaultResource = await createResource('default', defaultIndicator);
@@ -1760,6 +1809,8 @@ export const createCandidatePhase2FixtureProvisioner = (
   const runner = options.runner ?? runPhase1FixtureCommand;
   const createAllocationId = options.createAllocationId ?? randomUUID;
   const createSecret = options.createSecret ?? (() => randomBytes(16).toString('hex'));
+  const createSelectedNativePassword =
+    options.createSelectedNativePassword ?? (() => `${randomBytes(20).toString('base64url')}A1!`);
   const recipe = options.recipe ?? 'fullPhase1';
   const states = new WeakMap<object, FixtureState>();
 
@@ -1864,6 +1915,7 @@ export const createCandidatePhase2FixtureProvisioner = (
       const statusConfidential = createSecret();
       const subjectPassword = createSecret();
       const adminPassword = createSecret();
+      const selectedNativePassword = createSelectedNativePassword();
       const verificationPeerPassword =
         recipe === 'phase2CandidateInvariants'
           ? createHash('sha256')
@@ -1878,6 +1930,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         subjectPassword,
         adminPassword,
         verificationPeerPassword,
+        selectedNativePassword,
       });
       if (
         secrets.basic === secrets.post ||
@@ -1890,6 +1943,11 @@ export const createCandidatePhase2FixtureProvisioner = (
         adminPassword === secrets.post ||
         adminPassword === statusConfidential ||
         adminPassword === subjectPassword ||
+        selectedNativePassword === secrets.basic ||
+        selectedNativePassword === secrets.post ||
+        selectedNativePassword === statusConfidential ||
+        selectedNativePassword === subjectPassword ||
+        selectedNativePassword === adminPassword ||
         (verificationPeerPassword !== undefined &&
           (verificationPeerPassword === secrets.basic ||
             verificationPeerPassword === secrets.post ||
@@ -1901,6 +1959,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         !/^[a-z0-9]{32}$/u.test(statusConfidential) ||
         !/^[a-z0-9]{32}$/u.test(subjectPassword) ||
         !/^[a-z0-9]{32}$/u.test(adminPassword) ||
+        !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedNativePassword) ||
         (verificationPeerPassword !== undefined &&
           !/^[a-z0-9]{32}$/u.test(verificationPeerPassword))
       ) {
@@ -1916,6 +1975,7 @@ export const createCandidatePhase2FixtureProvisioner = (
           statusConfidential,
           subjectPassword,
           adminPassword,
+          selectedNativePassword,
           ...(verificationPeerPassword === undefined ? [] : [verificationPeerPassword]),
         ]),
         revoked: false,

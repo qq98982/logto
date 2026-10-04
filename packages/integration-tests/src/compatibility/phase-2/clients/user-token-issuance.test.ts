@@ -41,6 +41,20 @@ const fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'> = {
       },
     }),
 };
+const nativeIdentityFixture = {
+  identity: { id: 'selected-native-user', primaryEmail: 'native@example.com' },
+  withSecretLease: async <Result>(
+    use: (
+      lease: Readonly<{ getSelectedNativePassword(): string; toJSON(): never }>
+    ) => Promise<Result>
+  ): Promise<Result> =>
+    use({
+      getSelectedNativePassword: () => 'private-native-password',
+      toJSON: (): never => {
+        throw new Error('native identity secret lease');
+      },
+    }),
+};
 
 const response = (status: number, body?: unknown, headers?: HeadersInit): Response =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -132,6 +146,7 @@ describe('Phase 2 public user token issuance transport', () => {
     const handoff = await stopPublicNativeAtCallback(
       target,
       fixture,
+      nativeIdentityFixture,
       {
         clientId: 'actual-native-client',
         redirectUri: 'https://native.example/logto-callback',
@@ -149,11 +164,16 @@ describe('Phase 2 public user token issuance transport', () => {
       'openid offline_access profile session:exchange'
     );
     expect(requests[0]?.url.searchParams.get('resource')).toBe('https://native-api.example/api');
+    expect(JSON.parse(String(requests[2]?.init.body))).toEqual({
+      identifier: { type: 'email', value: 'native@example.com' },
+      password: 'private-native-password',
+    });
     expect(handoff.getCallbackUrl()).toBe(
       `https://native.example/logto-callback?code=private-code&state=${handoff.getState()}&iss=${encodeURIComponent(expectedIssuer)}`
     );
     expect(requests[0]?.url.searchParams.get('state')).toBe(handoff.getState());
     expect(requests[0]?.url.searchParams.get('nonce')).toBe(handoff.getNonce());
+    expect(handoff.getExpectedSubject()).toBe('selected-native-user');
     expect(handoff.getVerifier()).toMatch(/^[A-Za-z0-9_-]{43}$/u);
     expect(inspect(handoff)).toBe('NativeCallbackHandoff(<redacted>)');
     expect(() => JSON.stringify(handoff)).toThrow('Invalid Phase 2 public user token issuance');
@@ -165,8 +185,63 @@ describe('Phase 2 public user token issuance transport', () => {
       stopPublicNativeAtCallback(
         target,
         fixture,
+        nativeIdentityFixture,
         {
           clientId: 'public-client',
+          redirectUri: 'https://native.example/logto-callback',
+          expectedIssuer,
+          resourceIndicator: 'https://native-api.example/api',
+          resourceScope: 'session:exchange',
+        },
+        async () => {
+          calls.value += 1;
+          return response(500);
+        }
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (admission)');
+    expect(calls.value).toBe(0);
+  });
+
+  it.each([
+    [
+      'identity',
+      {
+        withSecretLease: async <Result>(
+          use: (
+            lease: Readonly<{ getSelectedNativePassword(): string; toJSON(): never }>
+          ) => Promise<Result>
+        ) =>
+          use({
+            getSelectedNativePassword: () => 'private-native-password',
+            toJSON: (): never => {
+              throw new Error('native identity secret lease');
+            },
+          }),
+      },
+    ],
+    [
+      'dedicated password getter',
+      {
+        identity: { id: 'selected-native-user', primaryEmail: 'native@example.com' },
+        withSecretLease: async <Result>(
+          use: (lease: Readonly<{ toJSON(): never }>) => Promise<Result>
+        ) =>
+          use({
+            toJSON: (): never => {
+              throw new Error('native identity secret lease');
+            },
+          }),
+      },
+    ],
+  ])('rejects missing selected Native %s before network use', async (_name, identityFixture) => {
+    const calls = { value: 0 };
+    await expect(
+      stopPublicNativeAtCallback(
+        target,
+        fixture,
+        identityFixture,
+        {
+          clientId: 'actual-native-client',
           redirectUri: 'https://native.example/logto-callback',
           expectedIssuer,
           resourceIndicator: 'https://native-api.example/api',
@@ -277,6 +352,7 @@ describe('Phase 2 public user token issuance transport', () => {
       stopPublicNativeAtCallback(
         target,
         fixture,
+        nativeIdentityFixture,
         {
           clientId: 'actual-native-client',
           redirectUri,
@@ -299,6 +375,7 @@ describe('Phase 2 public user token issuance transport', () => {
       stopPublicNativeAtCallback(
         target,
         fixture,
+        nativeIdentityFixture,
         {
           clientId: 'actual-native-client',
           redirectUri,

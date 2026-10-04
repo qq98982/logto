@@ -31,7 +31,17 @@ export type NativeCallbackHandoff = Readonly<{
   getVerifier(): string;
   getState(): string;
   getNonce(): string;
+  getExpectedSubject(): string;
   toJSON(): never;
+}>;
+
+export type NativeCallbackIdentityFixture = Readonly<{
+  identity?: Readonly<{ id: string; primaryEmail: string }>;
+  withSecretLease<Result>(
+    use: (
+      lease: Readonly<{ getSelectedNativePassword?(): string; toJSON(): never }>
+    ) => Promise<Result>
+  ): Promise<Result>;
 }>;
 
 const diagnostic = 'Invalid Phase 2 public user token issuance';
@@ -154,6 +164,7 @@ const issueUserTokens = async (
     resourceAtCodeExchange?: boolean;
     signal?: AbortSignal;
     nativeClient?: NativeCallbackClient;
+    nativeIdentityFixture?: NativeCallbackIdentityFixture;
     stopAtNativeCallback?: boolean;
   }> = {}
 ): Promise<IssuedPublicUserTokens | IssuedPublicUserSession | NativeCallbackHandoff> => {
@@ -167,6 +178,21 @@ const issueUserTokens = async (
         options.nativeClient.resourceScope !== 'session:exchange')
     ) {
       return fail();
+    }
+    const nativeIdentity = options.nativeIdentityFixture?.identity;
+    if (
+      options.stopAtNativeCallback &&
+      (!options.nativeIdentityFixture ||
+        !nativeIdentity ||
+        bounded(nativeIdentity.id, 256) !== nativeIdentity.id ||
+        bounded(nativeIdentity.primaryEmail, 320) !== nativeIdentity.primaryEmail)
+    ) {
+      return fail();
+    }
+    if (options.stopAtNativeCallback) {
+      await options.nativeIdentityFixture?.withSecretLease(async (lease) => {
+        bounded(lease.getSelectedNativePassword?.(), 256);
+      });
     }
     if (options.nativeClient) {
       const nativeRedirect = new URL(options.nativeClient.redirectUri);
@@ -254,7 +280,10 @@ const issueUserTokens = async (
     stage = 'authorization';
     await discard(await requireStatus(await send(authorization, 'GET'), 303));
     stage = 'bootstrap';
-    const identifyWithPassword = async (passwordInput: string) => {
+    const identifyWithPassword = async (
+      passwordInput: string,
+      identifier: Readonly<{ type: 'username' | 'email'; value: string }>
+    ) => {
       const password = bounded(passwordInput, 256);
       await discard(
         await requireStatus(
@@ -267,8 +296,8 @@ const issueUserTokens = async (
         await requireStatus(
           await send(endpoint('/api/experience/verification/password'), 'POST', {
             identifier: {
-              type: 'username',
-              value: options.subjectUsername ?? status.user.username,
+              type: identifier.type,
+              value: identifier.value,
             },
             password,
           }),
@@ -284,11 +313,24 @@ const issueUserTokens = async (
         )
       );
     };
-    await (options.subjectPassword === undefined
-      ? fixture.withSecretLease(async (lease) =>
-          identifyWithPassword(lease.getSubjectPassword?.() ?? fail())
-        )
-      : identifyWithPassword(options.subjectPassword));
+    await (options.stopAtNativeCallback
+      ? (options.nativeIdentityFixture?.withSecretLease(async (lease) =>
+          identifyWithPassword(lease.getSelectedNativePassword?.() ?? fail(), {
+            type: 'email',
+            value: nativeIdentity?.primaryEmail ?? fail(),
+          })
+        ) ?? fail())
+      : options.subjectPassword === undefined
+        ? fixture.withSecretLease(async (lease) =>
+            identifyWithPassword(lease.getSubjectPassword?.() ?? fail(), {
+              type: 'username',
+              value: options.subjectUsername ?? status.user.username,
+            })
+          )
+        : identifyWithPassword(options.subjectPassword, {
+            type: 'username',
+            value: options.subjectUsername ?? status.user.username,
+          }));
     stage = 'submit';
     const submitted = await jsonBody(
       await requireStatus(await send(endpoint('/api/experience/submit'), 'POST'), 200)
@@ -357,6 +399,7 @@ const issueUserTokens = async (
         getVerifier: () => verifier,
         getState: () => state,
         getNonce: () => nonce,
+        getExpectedSubject: () => nativeIdentity?.id ?? fail(),
         toJSON: (): never => fail(),
         [inspect.custom]: () => 'NativeCallbackHandoff(<redacted>)',
       });
@@ -421,11 +464,13 @@ const issueUserTokens = async (
 export const stopPublicNativeAtCallback = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  nativeIdentityFixture: NativeCallbackIdentityFixture,
   nativeClient: NativeCallbackClient,
   requestFetch: typeof fetch = fetch
 ): Promise<NativeCallbackHandoff> =>
   issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
     nativeClient,
+    nativeIdentityFixture,
     stopAtNativeCallback: true,
   }) as Promise<NativeCallbackHandoff>;
 

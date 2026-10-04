@@ -10,6 +10,7 @@ import type {
 import { observeClientCredentialsToken } from './clients/client-credentials.js';
 import {
   createCandidatePhase2FixtureProvisioner,
+  createReferencePhase2AdminRequest,
   createReferencePhase2FixtureProvisioner,
   phase2FixtureContract,
   runWithPhase2Fixture,
@@ -282,6 +283,7 @@ describe('Phase 2 fixture lifecycle', () => {
     await fixture.withSecretLease(async (lease) => {
       expect(Object.keys(lease).toSorted()).toEqual([
         'getClientSecret',
+        'getSelectedNativePassword',
         'getStatusClientSecret',
         'getSubjectPassword',
         'takeVerificationCode',
@@ -290,6 +292,9 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(lease.getClientSecret('basic')).toBe('ReferenceSecretValue000000000001');
       expect(lease.getStatusClientSecret()).toBe('ReferenceSecretValue000000000001');
       expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
+      expect(lease.getSelectedNativePassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getSelectedNativePassword?.()).not.toBe(lease.getSubjectPassword?.());
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedNativePassword?.());
       expect(() => JSON.stringify(lease)).toThrow('Phase 2 fixture operation failed');
     });
     expect(fixture.status).toMatchObject({
@@ -514,6 +519,37 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(requestedUrls.some((url) => url.startsWith(oracle.adminUrl))).toBe(false);
   });
 
+  it('builds selected Management list queries structurally and rejects malformed query input', async () => {
+    const requested: string[] = [];
+    const request = createReferencePhase2AdminRequest(oracle, async (input) => {
+      requested.push(String(input));
+      return new Response('[]', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    await expect(
+      request({
+        method: 'GET',
+        path: 'resources',
+        query: { includeScopes: 'true' },
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).resolves.toEqual([]);
+    expect(requested).toEqual(['http://127.0.0.1:4101/api/resources?includeScopes=true']);
+    await expect(
+      request({
+        method: 'GET',
+        path: 'roles',
+        query: { 'bad?key': '1' },
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(requested).toHaveLength(1);
+  });
+
   it('reconciles owned reference rows after partial provisioning failure', async () => {
     const admin = createReferenceAdmin();
     let posts = 0;
@@ -709,6 +745,7 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(Object.keys(lease).toSorted()).toEqual([
         'getAdminPassword',
         'getClientSecret',
+        'getSelectedNativePassword',
         'getStatusClientSecret',
         'getSubjectPassword',
         'takeVerificationCode',
@@ -717,6 +754,9 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(lease.getStatusClientSecret()).toBe('c'.repeat(32));
       expect(lease.getSubjectPassword?.()).toBe('d'.repeat(32));
       expect(lease.getAdminPassword?.()).toBe('e'.repeat(32));
+      expect(lease.getSelectedNativePassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getSelectedNativePassword?.()).not.toContain('e'.repeat(32));
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedNativePassword?.());
     });
     expect(JSON.stringify(fixture.public)).not.toContain('c'.repeat(32));
     expect(await provisioner.projectState(fixture)).toEqual({ allocations: [] });
