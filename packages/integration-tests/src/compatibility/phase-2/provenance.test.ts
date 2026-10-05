@@ -1,9 +1,10 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The test owns an isolated Git repository and installs one global capability to prove clean-source and hook fencing. */
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { projectPhase2BasePreservationHarnessEnvironment } from './base-preservation/cli.js';
 import {
   computePhase2RuntimeBundleIdentity,
   inspectCleanPhase2HarnessSource,
@@ -15,6 +16,12 @@ const run = promisify(execFile);
 const capabilitySymbol = Symbol.for('aster.phase2.runtime-capability');
 let root = '';
 let runtimeEntry = '';
+let browserBuildRoot = '';
+let browserCache = '';
+let browserRunDirectory = '';
+let browserHome = '';
+let browserTemporary = '';
+let xdgRuntime = '';
 const installCapability = (capability: string): void => {
   Object.defineProperty(globalThis, capabilitySymbol, {
     configurable: true,
@@ -23,6 +30,23 @@ const installCapability = (capability: string): void => {
     writable: false,
   });
 };
+const launcherEnvironment = (
+  head: string,
+  tree: string,
+  runtimeBundleSha256: string
+): Readonly<Record<string, string | undefined>> =>
+  projectPhase2BasePreservationHarnessEnvironment({
+    ASTER_PHASE2_HARNESS_HEAD: head,
+    ASTER_PHASE2_HARNESS_TREE: tree,
+    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtimeBundleSha256,
+    ASTER_PHASE2_UNEXPECTED: 'dropped-by-base-projection',
+    HOME: browserHome,
+    LC_ALL: 'C',
+    PATH: '/usr/bin:/bin',
+    PLAYWRIGHT_BROWSERS_PATH: browserCache,
+    TMPDIR: browserTemporary,
+    XDG_RUNTIME_DIR: xdgRuntime,
+  });
 beforeEach(async () => {
   root = await mkdtemp('/var/tmp/henry-build/phase2-provenance-');
   await chmod(root, 0o700);
@@ -41,6 +65,18 @@ beforeEach(async () => {
   await writeFile(
     path.join(root, 'packages/integration-tests/lib/chunk-runtime.js'),
     'export const runtime = true;\n'
+  );
+  browserBuildRoot = path.join(root, 'packages/integration-tests/lib/browser-build');
+  browserCache = path.join(browserBuildRoot, 'aster-playwright-browsers');
+  browserRunDirectory = path.join(browserBuildRoot, 'runtime/run.test');
+  browserHome = path.join(browserRunDirectory, 'home');
+  browserTemporary = path.join(browserRunDirectory, 'browser-tmp');
+  xdgRuntime = path.join(browserRunDirectory, 'xdg-runtime');
+  await Promise.all(
+    [browserCache, browserHome, browserTemporary, xdgRuntime].map(async (directory) => {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700);
+    })
   );
 });
 afterEach(async () => rm(root, { force: true, recursive: true }));
@@ -69,13 +105,7 @@ it('rejects stale or replaced runtime closure bytes and launcher head substituti
   const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
   const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
   const capability = 'a'.repeat(64);
-  const environment = {
-    ASTER_PHASE2_HARNESS_HEAD: headOutput.trim(),
-    ASTER_PHASE2_HARNESS_TREE: treeOutput.trim(),
-    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
-    LC_ALL: 'C',
-    PATH: '/usr/bin:/bin',
-  };
+  const environment = launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256);
   installCapability(capability);
   await expect(
     inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
@@ -110,14 +140,86 @@ it('rejects a launched environment when the verified entry capability is absent'
   const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
   const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
   await expect(
-    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, 'b'.repeat(64), {
-      ASTER_PHASE2_HARNESS_HEAD: headOutput.trim(),
-      ASTER_PHASE2_HARNESS_TREE: treeOutput.trim(),
-      ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
-      LC_ALL: 'C',
-      PATH: '/usr/bin:/bin',
-    })
+    inspectLaunchedPhase2HarnessSource(
+      root,
+      runtimeEntry,
+      'b'.repeat(64),
+      launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256)
+    )
   ).rejects.toThrow('Invalid Phase 2 provenance');
+});
+
+it('admits the exact base-preservation browser environment projected to the launched child', async () => {
+  const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
+  const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
+  const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
+  const capability = 'd'.repeat(64);
+  const environment = launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+
+  await chmod(browserHome, 0o755);
+  try {
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  } finally {
+    await chmod(browserHome, 0o700);
+  }
+
+  const missingBrowserKeys = ['HOME', 'PLAYWRIGHT_BROWSERS_PATH', 'TMPDIR', 'XDG_RUNTIME_DIR'].map(
+    (missing) => Object.fromEntries(Object.entries(environment).filter(([key]) => key !== missing))
+  );
+  const linkedRunDirectory = path.join(browserBuildRoot, 'runtime/linked-run');
+  const linkedHome = path.join(linkedRunDirectory, 'home');
+  const linkedTemporary = path.join(linkedRunDirectory, 'browser-tmp');
+  const linkedXdg = path.join(linkedRunDirectory, 'xdg-runtime');
+  await mkdir(linkedRunDirectory, { recursive: true, mode: 0o700 });
+  await Promise.all(
+    [linkedTemporary, linkedXdg].map(async (directory) => {
+      await mkdir(directory, { mode: 0o700 });
+      await chmod(directory, 0o700);
+    })
+  );
+  await symlink(browserHome, linkedHome, 'dir');
+  const wrongBuildRoot = path.join(root, 'packages/integration-tests/lib/wrong-browser-build');
+  const wrongRunDirectory = path.join(wrongBuildRoot, 'runtime/run.test');
+  const wrongHome = path.join(wrongRunDirectory, 'home');
+  const wrongTemporary = path.join(wrongRunDirectory, 'browser-tmp');
+  const wrongXdg = path.join(wrongRunDirectory, 'xdg-runtime');
+  await Promise.all(
+    [wrongHome, wrongTemporary, wrongXdg].map(async (directory) => {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      await chmod(directory, 0o700);
+    })
+  );
+  const invalidEnvironments = [
+    ...missingBrowserKeys,
+    { ...environment, ASTER_PHASE2_UNEXPECTED: 'present' },
+    { ...environment, HOME: 'home' },
+    {
+      ...environment,
+      HOME: linkedHome,
+      TMPDIR: linkedTemporary,
+      XDG_RUNTIME_DIR: linkedXdg,
+    },
+    {
+      ...environment,
+      HOME: wrongHome,
+      TMPDIR: wrongTemporary,
+      XDG_RUNTIME_DIR: wrongXdg,
+    },
+  ];
+  await invalidEnvironments.reduce(async (previous, invalidEnvironment) => {
+    await previous;
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  }, Promise.resolve());
 });
 
 it('accepts only the canonical optional oracle SMTP socket launcher environment', async () => {
@@ -126,12 +228,8 @@ it('accepts only the canonical optional oracle SMTP socket launcher environment'
   const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
   const capability = 'c'.repeat(64);
   const environment = {
-    ASTER_PHASE2_HARNESS_HEAD: headOutput.trim(),
-    ASTER_PHASE2_HARNESS_TREE: treeOutput.trim(),
-    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
+    ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
     ASTER_PHASE2_ORACLE_SMTP_SOCKET: '/var/tmp/henry-build/phase2-fixture/oracle-smtp.sock',
-    LC_ALL: 'C',
-    PATH: '/usr/bin:/bin',
   };
   installCapability(capability);
   await expect(

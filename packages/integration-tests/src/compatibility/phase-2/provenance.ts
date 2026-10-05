@@ -73,19 +73,72 @@ const runtimeCapabilitySymbol = Symbol.for('aster.phase2.runtime-capability');
 const diagnostic = 'Invalid Phase 2 provenance';
 const maximumRuntimeModuleBytes = 16 * 1024 * 1024;
 const maximumRuntimeModules = 512;
-const launcherEnvironmentKeys = Object.freeze([
-  'ASTER_PHASE2_HARNESS_HEAD',
-  'ASTER_PHASE2_HARNESS_TREE',
-  'ASTER_PHASE2_RUNTIME_BUNDLE_SHA256',
-  'LC_ALL',
-  'PATH',
+const browserEnvironmentKeys = Object.freeze([
+  'HOME',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'TMPDIR',
+  'XDG_RUNTIME_DIR',
 ]);
+const launcherEnvironmentKeys = Object.freeze(
+  [
+    'ASTER_PHASE2_HARNESS_HEAD',
+    'ASTER_PHASE2_HARNESS_TREE',
+    'ASTER_PHASE2_RUNTIME_BUNDLE_SHA256',
+    ...browserEnvironmentKeys,
+    'LC_ALL',
+    'PATH',
+  ].toSorted()
+);
 const launcherEnvironmentKeysWithOracleSmtp = Object.freeze(
   [...launcherEnvironmentKeys, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET'].toSorted()
 );
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
+};
+
+const privateBrowserDirectory = async (value: string | undefined): Promise<string> => {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value) {
+    return fail();
+  }
+  const [state, resolved] = await Promise.all([lstat(value), realpath(value)]).catch(fail);
+  const uid = process.getuid?.();
+  if (
+    typeof uid !== 'number' ||
+    !state.isDirectory() ||
+    state.isSymbolicLink() ||
+    state.uid !== uid ||
+    (state.mode & 0o777) !== 0o700 ||
+    resolved !== value
+  ) {
+    return fail();
+  }
+  return value;
+};
+
+const validateBrowserEnvironment = async (
+  environment: Readonly<Record<string, string | undefined>>
+): Promise<void> => {
+  const directories = await Promise.all(
+    browserEnvironmentKeys.map(async (key) => privateBrowserDirectory(environment[key]))
+  );
+  const home = directories[0] ?? fail();
+  const browserCache = directories[1] ?? fail();
+  const browserTemporary = directories[2] ?? fail();
+  const xdgRuntime = directories[3] ?? fail();
+  const runDirectory = path.dirname(home);
+  const buildRoot = path.dirname(browserCache);
+  if (
+    path.basename(home) !== 'home' ||
+    path.basename(browserCache) !== 'aster-playwright-browsers' ||
+    path.basename(browserTemporary) !== 'browser-tmp' ||
+    path.basename(xdgRuntime) !== 'xdg-runtime' ||
+    path.dirname(browserTemporary) !== runDirectory ||
+    path.dirname(xdgRuntime) !== runDirectory ||
+    !runDirectory.startsWith(`${buildRoot}${path.sep}`)
+  ) {
+    fail();
+  }
 };
 
 const consumeRuntimeCapability = (expected: string): void => {
@@ -302,6 +355,7 @@ export const inspectLaunchedPhase2HarnessSource = async (
   ) {
     return fail();
   }
+  await validateBrowserEnvironment(environment);
   const expectedHead = environment.ASTER_PHASE2_HARNESS_HEAD;
   const expectedTree = environment.ASTER_PHASE2_HARNESS_TREE;
   const expectedBundle = environment.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256;

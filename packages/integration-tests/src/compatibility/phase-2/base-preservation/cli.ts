@@ -246,6 +246,21 @@ const createContext = (
     environment
   );
 
+export const projectPhase2BasePreservationHarnessEnvironment = (
+  environment: Readonly<Record<string, string | undefined>>
+): Readonly<Record<string, string | undefined>> =>
+  Object.freeze({
+    ASTER_PHASE2_HARNESS_HEAD: environment.ASTER_PHASE2_HARNESS_HEAD,
+    ASTER_PHASE2_HARNESS_TREE: environment.ASTER_PHASE2_HARNESS_TREE,
+    ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: environment.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256,
+    HOME: environment.HOME,
+    LC_ALL: environment.LC_ALL,
+    PATH: environment.PATH,
+    PLAYWRIGHT_BROWSERS_PATH: environment.PLAYWRIGHT_BROWSERS_PATH,
+    TMPDIR: environment.TMPDIR,
+    XDG_RUNTIME_DIR: environment.XDG_RUNTIME_DIR,
+  });
+
 const defaultDependencies: Phase2BasePreservationCliDependencies = {
   loadPhase2Profile,
   runPhase1Cli,
@@ -257,13 +272,7 @@ const defaultDependencies: Phase2BasePreservationCliDependencies = {
       repositoryRoot,
       phase2BasePreservationRuntimeEntryPath,
       runtimeCapability,
-      {
-        ASTER_PHASE2_HARNESS_HEAD: process.env.ASTER_PHASE2_HARNESS_HEAD,
-        ASTER_PHASE2_HARNESS_TREE: process.env.ASTER_PHASE2_HARNESS_TREE,
-        ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: process.env.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256,
-        LC_ALL: process.env.LC_ALL,
-        PATH: process.env.PATH,
-      }
+      projectPhase2BasePreservationHarnessEnvironment(process.env)
     ),
   recheckHarness: recheckCleanPhase2HarnessSource,
   publish: async (outputPath, value) => {
