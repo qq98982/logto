@@ -262,7 +262,8 @@
         "verification-code.failed-delivery-preserves-current",
         "verification-code.experience-consumed-replay",
         "verification-code.account-request-verify-replay",
-        "common.native.code-pkce"
+        "common.native.code-pkce",
+        "common.email.password-sign-in"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

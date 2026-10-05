@@ -251,6 +251,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.email\.password-sign-in\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&
@@ -273,7 +280,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177)\)\.\n$/u.test(
       stderr
     )
   ) {

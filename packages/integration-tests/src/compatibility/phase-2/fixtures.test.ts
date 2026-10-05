@@ -1,6 +1,8 @@
 /* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- The fake Management API and coordinator journal intentionally model mutable partial-apply and rollback state. */
 import { createHash } from 'node:crypto';
 
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+
 import type { TargetConfig } from '../model.js';
 import type {
   CommandRunnerRequest,
@@ -8,6 +10,7 @@ import type {
 } from '../phase-1/clients/command-provisioner.js';
 
 import { issueCandidateInvariantUserTokens } from './cli.js';
+import { withPhase2AdminManagementBearer } from './clients/admin-management-bearer.js';
 import { observeClientCredentialsToken } from './clients/client-credentials.js';
 import {
   createCandidatePhase2FixtureProvisioner,
@@ -174,6 +177,67 @@ const rejectedCommandResult = (): CommandRunnerResult => ({
   stderr: 'Aster compatibility fixture command failed\n',
 });
 
+const candidateAdminLeaseTransport = async (): Promise<typeof fetch> => {
+  const { privateKey, publicKey } = await generateKeyPair('ES384');
+  const publicJwk = await exportJWK(publicKey);
+  const now = Math.floor(Date.now() / 1000);
+  const bearer = await new SignJWT({ client_id: 'admin-console', scope: 'all' })
+    .setProtectedHeader({ alg: 'ES384', kid: 'email-admin-key' })
+    .setIssuer(new URL('/oidc', candidate.adminUrl).href.replace(/\/$/u, ''))
+    .setAudience('urn:aster:resource:management')
+    .setSubject('phase1-admin')
+    .setIssuedAt(now)
+    .setExpirationTime(now + 300)
+    .sign(privateKey);
+  const callback = new URL('/console/callback', candidate.adminUrl);
+  callback.search = new URLSearchParams({
+    code: 'private-code',
+    state: 's'.repeat(48),
+    iss: new URL('/oidc', candidate.adminUrl).href.replace(/\/$/u, ''),
+  }).toString();
+  const replies = [
+    new Response(null, {
+      status: 303,
+      headers: { 'set-cookie': 'admin=session; Path=/; HttpOnly' },
+    }),
+    new Response(null, { status: 204 }),
+    new Response(JSON.stringify({ verificationId: 'private-verification' }), { status: 200 }),
+    new Response(null, { status: 204 }),
+    new Response(JSON.stringify({ redirectTo: '/oidc/auth/login-resume' }), { status: 200 }),
+    new Response(null, { status: 303, headers: { location: '/consent?app_id=admin-console' } }),
+    new Response(null, { status: 302, headers: { location: '/oidc/auth/consent-resume' } }),
+    new Response(null, { status: 303, headers: { location: callback.href } }),
+    new Response(
+      JSON.stringify({
+        access_token: 'initial-access',
+        id_token: 'initial-id',
+        refresh_token: 'initial-refresh',
+        token_type: 'Bearer',
+      }),
+      { status: 200 }
+    ),
+    new Response(
+      JSON.stringify({
+        access_token: bearer,
+        id_token: 'rotated-id',
+        refresh_token: 'rotated-refresh',
+        token_type: 'Bearer',
+        scope: 'all',
+      }),
+      { status: 200 }
+    ),
+    new Response(
+      JSON.stringify({
+        keys: [{ ...publicJwk, kid: 'email-admin-key', alg: 'ES384', use: 'sig' }],
+      }),
+      { status: 200 }
+    ),
+    new Response(null, { status: 200 }),
+  ];
+  let index = 0;
+  return (async () => replies[index++] ?? new Response(null, { status: 500 })) as typeof fetch;
+};
+
 const createReferenceAdmin = () => {
   const calls: Phase2AdminRequest[] = [];
   const ids = new Map<string, number>();
@@ -282,9 +346,13 @@ describe('Phase 2 fixture lifecycle', () => {
     });
     const fixture = await provisioner.provision();
     expect(fixture.public.boundary).toEqual({ primary: 'provisioned', foreign: 'unchanged' });
+    let selectedEmailAfterClosure: (() => string) | undefined;
+    let invalidEmailAfterClosure: (() => string) | undefined;
     await fixture.withSecretLease(async (lease) => {
       expect(Object.keys(lease).toSorted()).toEqual([
         'getClientSecret',
+        'getInvalidEmailPassword',
+        'getSelectedEmailPassword',
         'getSelectedNativePassword',
         'getStatusClientSecret',
         'getSubjectPassword',
@@ -296,9 +364,19 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(lease.getSubjectPassword?.()).toMatch(/A1!$/u);
       expect(lease.getSelectedNativePassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
       expect(lease.getSelectedNativePassword?.()).not.toBe(lease.getSubjectPassword?.());
+      expect(lease.getSelectedEmailPassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getInvalidEmailPassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getSelectedEmailPassword?.()).not.toBe(lease.getSelectedNativePassword?.());
+      expect(lease.getInvalidEmailPassword?.()).not.toBe(lease.getSelectedEmailPassword?.());
+      selectedEmailAfterClosure = lease.getSelectedEmailPassword;
+      invalidEmailAfterClosure = lease.getInvalidEmailPassword;
       expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedNativePassword?.());
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedEmailPassword?.());
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getInvalidEmailPassword?.());
       expect(() => JSON.stringify(lease)).toThrow('Phase 2 fixture operation failed');
     });
+    expect(() => selectedEmailAfterClosure?.()).toThrow('Phase 2 fixture operation failed');
+    expect(() => invalidEmailAfterClosure?.()).toThrow('Phase 2 fixture operation failed');
     expect(fixture.status).toMatchObject({
       user: { id: 'user-1', username: expect.stringMatching(/^phase1_user_a_[0-9a-f]{16}$/u) },
       client: { id: 'application-8', redirectUri: 'http://localhost:3001/demo-app' },
@@ -347,6 +425,16 @@ describe('Phase 2 fixture lifecycle', () => {
           userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
           resourceScopes: ['scope-4'],
         },
+      })
+    );
+    expect(admin.calls).toContainEqual(
+      expect.objectContaining({
+        method: 'POST',
+        path: 'connectors',
+        body: expect.objectContaining({
+          connectorId: 'simple-mail-transfer-protocol',
+          config: expect.objectContaining({ host: '172.30.231.49', port: 2525 }),
+        }),
       })
     );
     expect(admin.calls).toContainEqual(
@@ -634,6 +722,62 @@ describe('Phase 2 fixture lifecycle', () => {
     );
   });
 
+  it('reconciles exact Common email rows left by failed local cleanup and preserves foreign rows', async () => {
+    const admin = createReferenceAdmin();
+    const failedDeletes = new Set(['users/common-user', 'roles/common-role']);
+    const request = async (input: Phase2AdminRequest): Promise<unknown> => {
+      if (input.method === 'DELETE' && failedDeletes.delete(input.path)) {
+        throw new Error('planted local cleanup failure');
+      }
+      return admin.request(input);
+    };
+    const provisioner = createReferencePhase2FixtureProvisioner({
+      target: oracle,
+      foreignTarget: oracleForeign,
+      createAllocationId: () => 'common-cleanup',
+      request,
+    });
+    const fixture = await provisioner.provision();
+    admin.entityRows.set('users', [
+      { id: 'common-user', primaryEmail: 'common-email-common-cleanup@example.invalid' },
+      { id: 'foreign-user', primaryEmail: 'common-email-foreign@example.invalid' },
+      { id: 'unrelated-user', primaryEmail: 'owner@example.invalid' },
+    ]);
+    admin.entityRows.set('roles', [
+      { id: 'common-role', name: 'common-email-common-cleanup' },
+      { id: 'foreign-role', name: 'common-email-foreign' },
+      { id: 'unrelated-role', name: 'reader' },
+    ]);
+
+    await expect(
+      request({
+        method: 'DELETE',
+        path: 'users/common-user',
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      })
+    ).rejects.toThrow('planted local cleanup failure');
+    await expect(
+      request({
+        method: 'DELETE',
+        path: 'roles/common-role',
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      })
+    ).rejects.toThrow('planted local cleanup failure');
+
+    await provisioner.cleanup(fixture);
+
+    expect(admin.entityRows.get('users')).toEqual([
+      { id: 'foreign-user', primaryEmail: 'common-email-foreign@example.invalid' },
+      { id: 'unrelated-user', primaryEmail: 'owner@example.invalid' },
+    ]);
+    expect(admin.entityRows.get('roles')).toEqual([
+      { id: 'foreign-role', name: 'common-email-foreign' },
+      { id: 'unrelated-role', name: 'reader' },
+    ]);
+  });
+
   it('restores the exact previous reference default and rejects multiple defaults', async () => {
     const admin = createReferenceAdmin();
     admin.entityRows.set('resources', [
@@ -784,6 +928,8 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(Object.keys(lease).toSorted()).toEqual([
         'getAdminPassword',
         'getClientSecret',
+        'getInvalidEmailPassword',
+        'getSelectedEmailPassword',
         'getSelectedNativePassword',
         'getStatusClientSecret',
         'getSubjectPassword',
@@ -795,8 +941,39 @@ describe('Phase 2 fixture lifecycle', () => {
       expect(lease.getAdminPassword?.()).toBe('e'.repeat(32));
       expect(lease.getSelectedNativePassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
       expect(lease.getSelectedNativePassword?.()).not.toContain('e'.repeat(32));
+      expect(lease.getSelectedEmailPassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getInvalidEmailPassword?.()).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+      expect(lease.getSelectedEmailPassword?.()).not.toBe(lease.getSelectedNativePassword?.());
+      expect(lease.getInvalidEmailPassword?.()).not.toBe(lease.getSelectedEmailPassword?.());
       expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedNativePassword?.());
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getSelectedEmailPassword?.());
+      expect(JSON.stringify(fixture.public)).not.toContain(lease.getInvalidEmailPassword?.());
     });
+    const adminFetch = await candidateAdminLeaseTransport();
+    let selectedAfterAdmin: (() => string) | undefined;
+    let invalidAfterAdmin: (() => string) | undefined;
+    await withPhase2AdminManagementBearer(
+      candidate,
+      fixture,
+      async (_bearer, lease) => {
+        const selected = lease.getSelectedEmailPassword?.() ?? '';
+        const invalid = lease.getInvalidEmailPassword?.() ?? '';
+        expect(selected).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+        expect(invalid).toMatch(/^[A-Za-z0-9_-]{27}A1!$/u);
+        expect(invalid).not.toBe(selected);
+        expect(JSON.stringify(fixture.public)).not.toContain(selected);
+        expect(JSON.stringify(fixture.public)).not.toContain(invalid);
+        selectedAfterAdmin = lease.getSelectedEmailPassword;
+        invalidAfterAdmin = lease.getInvalidEmailPassword;
+      },
+      {
+        fetch: adminFetch,
+        codeVerifier: () => 'v'.repeat(48),
+        state: () => 's'.repeat(48),
+      }
+    );
+    expect(() => selectedAfterAdmin?.()).toThrow('Phase 2 fixture operation failed');
+    expect(() => invalidAfterAdmin?.()).toThrow('Phase 2 fixture operation failed');
     expect(JSON.stringify(fixture.public)).not.toContain('c'.repeat(32));
     expect(await provisioner.projectState(fixture)).toEqual({ allocations: [] });
     await provisioner.cleanup(fixture);
@@ -1621,6 +1798,40 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(admin.calls.some(({ method }) => method === 'DELETE')).toBe(true);
   });
 
+  it('runs fixture cleanup after a hanging token transport reaches its deadline', async () => {
+    const admin = createReferenceAdmin();
+    const provisioner = createReferencePhase2FixtureProvisioner({
+      target: oracle,
+      foreignTarget: oracleForeign,
+      request: admin.request,
+      createAllocationId: () => 'hanging-request',
+    });
+    await expect(
+      runWithPhase2Fixture(provisioner, async (fixtureValue) =>
+        fixtureValue.withSecretLease(async (lease) =>
+          observeClientCredentialsToken(
+            new URL('/oidc/token', oracle.coreUrl),
+            { keys: [{ kty: 'EC', kid: 'hanging-key' }] },
+            {
+              method: 'client_secret_basic',
+              clientId: fixtureValue.public.clients.basic.id,
+              clientSecret: lease.getClientSecret('basic'),
+              resource: fixtureValue.public.resources.primary.indicator,
+            },
+            {
+              fetch: (async () =>
+                new Promise<Response>(() => {
+                  // Intentionally unresolved to prove fixture cleanup after the deadline.
+                })) as typeof fetch,
+              timeoutMs: 20,
+            }
+          )
+        )
+      )
+    ).rejects.toThrow('Client credentials request failed');
+    expect(admin.calls.some(({ method }) => method === 'DELETE')).toBe(true);
+  });
+
   it('sequences candidate invariant token setup within one fixture lease authority', async () => {
     const admin = createReferenceAdmin();
     const provisioner = createReferencePhase2FixtureProvisioner({
@@ -1682,40 +1893,6 @@ describe('Phase 2 fixture lifecycle', () => {
     } finally {
       await provisioner.cleanup(fixture);
     }
-  });
-
-  it('runs fixture cleanup after a hanging token transport reaches its deadline', async () => {
-    const admin = createReferenceAdmin();
-    const provisioner = createReferencePhase2FixtureProvisioner({
-      target: oracle,
-      foreignTarget: oracleForeign,
-      request: admin.request,
-      createAllocationId: () => 'hanging-request',
-    });
-    await expect(
-      runWithPhase2Fixture(provisioner, async (fixtureValue) =>
-        fixtureValue.withSecretLease(async (lease) =>
-          observeClientCredentialsToken(
-            new URL('/oidc/token', oracle.coreUrl),
-            { keys: [{ kty: 'EC', kid: 'hanging-key' }] },
-            {
-              method: 'client_secret_basic',
-              clientId: fixtureValue.public.clients.basic.id,
-              clientSecret: lease.getClientSecret('basic'),
-              resource: fixtureValue.public.resources.primary.indicator,
-            },
-            {
-              fetch: (async () =>
-                new Promise<Response>(() => {
-                  // Intentionally unresolved to prove fixture cleanup after the deadline.
-                })) as typeof fetch,
-              timeoutMs: 20,
-            }
-          )
-        )
-      )
-    ).rejects.toThrow('Client credentials request failed');
-    expect(admin.calls.some(({ method }) => method === 'DELETE')).toBe(true);
   });
 
   it('rejects aliased primary and foreign boundaries', () => {

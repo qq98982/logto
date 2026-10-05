@@ -41,9 +41,11 @@ import {
 } from './candidate-invariants/verification-code.js';
 import {
   closedDeviceFailureStage,
+  commonEmailPasswordScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
   deviceScenarioProjectionFailure,
+  executeDifferential,
   observeDeviceResourceRefreshContext,
   parsePhase2Arguments,
   phase2FixtureRecipeForMode,
@@ -59,6 +61,7 @@ import {
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
+import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-password.js';
 
 describe('device projection diagnostic fields', () => {
   it('maps a nested cookie difference to its closed root field', () => {
@@ -147,6 +150,35 @@ const wrapCandidateConsumer = async (
 const noDeviceStage = () => undefined;
 
 describe('candidate fixture diagnostics', () => {
+  it('preserves only closed candidate admin stages for the Common email row', () => {
+    expect(() =>
+      commonEmailPasswordScenarioFailure(
+        'candidate',
+        new Error('Phase 2 stage failed: candidate-admin-bearer-jwks')
+      )
+    ).toThrow('Phase 2 stage failed: candidate-admin-bearer-jwks');
+    expect(() =>
+      commonEmailPasswordScenarioFailure(
+        'candidate',
+        new Error('Invalid Phase 2 Admin Management bearer flow (jwks)')
+      )
+    ).toThrow('Phase 2 stage failed: candidate-admin-bearer-jwks');
+    expect(() =>
+      commonEmailPasswordScenarioFailure('candidate', new Error('private fixture detail'))
+    ).toThrow('Phase 2 scenario failed: candidate/common.email.password-sign-in');
+    expect(() =>
+      commonEmailPasswordScenarioFailure(
+        'candidate',
+        new Error('Invalid Phase 2 Admin Management bearer flow (consumer)')
+      )
+    ).toThrow('Phase 2 scenario failed: candidate/common.email.password-sign-in');
+    expect(() =>
+      commonEmailPasswordScenarioFailure(
+        'candidate',
+        new Error('Phase 2 stage failed: candidate-admin-bearer-jwks:private')
+      )
+    ).toThrow('Phase 2 scenario failed: candidate/common.email.password-sign-in');
+  });
   it('classifies the raw consumer failure before the admin wrapper erases it', async () => {
     await Promise.all(
       ['http-500', 'issuance-token-http'].map(async (detail) =>
@@ -654,6 +686,77 @@ describe('Phase 2 fixture recipe routing', () => {
     expect(phase2FixtureRecipeForMode('candidate-invariants')).toBe('phase2CandidateInvariants');
     expect(phase2FixtureRecipeForMode('oracle')).toBe('fullPhase1');
     expect(phase2FixtureRecipeForMode('differential')).toBe('fullPhase1');
+  });
+});
+
+describe('Common email password differential comparison', () => {
+  const oracle = Object.freeze({
+    target: 'oracle' as const,
+    discovery: Object.freeze({}),
+    controls: Object.freeze([]),
+    scenarios: Object.freeze([
+      Object.freeze({
+        id: 'common.email.password-sign-in',
+        projection: commonEmailPasswordExpectedProjection,
+      }),
+    ]),
+  });
+  const candidateTarget = Object.freeze({
+    descriptor: Object.freeze({ kind: 'candidate' as const }),
+  });
+
+  it('executes the email branch and accepts identical exact projections', async () => {
+    const result = await executeDifferential(
+      {
+        profile,
+        oracle: oracle as never,
+        candidate: candidateTarget as never,
+        sessionRoot: '/private/session',
+      },
+      async () =>
+        ({
+          target: 'candidate',
+          discovery: {},
+          controls: [],
+          scenarios: [
+            {
+              id: 'common.email.password-sign-in',
+              projection: commonEmailPasswordExpectedProjection,
+            },
+          ],
+        }) as never
+    );
+
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      mode: 'differential',
+      comparisons: [{ scenarioId: 'common.email.password-sign-in', differenceCount: 0 }],
+    });
+  });
+
+  it('fails closed when one exact email projection field differs', async () => {
+    await expect(
+      executeDifferential(
+        {
+          profile,
+          oracle: oracle as never,
+          candidate: candidateTarget as never,
+          sessionRoot: '/private/session',
+        },
+        async () =>
+          ({
+            target: 'candidate',
+            discovery: {},
+            controls: [],
+            scenarios: [
+              {
+                id: 'common.email.password-sign-in',
+                projection: { ...commonEmailPasswordExpectedProjection, emailVerified: false },
+              },
+            ],
+          }) as never
+      )
+    ).rejects.toThrow('Phase 2 scenario failed: candidate/common.email.password-sign-in');
   });
 });
 

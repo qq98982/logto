@@ -2,13 +2,16 @@
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, lstat, mkdtemp, open, realpath, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { Browser, BrowserType } from '@playwright/test';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { parseTree, type Node as JsonNode, type ParseError } from 'jsonc-parser';
 
 import type { JsonValue } from '../normalize.js';
+import { createPlaywrightBrowserGroupObserver } from '../phase-1/browser/playwright-session.js';
 import { runPhase1FixtureCommand } from '../phase-1/clients/command-provisioner.js';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
@@ -114,6 +117,12 @@ import {
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
 import {
+  compareCommonEmailPasswordProjections,
+  commonEmailPasswordScenarioIds,
+  runCommonEmailPasswordScenarioRow,
+  type CommonEmailPasswordScenarioResult,
+} from './scenarios/common-email-password.js';
+import {
   commonNativeScenarioIds,
   compareCommonNativeCodePkceProjections,
   createCommonNativeScenarioRegistry,
@@ -155,6 +164,13 @@ import {
   verificationCodeScenarioIds,
   type VerificationCodeScenarioResult,
 } from './scenarios/verification-code.js';
+
+const loadChromium = (): BrowserType<Browser> =>
+  (
+    createRequire(import.meta.url)('@playwright/test') as {
+      chromium: BrowserType<Browser>;
+    }
+  ).chromium;
 
 export type Phase2CliCommand =
   | Readonly<{
@@ -236,6 +252,7 @@ type TargetScenarioEvidence = Readonly<{
     | DeviceAuthorizationScenarioResult
     | VerificationCodeScenarioResult
     | CommonNativeScenarioResult
+    | CommonEmailPasswordScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
   >;
@@ -454,7 +471,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.password-sign-in|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -491,9 +508,29 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
+export const commonEmailPasswordScenarioFailure = (
+  kind: 'oracle' | 'candidate',
+  error: unknown
+): never => {
+  if (
+    kind === 'candidate' &&
+    error instanceof Error &&
+    candidateAdminBearerStageFailurePattern.test(error.message)
+  ) {
+    throw error;
+  }
+  const adminStage =
+    kind === 'candidate' && error instanceof Error
+      ? candidateAdminBearerFailurePattern.exec(error.message)?.[1]
+      : undefined;
+  if (adminStage) {
+    throw new Error(`Phase 2 stage failed: candidate-admin-bearer-${adminStage}`);
+  }
+  throw new Error(`Phase 2 scenario failed: ${kind}/${commonEmailPasswordScenarioIds[0]}`);
+};
 const candidateAdminConsumerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-consumer-unknown)$/u;
 const customJwtStageFailurePattern =
@@ -512,6 +549,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (logoutSessionScenarioIds as readonly string[]).includes(value) ||
   (verificationCodeScenarioIds as readonly string[]).includes(value) ||
   (commonNativeScenarioIds as readonly string[]).includes(value) ||
+  (commonEmailPasswordScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -1297,6 +1335,12 @@ const runTargetScenarios = async (
       }
       throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${commonNativeScenarioIds[0]}`);
     }
+    const commonEmailPasswordScenario = await runCommonEmailPasswordScenarioRow({
+      target: descriptor.target,
+      fixture,
+      observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+      signal: AbortSignal.timeout(300_000),
+    }).catch((error: unknown) => commonEmailPasswordScenarioFailure(descriptor.kind, error));
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1535,6 +1579,7 @@ const runTargetScenarios = async (
       ...customJwtFetchScenarios,
       ...verificationCodeScenarios,
       ...commonNativeScenarios,
+      commonEmailPasswordScenario,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -1565,7 +1610,14 @@ const runTargetScenarios = async (
   const authenticationError = scenarios.find(
     ({ id }) => id === 'client-credentials.wrong-secret-basic'
   )?.projection;
-  if (!success || !authenticationError || 'kind' in success || 'kind' in authenticationError) {
+  if (
+    !success ||
+    !authenticationError ||
+    typeof success !== 'object' ||
+    typeof authenticationError !== 'object' ||
+    'kind' in success ||
+    'kind' in authenticationError
+  ) {
     return fail();
   }
   const discovery = await projectDiscovery(descriptor, profile).catch(() => {
@@ -1639,19 +1691,20 @@ const statusScopeClass = (value: unknown): 'short' | 'full' | 'resource' | 'offl
   }
 };
 
-const executeDifferential = async (
+export const executeDifferential = async (
   input: Readonly<{
     profile: Phase2ProfileRegistries;
     oracle: TargetScenarioEvidence;
     candidate: PreparedPhase2Target;
     sessionRoot: string;
-  }>
+  }>,
+  executeScenarios: typeof runTargetScenarios = runTargetScenarios
 ): Promise<unknown> => {
   if (input.oracle.target !== 'oracle' || input.candidate.descriptor.kind !== 'candidate') {
     return fail();
   }
   const { oracle } = input;
-  const candidate = await runTargetScenarios(input.profile, input.candidate);
+  const candidate = await executeScenarios(input.profile, input.candidate);
   const comparisons = oracle.scenarios.map((oracleScenario, index) => {
     const candidateScenario = candidate.scenarios[index];
     if (!candidateScenario || candidateScenario.id !== oracleScenario.id) {
@@ -1685,6 +1738,19 @@ const executeDifferential = async (
     const isCommonNative = (commonNativeScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    const isCommonEmailPassword = (commonEmailPasswordScenarioIds as readonly string[]).includes(
+      oracleScenario.id
+    );
+    if (isCommonEmailPassword) {
+      const found = compareCommonEmailPasswordProjections(
+        oracleScenario.projection as CommonEmailPasswordScenarioResult['projection'],
+        candidateScenario.projection as CommonEmailPasswordScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(`Phase 2 scenario failed: candidate/${commonEmailPasswordScenarioIds[0]}`);
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
     if (isCommonNative) {
       const found = compareCommonNativeCodePkceProjections(
         oracleScenario.projection as CommonNativeScenarioResult['projection'],

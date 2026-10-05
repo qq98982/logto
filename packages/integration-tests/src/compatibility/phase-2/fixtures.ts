@@ -86,6 +86,8 @@ export type Phase2FixtureSecretLease = {
   getAdminPassword?(): string;
   getVerificationPeerPassword?(): string;
   getSelectedNativePassword?(): string;
+  getSelectedEmailPassword?(): string;
+  getInvalidEmailPassword?(): string;
   takeVerificationCode?(recipient: string): Promise<string>;
   toJSON(): never;
 };
@@ -151,6 +153,8 @@ type FixtureState = {
     adminPassword?: string;
     verificationPeerPassword?: string;
     selectedNativePassword?: string;
+    selectedEmailPassword?: string;
+    invalidEmailPassword?: string;
   }>;
   sensitiveValues: readonly string[];
   coordinatorPublic?: Readonly<Record<string, unknown>>;
@@ -525,6 +529,22 @@ const createFixture = (
             return secrets.selectedNativePassword ?? fail();
           },
         }),
+        ...(secrets.selectedEmailPassword && {
+          getSelectedEmailPassword: () => {
+            if (!leaseActive || state.revoked) {
+              return fail();
+            }
+            return secrets.selectedEmailPassword ?? fail();
+          },
+        }),
+        ...(secrets.invalidEmailPassword && {
+          getInvalidEmailPassword: () => {
+            if (!leaseActive || state.revoked) {
+              return fail();
+            }
+            return secrets.invalidEmailPassword ?? fail();
+          },
+        }),
         ...(takeVerificationCode && {
           takeVerificationCode: async (recipient: string) => {
             if (!leaseActive || state.revoked) {
@@ -865,7 +885,9 @@ const referenceOwnedDefinitions = (allocationId: string) => {
     }),
     Object.freeze({
       path: 'users',
-      owns: (row: Record<string, unknown>) => own(row, 'username') === statusUsername(allocationId),
+      owns: (row: Record<string, unknown>) =>
+        own(row, 'username') === statusUsername(allocationId) ||
+        own(row, 'primaryEmail') === `common-email-${allocationId}@example.invalid`,
     }),
     Object.freeze({
       path: 'organization-roles',
@@ -881,7 +903,8 @@ const referenceOwnedDefinitions = (allocationId: string) => {
       owns: (row: Record<string, unknown>) =>
         own(row, 'name') === `${marker}-resource-role` ||
         own(row, 'name') === `${marker}-device-subject-role` ||
-        own(row, 'name') === `${marker}-status-role`,
+        own(row, 'name') === `${marker}-status-role` ||
+        own(row, 'name') === `common-email-${allocationId}`,
     }),
     Object.freeze({
       path: 'resources',
@@ -1041,6 +1064,8 @@ export const createReferencePhase2FixtureProvisioner = (
       const marker = `${markerPrefix}${allocationId}`;
       const subjectPassword = `${randomBytes(20).toString('base64url')}A1!`;
       const selectedNativePassword = `${randomBytes(20).toString('base64url')}A1!`;
+      const selectedEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
+      const invalidEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
       const state: FixtureState & { journal: ReferenceCleanup[] } = {
         allocationId,
         secrets: Object.freeze({
@@ -1049,8 +1074,15 @@ export const createReferencePhase2FixtureProvisioner = (
           statusConfidential: '',
           subjectPassword,
           selectedNativePassword,
+          selectedEmailPassword,
+          invalidEmailPassword,
         }),
-        sensitiveValues: Object.freeze([subjectPassword, selectedNativePassword]),
+        sensitiveValues: Object.freeze([
+          subjectPassword,
+          selectedNativePassword,
+          selectedEmailPassword,
+          invalidEmailPassword,
+        ]),
         revoked: false,
         journal: [],
       };
@@ -1184,6 +1216,8 @@ export const createReferencePhase2FixtureProvisioner = (
           statusConfidential: statusConfidentialSecret,
           subjectPassword,
           selectedNativePassword,
+          selectedEmailPassword,
+          invalidEmailPassword,
         });
         state.sensitiveValues = Object.freeze([
           basic.secret,
@@ -1191,6 +1225,8 @@ export const createReferencePhase2FixtureProvisioner = (
           statusConfidentialSecret,
           subjectPassword,
           selectedNativePassword,
+          selectedEmailPassword,
+          invalidEmailPassword,
         ]);
         const primary = await createResource('primary', primaryIndicator);
         const defaultResource = await createResource('default', defaultIndicator);
@@ -1492,7 +1528,7 @@ export const createReferencePhase2FixtureProvisioner = (
           await referenceCall(request, 'POST', 'connectors', {
             connectorId: 'simple-mail-transfer-protocol',
             config: {
-              host: 'oracle-primary-smtp',
+              host: '172.30.231.49',
               port: 2525,
               auth: { type: 'login', user: 'fixture', pass: subjectPassword },
               fromEmail: 'aster@phase2.example.invalid',
@@ -2006,6 +2042,8 @@ export const createCandidatePhase2FixtureProvisioner = (
       const subjectPassword = createSecret();
       const adminPassword = createSecret();
       const selectedNativePassword = createSelectedNativePassword();
+      const selectedEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
+      const invalidEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
       const verificationPeerPassword =
         recipe === 'phase2CandidateInvariants'
           ? createHash('sha256')
@@ -2021,6 +2059,8 @@ export const createCandidatePhase2FixtureProvisioner = (
         adminPassword,
         verificationPeerPassword,
         selectedNativePassword,
+        selectedEmailPassword,
+        invalidEmailPassword,
       });
       if (
         secrets.basic === secrets.post ||
@@ -2038,6 +2078,19 @@ export const createCandidatePhase2FixtureProvisioner = (
         selectedNativePassword === statusConfidential ||
         selectedNativePassword === subjectPassword ||
         selectedNativePassword === adminPassword ||
+        selectedEmailPassword === selectedNativePassword ||
+        selectedEmailPassword === secrets.basic ||
+        selectedEmailPassword === secrets.post ||
+        selectedEmailPassword === statusConfidential ||
+        selectedEmailPassword === subjectPassword ||
+        selectedEmailPassword === adminPassword ||
+        invalidEmailPassword === selectedEmailPassword ||
+        invalidEmailPassword === selectedNativePassword ||
+        invalidEmailPassword === secrets.basic ||
+        invalidEmailPassword === secrets.post ||
+        invalidEmailPassword === statusConfidential ||
+        invalidEmailPassword === subjectPassword ||
+        invalidEmailPassword === adminPassword ||
         (verificationPeerPassword !== undefined &&
           (verificationPeerPassword === secrets.basic ||
             verificationPeerPassword === secrets.post ||
@@ -2050,6 +2103,8 @@ export const createCandidatePhase2FixtureProvisioner = (
         !/^[a-z0-9]{32}$/u.test(subjectPassword) ||
         !/^[a-z0-9]{32}$/u.test(adminPassword) ||
         !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedNativePassword) ||
+        !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedEmailPassword) ||
+        !/^[A-Za-z0-9_-]{27}A1!$/u.test(invalidEmailPassword) ||
         (verificationPeerPassword !== undefined &&
           !/^[a-z0-9]{32}$/u.test(verificationPeerPassword))
       ) {
@@ -2066,6 +2121,8 @@ export const createCandidatePhase2FixtureProvisioner = (
           subjectPassword,
           adminPassword,
           selectedNativePassword,
+          selectedEmailPassword,
+          invalidEmailPassword,
           ...(verificationPeerPassword === undefined ? [] : [verificationPeerPassword]),
         ]),
         revoked: false,

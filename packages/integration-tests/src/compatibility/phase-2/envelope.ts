@@ -1,5 +1,5 @@
 /* eslint-disable complexity, max-lines, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/prefer-nullish-coalescing, no-restricted-syntax -- Closed nested provenance and exact candidate evidence validation intentionally check every optional mode branch. */
-import { types as nodeTypes } from 'node:util';
+import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
@@ -43,6 +43,10 @@ import {
   type Phase2PublicHarnessProvenance,
   type Phase2SourceIdentity,
 } from './provenance.js';
+import {
+  commonEmailPasswordExpectedProjection,
+  commonEmailPasswordScenarioIds,
+} from './scenarios/common-email-password.js';
 import { commonNativeScenarioIds } from './scenarios/common-native.js';
 import {
   deviceAuthorizationScenarioIds,
@@ -167,7 +171,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 177).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 178).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -351,7 +355,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 177).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 178).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -378,6 +382,27 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
     } else if ((commonNativeScenarioIds as readonly string[]).includes(scenario.id)) {
       assertSanitizedAt(`native-${index}`, () => {
         assertWithBothSanitizers(scenario.projection);
+      });
+    } else if ((commonEmailPasswordScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`email-${index}`, () => {
+        const projection = snapshotExactDataRecord(scenario.projection, [
+          'identifier',
+          'casing',
+          'passwordOutcome',
+          'consent',
+          'callback',
+          'pkce',
+          'profileSubject',
+          'emailVerified',
+          'refreshRotated',
+          'invalidPassword',
+          'suspended',
+          'usernamePreserved',
+        ]);
+        if (!isDeepStrictEqual(projection, commonEmailPasswordExpectedProjection)) {
+          return fail();
+        }
+        assertWithBothSanitizers(projection);
       });
     } else {
       assertSanitizedAt(`client-${index}`, () => {

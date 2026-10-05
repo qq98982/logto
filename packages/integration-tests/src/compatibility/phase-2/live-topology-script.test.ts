@@ -217,7 +217,7 @@ const runEvidenceValidation = async (
   const invariantPath = path.join(directory, 'invariants.json');
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 177 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 178 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -1045,9 +1045,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 177',
+      'scenarioCount !== 178',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 177',
+      'comparisonCount !== 178',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1086,11 +1086,11 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(177, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(178, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(177, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(177, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(177, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(178, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(178, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {
@@ -1556,6 +1556,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         'device-0',
         'device-175',
         'native-176',
+        'email-177',
       ].map(
         (suffix) => `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).`
       )
@@ -1567,6 +1568,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (candidate-sanitizer-device-176).',
       'Phase 2 client credentials command failed (candidate-sanitizer-native-175).',
       'Phase 2 client credentials command failed (candidate-sanitizer-native-177).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-email-176).',
+      'Phase 2 client credentials command failed (candidate-sanitizer-email-178).',
       'Phase 2 client credentials command failed (oracle-sanitizer-target-extra).',
       'Phase 2 client credentials command failed (oracle-sanitizer-private-value).',
     ];
@@ -1579,6 +1582,64 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
     await expect(matchesFor(rejectedLines)).resolves.toEqual(
       Array.from({ length: rejectedLines.length * patterns.length }, () => false)
+    );
+  });
+
+  it('forwards each exact Common email password failure once through the real shell fragment', async () => {
+    const start = source.indexOf(
+      "    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \\((oracle|candidate)/common\\.email\\.password-sign-in\\)\\.$'"
+    );
+    const end = source.indexOf(
+      "    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \\((oracle|candidate)/device-consent\\."
+    );
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const fragment = source.slice(start, end);
+    const cases = [
+      {
+        name: 'scenario',
+        line: 'Phase 2 client credentials command failed (oracle/common.email.password-sign-in).',
+        expected: 1,
+      },
+      {
+        name: 'sanitizer',
+        line: 'Phase 2 client credentials command failed (candidate-sanitizer-email-177).',
+        expected: 1,
+      },
+      {
+        name: 'private',
+        line: 'Phase 2 client credentials command failed (oracle/common.email.password-sign-in:private).',
+        expected: 0,
+      },
+      {
+        name: 'wrong-index-176',
+        line: 'Phase 2 client credentials command failed (candidate-sanitizer-email-176).',
+        expected: 0,
+      },
+      {
+        name: 'wrong-index-178',
+        line: 'Phase 2 client credentials command failed (candidate-sanitizer-email-178).',
+        expected: 0,
+      },
+    ] as const;
+
+    await Promise.all(
+      cases.map(async ({ name, line, expected }) => {
+        const runDirectory = path.join(temporaryRoot, `email-forwarder-${name}`);
+        const scriptPath = path.join(temporaryRoot, `email-forwarder-${name}.sh`);
+        await mkdir(runDirectory, { mode: 0o700 });
+        await writeFile(path.join(runDirectory, 'evidence-sequence.stderr'), `${line}\n`, {
+          mode: 0o600,
+        });
+        await writeFile(
+          scriptPath,
+          `#!/usr/bin/env bash\nset -eu\nRUN_DIR=${JSON.stringify(runDirectory)}\n${fragment}`,
+          { mode: 0o700 }
+        );
+        const result = await runBash(scriptPath);
+        expect(result.code).toBe(0);
+        expect(result.stderr.split('\n').filter((value) => value === line)).toHaveLength(expected);
+      })
     );
   });
 

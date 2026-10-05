@@ -174,7 +174,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 178 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 179 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -245,7 +245,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 178 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 179 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -339,6 +339,56 @@ describe('Phase 2 public provenance envelope', () => {
         ],
       })
     ).toBe('native-176');
+  });
+
+  it('accepts only the exact credential-free email projection at row 178', () => {
+    const clientScenario = { id: 'client', projection: {} };
+    const nativeProjection = { idTokenAlgorithm: 'ES384' };
+    const emailProjection = {
+      identifier: 'email',
+      casing: 'canonical-owner',
+      passwordOutcome: 'accepted',
+      consent: true,
+      callback: 'state-issuer-code-bound',
+      pkce: 'S256',
+      profileSubject: true,
+      emailVerified: true,
+      refreshRotated: true,
+      invalidPassword: 'rejected',
+      suspended: 'rejected',
+      usernamePreserved: true,
+    };
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [
+        ...Array.from({ length: 176 }, () => clientScenario),
+        { id: 'common.native.code-pkce', projection: nativeProjection },
+        { id: 'common.email.password-sign-in', projection: emailProjection },
+      ],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const projection of [
+      { ...emailProjection, password: 'private-value' },
+      { ...emailProjection, passwordOutcome: 'private-value' },
+      { ...emailProjection, emailVerified: false },
+      { ...emailProjection, emailVerified: 'true' },
+      Object.fromEntries(
+        Object.entries(emailProjection).filter(([key]) => key !== 'emailVerified')
+      ),
+      { ...emailProjection, extra: true },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [
+            ...evidence.scenarios.slice(0, -1),
+            { id: 'common.email.password-sign-in', projection },
+          ],
+        })
+      ).toBe('email-177');
+    }
   });
 
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
@@ -512,8 +562,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 177-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 177 }, (_, index) => ({
+  it('publishes the full 178-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 178 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));
