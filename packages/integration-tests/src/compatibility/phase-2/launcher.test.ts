@@ -22,6 +22,46 @@ import { computePhase2RuntimeBundleIdentity } from './provenance.js';
 
 const executeFile = promisify(execFile);
 
+const browserEnvironmentKeys = [
+  'HOME',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'TMPDIR',
+  'XDG_RUNTIME_DIR',
+] as const;
+const originalBrowserEnvironment = Object.fromEntries(
+  browserEnvironmentKeys.map((key) => [key, process.env[key]])
+);
+let browserEnvironmentRoot = '';
+
+beforeAll(async () => {
+  browserEnvironmentRoot = await mkdtemp('/var/tmp/henry-build/phase2-launcher-browser-');
+  const runDirectory = path.join(browserEnvironmentRoot, 'aster-phase2-live', 'run.test');
+  const values = {
+    HOME: path.join(runDirectory, 'home'),
+    PLAYWRIGHT_BROWSERS_PATH: path.join(browserEnvironmentRoot, 'aster-playwright-browsers'),
+    TMPDIR: path.join(runDirectory, 'browser-tmp'),
+    XDG_RUNTIME_DIR: path.join(runDirectory, 'xdg-runtime'),
+  };
+  await Promise.all(
+    Object.values(values).map(async (value) => mkdir(value, { mode: 0o700, recursive: true }))
+  );
+  for (const [key, value] of Object.entries(values)) {
+    process.env[key] = value;
+  }
+});
+
+afterAll(async () => {
+  for (const key of browserEnvironmentKeys) {
+    const value = originalBrowserEnvironment[key];
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, key);
+    } else {
+      process.env[key] = value;
+    }
+  }
+  await rm(browserEnvironmentRoot, { force: true, recursive: true });
+});
+
 describe('Phase 2 tracked launcher', () => {
   it('writes only a closed cleanup diagnostic into the owned temporary root', async () => {
     const root = await mkdtemp('/var/tmp/henry-build/phase2-closed-diagnostic-');
@@ -638,8 +678,12 @@ describe('Phase 2 tracked launcher', () => {
             ASTER_PHASE2_HARNESS_HEAD: head,
             ASTER_PHASE2_HARNESS_TREE: tree,
             ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: digest,
+            HOME: process.env.HOME,
             LC_ALL: 'C',
             PATH: '/usr/bin:/bin',
+            PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH,
+            TMPDIR: process.env.TMPDIR,
+            XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
           });
           return 0;
         },
@@ -706,6 +750,117 @@ describe('Phase 2 tracked launcher', () => {
       'execute:candidate-invariants',
     ]);
     expect(capabilities.size).toBe(3);
+  });
+
+  it('passes only the four validated browser paths through the real child boundary', async () => {
+    const observed: Array<Record<string, unknown>> = [];
+    const previousMarker = process.env.ASTER_PRIVATE_MARKER;
+    const previousPassword = process.env.PGPASSWORD;
+    process.env.ASTER_PRIVATE_MARKER = 'private-marker';
+    process.env.PGPASSWORD = 'private-password';
+    try {
+      await expect(
+        launchPhase2Batch([['oracle']], {
+          inspect: async () => ({ head: 'a'.repeat(40), tree: 'b'.repeat(40) }),
+          build: async (): Promise<undefined> => undefined,
+          identity: async () => ({
+            sha256: 'c'.repeat(64),
+            moduleCount: 1,
+            entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+            libraryRootUrl: 'file:///private/lib/',
+            modules: { 'file:///private/lib/compatibility/phase-2/cli.js': 'c'.repeat(64) },
+          }),
+          execute: async (
+            _entry: string,
+            _args: readonly string[],
+            environment: Record<string, string>
+          ) => {
+            const { stdout } = await executeFile(
+              process.execPath,
+              [
+                '--eval',
+                `process.stdout.write(JSON.stringify({
+                  HOME: process.env.HOME,
+                  PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH,
+                  TMPDIR: process.env.TMPDIR,
+                  XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+                  ASTER_PRIVATE_MARKER: process.env.ASTER_PRIVATE_MARKER,
+                  PGPASSWORD: process.env.PGPASSWORD,
+                }))`,
+              ],
+              { env: environment }
+            );
+            observed.push(JSON.parse(stdout) as Record<string, unknown>);
+            return 0;
+          },
+        })
+      ).resolves.toBe(0);
+    } finally {
+      if (previousMarker === undefined) {
+        Reflect.deleteProperty(process.env, 'ASTER_PRIVATE_MARKER');
+      } else {
+        process.env.ASTER_PRIVATE_MARKER = previousMarker;
+      }
+      if (previousPassword === undefined) {
+        Reflect.deleteProperty(process.env, 'PGPASSWORD');
+      } else {
+        process.env.PGPASSWORD = previousPassword;
+      }
+    }
+    expect(observed).toEqual([
+      {
+        HOME: process.env.HOME,
+        PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH,
+        TMPDIR: process.env.TMPDIR,
+        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+      },
+    ]);
+  });
+
+  it.each([
+    ['missing', 'HOME', undefined],
+    ['relative', 'PLAYWRIGHT_BROWSERS_PATH', 'relative/cache'],
+    ['escaped', 'TMPDIR', '/var/tmp/henry-build/phase2-launcher-browser-outside'],
+  ] as const)('rejects a %s browser path before child execution', async (_case, key, value) => {
+    let executions = 0;
+    const previous = process.env[key];
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, key);
+    } else {
+      process.env[key] = value;
+      if (path.isAbsolute(value)) {
+        await mkdir(value, { mode: 0o700, recursive: true });
+      }
+    }
+    try {
+      await expect(
+        launchPhase2Batch([['oracle']], {
+          inspect: async () => ({ head: 'd'.repeat(40), tree: 'e'.repeat(40) }),
+          build: async (): Promise<undefined> => undefined,
+          identity: async () => ({
+            sha256: 'f'.repeat(64),
+            moduleCount: 1,
+            entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+            libraryRootUrl: 'file:///private/lib/',
+            modules: { 'file:///private/lib/compatibility/phase-2/cli.js': 'f'.repeat(64) },
+          }),
+          execute: async () => {
+            executions += 1;
+            return 0;
+          },
+        })
+      ).rejects.toThrow('Invalid Phase 2 launcher');
+    } finally {
+      if (previous === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = previous;
+      }
+      if (value !== undefined && path.isAbsolute(value)) {
+        await rm(value, { force: true, recursive: true });
+      }
+    }
+    expect(executions).toBe(0);
   });
 
   it('pins one verified runtime across sequential batches using the same dependencies', async () => {
@@ -789,8 +944,12 @@ describe('Phase 2 tracked launcher', () => {
 
   it('shares one in-flight preparation across concurrent batches', async () => {
     let releaseBuild: (() => void) | undefined;
+    let announceBuild: (() => void) | undefined;
     const buildBlocked = new Promise<void>((resolve) => {
       releaseBuild = resolve;
+    });
+    const buildStarted = new Promise<void>((resolve) => {
+      announceBuild = resolve;
     });
     const calls: string[] = [];
     const digest = '6'.repeat(64);
@@ -801,6 +960,7 @@ describe('Phase 2 tracked launcher', () => {
       },
       build: async (): Promise<undefined> => {
         calls.push('build');
+        announceBuild?.();
         await buildBlocked;
       },
       identity: async () => {
@@ -821,7 +981,7 @@ describe('Phase 2 tracked launcher', () => {
 
     const oracle = launchPhase2Batch([['oracle']], dependencies);
     const differential = launchPhase2Batch([['differential']], dependencies);
-    await Promise.resolve();
+    await buildStarted;
     expect(calls).toEqual(['inspect', 'build']);
     releaseBuild?.();
 

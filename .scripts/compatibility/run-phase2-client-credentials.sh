@@ -1272,6 +1272,27 @@ for (const file of [oraclePath, differentialPath, invariantPath]) {
 NODE
 }
 
+bootstrap_playwright() {
+  local launcher_path browser_executable browser_identity
+  local -a browser_executables=()
+  launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
+  "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" \
+    PLAYWRIGHT_BROWSERS_PATH="$BROWSER_CACHE" TMPDIR="$BROWSER_TMP" \
+    XDG_RUNTIME_DIR="$XDG_RUNTIME" CI=true \
+    "$PNPM_BIN" --dir "$REPO_ROOT/packages/integration-tests" exec playwright install chromium \
+    >"$PLAYWRIGHT_BOOTSTRAP_LOG" 2>&1 || return 1
+  mapfile -t browser_executables < <(
+    /usr/bin/find "$BROWSER_CACHE" -type f \
+      -path '*/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell' -print
+  )
+  [[ "${#browser_executables[@]}" -eq 1 ]] || return 1
+  browser_executable="${browser_executables[0]}"
+  [[ "$(/usr/bin/realpath -e -- "$browser_executable")" == "$BROWSER_CACHE"/* ]] || return 1
+  browser_identity="$(/usr/bin/stat -c '%u|%a|%h|%F' -- "$browser_executable")" || return 1
+  [[ "$browser_identity" =~ ^$(/usr/bin/id -u)\|[0-7]*[1357][0-7][0-7]\|1\|regular\ file$ \
+    && -x "$browser_executable" && ! -L "$browser_executable" ]]
+}
+
 main() {
   [[ $# == 0 ]] || { failure_stage='arguments'; fail; return 1; }
 
@@ -1315,7 +1336,11 @@ main() {
   BUILD_ROOT="${ASTER_PHASE2_BUILD_ROOT:-$DEFAULT_BUILD_ROOT}"
   require_safe_private_root "$BUILD_ROOT" || { failure_stage='build-root'; fail; return 1; }
   BUILD_ROOT_IDENTITY="$(capture_path_identity "$BUILD_ROOT")"
+  BROWSER_CACHE="$BUILD_ROOT/aster-playwright-browsers"
+  require_safe_private_root "$BROWSER_CACHE" || { failure_stage='browser-cache'; fail; return 1; }
+  BROWSER_CACHE_IDENTITY="$(capture_path_identity "$BROWSER_CACHE")"
   readonly BUILD_ROOT BUILD_ROOT_IDENTITY
+  readonly BROWSER_CACHE BROWSER_CACHE_IDENTITY
   ENGINE_SOCKET="$ASTER_PHASE2_ENGINE_SOCKET"
   verify_private_socket "$ENGINE_SOCKET" || { failure_stage='engine-socket'; fail; return 1; }
   ENGINE_SOCKET_IDENTITY="$(socket_identity "$ENGINE_SOCKET")"
@@ -1349,6 +1374,9 @@ main() {
   RUN_DIR_IDENTITY="$(capture_path_identity "$RUN_DIR")"
   readonly PRIVATE_BASE RESULT_ROOT RESULT_ROOT_IDENTITY RUN_DIR RUN_DIR_IDENTITY
   PRIVATE_HOME="$RUN_DIR/home"
+  BROWSER_TMP="$RUN_DIR/browser-tmp"
+  XDG_RUNTIME="$RUN_DIR/xdg-runtime"
+  PLAYWRIGHT_BOOTSTRAP_LOG="$RUN_DIR/playwright-bootstrap.log"
   CONFIG_DIR="$RUN_DIR/config"
   FIXTURE_DIRECTORY="$RUN_DIR/fixture"
   HOST_BIN_DIRECTORY="$RUN_DIR/host-bin"
@@ -1359,17 +1387,18 @@ main() {
   ORACLE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/oracle-fetch-observer-receipts"
   CANDIDATE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/candidate-fetch-observer-receipts"
   SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
-  for directory in "$PRIVATE_HOME" "$CONFIG_DIR" "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
+  for directory in "$PRIVATE_HOME" "$BROWSER_TMP" "$XDG_RUNTIME" "$CONFIG_DIR" \
+    "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
     "$ORACLE_OBSERVER_RECEIPT_DIRECTORY" "$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY" \
     "$SCRIPT_HOST_STATE"; do
     /usr/bin/mkdir -m 700 -- "$directory"
   done
-  readonly PRIVATE_HOME CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
+  readonly PRIVATE_HOME BROWSER_TMP XDG_RUNTIME PLAYWRIGHT_BOOTSTRAP_LOG
+  readonly CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
   readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY EVIDENCE_DIR
   readonly TLS_DIRECTORY ORACLE_OBSERVER_RECEIPT_DIRECTORY
   readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE
-
   ORACLE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   CANDIDATE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   [[ "$ORACLE_PROJECT_NAME" != "$CANDIDATE_PROJECT_NAME" ]] || { failure_stage='project-names'; fail; return 1; }
@@ -1417,6 +1446,9 @@ main() {
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
   [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
+  bootstrap_playwright || { failure_stage='playwright-bootstrap'; fail; return 1; }
+  assert_path_identity "$BROWSER_CACHE" "$BROWSER_CACHE_IDENTITY" \
+    || { failure_stage='browser-cache-identity'; fail; return 1; }
   [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
   generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
   assert_private_runtime_material || { failure_stage='private-runtime-material'; fail; return 1; }
@@ -1766,6 +1798,8 @@ NODE
   launcher_path="$(/usr/bin/dirname -- "$NODE_BIN"):$(/usr/bin/dirname -- "$PNPM_BIN"):/usr/bin:/bin"
   failure_stage='evidence-sequence'
   "$ENV_BIN" -i PATH="$launcher_path" HOME="$PRIVATE_HOME" LC_ALL=C \
+    PLAYWRIGHT_BROWSERS_PATH="$BROWSER_CACHE" TMPDIR="$BROWSER_TMP" \
+    XDG_RUNTIME_DIR="$XDG_RUNTIME" \
     ASTER_PHASE2_ORACLE_SMTP_SOCKET="$ORACLE_SMTP_SOCKET" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \

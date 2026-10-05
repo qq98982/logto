@@ -765,6 +765,51 @@ const defaultDependencies = Object.freeze({
 
 const preparedRuntimes = new WeakMap();
 const preparingRuntimes = new WeakMap();
+const browserEnvironmentKeys = Object.freeze([
+  'HOME',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'TMPDIR',
+  'XDG_RUNTIME_DIR',
+]);
+
+const privateDirectory = async (value) => {
+  if (typeof value !== 'string' || !path.isAbsolute(value) || path.normalize(value) !== value) {
+    return fail();
+  }
+  const [state, resolved] = await Promise.all([lstat(value), realpath(value)]);
+  if (
+    !state.isDirectory() ||
+    state.isSymbolicLink() ||
+    state.uid !== process.getuid() ||
+    (state.mode & 0o777) !== 0o700 ||
+    resolved !== value
+  ) {
+    return fail();
+  }
+  return value;
+};
+
+const phase2BrowserEnvironment = async () => {
+  const values = Object.fromEntries(
+    await Promise.all(
+      browserEnvironmentKeys.map(async (key) => [key, await privateDirectory(process.env[key])])
+    )
+  );
+  const runDirectory = path.dirname(values.HOME);
+  const buildRoot = path.dirname(values.PLAYWRIGHT_BROWSERS_PATH);
+  if (
+    path.basename(values.HOME) !== 'home' ||
+    path.basename(values.PLAYWRIGHT_BROWSERS_PATH) !== 'aster-playwright-browsers' ||
+    path.basename(values.TMPDIR) !== 'browser-tmp' ||
+    path.basename(values.XDG_RUNTIME_DIR) !== 'xdg-runtime' ||
+    path.dirname(values.TMPDIR) !== runDirectory ||
+    path.dirname(values.XDG_RUNTIME_DIR) !== runDirectory ||
+    !runDirectory.startsWith(`${buildRoot}${path.sep}`)
+  ) {
+    return fail();
+  }
+  return Object.freeze(values);
+};
 
 const manifestsEqual = (left, right) => {
   if (
@@ -792,6 +837,7 @@ const manifestsEqual = (left, right) => {
 };
 
 const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) => {
+  const browserEnvironment = await phase2BrowserEnvironment();
   const before = await dependencies.inspect(repositoryRoot);
   await dependencies.build(repositoryRoot);
   const after = await dependencies.inspect(repositoryRoot);
@@ -815,6 +861,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     ASTER_PHASE2_RUNTIME_BUNDLE_SHA256: runtime.sha256,
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
+    ...browserEnvironment,
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

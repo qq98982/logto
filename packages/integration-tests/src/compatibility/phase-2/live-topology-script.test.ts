@@ -79,6 +79,19 @@ const grepMatches = async (pattern: string, line: string): Promise<boolean> =>
     child.stdin.end(`${line}\n`);
   });
 
+const shellFunction = (name: string): string => {
+  const match = new RegExp(`^${name}\\(\\) \\{\\n([\\s\\S]*?)^\\}$`, 'mu').exec(source);
+  if (!match?.[0]) {
+    throw new TypeError('shell function not found');
+  }
+  return match[0];
+};
+
+const headlessShellFixture = (revision: string): string =>
+  `mkdir -p "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-${revision}/chrome-headless-shell-linux64"
+printf '#!/usr/bin/env bash\\n' >"$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-${revision}/chrome-headless-shell-linux64/chrome-headless-shell"
+chmod 0700 "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-${revision}/chrome-headless-shell-linux64/chrome-headless-shell"`;
+
 const runEmbeddedNode = async (
   program: string,
   arguments_: readonly string[]
@@ -354,6 +367,107 @@ afterAll(async () => {
 });
 
 describe('Phase 2 client-credentials live topology runner', () => {
+  it.each([
+    ['valid', 0],
+    ['missing', 1],
+    ['multiple', 1],
+    ['full-chrome-only', 1],
+    ['outside-symlink', 1],
+  ] as const)(
+    'bootstraps the locked Chromium cache with a closed environment (%s)',
+    async (behavior, expectedCode) => {
+      const directory = path.join(temporaryRoot, `playwright-${behavior}`);
+      const home = path.join(directory, 'home');
+      const cache = path.join(directory, 'cache');
+      const browserTemporary = path.join(directory, 'tmp');
+      const xdgRuntime = path.join(directory, 'xdg');
+      const trace = path.join(temporaryRoot, `playwright-${behavior}.trace`);
+      const log = path.join(directory, 'bootstrap.log');
+      const fakePnpm = path.join(directory, 'pnpm');
+      const harness = path.join(directory, 'harness.sh');
+      const installation =
+        behavior === 'valid'
+          ? headlessShellFixture('1234')
+          : behavior === 'multiple'
+            ? `${headlessShellFixture('1234')}\n${headlessShellFixture('1235')}`
+            : behavior === 'full-chrome-only'
+              ? `mkdir -p "$PLAYWRIGHT_BROWSERS_PATH/chromium-1234/chrome-linux64"
+printf '#!/usr/bin/env bash\\n' >"$PLAYWRIGHT_BROWSERS_PATH/chromium-1234/chrome-linux64/chrome"
+chmod 0700 "$PLAYWRIGHT_BROWSERS_PATH/chromium-1234/chrome-linux64/chrome"`
+              : behavior === 'outside-symlink'
+                ? `outside="$PLAYWRIGHT_BROWSERS_PATH/../outside-headless-shell"
+printf '#!/usr/bin/env bash\\n' >"$outside"
+chmod 0700 "$outside"
+mkdir -p "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-1234/chrome-headless-shell-linux64"
+ln -s "$outside" "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"`
+                : ':';
+      await Promise.all(
+        [directory, home, cache, browserTemporary, xdgRuntime].map(async (item) =>
+          mkdir(item, { mode: 0o700, recursive: true })
+        )
+      );
+      await writeFile(
+        fakePnpm,
+        `#!/usr/bin/env bash
+set -eu
+printf '%s|%s|%s|%s|%s|%s|%s\\n' "$PATH" "$HOME" "$PLAYWRIGHT_BROWSERS_PATH" "$TMPDIR" "$XDG_RUNTIME_DIR" "\${ASTER_PRIVATE_MARKER-unset}" "\${PGPASSWORD-unset}" >${JSON.stringify(trace)}
+[[ "$*" == '--dir ${repositoryRoot}/packages/integration-tests exec playwright install chromium' ]]
+${installation}
+`,
+        { mode: 0o700 }
+      );
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash
+set -u
+NODE_BIN=/usr/bin/node
+PNPM_BIN=${JSON.stringify(fakePnpm)}
+ENV_BIN=/usr/bin/env
+PRIVATE_HOME=${JSON.stringify(home)}
+BROWSER_CACHE=${JSON.stringify(cache)}
+BROWSER_TMP=${JSON.stringify(browserTemporary)}
+XDG_RUNTIME=${JSON.stringify(xdgRuntime)}
+PLAYWRIGHT_BOOTSTRAP_LOG=${JSON.stringify(log)}
+REPO_ROOT=${JSON.stringify(repositoryRoot)}
+ASTER_PRIVATE_MARKER=private
+PGPASSWORD=private
+export ASTER_PRIVATE_MARKER PGPASSWORD
+${shellFunction('bootstrap_playwright')}
+cleanup_trap() { rm -rf -- "$RUN_DIR"; }
+RUN_DIR=${JSON.stringify(directory)}
+trap cleanup_trap EXIT
+bootstrap_playwright
+`,
+        { mode: 0o700 }
+      );
+
+      const result = await runBash(harness);
+      expect(result.code).toBe(expectedCode);
+      expect(result.stderr).toBe('');
+      await expect(lstat(directory)).rejects.toMatchObject({ code: 'ENOENT' });
+      const traceContents = await readFile(trace, 'utf8');
+      const fields = traceContents.trim().split('|');
+      expect(fields).toEqual([
+        `/usr/bin:${path.dirname(fakePnpm)}:/usr/bin:/bin`,
+        home,
+        cache,
+        browserTemporary,
+        xdgRuntime,
+        'unset',
+        'unset',
+      ]);
+    }
+  );
+
+  it('installs the cleanup trap before browser bootstrap can fail', () => {
+    const trapIndex = source.indexOf('  trap cleanup_trap EXIT');
+    const bootstrapIndex = source.indexOf(
+      "  bootstrap_playwright || { failure_stage='playwright-bootstrap'; fail; return 1; }"
+    );
+    expect(trapIndex).toBeGreaterThan(0);
+    expect(bootstrapIndex).toBeGreaterThan(trapIndex);
+  });
+
   it('preserves every Phase 2 Node health argv through Podman Docker API tokenization', async () => {
     const document = JSON.parse(await readFile(topologyPath, 'utf8')) as {
       'x-phase2-services': Record<string, { healthcheck?: { test?: unknown } }>;
