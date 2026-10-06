@@ -49,6 +49,7 @@ const createRequest = (
     scopeCount?: number;
     userCreateFails?: boolean;
     userDeleteFails?: boolean;
+    userRoles?: readonly unknown[];
   }> = {}
 ) => {
   const calls: Phase2AdminRequest[] = [];
@@ -80,7 +81,7 @@ const createRequest = (
         ];
       }
       if (input.path === 'users/email-code-user/roles') {
-        return [role];
+        return options.userRoles ?? [role];
       }
       if (input.path === 'roles/email-code-role/scopes') {
         return [{ id: 'scope-0', resourceId: 'resource-id', name: 'read:profile' }];
@@ -179,6 +180,50 @@ test('enables ordered email code sign-in while preserving signup and cleans owne
     body: { branding: previousBranding, signIn: { methods: previousMethods } },
   });
   expect(calls.at(-3)).toMatchObject({ method: 'GET', path: 'sign-in-exp' });
+  expect(calls.at(-2)).toMatchObject({ method: 'DELETE', path: 'users/email-code-user' });
+  expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'roles/email-code-role' });
+});
+
+test('accepts inherited roles while requiring one valid owned role', async () => {
+  const inheritedRoles = [
+    { id: 'default-role', type: 'User', isDefault: true },
+    { id: 'other-role', type: 'User', isDefault: false },
+    { id: 'email-code-role', type: 'User', isDefault: false },
+  ];
+  const { calls, request } = createRequest({ userRoles: inheritedRoles });
+  await expect(
+    withSelectedEmailCodeFixture({ fixture, request, use: async (identity) => identity })
+  ).resolves.toMatchObject({ id: 'email-code-user' });
+  expect(calls.at(-2)).toMatchObject({ method: 'DELETE', path: 'users/email-code-user' });
+  expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'roles/email-code-role' });
+});
+
+test.each([
+  ['missing owned role', [{ id: 'default-role', type: 'User', isDefault: true }]],
+  [
+    'duplicate owned role',
+    [
+      { id: 'email-code-role', type: 'User', isDefault: false },
+      { id: 'email-code-role', type: 'User', isDefault: false },
+    ],
+  ],
+  [
+    'owned role has wrong type',
+    [{ id: 'email-code-role', type: 'MachineToMachine', isDefault: false }],
+  ],
+  ['owned role is default', [{ id: 'email-code-role', type: 'User', isDefault: true }]],
+  [
+    'inherited role is malformed',
+    [
+      { id: 'email-code-role', type: 'User', isDefault: false },
+      { id: 'default-role', type: 'User' },
+    ],
+  ],
+] as const)('rejects %s and cleans owned state', async (_name, userRoles) => {
+  const { calls, request } = createRequest({ userRoles });
+  await expect(
+    withSelectedEmailCodeFixture({ fixture, request, use: async () => true })
+  ).rejects.toThrow('Common email code fixture failed: primary-read-user-roles;cleanup-none');
   expect(calls.at(-2)).toMatchObject({ method: 'DELETE', path: 'users/email-code-user' });
   expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'roles/email-code-role' });
 });

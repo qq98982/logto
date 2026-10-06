@@ -276,14 +276,35 @@ export const withSelectedEmailCodeFixture = async <Result>(
       expectedStatuses: [200],
       responseKind: 'array',
     });
+    const roleIds = new Set<string>();
+    let ownedRoleCount = 0;
     if (
       !Array.isArray(roles) ||
-      roles.length !== 1 ||
-      typeof roles[0] !== 'object' ||
-      roles[0] === null ||
-      Reflect.get(roles[0], 'id') !== ownedRoleId ||
-      Reflect.get(roles[0], 'type') !== 'User' ||
-      Reflect.get(roles[0], 'isDefault') !== false
+      roles.length === 0 ||
+      roles.some((role) => {
+        if (typeof role !== 'object' || role === null) {
+          return true;
+        }
+        const id = Reflect.get(role, 'id');
+        const type = Reflect.get(role, 'type');
+        const isDefault = Reflect.get(role, 'isDefault');
+        if (
+          typeof id !== 'string' ||
+          id.length === 0 ||
+          roleIds.has(id) ||
+          type !== 'User' ||
+          typeof isDefault !== 'boolean'
+        ) {
+          return true;
+        }
+        roleIds.add(id);
+        if (id === ownedRoleId) {
+          ownedRoleCount += 1;
+          return isDefault;
+        }
+        return false;
+      }) ||
+      ownedRoleCount !== 1
     ) {
       return fail();
     }
