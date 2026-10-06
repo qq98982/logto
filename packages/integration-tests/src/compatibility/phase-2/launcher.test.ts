@@ -276,6 +276,16 @@ describe('Phase 2 tracked launcher', () => {
         'Phase 2 client credentials command failed (candidate/common.email.password-sign-in:private).\n'
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/common.email.code-sign-in).\n'
+      )
+    ).toBe('Phase 2 client credentials command failed (candidate/common.email.code-sign-in).\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/common.email.code-sign-in:private).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
     for (const id of [
       'device-authorization.urlencoded-success',
       'device-token.concurrent-reference-multi-winner',
@@ -456,6 +466,7 @@ describe('Phase 2 tracked launcher', () => {
         'device-175',
         'native-176',
         'email-177',
+        'code-178',
       ]) {
         const message = `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).\n`;
         expect(diagnosticForPhase2Child(message)).toBe(message);
@@ -468,6 +479,8 @@ describe('Phase 2 tracked launcher', () => {
       'device-01',
       'device-176',
       'native-175',
+      'code-177',
+      'code-178-private',
       'native-177',
       'target-extra',
       'private-value',

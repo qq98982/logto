@@ -1,5 +1,8 @@
 /* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment -- The fake Management API and coordinator journal intentionally model mutable partial-apply and rollback state. */
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import path from 'node:path';
 
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
@@ -19,8 +22,50 @@ import {
   createReferencePhase2FixtureProvisioner,
   phase2FixtureContract,
   runWithPhase2Fixture,
+  takeOracleVerificationCode,
   type Phase2AdminRequest,
 } from './fixtures.js';
+
+const withOracleSmtpControl = async <Result>(
+  reply: (requestIndex: number) => string | Readonly<{ value: string; keepOpen: true }> | undefined,
+  use: () => Promise<Result>
+): Promise<Result> => {
+  const directory = await mkdtemp('/var/tmp/henry-build/oracle-smtp-control-test-');
+  const socketPath = path.join(directory, 'oracle-smtp.sock');
+  let requests = 0;
+  const server = createServer((socket) => {
+    socket.once('data', () => {
+      const value = reply(requests);
+      requests += 1;
+      if (typeof value === 'string') {
+        socket.end(value);
+      } else if (value) {
+        socket.write(value.value);
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(socketPath, resolve);
+  });
+  const previous = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+  process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET = socketPath;
+  try {
+    return await use();
+  } finally {
+    if (previous === undefined) {
+      Reflect.deleteProperty(process.env, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET');
+    } else {
+      process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET = previous;
+    }
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await rm(directory, { recursive: true, force: true });
+  }
+};
 
 const oracle: TargetConfig = Object.freeze({
   label: 'oracle',
@@ -311,6 +356,90 @@ const createReferenceAdmin = () => {
   };
   return { calls, entityRows, request };
 };
+
+describe('Oracle verification delivery control', () => {
+  it('takes one six-digit code and reports the exact not-found response', async () => {
+    await withOracleSmtpControl(
+      (requestIndex) =>
+        requestIndex === 0
+          ? JSON.stringify({ code: '123456' })
+          : JSON.stringify({ error: 'not_found' }),
+      async () => {
+        await expect(takeOracleVerificationCode('Owner@Example.Invalid')).resolves.toBe('123456');
+        await expect(takeOracleVerificationCode('Owner@Example.Invalid')).rejects.toThrow(
+          'Phase 2 verification delivery failed: not-found'
+        );
+      }
+    );
+  });
+
+  it('rejects malformed response without retaining its body', async () => {
+    await withOracleSmtpControl(
+      () => JSON.stringify({ unexpected: 'private' }),
+      async () =>
+        expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+          'Phase 2 verification delivery failed: response'
+        )
+    );
+  });
+
+  it('reports environment, socket-shape, recipient, and connect failures with closed categories', async () => {
+    const previous = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+    try {
+      Reflect.deleteProperty(process.env, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET');
+      await expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+        'Phase 2 verification delivery failed: env-missing'
+      );
+      process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET = '/var/tmp/henry-build/wrong-name.sock';
+      await expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+        'Phase 2 verification delivery failed: socket-shape'
+      );
+      process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET =
+        '/var/tmp/henry-build/missing-oracle-control/oracle-smtp.sock';
+      await expect(takeOracleVerificationCode('not-an-email')).rejects.toThrow(
+        'Phase 2 verification delivery failed: recipient'
+      );
+      await expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+        'Phase 2 verification delivery failed: connect'
+      );
+    } finally {
+      if (previous === undefined) {
+        Reflect.deleteProperty(process.env, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET');
+      } else {
+        process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET = previous;
+      }
+    }
+  });
+
+  it(
+    'reports a silent control connection as a bounded timeout',
+    async () =>
+      withOracleSmtpControl(
+        () => {
+          const noReply: string | undefined = undefined;
+          return noReply;
+        },
+        async () =>
+          expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+            'Phase 2 verification delivery failed: timeout'
+          )
+      ),
+    7000
+  );
+
+  it(
+    'rejects a valid code when the control peer stays open past the deadline',
+    async () =>
+      withOracleSmtpControl(
+        () => ({ value: JSON.stringify({ code: '654321' }), keepOpen: true }),
+        async () =>
+          expect(takeOracleVerificationCode('owner@example.invalid')).rejects.toThrow(
+            'Phase 2 verification delivery failed: timeout'
+          )
+      ),
+    7000
+  );
+});
 
 describe('Phase 2 fixture lifecycle', () => {
   it('freezes the exact machine and confidential status client contract', () => {
@@ -775,6 +904,58 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(admin.entityRows.get('roles')).toEqual([
       { id: 'foreign-role', name: 'common-email-foreign' },
       { id: 'unrelated-role', name: 'reader' },
+    ]);
+  });
+
+  it('reconciles exact Common email-code rows after local deletion fails and retains foreign rows', async () => {
+    const admin = createReferenceAdmin();
+    const failedDeletes = new Set(['users/code-user', 'roles/code-role']);
+    const request = async (input: Phase2AdminRequest): Promise<unknown> => {
+      if (input.method === 'DELETE' && failedDeletes.delete(input.path)) {
+        throw new Error('planted local cleanup failure');
+      }
+      return admin.request(input);
+    };
+    const provisioner = createReferencePhase2FixtureProvisioner({
+      target: oracle,
+      foreignTarget: oracleForeign,
+      createAllocationId: () => 'code-cleanup',
+      request,
+    });
+    const fixture = await provisioner.provision();
+    admin.entityRows.set('users', [
+      { id: 'code-user', primaryEmail: 'common-email-code-code-cleanup@example.invalid' },
+      { id: 'foreign-user', primaryEmail: 'common-email-code-foreign@example.invalid' },
+    ]);
+    admin.entityRows.set('roles', [
+      { id: 'code-role', name: 'common-email-code-code-cleanup' },
+      { id: 'foreign-role', name: 'common-email-code-foreign' },
+    ]);
+
+    await expect(
+      request({
+        method: 'DELETE',
+        path: 'users/code-user',
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      })
+    ).rejects.toThrow('planted local cleanup failure');
+    await expect(
+      request({
+        method: 'DELETE',
+        path: 'roles/code-role',
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      })
+    ).rejects.toThrow('planted local cleanup failure');
+
+    await provisioner.cleanup(fixture);
+
+    expect(admin.entityRows.get('users')).toEqual([
+      { id: 'foreign-user', primaryEmail: 'common-email-code-foreign@example.invalid' },
+    ]);
+    expect(admin.entityRows.get('roles')).toEqual([
+      { id: 'foreign-role', name: 'common-email-code-foreign' },
     ]);
   });
 

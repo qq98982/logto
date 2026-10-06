@@ -6,6 +6,10 @@ import type { JsonValue } from '../normalize.js';
 import { snapshotClosedDataGraph } from '../phase-1/model.js';
 
 import {
+  commonEmailCodeExpectedProjection,
+  commonEmailCodeScenarioId,
+} from './browser/common-email-code-sign-in.js';
+import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
   runClientCredentialsCandidateInvariantControls,
@@ -171,7 +175,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 178).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 179).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -355,7 +359,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 178).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 179).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -400,6 +404,14 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
           'usernamePreserved',
         ]);
         if (!isDeepStrictEqual(projection, commonEmailPasswordExpectedProjection)) {
+          return fail();
+        }
+        assertWithBothSanitizers(projection);
+      });
+    } else if (scenario.id === commonEmailCodeScenarioId) {
+      assertSanitizedAt(`code-${index}`, () => {
+        const projection = snapshotJsonWire(scenario.projection);
+        if (!isDeepStrictEqual(projection, commonEmailCodeExpectedProjection)) {
           return fail();
         }
         assertWithBothSanitizers(projection);

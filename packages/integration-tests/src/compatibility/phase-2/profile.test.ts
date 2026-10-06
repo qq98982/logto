@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(178);
+    expect(registries.differentialScenarios).toHaveLength(179);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -119,6 +119,7 @@ describe('Phase 2 profile loader', () => {
       'verification-code.account-request-verify-replay',
       'common.native.code-pkce',
       'common.email.password-sign-in',
+      'common.email.code-sign-in',
     ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
@@ -172,10 +173,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '1263b77bb47ef50c327cd54beec2b1c0bce77431b9d7fa16b8e4212e14d57cab'
+      '832d356d769069b6c9552a9198b2e84a6330edb976d4ed66755a8efb49935e5f'
     );
     expect(registries.schemaSha256).toBe(
-      '8c3a37e6c9d0084a97b4271c1f9517c6e5d92eb79d8eade8589cc2c82299a0ff'
+      'e90a2511034d4745a3360d55fa177c432168e7f92383d2eb68301d3214502b81'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

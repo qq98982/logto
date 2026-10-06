@@ -565,49 +565,85 @@ const createFixture = (
   return fixture;
 };
 
-const takeOracleVerificationCode = async (recipient: string): Promise<string> => {
+type VerificationDeliveryFailure =
+  | 'env-missing'
+  | 'socket-shape'
+  | 'recipient'
+  | 'connect'
+  | 'timeout'
+  | 'not-found'
+  | 'response';
+const deliveryFail = (stage: VerificationDeliveryFailure): never => {
+  throw new TypeError(`Phase 2 verification delivery failed: ${stage}`);
+};
+
+export const takeOracleVerificationCode = async (recipient: string): Promise<string> => {
   const socketPath = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
-  if (
-    typeof socketPath !== 'string' ||
-    !socketPath.startsWith('/') ||
-    !socketPath.endsWith('/oracle-smtp.sock') ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) ||
-    recipient.length > 256
-  ) {
-    return fail();
+  if (typeof socketPath !== 'string') {
+    return deliveryFail('env-missing');
+  }
+  if (!socketPath.startsWith('/') || !socketPath.endsWith('/oracle-smtp.sock')) {
+    return deliveryFail('socket-shape');
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) || recipient.length > 256) {
+    return deliveryFail('recipient');
   }
   return new Promise<string>((resolve, reject) => {
     const socket = createConnection(socketPath);
     let output = '';
-    const timer = setTimeout(
-      () => socket.destroy(new Error('verification delivery timeout')),
-      5000
-    );
-    const rejectClosed = (): void => {
-      reject(new Error('verification delivery unavailable'));
+    let failure: VerificationDeliveryFailure = 'connect';
+    let settled = false;
+    const rejectClosed = (stage: VerificationDeliveryFailure): void => {
+      if (!settled) {
+        settled = true;
+        reject(new TypeError(`Phase 2 verification delivery failed: ${stage}`));
+      }
     };
+    const timer = setTimeout(() => {
+      failure = 'timeout';
+      rejectClosed('timeout');
+      socket.destroy();
+    }, 5000);
     socket.setEncoding('utf8');
-    socket.once('connect', () => socket.write(`${JSON.stringify({ recipient })}\n`));
+    socket.once('connect', () => {
+      failure = 'response';
+      socket.write(`${JSON.stringify({ recipient })}\n`);
+    });
     socket.on('data', (chunk: string) => {
       output += chunk;
       if (Buffer.byteLength(output) > 128) {
         socket.destroy();
       }
     });
-    socket.once('error', rejectClosed);
+    socket.once('error', () => {
+      rejectClosed(failure);
+    });
     socket.once('close', () => {
       clearTimeout(timer);
+      if (settled) {
+        return;
+      }
       try {
         const parsed = JSON.parse(output) as unknown;
-        const response = exactRecord(parsed, ['code']);
-        const code = own(response, 'code');
-        if (typeof code !== 'string' || !/^\d{6}$/u.test(code)) {
-          rejectClosed();
-          return;
+        try {
+          const response = exactRecord(parsed, ['code']);
+          const code = own(response, 'code');
+          if (typeof code !== 'string' || !/^\d{6}$/u.test(code)) {
+            rejectClosed('response');
+            return;
+          }
+          settled = true;
+          resolve(code);
+        } catch {
+          const response = exactRecord(parsed, ['error']);
+          if (own(response, 'error') === 'not_found') {
+            rejectClosed('not-found');
+            return;
+          }
+          rejectClosed('response');
         }
-        resolve(code);
       } catch {
-        rejectClosed();
+        rejectClosed(failure === 'timeout' ? 'timeout' : 'response');
       }
     });
   });
@@ -887,7 +923,8 @@ const referenceOwnedDefinitions = (allocationId: string) => {
       path: 'users',
       owns: (row: Record<string, unknown>) =>
         own(row, 'username') === statusUsername(allocationId) ||
-        own(row, 'primaryEmail') === `common-email-${allocationId}@example.invalid`,
+        own(row, 'primaryEmail') === `common-email-${allocationId}@example.invalid` ||
+        own(row, 'primaryEmail') === `common-email-code-${allocationId}@example.invalid`,
     }),
     Object.freeze({
       path: 'organization-roles',
@@ -904,7 +941,8 @@ const referenceOwnedDefinitions = (allocationId: string) => {
         own(row, 'name') === `${marker}-resource-role` ||
         own(row, 'name') === `${marker}-device-subject-role` ||
         own(row, 'name') === `${marker}-status-role` ||
-        own(row, 'name') === `common-email-${allocationId}`,
+        own(row, 'name') === `common-email-${allocationId}` ||
+        own(row, 'name') === `common-email-code-${allocationId}`,
     }),
     Object.freeze({
       path: 'resources',

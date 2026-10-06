@@ -2,6 +2,7 @@
 import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 
+import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
@@ -174,7 +175,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 179 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 180 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -245,7 +246,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 179 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 180 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -341,7 +342,7 @@ describe('Phase 2 public provenance envelope', () => {
     ).toBe('native-176');
   });
 
-  it('accepts only the exact credential-free email projection at row 178', () => {
+  it('accepts only the exact password and Code projections at rows 177 and 178', () => {
     const clientScenario = { id: 'client', projection: {} };
     const nativeProjection = { idTokenAlgorithm: 'ES384' };
     const emailProjection = {
@@ -366,6 +367,7 @@ describe('Phase 2 public provenance envelope', () => {
         ...Array.from({ length: 176 }, () => clientScenario),
         { id: 'common.native.code-pkce', projection: nativeProjection },
         { id: 'common.email.password-sign-in', projection: emailProjection },
+        { id: 'common.email.code-sign-in', projection: commonEmailCodeExpectedProjection },
       ],
     };
     expect(sanitizerStageOf(evidence)).toBe('accepted');
@@ -383,11 +385,33 @@ describe('Phase 2 public provenance envelope', () => {
         sanitizerStageOf({
           ...evidence,
           scenarios: [
-            ...evidence.scenarios.slice(0, -1),
+            ...evidence.scenarios.slice(0, 177),
             { id: 'common.email.password-sign-in', projection },
+            ...evidence.scenarios.slice(178),
           ],
         })
       ).toBe('email-177');
+    }
+    for (const projection of [
+      { ...commonEmailCodeExpectedProjection, emailVerified: false },
+      {
+        ...commonEmailCodeExpectedProjection,
+        controls: {
+          ...commonEmailCodeExpectedProjection.controls,
+          expiry: { status: 400, error: 'verification_code.not_found' },
+        },
+      },
+      { ...commonEmailCodeExpectedProjection, code: 'private-value' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [
+            ...evidence.scenarios.slice(0, -1),
+            { id: 'common.email.code-sign-in', projection },
+          ],
+        })
+      ).toBe('code-178');
     }
   });
 
@@ -562,8 +586,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 178-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 178 }, (_, index) => ({
+  it('publishes the full 179-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 179 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

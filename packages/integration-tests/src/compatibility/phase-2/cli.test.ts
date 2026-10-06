@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
+import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
@@ -760,6 +761,77 @@ describe('Common email password differential comparison', () => {
   });
 });
 
+describe('Common email Code differential comparison', () => {
+  const oracle = Object.freeze({
+    target: 'oracle' as const,
+    discovery: Object.freeze({}),
+    controls: Object.freeze([]),
+    scenarios: Object.freeze([
+      Object.freeze({
+        id: 'common.email.code-sign-in',
+        projection: commonEmailCodeExpectedProjection,
+      }),
+    ]),
+  });
+  const candidateTarget = Object.freeze({
+    descriptor: Object.freeze({ kind: 'candidate' as const }),
+  });
+
+  it('executes the Code branch and accepts identical exact projections', async () => {
+    const result = await executeDifferential(
+      {
+        profile,
+        oracle: oracle as never,
+        candidate: candidateTarget as never,
+        sessionRoot: '/private/session',
+      },
+      async () =>
+        ({
+          target: 'candidate',
+          discovery: {},
+          controls: [],
+          scenarios: [
+            { id: 'common.email.code-sign-in', projection: commonEmailCodeExpectedProjection },
+          ],
+        }) as never
+    );
+    expect(result).toMatchObject({
+      comparisons: [{ scenarioId: 'common.email.code-sign-in', differenceCount: 0 }],
+    });
+  });
+
+  it('fails closed when one nested Code control differs', async () => {
+    await expect(
+      executeDifferential(
+        {
+          profile,
+          oracle: oracle as never,
+          candidate: candidateTarget as never,
+          sessionRoot: '/private/session',
+        },
+        async () =>
+          ({
+            target: 'candidate',
+            discovery: {},
+            controls: [],
+            scenarios: [
+              {
+                id: 'common.email.code-sign-in',
+                projection: {
+                  ...commonEmailCodeExpectedProjection,
+                  controls: {
+                    ...commonEmailCodeExpectedProjection.controls,
+                    expiry: { status: 400, error: 'verification_code.not_found' },
+                  },
+                },
+              },
+            ],
+          }) as never
+      )
+    ).rejects.toThrow('Phase 2 scenario failed: candidate/common.email.code-sign-in');
+  });
+});
+
 const rootPrefix = '/var/tmp/henry-build/phase2-cli-';
 let root = '';
 let profilePath = '';
@@ -1442,6 +1514,54 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (oracle-evidence).'
     );
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    ['common.email.code-sign-in', 'oracle/common.email.code-sign-in'],
+    ['common.email.code-sign-in:credential-lease', null],
+    ['common.email.code-sign-in:projection-status', null],
+    ['common.email.code-sign-in:private', null],
+  ] as const)(
+    'forwards only the exact Code scenario diagnostic for %s',
+    async (detail, expected) => {
+      const calls: string[] = [];
+      const base = dependencies(calls);
+      expect(
+        await runPhase2CliMain(oracleArguments(), undefined, {
+          ...base,
+          executeOracle: async () => {
+            throw new Error(`Phase 2 scenario failed: oracle/${detail}`);
+          },
+        })
+      ).toBe(1);
+      expect(calls).toContain(
+        expected
+          ? `stderr:Phase 2 client credentials command failed (${expected}).`
+          : 'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+    }
+  );
+
+  it.each([
+    ['code-178', 'oracle-sanitizer-code-178'],
+    ['code-177', null],
+    ['code-178-private', null],
+  ] as const)('forwards only the exact Code sanitizer stage for %s', async (stage, expected) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    expect(
+      await runPhase2CliMain(oracleArguments(), undefined, {
+        ...base,
+        executeOracle: async () => {
+          throw new Error(`Phase 2 stage failed: oracle-sanitizer-${stage}`);
+        },
+      })
+    ).toBe(1);
+    expect(calls).toContain(
+      expected
+        ? `stderr:Phase 2 client credentials command failed (${expected}).`
+        : 'stderr:Phase 2 client credentials command failed (oracle-execution).'
+    );
   });
 
   it('identifies generic oracle and candidate-invariant stage failures', async () => {
