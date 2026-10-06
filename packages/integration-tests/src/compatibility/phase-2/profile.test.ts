@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(179);
+    expect(registries.differentialScenarios).toHaveLength(180);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -79,6 +79,7 @@ describe('Phase 2 profile loader', () => {
       'device-token.concurrent-reference-multi-winner'
     );
     expect(registries.differentialScenarios[138]).toBe('device-discovery.oauth');
+    expect(registries.differentialScenarios[179]).toBe('common.email.code-registration');
     expect(registries.differentialScenarios.slice(139)).toEqual([
       'custom-jwt.management-missing-get',
       'custom-jwt.management-missing-delete',
@@ -120,6 +121,7 @@ describe('Phase 2 profile loader', () => {
       'common.native.code-pkce',
       'common.email.password-sign-in',
       'common.email.code-sign-in',
+      'common.email.code-registration',
     ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
@@ -173,10 +175,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '832d356d769069b6c9552a9198b2e84a6330edb976d4ed66755a8efb49935e5f'
+      '318f53947d132772c05fdd19b1c657b92b9c9aebffe7c1a5769708f2d92fb9cd'
     );
     expect(registries.schemaSha256).toBe(
-      'e90a2511034d4745a3360d55fa177c432168e7f92383d2eb68301d3214502b81'
+      '9de37ea2eb5507fd14fd0799cc5f0e1eb164782923c456e7aa29d0153ffc63e0'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

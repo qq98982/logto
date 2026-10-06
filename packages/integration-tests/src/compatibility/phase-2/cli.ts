@@ -117,6 +117,12 @@ import {
   type ClientCredentialsScenarioResult,
 } from './scenarios/client-credentials.js';
 import {
+  commonEmailCodeRegistrationScenarioIds,
+  compareCommonEmailCodeRegistrationProjections,
+  runCommonEmailCodeRegistrationScenarioRow,
+  type CommonEmailCodeRegistrationScenarioResult,
+} from './scenarios/common-email-code-registration.js';
+import {
   compareCommonEmailCodeProjections,
   commonEmailCodeScenarioIds,
   runCommonEmailCodeScenarioRow,
@@ -259,6 +265,7 @@ type TargetScenarioEvidence = Readonly<{
     | VerificationCodeScenarioResult
     | CommonNativeScenarioResult
     | CommonEmailCodeScenarioResult
+    | CommonEmailCodeRegistrationScenarioResult
     | CommonEmailPasswordScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
@@ -478,7 +485,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^(?!.*common\.email\.code-sign-in:)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password|code)-sign-in|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^(?!.*common\.email\.(?:code-sign-in|code-registration):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration)|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -515,7 +522,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 export const commonEmailPasswordScenarioFailure = (
@@ -544,6 +551,12 @@ export const commonEmailCodeScenarioFailure = (
 ): never => {
   throw new Error(`Phase 2 scenario failed: ${kind}/${commonEmailCodeScenarioIds[0]}`);
 };
+export const commonEmailCodeRegistrationScenarioFailure = (
+  kind: 'oracle' | 'candidate',
+  _error: unknown
+): never => {
+  throw new Error(`Phase 2 scenario failed: ${kind}/${commonEmailCodeRegistrationScenarioIds[0]}`);
+};
 const candidateAdminConsumerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-consumer-unknown)$/u;
 const customJwtStageFailurePattern =
@@ -564,6 +577,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (commonNativeScenarioIds as readonly string[]).includes(value) ||
   (commonEmailPasswordScenarioIds as readonly string[]).includes(value) ||
   (commonEmailCodeScenarioIds as readonly string[]).includes(value) ||
+  (commonEmailCodeRegistrationScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -1361,6 +1375,14 @@ const runTargetScenarios = async (
       observer: createPlaywrightBrowserGroupObserver(loadChromium()),
       signal: AbortSignal.timeout(420_000),
     }).catch((error: unknown) => commonEmailCodeScenarioFailure(descriptor.kind, error));
+    const commonEmailCodeRegistrationScenario = await runCommonEmailCodeRegistrationScenarioRow({
+      target: descriptor.target,
+      fixture,
+      observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+      signal: AbortSignal.timeout(600_000),
+    }).catch((error: unknown) =>
+      commonEmailCodeRegistrationScenarioFailure(descriptor.kind, error)
+    );
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1601,6 +1623,7 @@ const runTargetScenarios = async (
       ...commonNativeScenarios,
       commonEmailPasswordScenario,
       commonEmailCodeScenario,
+      commonEmailCodeRegistrationScenario,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -1765,6 +1788,21 @@ export const executeDifferential = async (
     const isCommonEmailCode = (commonEmailCodeScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    const isCommonEmailCodeRegistration = (
+      commonEmailCodeRegistrationScenarioIds as readonly string[]
+    ).includes(oracleScenario.id);
+    if (isCommonEmailCodeRegistration) {
+      const found = compareCommonEmailCodeRegistrationProjections(
+        oracleScenario.projection as CommonEmailCodeRegistrationScenarioResult['projection'],
+        candidateScenario.projection as CommonEmailCodeRegistrationScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(
+          `Phase 2 scenario failed: candidate/${commonEmailCodeRegistrationScenarioIds[0]}`
+        );
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
     if (isCommonEmailCode) {
       const found = compareCommonEmailCodeProjections(
         oracleScenario.projection as CommonEmailCodeScenarioResult['projection'],

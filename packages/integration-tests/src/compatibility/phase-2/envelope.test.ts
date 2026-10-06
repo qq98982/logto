@@ -2,6 +2,7 @@
 import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 
+import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
@@ -175,7 +176,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 180 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 181 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -246,7 +247,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 180 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 181 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -342,7 +343,7 @@ describe('Phase 2 public provenance envelope', () => {
     ).toBe('native-176');
   });
 
-  it('accepts only the exact password and Code projections at rows 177 and 178', () => {
+  it('accepts only the exact password, Code, and registration projections at rows 177 to 179', () => {
     const clientScenario = { id: 'client', projection: {} };
     const nativeProjection = { idTokenAlgorithm: 'ES384' };
     const emailProjection = {
@@ -368,6 +369,10 @@ describe('Phase 2 public provenance envelope', () => {
         { id: 'common.native.code-pkce', projection: nativeProjection },
         { id: 'common.email.password-sign-in', projection: emailProjection },
         { id: 'common.email.code-sign-in', projection: commonEmailCodeExpectedProjection },
+        {
+          id: 'common.email.code-registration',
+          projection: commonEmailCodeRegistrationExpectedProjection,
+        },
       ],
     };
     expect(sanitizerStageOf(evidence)).toBe('accepted');
@@ -407,11 +412,40 @@ describe('Phase 2 public provenance envelope', () => {
         sanitizerStageOf({
           ...evidence,
           scenarios: [
-            ...evidence.scenarios.slice(0, -1),
+            ...evidence.scenarios.slice(0, 178),
             { id: 'common.email.code-sign-in', projection },
+            ...evidence.scenarios.slice(179),
           ],
         })
       ).toBe('code-178');
+    }
+    for (const projection of [
+      { ...commonEmailCodeRegistrationExpectedProjection, emailVerified: false },
+      {
+        ...commonEmailCodeRegistrationExpectedProjection,
+        noImplicitRegistration: {
+          ...commonEmailCodeRegistrationExpectedProjection.noImplicitRegistration,
+          afterCount: 1,
+        },
+      },
+      {
+        ...commonEmailCodeRegistrationExpectedProjection,
+        verificationReplay: {
+          ...commonEmailCodeRegistrationExpectedProjection.verificationReplay,
+          second: { status: 's200', outcome: 'verified', error: 'none' },
+        },
+      },
+      { ...commonEmailCodeRegistrationExpectedProjection, code: 'private-value' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [
+            ...evidence.scenarios.slice(0, -1),
+            { id: 'common.email.code-registration', projection },
+          ],
+        })
+      ).toBe('registration-179');
     }
   });
 
@@ -586,8 +620,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 179-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 179 }, (_, index) => ({
+  it('publishes the full 180-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 180 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

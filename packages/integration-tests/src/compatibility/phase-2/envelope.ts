@@ -5,6 +5,7 @@ import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 import { snapshotClosedDataGraph } from '../phase-1/model.js';
 
+import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import {
   commonEmailCodeExpectedProjection,
   commonEmailCodeScenarioId,
@@ -47,6 +48,7 @@ import {
   type Phase2PublicHarnessProvenance,
   type Phase2SourceIdentity,
 } from './provenance.js';
+import { commonEmailCodeRegistrationScenarioIds } from './scenarios/common-email-code-registration.js';
 import {
   commonEmailPasswordExpectedProjection,
   commonEmailPasswordScenarioIds,
@@ -175,7 +177,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 179).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 180).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -359,7 +361,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 179).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 180).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -412,6 +414,28 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
       assertSanitizedAt(`code-${index}`, () => {
         const projection = snapshotJsonWire(scenario.projection);
         if (!isDeepStrictEqual(projection, commonEmailCodeExpectedProjection)) {
+          return fail();
+        }
+        assertWithBothSanitizers(projection);
+      });
+    } else if (
+      (commonEmailCodeRegistrationScenarioIds as readonly string[]).includes(scenario.id)
+    ) {
+      assertSanitizedAt(`registration-${index}`, () => {
+        const projection = snapshotExactDataRecord(scenario.projection, [
+          'identifier',
+          'registrationOutcome',
+          'consent',
+          'callback',
+          'pkce',
+          'profileSubject',
+          'emailVerified',
+          'refreshRotated',
+          'noImplicitRegistration',
+          'occupiedRegistration',
+          'verificationReplay',
+        ]);
+        if (!isDeepStrictEqual(projection, commonEmailCodeRegistrationExpectedProjection)) {
           return fail();
         }
         assertWithBothSanitizers(projection);

@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
+import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
@@ -42,6 +43,7 @@ import {
 } from './candidate-invariants/verification-code.js';
 import {
   closedDeviceFailureStage,
+  commonEmailCodeRegistrationScenarioFailure,
   commonEmailPasswordScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
@@ -832,6 +834,80 @@ describe('Common email Code differential comparison', () => {
   });
 });
 
+describe('Common email Code registration differential comparison', () => {
+  const oracle = Object.freeze({
+    target: 'oracle' as const,
+    discovery: Object.freeze({}),
+    controls: Object.freeze([]),
+    scenarios: Object.freeze([
+      Object.freeze({
+        id: 'common.email.code-registration',
+        projection: commonEmailCodeRegistrationExpectedProjection,
+      }),
+    ]),
+  });
+  const candidateTarget = Object.freeze({
+    descriptor: Object.freeze({ kind: 'candidate' as const }),
+  });
+
+  it('accepts identical exact registration projections', async () => {
+    const result = await executeDifferential(
+      {
+        profile,
+        oracle: oracle as never,
+        candidate: candidateTarget as never,
+        sessionRoot: '/private/session',
+      },
+      async () =>
+        ({
+          target: 'candidate',
+          discovery: {},
+          controls: [],
+          scenarios: [
+            {
+              id: 'common.email.code-registration',
+              projection: commonEmailCodeRegistrationExpectedProjection,
+            },
+          ],
+        }) as never
+    );
+    expect(result).toMatchObject({
+      comparisons: [{ scenarioId: 'common.email.code-registration', differenceCount: 0 }],
+    });
+  });
+
+  it('fails closed when a registration control differs', async () => {
+    await expect(
+      executeDifferential(
+        {
+          profile,
+          oracle: oracle as never,
+          candidate: candidateTarget as never,
+          sessionRoot: '/private/session',
+        },
+        async () =>
+          ({
+            target: 'candidate',
+            discovery: {},
+            controls: [],
+            scenarios: [
+              {
+                id: 'common.email.code-registration',
+                projection: {
+                  ...commonEmailCodeRegistrationExpectedProjection,
+                  occupiedRegistration: {
+                    ...commonEmailCodeRegistrationExpectedProjection.occupiedRegistration,
+                    ownerUnchanged: false,
+                  },
+                },
+              },
+            ],
+          }) as never
+      )
+    ).rejects.toThrow('Phase 2 scenario failed: candidate/common.email.code-registration');
+  });
+});
+
 const rootPrefix = '/var/tmp/henry-build/phase2-cli-';
 let root = '';
 let profilePath = '';
@@ -1542,6 +1618,47 @@ describe('Phase 2 CLI', () => {
     }
   );
 
+  it('preserves the closed diagnostic produced by the registration row failure wrapper', async () => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    expect(
+      await runPhase2CliMain(oracleArguments(), undefined, {
+        ...base,
+        executeOracle: async () =>
+          commonEmailCodeRegistrationScenarioFailure('oracle', new Error('private driver detail')),
+      })
+    ).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle/common.email.code-registration).'
+    );
+    expect(calls.join(' ')).not.toContain('private driver detail');
+  });
+
+  it.each([
+    ['common.email.code-registration', 'oracle/common.email.code-registration'],
+    ['common.email.code-registration:private', null],
+    ['common.email.code-registration-unknown', null],
+  ] as const)(
+    'forwards only the exact registration scenario diagnostic for %s',
+    async (detail, expected) => {
+      const calls: string[] = [];
+      const base = dependencies(calls);
+      expect(
+        await runPhase2CliMain(oracleArguments(), undefined, {
+          ...base,
+          executeOracle: async () => {
+            throw new Error(`Phase 2 scenario failed: oracle/${detail}`);
+          },
+        })
+      ).toBe(1);
+      expect(calls).toContain(
+        expected
+          ? `stderr:Phase 2 client credentials command failed (${expected}).`
+          : 'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+    }
+  );
+
   it.each([
     ['code-178', 'oracle-sanitizer-code-178'],
     ['code-177', null],
@@ -1747,6 +1864,85 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (candidate/client-credentials.basic-explicit-resource).'
     );
     expect(calls.join(' ')).not.toContain('private');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('preserves an exact registration comparator failure for the launcher', async () => {
+    const output = path.join(root, 'phase-2-client-credentials-differential.json');
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        output,
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        readOracleArtifact: async () =>
+          ({
+            schemaVersion: 1,
+            mode: 'oracle',
+            sanitizerSuccess: true,
+            provenance: {
+              oracle: {
+                sourceCommit: '6852a7b8c8984c5c12b2061e8c51faa310a36412',
+                imageDigest:
+                  'sha256:76a9977bfc5ea3ed5b7623b879c27256670e377e27b987e8af99b53d55b30bbd',
+              },
+            },
+            payload: {
+              target: {
+                target: 'oracle',
+                discovery: {},
+                controls: [],
+                scenarios: [
+                  {
+                    id: 'common.email.code-registration',
+                    projection: commonEmailCodeRegistrationExpectedProjection,
+                  },
+                ],
+              },
+            },
+          }) as never,
+        executeDifferential: async (input) =>
+          executeDifferential(
+            input,
+            async () =>
+              ({
+                target: 'candidate',
+                discovery: {},
+                controls: [],
+                scenarios: [
+                  {
+                    id: 'common.email.code-registration',
+                    projection: {
+                      ...commonEmailCodeRegistrationExpectedProjection,
+                      occupiedRegistration: {
+                        ...commonEmailCodeRegistrationExpectedProjection.occupiedRegistration,
+                        ownerUnchanged: false,
+                      },
+                    },
+                  },
+                ],
+              }) as never
+          ),
+      }
+    );
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate/common.email.code-registration).'
+    );
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

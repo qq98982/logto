@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, five-part execution dependency, and mutable call-order controls. */
+/* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, closed diagnostics, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -143,6 +143,7 @@ describe('Phase 2 tracked launcher', () => {
     ).rejects.toThrow('differential');
     expect(calls).toEqual(['build', 'oracle', 'differential']);
   });
+  // eslint-disable-next-line complexity -- This table exercises the complete closed diagnostic grammar.
   it('forwards only closed scenario failure identifiers from the child', () => {
     for (const stage of [
       'prepare',
@@ -284,6 +285,20 @@ describe('Phase 2 tracked launcher', () => {
     expect(
       diagnosticForPhase2Child(
         'Phase 2 client credentials command failed (candidate/common.email.code-sign-in:private).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    for (const side of ['oracle', 'candidate']) {
+      const message = `Phase 2 client credentials command failed (${side}/common.email.code-registration).\n`;
+      expect(diagnosticForPhase2Child(message)).toBe(message);
+    }
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/common.email.code-registration:private).\n'
+      )
+    ).toBe('Phase 2 client credentials launcher failed.\n');
+    expect(
+      diagnosticForPhase2Child(
+        'Phase 2 client credentials command failed (candidate/common.email.code-registration-extra).\n'
       )
     ).toBe('Phase 2 client credentials launcher failed.\n');
     for (const id of [

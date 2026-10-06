@@ -3,6 +3,20 @@ import { isDeepStrictEqual } from 'node:util';
 
 export const commonEmailCodeScenarioId = 'common.email.code-sign-in';
 
+export type CommonEmailCodeRegistrationRequestFact = Readonly<{
+  kind: 'init' | 'send';
+  status: number;
+  error:
+    | 'none'
+    | 'guard.invalid_input'
+    | 'session.interaction_not_found'
+    | 'request.message_rate_limited'
+    | 'connector.not_found'
+    | 'connector.invalid_config'
+    | 'connector.general'
+    | 'other';
+}>;
+
 export type CommonEmailCodeBrowserSession = Readonly<{
   navigate(step: string, path: string): Promise<void>;
   waitForRoute(step: string, paths: readonly string[]): Promise<void>;
@@ -11,6 +25,7 @@ export type CommonEmailCodeBrowserSession = Readonly<{
   assertInitialCallback(): Promise<void>;
   readProfile(): Promise<Readonly<{ sub?: unknown; email?: unknown; emailVerified?: unknown }>>;
   refresh(): Promise<Readonly<{ subject?: unknown; rotated: boolean }>>;
+  registrationRequestFacts?(): Promise<readonly CommonEmailCodeRegistrationRequestFact[]>;
 }>;
 
 export type CommonEmailCodeControlResult = Readonly<{

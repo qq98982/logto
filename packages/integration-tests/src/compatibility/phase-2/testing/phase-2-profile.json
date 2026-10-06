@@ -218,7 +218,8 @@
     "verification-code.account-request-verify-replay",
     "common.native.code-pkce",
     "common.email.password-sign-in",
-    "common.email.code-sign-in"
+    "common.email.code-sign-in",
+    "common.email.code-registration"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",

@@ -139,6 +139,20 @@ export type Phase1BrowserUserReadFact = Readonly<{
   >;
 }>;
 
+export type Phase1BrowserRegistrationRequestFact = Readonly<{
+  kind: 'init' | 'send';
+  status: number;
+  error:
+    | 'none'
+    | 'guard.invalid_input'
+    | 'session.interaction_not_found'
+    | 'request.message_rate_limited'
+    | 'connector.not_found'
+    | 'connector.invalid_config'
+    | 'connector.general'
+    | 'other';
+}>;
+
 export type Phase1BrowserNetworkFacts = Readonly<{
   signIns: readonly Phase1BrowserSignInFact[];
   callbacks: readonly Phase1BrowserCallbackFact[];
@@ -147,6 +161,7 @@ export type Phase1BrowserNetworkFacts = Readonly<{
   accountReads: readonly Phase1BrowserAccountFact[];
   applicationReads: readonly Phase1BrowserApplicationReadFact[];
   userReads: readonly Phase1BrowserUserReadFact[];
+  registrationRequests?: readonly Phase1BrowserRegistrationRequestFact[];
 }>;
 
 export type Phase1BrowserSession = {

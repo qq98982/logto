@@ -19,6 +19,7 @@ import type {
   Phase1BrowserGroupId,
   Phase1BrowserGroupObserver,
   Phase1BrowserNetworkFacts,
+  Phase1BrowserRegistrationRequestFact,
   Phase1BrowserSession,
   Phase1BrowserSignInFact,
   Phase1BrowserUserReadFact,
@@ -309,6 +310,7 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
   readonly #accountReads: Phase1BrowserAccountFact[] = [];
   readonly #applicationReads: Phase1BrowserApplicationReadFact[] = [];
   readonly #userReads: Phase1BrowserUserReadFact[] = [];
+  readonly #registrationRequests: Phase1BrowserRegistrationRequestFact[] = [];
   readonly #pending = new Set<Promise<void>>();
   readonly #refreshLineage = new Set<string>();
   readonly #issuedCredentials = new Set<string>();
@@ -563,6 +565,7 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
       accountReads: Object.freeze([...this.#accountReads]),
       applicationReads: Object.freeze([...this.#applicationReads]),
       userReads: Object.freeze([...this.#userReads]),
+      registrationRequests: Object.freeze([...this.#registrationRequests]),
     });
   }
 
@@ -592,6 +595,42 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     const request = response.request();
     const method = request.method().toUpperCase();
     const authority = authorityFor(this.#target, url);
+
+    if (
+      (url.pathname === '/api/experience' && method === 'PUT') ||
+      (url.pathname === '/api/experience/verification/verification-code' && method === 'POST')
+    ) {
+      const status = safeStatus(response.status());
+      let error: Phase1BrowserRegistrationRequestFact['error'] = 'none';
+      if (status < 200 || status >= 300) {
+        const body: unknown = await response
+          .text()
+          .then((value) => JSON.parse(value) as unknown)
+          .catch((): null => null);
+        const code: unknown =
+          typeof body === 'object' && body !== null && Object.hasOwn(body, 'code')
+            ? (body as Record<string, unknown>).code
+            : undefined;
+        error = [
+          'guard.invalid_input',
+          'session.interaction_not_found',
+          'request.message_rate_limited',
+          'connector.not_found',
+          'connector.invalid_config',
+          'connector.general',
+        ].includes(typeof code === 'string' ? code : '')
+          ? (code as Phase1BrowserRegistrationRequestFact['error'])
+          : 'other';
+      }
+      this.#registrationRequests.push(
+        Object.freeze({
+          kind: url.pathname === '/api/experience' ? 'init' : 'send',
+          status,
+          error,
+        })
+      );
+      return;
+    }
 
     if (url.pathname === '/oidc/auth') {
       if (method !== 'GET') {
