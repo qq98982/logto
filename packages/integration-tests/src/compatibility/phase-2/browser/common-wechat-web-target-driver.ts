@@ -3,7 +3,10 @@ import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
-import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
+import type {
+  Phase1BrowserExperienceFailure,
+  Phase1BrowserGroupObserver,
+} from '../../phase-1/browser/contracts.js';
 import {
   isPlaywrightBrowserGroupObserver,
   type PlaywrightExternalAuthorizationCapability,
@@ -79,7 +82,7 @@ type Stage =
   | 'capability'
   | 'cleanup'
   | 'context'
-  | 'consent-field-invalid'
+  | `consent-field-invalid-${'route' | 'operation' | 'status' | 'binding' | 'code' | 'authorization' | 'state' | 'tuple'}`
   | 'context-adapter'
   | 'context-flow'
   | 'context-after-flow'
@@ -121,14 +124,97 @@ const bounded = (value: unknown, maximum = 1024): string => {
 };
 const consentStagePattern =
   /^consent-route-(?:sign-in|register|continue|demo|error|callback|other)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:complete|missing-resume-(?:not-issued|path-mismatch|expired|secure-mismatch|other)|missing-mapping|missing-shared|missing-session|not-applicable)-(?:user-identity_not_exist|user-missing_profile|session-verification_session_not_found|session-interaction_not_found|session-invalid_credentials|user-suspended|user-sign_in_method_not_enabled|session-identity_conflict|user-email_already_in_use|verification_record-permission_denied|guard-invalid_input|connector-general|connector-wechat_unionid_required|connector-social_auth_code_invalid|connector-invalid_response|unknown|none)-auth-[01]{9}-state-(?:stored|cleared|unavailable)$/u;
-const closedConsentStage = (value: string): ConsentStage => {
+const closedConsentRoutes = new Set([
+  'sign-in',
+  'register',
+  'continue',
+  'demo',
+  'error',
+  'callback',
+  'other',
+]);
+const closedConsentOperations = new Set([
+  'social-verify',
+  'identification',
+  'submit',
+  'resume',
+  'none',
+]);
+const closedConsentStatuses = new Set([
+  200, 201, 204, 302, 303, 400, 401, 403, 404, 409, 422, 500, 503, 0,
+]);
+const closedConsentBindings = new Set([
+  'complete',
+  'missing-resume-not-issued',
+  'missing-resume-path-mismatch',
+  'missing-resume-expired',
+  'missing-resume-secure-mismatch',
+  'missing-resume-other',
+  'missing-mapping',
+  'missing-shared',
+  'missing-session',
+  'not-applicable',
+]);
+const closedConsentCodes = new Set([
+  'user.identity_not_exist',
+  'user.missing_profile',
+  'session.verification_session_not_found',
+  'session.interaction_not_found',
+  'session.invalid_credentials',
+  'user.suspended',
+  'user.sign_in_method_not_enabled',
+  'session.identity_conflict',
+  'user.email_already_in_use',
+  'verification_record.permission_denied',
+  'guard.invalid_input',
+  'connector.general',
+  'connector.wechat_unionid_required',
+  'connector.social_auth_code_invalid',
+  'connector.invalid_response',
+  'unknown',
+  'none',
+]);
+const closedConsentStates = new Set(['state-stored', 'state-cleared', 'state-unavailable']);
+const closedConsentStage = (
+  input: Readonly<{
+    route: string;
+    response: Phase1BrowserExperienceFailure;
+    authorizationBits: string;
+    state: string;
+  }>
+): Readonly<{ stage: ConsentStage; detail: string }> => {
+  if (!closedConsentRoutes.has(input.route)) {
+    return targetFail('consent-field-invalid-route');
+  }
+  if (!closedConsentOperations.has(input.response.operation)) {
+    return targetFail('consent-field-invalid-operation');
+  }
+  if (!closedConsentStatuses.has(input.response.status)) {
+    return targetFail('consent-field-invalid-status');
+  }
+  if (!closedConsentBindings.has(input.response.binding)) {
+    return targetFail('consent-field-invalid-binding');
+  }
+  if (!closedConsentCodes.has(input.response.code)) {
+    return targetFail('consent-field-invalid-code');
+  }
+  if (!/^[01]{9}$/u.test(input.authorizationBits)) {
+    return targetFail('consent-field-invalid-authorization');
+  }
+  if (!closedConsentStates.has(input.state)) {
+    return targetFail('consent-field-invalid-state');
+  }
+  const detail = `${input.route}-${input.response.operation}-${input.response.status}-${input.response.binding}-${input.response.code.replaceAll('.', '-')}-auth-${input.authorizationBits}-${input.state}`;
+  const value = `consent-route-${detail}`;
   if (!consentStagePattern.test(value)) {
-    return targetFail('consent-field-invalid');
+    return targetFail('consent-field-invalid-tuple');
   }
   // The exact closed grammar above is the runtime constructor for this template type.
   // eslint-disable-next-line no-restricted-syntax
-  return value as ConsentStage;
+  return Object.freeze({ stage: value as ConsentStage, detail });
 };
+export const closedConsentStageForTesting = (input: Parameters<typeof closedConsentStage>[0]) =>
+  process.env.NODE_ENV === 'test' ? closedConsentStage(input) : fail();
 const preservesFlowStage = (error: unknown): error is TypeError =>
   !nodeTypes.isProxy(error) &&
   error instanceof TypeError &&
@@ -586,7 +672,6 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                                 error: response.code,
                               });
                             }
-                            const code = response.code.replaceAll('.', '-');
                             contextProgress = 'positive-consent-authorization';
                             const authorization = value.observation();
                             const authorizationBits = [
@@ -612,9 +697,14 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                               storedSocialState = false;
                             }
                             const consentDetail = (kind: string) => {
-                              const detail = `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
-                              observedConsentStage = closedConsentStage(`consent-route-${detail}`);
-                              return detail;
+                              const projection = closedConsentStage({
+                                route: kind,
+                                response,
+                                authorizationBits,
+                                state: storedState,
+                              });
+                              observedConsentStage = projection.stage;
+                              return projection.detail;
                             };
                             contextProgress = 'positive-consent-route';
                             for (const [kind, paths] of [
