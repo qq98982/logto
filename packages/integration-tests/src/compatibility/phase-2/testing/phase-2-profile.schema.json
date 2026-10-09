@@ -265,7 +265,10 @@
         "common.native.code-pkce",
         "common.email.password-sign-in",
         "common.email.code-sign-in",
-        "common.email.code-registration"
+        "common.email.code-registration",
+        "common.email.password-registration",
+        "common.password.recovery",
+        "common.google.existing-owner"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

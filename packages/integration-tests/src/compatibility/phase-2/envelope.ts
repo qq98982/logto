@@ -10,6 +10,8 @@ import {
   commonEmailCodeExpectedProjection,
   commonEmailCodeScenarioId,
 } from './browser/common-email-code-sign-in.js';
+import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
+import { commonEmailRecoveryExpectedProjection } from './browser/common-email-recovery-target-driver.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
@@ -49,11 +51,18 @@ import {
   type Phase2SourceIdentity,
 } from './provenance.js';
 import { commonEmailCodeRegistrationScenarioIds } from './scenarios/common-email-code-registration.js';
+import { commonEmailPasswordRegistrationScenarioIds } from './scenarios/common-email-password-registration.js';
 import {
   commonEmailPasswordExpectedProjection,
   commonEmailPasswordScenarioIds,
 } from './scenarios/common-email-password.js';
+import {
+  commonGoogleExistingOwnerScenarioIds,
+  compareCommonGoogleExistingOwnerProjections,
+  type CommonGoogleExistingOwnerScenarioProjection,
+} from './scenarios/common-google-existing-owner.js';
 import { commonNativeScenarioIds } from './scenarios/common-native.js';
+import { commonPasswordRecoveryScenarioIds } from './scenarios/common-password-recovery.js';
 import {
   deviceAuthorizationScenarioIds,
   publishDeviceScenarioProjection,
@@ -177,7 +186,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 180).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 183).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -361,7 +370,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 180).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 183).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -439,6 +448,75 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
           return fail();
         }
         assertWithBothSanitizers(projection);
+      });
+    } else if (
+      (commonEmailPasswordRegistrationScenarioIds as readonly string[]).includes(scenario.id)
+    ) {
+      assertSanitizedAt(`password-registration-${index}`, () => {
+        const projection = snapshotExactDataRecord(scenario.projection, [
+          'identifier',
+          'registrationOutcome',
+          'hasPassword',
+          'emailVerified',
+          'consent',
+          'callback',
+          'pkce',
+          'subsequentSignIn',
+          'sameOwner',
+          'refreshRotated',
+          'missingProfile',
+          'duplicateEmail',
+          'rejectedPolicy',
+        ]);
+        if (!isDeepStrictEqual(projection, commonEmailPasswordRegistrationExpectedProjection)) {
+          return fail();
+        }
+        assertWithBothSanitizers(projection);
+      });
+    } else if ((commonPasswordRecoveryScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`recovery-${index}`, () => {
+        const projection = snapshotExactDataRecord(scenario.projection, [
+          'identifier',
+          'recovery',
+          'previousBeforeReset',
+          'updateApplied',
+          'replacementAccepted',
+          'previousRejected',
+          'callback',
+          'pkce',
+          'profileVerified',
+          'refreshRotated',
+          'priorAccessUsable',
+          'priorSessionUsable',
+          'verificationReplay',
+          'wrongPurpose',
+        ]);
+        if (!isDeepStrictEqual(projection, commonEmailRecoveryExpectedProjection)) {
+          return fail();
+        }
+        assertWithBothSanitizers(projection);
+      });
+    } else if ((commonGoogleExistingOwnerScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`google-${index}`, () => {
+        const projection = snapshotExactDataRecord(scenario.projection, [
+          'provider',
+          'existingOwner',
+          'subjectPreserved',
+          'profileEmail',
+          'emailVerified',
+          'providerEmailChangeObserved',
+          'callback',
+          'pkce',
+          'refreshRotated',
+          'googleRequest',
+          'wrongState',
+          'replay',
+        ]);
+        const wire = snapshotJsonWire(projection) as CommonGoogleExistingOwnerScenarioProjection;
+        if (compareCommonGoogleExistingOwnerProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
       });
     } else {
       assertSanitizedAt(`client-${index}`, () => {

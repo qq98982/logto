@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(180);
+    expect(registries.differentialScenarios).toHaveLength(183);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -122,6 +122,9 @@ describe('Phase 2 profile loader', () => {
       'common.email.password-sign-in',
       'common.email.code-sign-in',
       'common.email.code-registration',
+      'common.email.password-registration',
+      'common.password.recovery',
+      'common.google.existing-owner',
     ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
@@ -175,10 +178,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '318f53947d132772c05fdd19b1c657b92b9c9aebffe7c1a5769708f2d92fb9cd'
+      '40a2f568b05e1cc9e400f48a491dd987b31b7248065b1c270495224c47427a5b'
     );
     expect(registries.schemaSha256).toBe(
-      '9de37ea2eb5507fd14fd0799cc5f0e1eb164782923c456e7aa29d0153ffc63e0'
+      '8588ab67a7cfef8d5a14850e03ba3ecdd6c6f3cbb58d3e83746752ef9b63f9f1'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

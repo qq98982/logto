@@ -205,7 +205,17 @@ export type Phase1BrowserSession = {
     stepId: string,
     accept: (facts: Phase1BrowserNetworkFacts) => boolean
   ): Promise<Phase1BrowserNetworkFacts>;
+  readExternalCallbackOutcome?(
+    stepId: string,
+    path: string
+  ): Promise<Phase1BrowserExternalCallbackOutcome>;
 };
+
+export type Phase1BrowserExternalCallbackOutcome = Readonly<{
+  callbackAccepted: boolean | 'unknown';
+  status: number | 'unavailable';
+  error: 'unknown';
+}>;
 
 export type Phase1BrowserGroupObserver = {
   runInFreshContext<Result>(

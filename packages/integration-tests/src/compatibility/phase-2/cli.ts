@@ -15,6 +15,7 @@ import { createPlaywrightBrowserGroupObserver } from '../phase-1/browser/playwri
 import { runPhase1FixtureCommand } from '../phase-1/clients/command-provisioner.js';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
+import { readCommonGoogleExistingOwnerFixtureRuntime } from './browser/common-google-existing-owner-fixture-runtime.js';
 import {
   runClientCredentialsCandidateInvariants,
   type CandidateInvariantControlEvidence,
@@ -129,17 +130,35 @@ import {
   type CommonEmailCodeScenarioResult,
 } from './scenarios/common-email-code.js';
 import {
+  commonEmailPasswordRegistrationScenarioIds,
+  compareCommonEmailPasswordRegistrationProjections,
+  runCommonEmailPasswordRegistrationScenarioRow,
+  type CommonEmailPasswordRegistrationScenarioResult,
+} from './scenarios/common-email-password-registration.js';
+import {
   compareCommonEmailPasswordProjections,
   commonEmailPasswordScenarioIds,
   runCommonEmailPasswordScenarioRow,
   type CommonEmailPasswordScenarioResult,
 } from './scenarios/common-email-password.js';
 import {
+  commonGoogleExistingOwnerScenarioIds,
+  compareCommonGoogleExistingOwnerProjections,
+  runCommonGoogleExistingOwnerScenarioRow,
+  type CommonGoogleExistingOwnerScenarioResult,
+} from './scenarios/common-google-existing-owner.js';
+import {
   commonNativeScenarioIds,
   compareCommonNativeCodePkceProjections,
   createCommonNativeScenarioRegistry,
   type CommonNativeScenarioResult,
 } from './scenarios/common-native.js';
+import {
+  commonPasswordRecoveryScenarioIds,
+  compareCommonPasswordRecoveryProjections,
+  runCommonPasswordRecoveryScenarioRow,
+  type CommonPasswordRecoveryScenarioResult,
+} from './scenarios/common-password-recovery.js';
 import {
   compareCustomJwtProjections,
   customJwtFetchScenarioIds,
@@ -265,6 +284,9 @@ type TargetScenarioEvidence = Readonly<{
     | VerificationCodeScenarioResult
     | CommonNativeScenarioResult
     | CommonEmailCodeScenarioResult
+    | CommonEmailPasswordRegistrationScenarioResult
+    | CommonGoogleExistingOwnerScenarioResult
+    | CommonPasswordRecoveryScenarioResult
     | CommonEmailCodeRegistrationScenarioResult
     | CommonEmailPasswordScenarioResult
     | CustomJwtScenarioEvidence
@@ -522,7 +544,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 export const commonEmailPasswordScenarioFailure = (
@@ -578,6 +600,9 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (commonEmailPasswordScenarioIds as readonly string[]).includes(value) ||
   (commonEmailCodeScenarioIds as readonly string[]).includes(value) ||
   (commonEmailCodeRegistrationScenarioIds as readonly string[]).includes(value) ||
+  (commonEmailPasswordRegistrationScenarioIds as readonly string[]).includes(value) ||
+  (commonPasswordRecoveryScenarioIds as readonly string[]).includes(value) ||
+  (commonGoogleExistingOwnerScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -1383,6 +1408,59 @@ const runTargetScenarios = async (
     }).catch((error: unknown) =>
       commonEmailCodeRegistrationScenarioFailure(descriptor.kind, error)
     );
+    const commonEmailPasswordRegistrationScenario =
+      await runCommonEmailPasswordRegistrationScenarioRow({
+        target: descriptor.target,
+        fixture,
+        observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+        signal: AbortSignal.timeout(600_000),
+      }).catch(() => {
+        throw new Error(
+          `Phase 2 scenario failed: ${descriptor.kind}/${commonEmailPasswordRegistrationScenarioIds[0]}`
+        );
+      });
+    const commonPasswordRecoveryScenario = await runCommonPasswordRecoveryScenarioRow({
+      target: descriptor.target,
+      fixture,
+      observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+      signal: AbortSignal.timeout(600_000),
+    }).catch(() => {
+      throw new Error(
+        `Phase 2 scenario failed: ${descriptor.kind}/${commonPasswordRecoveryScenarioIds[0]}`
+      );
+    });
+    const commonGoogleExistingOwnerScenario = await (async () => {
+      const providerPath =
+        descriptor.kind === 'oracle'
+          ? process.env.ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT
+          : process.env.ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT;
+      if (!providerPath) {
+        throw new Error('Missing Common Google provider fixture');
+      }
+      const runtime = await readCommonGoogleExistingOwnerFixtureRuntime(
+        providerPath,
+        descriptor.stateDriver.controlSocket
+      );
+      const googleFixture = Object.freeze({
+        public: fixture.public,
+        ...(fixture.status && { status: fixture.status }),
+        ...(fixture.verificationPeer && { verificationPeer: fixture.verificationPeer }),
+        withSecretLease: async <Result>(
+          use: (lease: Phase2FixtureSecretLease) => Promise<Result>
+        ) => fixture.withSecretLease(use),
+        commonGoogleExistingOwner: runtime,
+      });
+      return runCommonGoogleExistingOwnerScenarioRow({
+        target: descriptor.target,
+        fixture: googleFixture,
+        observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+        signal: AbortSignal.timeout(900_000),
+      });
+    })().catch(() => {
+      throw new Error(
+        `Phase 2 scenario failed: ${descriptor.kind}/${commonGoogleExistingOwnerScenarioIds[0]}`
+      );
+    });
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1624,6 +1702,9 @@ const runTargetScenarios = async (
       commonEmailPasswordScenario,
       commonEmailCodeScenario,
       commonEmailCodeRegistrationScenario,
+      commonEmailPasswordRegistrationScenario,
+      commonPasswordRecoveryScenario,
+      commonGoogleExistingOwnerScenario,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -1788,6 +1869,44 @@ export const executeDifferential = async (
     const isCommonEmailCode = (commonEmailCodeScenarioIds as readonly string[]).includes(
       oracleScenario.id
     );
+    if ((commonGoogleExistingOwnerScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+      const found = compareCommonGoogleExistingOwnerProjections(
+        oracleScenario.projection as CommonGoogleExistingOwnerScenarioResult['projection'],
+        candidateScenario.projection as CommonGoogleExistingOwnerScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(
+          `Phase 2 scenario failed: candidate/${commonGoogleExistingOwnerScenarioIds[0]}`
+        );
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
+    if (
+      (commonEmailPasswordRegistrationScenarioIds as readonly string[]).includes(oracleScenario.id)
+    ) {
+      const found = compareCommonEmailPasswordRegistrationProjections(
+        oracleScenario.projection as CommonEmailPasswordRegistrationScenarioResult['projection'],
+        candidateScenario.projection as CommonEmailPasswordRegistrationScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(
+          `Phase 2 scenario failed: candidate/${commonEmailPasswordRegistrationScenarioIds[0]}`
+        );
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
+    if ((commonPasswordRecoveryScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+      const found = compareCommonPasswordRecoveryProjections(
+        oracleScenario.projection as CommonPasswordRecoveryScenarioResult['projection'],
+        candidateScenario.projection as CommonPasswordRecoveryScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(
+          `Phase 2 scenario failed: candidate/${commonPasswordRecoveryScenarioIds[0]}`
+        );
+      }
+      return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
     const isCommonEmailCodeRegistration = (
       commonEmailCodeRegistrationScenarioIds as readonly string[]
     ).includes(oracleScenario.id);

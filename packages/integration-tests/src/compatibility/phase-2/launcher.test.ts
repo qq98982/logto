@@ -1,7 +1,7 @@
 /* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, closed diagnostics, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -14,6 +14,7 @@ import {
   diagnosticForPhase2Child,
   diagnosticForPhase2ChildResult,
   diagnosticForPhase2Batch,
+  readPhase2GoogleProviderEnvironment,
   launchPhase2,
   launchPhase2Batch,
   writeClosedChildDiagnostic,
@@ -664,6 +665,60 @@ describe('Phase 2 tracked launcher', () => {
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(
       await computePhase2RuntimeBundleIdentity(entry)
     );
+  });
+
+  it('passes only both owned provider descriptor paths within the same run directory', async () => {
+    const keys = [
+      'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
+      'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
+    ] as const;
+    const previous = keys.map((key) => process.env[key]);
+    const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
+    const paths = keys.map((_key, index) =>
+      path.join(
+        runDirectory,
+        'google-provider',
+        index === 0 ? 'oracle' : 'candidate',
+        'provider-input.json'
+      )
+    );
+    try {
+      await Promise.all(
+        paths.map(async (file) => {
+          await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+          await writeFile(file, '{}', { mode: 0o600 });
+        })
+      );
+      for (const [index, key] of keys.entries()) {
+        process.env[key] = paths[index];
+      }
+      expect(await readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).toEqual(
+        Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
+      );
+      process.env[keys[1]] = '/var/tmp/henry-build/unselected-provider-input.json';
+      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+      Reflect.deleteProperty(process.env, keys[1]);
+      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+      process.env[keys[1]] = paths[1];
+      await chmod(paths[0] ?? '', 0o644);
+      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+    } finally {
+      for (const [index, key] of keys.entries()) {
+        const value = previous[index];
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, key);
+        } else {
+          process.env[key] = value;
+        }
+      }
+      await rm(path.join(runDirectory, 'google-provider'), { recursive: true, force: true });
+    }
   });
 
   it('builds only between equal clean HEAD checks and passes a closed expected identity', async () => {

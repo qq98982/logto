@@ -4,6 +4,8 @@ import type { JsonValue } from '../normalize.js';
 
 import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
+import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
+import { commonEmailRecoveryExpectedProjection } from './browser/common-email-recovery-target-driver.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
@@ -39,6 +41,7 @@ import {
 import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from './profile.js';
 import type { Phase2SourceIdentity } from './provenance.js';
 import { assertDiscoveryEndpointFieldsContract } from './scenarios/client-credentials.js';
+import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 
 const profile: Phase2ProfileRegistries = {
   ...phase2ExpectedProfileAuthority,
@@ -176,7 +179,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 181 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 184 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -247,7 +250,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 181 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 184 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -449,6 +452,110 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 
+  it('rejects unsafe or changed registration/recovery state in new Common rows', () => {
+    const rows = [
+      {
+        id: 'common.email.password-registration',
+        projection: commonEmailPasswordRegistrationExpectedProjection,
+      },
+      { id: 'common.password.recovery', projection: commonEmailRecoveryExpectedProjection },
+    ];
+    const evidence = { target: 'oracle', discovery: {}, controls: [], scenarios: rows };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    const mutations = [
+      {
+        index: 0,
+        projection: { ...commonEmailPasswordRegistrationExpectedProjection, sameOwner: false },
+      },
+      {
+        index: 0,
+        projection: {
+          ...commonEmailPasswordRegistrationExpectedProjection,
+          missingProfile: {
+            ...commonEmailPasswordRegistrationExpectedProjection.missingProfile,
+            afterCount: 1,
+          },
+        },
+      },
+      {
+        index: 0,
+        projection: {
+          ...commonEmailPasswordRegistrationExpectedProjection,
+          password: 'private-value',
+        },
+      },
+      {
+        index: 1,
+        projection: { ...commonEmailRecoveryExpectedProjection, priorSessionUsable: false },
+      },
+      {
+        index: 1,
+        projection: { ...commonEmailRecoveryExpectedProjection, priorAccessUsable: 'true' },
+      },
+      {
+        index: 1,
+        projection: {
+          ...commonEmailRecoveryExpectedProjection,
+          verificationReplay: {
+            ...commonEmailRecoveryExpectedProjection.verificationReplay,
+            second: { status: 's200', outcome: 'verified', error: 'none' },
+          },
+        },
+      },
+      {
+        index: 1,
+        projection: { ...commonEmailRecoveryExpectedProjection, cookie: 'private-value' },
+      },
+    ];
+    for (const mutation of mutations) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: rows.map((row, index) =>
+            index === mutation.index ? { ...row, projection: mutation.projection } : row
+          ),
+        })
+      ).toBe(mutation.index === 0 ? 'password-registration-0' : 'recovery-1');
+    }
+  });
+
+  it('retains exact observed Google controls and rejects accepted state/replay', () => {
+    const projection = {
+      ...commonGoogleExistingOwnerExpectedProjection,
+      wrongState: {
+        ...commonGoogleExistingOwnerExpectedProjection.wrongState,
+        status: 400,
+        error: 'unknown',
+      },
+      replay: {
+        ...commonGoogleExistingOwnerExpectedProjection.replay,
+        secondStatus: 404,
+        secondError: 'session.verification_session_not_found',
+      },
+    };
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.google.existing-owner', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    const changes = [
+      { ...projection, wrongState: { ...projection.wrongState, callbackAccepted: true } },
+      { ...projection, replay: { ...projection.replay, secondAccepted: true } },
+      { ...projection, googleRequest: { ...projection.googleRequest, clientMatched: false } },
+      { ...projection, providerCredential: 'private-value' },
+    ];
+    for (const changed of changes) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.google.existing-owner', projection: changed }],
+        })
+      ).toBe('google-0');
+    }
+  });
+
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
     const artifactProfile = {
       ...profile,
@@ -620,8 +727,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 180-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 180 }, (_, index) => ({
+  it('publishes the full 183-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 183 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

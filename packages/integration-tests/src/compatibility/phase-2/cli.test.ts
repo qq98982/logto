@@ -16,6 +16,8 @@ import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
 import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
+import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
+import { commonEmailRecoveryExpectedProjection } from './browser/common-email-recovery-target-driver.js';
 import {
   clientCredentialsCandidateInvariantExpectedProjection,
   clientCredentialsCandidateInvariantIds,
@@ -905,6 +907,47 @@ describe('Common email Code registration differential comparison', () => {
           }) as never
       )
     ).rejects.toThrow('Phase 2 scenario failed: candidate/common.email.code-registration');
+  });
+});
+
+describe('new Common browser registration and recovery comparisons', () => {
+  const cases = [
+    {
+      id: 'common.email.password-registration',
+      projection: commonEmailPasswordRegistrationExpectedProjection,
+      changed: { ...commonEmailPasswordRegistrationExpectedProjection, sameOwner: false },
+    },
+    {
+      id: 'common.password.recovery',
+      projection: commonEmailRecoveryExpectedProjection,
+      changed: { ...commonEmailRecoveryExpectedProjection, priorSessionUsable: false },
+    },
+  ];
+  it.each(cases)('compares exact $id state and rejects a changed security outcome', async (row) => {
+    const oracle = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: row.id, projection: row.projection }],
+    };
+    const input = {
+      profile,
+      oracle: oracle as never,
+      candidate: { descriptor: { kind: 'candidate' } } as never,
+      sessionRoot: '/private/session',
+    };
+    const run = async (projection: unknown) =>
+      ({
+        target: 'candidate',
+        discovery: {},
+        controls: [],
+        scenarios: [{ id: row.id, projection }],
+      }) as never;
+    const compared = await executeDifferential(input, async () => run(row.projection));
+    expect(compared).toMatchObject({ comparisons: [{ scenarioId: row.id, differenceCount: 0 }] });
+    await expect(executeDifferential(input, async () => run(row.changed))).rejects.toThrow(
+      `Phase 2 scenario failed: candidate/${row.id}`
+    );
   });
 });
 

@@ -1,7 +1,15 @@
 /* eslint-disable complexity, max-lines, max-params, no-restricted-syntax, no-control-regex, no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/no-throw-literal, unicorn/no-array-callback-reference, unicorn/no-await-expression-member, unicorn/no-useless-spread, prefer-destructuring -- The adapter owns raw Playwright pages, response bodies, credential-bearing request fields, sequential listener drainage, and fixed diagnostics; browser flows receive only closed safe facts. */
 import { createHash } from 'node:crypto';
 
-import type { Browser, BrowserContext, BrowserType, Page, Response } from '@playwright/test';
+import type {
+  Browser,
+  BrowserContext,
+  BrowserType,
+  Frame,
+  Page,
+  Response,
+  Route,
+} from '@playwright/test';
 import { decodeJwt } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
@@ -33,6 +41,40 @@ const networkWaitIntervalMs = 25;
 const maximumSafeTextLength = 4096;
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/u;
 const browserGroupObserverCapabilities = new WeakSet<object>();
+const browserGroupObserverTypes = new WeakMap<object, Pick<BrowserType<Browser>, 'launch'>>();
+const externalAuthorizationCapabilities = new WeakMap<
+  object,
+  PlaywrightExternalAuthorizationHandler
+>();
+
+export type PlaywrightExternalAuthorizationRoute = Pick<Route, 'abort' | 'fulfill'> &
+  Partial<Pick<Route, 'fetch' | 'request'>>;
+
+export type PlaywrightExternalAuthorizationHandler = (
+  method: string,
+  url: URL,
+  route: PlaywrightExternalAuthorizationRoute
+) => Promise<boolean>;
+
+export type PlaywrightExternalAuthorizationCapability = Readonly<Record<never, never>>;
+
+export const registerPlaywrightExternalAuthorizationCapability = (
+  handler: PlaywrightExternalAuthorizationHandler
+): PlaywrightExternalAuthorizationCapability => {
+  const capability = Object.freeze({});
+  externalAuthorizationCapabilities.set(capability, handler);
+  return capability;
+};
+
+export const invokePlaywrightExternalAuthorizationCapability = async (
+  capability: PlaywrightExternalAuthorizationCapability | undefined,
+  method: string,
+  url: URL,
+  route: PlaywrightExternalAuthorizationRoute
+): Promise<boolean> => {
+  const handler = capability ? externalAuthorizationCapabilities.get(capability) : undefined;
+  return handler ? handler(method, url, route) : false;
+};
 
 type ContextNetworkGuard = Readonly<{
   hasViolation(): boolean;
@@ -170,7 +212,8 @@ const installContextNetworkGuard = async (
   observer: Observer,
   context: BrowserContext,
   target: TargetConfig,
-  groupId: Phase1BrowserGroupId
+  groupId: Phase1BrowserGroupId,
+  externalAuthorization?: PlaywrightExternalAuthorizationCapability
 ): Promise<ContextNetworkGuard> => {
   const allowedOrigins = new Set([new URL(target.coreUrl).origin, new URL(target.adminUrl).origin]);
   let violated = false;
@@ -189,6 +232,17 @@ const installContextNetworkGuard = async (
     await context.route('**/*', async (route) => {
       try {
         const url = new URL(route.request().url());
+
+        if (
+          await invokePlaywrightExternalAuthorizationCapability(
+            externalAuthorization,
+            route.request().method(),
+            url,
+            route
+          )
+        ) {
+          return;
+        }
 
         if (allowedOrigins.has(url.origin) || ['data:', 'blob:'].includes(url.protocol)) {
           await route.continue();
@@ -311,6 +365,12 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
   readonly #applicationReads: Phase1BrowserApplicationReadFact[] = [];
   readonly #userReads: Phase1BrowserUserReadFact[] = [];
   readonly #registrationRequests: Phase1BrowserRegistrationRequestFact[] = [];
+  readonly #externalCallbacks: Array<
+    Readonly<{ path: string; status: number; redirectedToConsent: boolean }>
+  > = [];
+
+  readonly #externalCallbackNavigations = new Set<string>();
+  readonly #socialVerificationStatuses: number[] = [];
   readonly #pending = new Set<Promise<void>>();
   readonly #refreshLineage = new Set<string>();
   readonly #issuedCredentials = new Set<string>();
@@ -335,6 +395,7 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     this.#signal = signal;
     this.#networkGuard = networkGuard;
     this.#page.on('response', this.#onResponse);
+    this.#page.on('framenavigated', this.#onFrameNavigation);
   }
 
   async preloadDemoConfiguration(
@@ -537,12 +598,72 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     });
   }
 
+  async readExternalCallbackOutcome(
+    stepId: string,
+    path: string
+  ): Promise<
+    Readonly<{
+      callbackAccepted: boolean | 'unknown';
+      status: number | 'unavailable';
+      error: 'unknown';
+    }>
+  > {
+    const expected = absoluteProfiledUrl(this.#target, 'core', path);
+    return this.#observer.run(fixedContext(stepId, 'evaluation'), async () => {
+      for (let attempt = 0; attempt < networkWaitAttempts; attempt += 1) {
+        if (this.#signal.aborted || this.#networkFailed || this.#networkGuard.hasViolation()) {
+          throw new Error('Browser network observation failed');
+        }
+        await Promise.all([...this.#pending]);
+        const matching = this.#externalCallbacks.filter((fact) => fact.path === expected.pathname);
+        if (matching.length > 1) {
+          throw new Error('Browser callback observation cardinality failed');
+        }
+        const observed = matching[0];
+        if (observed) {
+          const page = new URL(this.#page.url());
+          const callbackAccepted =
+            observed.redirectedToConsent ||
+            (page.origin === expected.origin && page.pathname === '/consent')
+              ? true
+              : observed.status >= 400 ||
+                  (this.#externalCallbackNavigations.has(expected.pathname) &&
+                    page.origin === expected.origin &&
+                    page.pathname === '/sign-in' &&
+                    this.#callbacks.length === 0 &&
+                    this.#exchanges.length === 0 &&
+                    this.#socialVerificationStatuses.every((status) => status >= 400))
+                ? false
+                : ('unknown' as const);
+          if (callbackAccepted !== 'unknown') {
+            return Object.freeze({
+              callbackAccepted,
+              status: observed.status,
+              error: 'unknown' as const,
+            });
+          }
+        }
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, networkWaitIntervalMs);
+        });
+      }
+      return Object.freeze({
+        callbackAccepted: 'unknown' as const,
+        status:
+          this.#externalCallbacks.find((fact) => fact.path === expected.pathname)?.status ??
+          'unavailable',
+        error: 'unknown' as const,
+      });
+    });
+  }
+
   async close(): Promise<void> {
     if (this.#closed) {
       return;
     }
     this.#closed = true;
     this.#page.removeListener('response', this.#onResponse);
+    this.#page.removeListener('framenavigated', this.#onFrameNavigation);
     await Promise.all([...this.#pending]);
     if (this.#networkFailed || this.#networkGuard.hasViolation()) {
       throw new Error('Browser network observation failed');
@@ -568,6 +689,19 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
       registrationRequests: Object.freeze([...this.#registrationRequests]),
     });
   }
+
+  readonly #onFrameNavigation = (frame: Frame) => {
+    if (frame !== this.#page.mainFrame()) {
+      return;
+    }
+    const url = new URL(frame.url());
+    if (
+      url.origin === new URL(this.#target.coreUrl).origin &&
+      url.pathname.startsWith('/callback/')
+    ) {
+      this.#externalCallbackNavigations.add(url.pathname);
+    }
+  };
 
   readonly #onResponse = (response: Response) => {
     const prior = Promise.all(this.#pending);
@@ -627,6 +761,34 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
           kind: url.pathname === '/api/experience' ? 'init' : 'send',
           status,
           error,
+        })
+      );
+      return;
+    }
+
+    if (
+      method === 'POST' &&
+      /^\/api\/experience\/verification\/social\/[^/]+\/verify$/u.test(url.pathname)
+    ) {
+      this.#socialVerificationStatuses.push(safeStatus(response.status()));
+      return;
+    }
+
+    if (url.pathname.startsWith('/callback/')) {
+      if (method !== 'GET' || !exactKeys(url.searchParams, ['code', 'state']) || url.hash) {
+        throw new TypeError('Invalid browser network observation');
+      }
+      const locationValue = response.headers().location;
+      let redirectedToConsent = false;
+      if (locationValue) {
+        const location = new URL(locationValue, url);
+        redirectedToConsent = location.origin === url.origin && location.pathname === '/consent';
+      }
+      this.#externalCallbacks.push(
+        Object.freeze({
+          path: url.pathname,
+          status: safeStatus(response.status()),
+          redirectedToConsent,
         })
       );
       return;
@@ -947,7 +1109,8 @@ const closeSession = async <Result>(
 };
 
 export const createPlaywrightBrowserGroupObserver = (
-  browserType: Pick<BrowserType<Browser>, 'launch'>
+  browserType: Pick<BrowserType<Browser>, 'launch'>,
+  externalAuthorization?: PlaywrightExternalAuthorizationCapability
 ): Phase1BrowserGroupObserver => {
   const capability = Object.freeze({
     runInFreshContext: async <Result>(
@@ -968,7 +1131,13 @@ export const createPlaywrightBrowserGroupObserver = (
             throw new Error('Browser context is not fresh');
           }
         });
-        const networkGuard = await installContextNetworkGuard(observer, context, target, groupId);
+        const networkGuard = await installContextNetworkGuard(
+          observer,
+          context,
+          target,
+          groupId,
+          externalAuthorization
+        );
         const page = await observer.run(fixedContext('page-create', 'browser-process'), async () =>
           context.newPage()
         );
@@ -981,7 +1150,19 @@ export const createPlaywrightBrowserGroupObserver = (
   });
 
   browserGroupObserverCapabilities.add(capability);
+  browserGroupObserverTypes.set(capability, browserType);
   return capability;
+};
+
+export const withPlaywrightExternalAuthorizationCapability = (
+  observer: Phase1BrowserGroupObserver,
+  capability: PlaywrightExternalAuthorizationCapability
+): Phase1BrowserGroupObserver => {
+  const browserType = browserGroupObserverTypes.get(observer);
+  if (!browserType || !externalAuthorizationCapabilities.has(capability)) {
+    throw new TypeError('Invalid browser external authorization capability');
+  }
+  return createPlaywrightBrowserGroupObserver(browserType, capability);
 };
 
 export const isPlaywrightBrowserGroupObserver = (value: Phase1BrowserGroupObserver): boolean =>

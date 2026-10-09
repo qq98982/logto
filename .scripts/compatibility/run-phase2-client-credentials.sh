@@ -12,13 +12,13 @@ readonly EXPECTED_ASTER_SOURCE='https://github.com/qq98982/aster.git'
 readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
   oracle-fetch-observer oracle-primary-smtp
-  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core
+  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider
 )
 readonly CANDIDATE_SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core candidate-primary-smtp
   candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
-  candidate-fixture-coordinator
+  candidate-fixture-coordinator candidate-google-provider
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
 readonly LOOPBACK_PROXY_BINDINGS=(
@@ -62,6 +62,13 @@ SCRIPT_EXECUTOR_IMAGE_ID=''
 fail() {
   printf 'Aster Phase 2 client credentials live topology failed (%s)\n' "$failure_stage" >&2
   return 1
+}
+
+forward_closed_common_row_failures() {
+  local file=$1
+  [[ -f "$file" && ! -L "$file" ]] || return 1
+  /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/(common\.email\.password-registration|common\.password\.recovery|common\.google\.existing-owner)\)\.$' \
+    "$file" >&2
 }
 
 trusted_binary() {
@@ -154,7 +161,7 @@ generate_fetch_and_script_host_pki() {
     -out "$FETCH_OBSERVER_CA" >/dev/null 2>&1 || return 1
   "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=fetch-observer.aster.test' \
     -keyout "$OBSERVER_SERVER_KEY" -out "$OBSERVER_SERVER_CSR" >/dev/null 2>&1 || return 1
-  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test,DNS:oauth2.googleapis.com,DNS:openidconnect.googleapis.com\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
   "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$serial" \
     -in "$OBSERVER_SERVER_CSR" -CA "$FETCH_OBSERVER_CA" -CAkey "$OBSERVER_CA_KEY" \
     -extfile "$OBSERVER_SERVER_EXT" -out "$OBSERVER_SERVER_CERT" >/dev/null 2>&1 || return 1
@@ -1045,6 +1052,95 @@ candidate|candidate-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
 EOF
 }
 
+assert_google_provider_private_material() {
+  local expected_inputs=$1 expected_mutable=$2 directory file identity owner mode links size type
+  for directory in "$GOOGLE_PROVIDER_ROOT" \
+    "$GOOGLE_PROVIDER_ROOT/oracle" "$GOOGLE_PROVIDER_ROOT/oracle/configuration" \
+    "$GOOGLE_PROVIDER_ROOT/oracle/receipts" "$GOOGLE_PROVIDER_ROOT/oracle/diagnostics" \
+    "$GOOGLE_PROVIDER_ROOT/candidate" "$GOOGLE_PROVIDER_ROOT/candidate/configuration" \
+    "$GOOGLE_PROVIDER_ROOT/candidate/receipts" "$GOOGLE_PROVIDER_ROOT/candidate/diagnostics"; do
+    [[ "$directory" == /* && -d "$directory" && ! -L "$directory" \
+      && "$(/usr/bin/realpath -e -- "$directory")" == "$directory" \
+      && "$(/usr/bin/stat -c '%u|%a|%F' -- "$directory")" \
+        == "$(/usr/bin/id -u)|700|directory" ]] || return 1
+  done
+  for file in "$ORACLE_GOOGLE_CONFIG" "$ORACLE_GOOGLE_RECEIPT" \
+    "$ORACLE_GOOGLE_DIAGNOSTIC" "$CANDIDATE_GOOGLE_CONFIG" \
+    "$CANDIDATE_GOOGLE_RECEIPT" "$CANDIDATE_GOOGLE_DIAGNOSTIC"; do
+    [[ "$file" == /* && -f "$file" && ! -L "$file" \
+      && "$(/usr/bin/realpath -e -- "$file")" == "$file" ]] || return 1
+    identity="$(/usr/bin/stat -c '%u|%a|%h|%s|%F' -- "$file")" || return 1
+    IFS='|' read -r owner mode links size type <<<"$identity"
+    [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == 600 && "$links" == 1 \
+      && "$size" =~ ^[0-9]+$ && "$type" =~ ^regular(\ empty)?\ file$ ]] || return 1
+    ((10#$size <= 65536)) || return 1
+    if [[ "$expected_mutable" == empty ]]; then
+      [[ "$size" == 0 ]] || return 1
+    elif [[ "$expected_mutable" != bounded ]]; then
+      return 1
+    fi
+  done
+  for file in "$ORACLE_GOOGLE_PROVIDER_INPUT" "$CANDIDATE_GOOGLE_PROVIDER_INPUT"; do
+    if [[ "$expected_inputs" == absent ]]; then
+      [[ ! -e "$file" && ! -L "$file" ]] || return 1
+    elif [[ "$expected_inputs" == present ]]; then
+      [[ -f "$file" && ! -L "$file" \
+        && "$(/usr/bin/realpath -e -- "$file")" == "$file" ]] || return 1
+      identity="$(/usr/bin/stat -c '%u|%a|%h|%s|%F' -- "$file")" || return 1
+      IFS='|' read -r owner mode links size type <<<"$identity"
+      [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == 600 && "$links" == 1 \
+        && "$size" =~ ^[1-9][0-9]*$ && "$type" == 'regular file' ]] || return 1
+      ((10#$size <= 65536)) || return 1
+    else
+      return 1
+    fi
+  done
+}
+
+assert_google_provider_state() {
+  local role=$1 service=$2 expected_status=$3 expected_running=$4 expected_ip=$5 id document
+  id="$(compose_for "$role" ps --all -q "$service")" || return 1
+  document="$(docker_cli inspect "$id")" || return 1
+  # The jq program intentionally uses literal container fields.
+  # shellcheck disable=SC2016
+  "$JQ_BIN" -e --arg id "$id" --arg image "$ORACLE_IMAGE_ID" \
+    --arg project "$(project_name_for "$role")" --arg service "$service" \
+    --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" '
+    length==1 and .[0].Id==$id and .[0].Image==$image
+    and (.[0].Config.Image==$image or .[0].Config.Image==($image|sub("^sha256:";"")))
+    and .[0].Config.Labels["com.docker.compose.project"]==$project
+    and .[0].Config.Labels["com.docker.compose.service"]==$service
+    and .[0].State.Status==$status and .[0].State.Running==$running
+    and ([.[0].NetworkSettings.Networks[] | .IPAddress] |
+      if $running then index($ip)!=null else all(.=="" or .==$ip) end)
+    and .[0].HostConfig.ReadonlyRootfs==true
+    and (.[0].HostConfig.CapAdd==null or .[0].HostConfig.CapAdd==[])
+    and (.[0].HostConfig.SecurityOpt==["no-new-privileges"] or
+      .[0].HostConfig.SecurityOpt==["no-new-privileges:true"])
+  ' <<<"$document" >/dev/null
+}
+
+prove_google_provider_runtime() {
+  local role=$1 service=$2 expected_ip=$3 id status_file sysctl_file field
+  start_compose_stage "$role" google-proof "$service" || return 1
+  assert_google_provider_state "$role" "$service" running true "$expected_ip" || return 1
+  id="$(compose_for "$role" ps --all -q "$service")" || return 1
+  status_file="$RUN_DIR/$role-google-provider-status"
+  sysctl_file="$RUN_DIR/$role-google-provider-port-start"
+  docker_cli exec "$id" /bin/cat /proc/1/status >"$status_file" 2>/dev/null || return 1
+  for field in CapInh CapPrm CapEff CapBnd CapAmb; do
+    [[ "$(/usr/bin/awk -v key="$field:" '$1==key{print $2}' "$status_file")" \
+      == 0000000000000000 ]] || return 1
+  done
+  [[ "$(/usr/bin/awk '$1=="NoNewPrivs:"{print $2}' "$status_file")" == 1 ]] || return 1
+  docker_cli exec "$id" /bin/cat /proc/sys/net/ipv4/ip_unprivileged_port_start \
+    >"$sysctl_file" 2>/dev/null || return 1
+  [[ "$(<"$sysctl_file")" == 443 ]] || return 1
+  /usr/bin/rm -- "$status_file" "$sysctl_file" || return 1
+  compose_for "$role" stop --timeout 5 "$service" >/dev/null || return 1
+  assert_google_provider_state "$role" "$service" exited false "$expected_ip"
+}
+
 topology_identity() {
   local role service metadata
   for role in oracle candidate; do
@@ -1055,7 +1151,13 @@ topology_identity() {
     fi
     for service in "$@"; do
       metadata="$(inspect_service "$role" "$service")" || return 1
-      printf '%s|%s\n' "$role" "$metadata" || return 1
+      if [[ "$service" == oracle-google-provider || "$service" == candidate-google-provider ]]; then
+        IFS='|' read -r id image configured project label _ <<<"$metadata"
+        printf '%s|%s|%s|%s|%s|%s\n' \
+          "$role" "$id" "$image" "$configured" "$project" "$label" || return 1
+      else
+        printf '%s|%s\n' "$role" "$metadata" || return 1
+      fi
     done
   done
 }
@@ -1092,10 +1194,15 @@ assert_runtime_identity_unchanged() {
   [[ "$(artifact_identity "$CANDIDATE_STATE_DRIVER")" == "$CANDIDATE_STATE_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_INVARIANT_DRIVER")" == "$CANDIDATE_INVARIANT_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$ASTER_ADMIN_BIN")" == "$ASTER_ADMIN_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$ORACLE_GOOGLE_PROVIDER_INPUT")" \
+    == "$ORACLE_GOOGLE_PROVIDER_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$CANDIDATE_GOOGLE_PROVIDER_INPUT")" \
+    == "$CANDIDATE_GOOGLE_PROVIDER_INPUT_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
   assert_expected_fixture_images || return 1
+  assert_google_provider_private_material present empty || return 1
   assert_private_runtime_material || return 1
   assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || return 1
   assert_state_handle_root_clean || return 1
@@ -1223,13 +1330,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 180 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 183 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 180 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 183 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1239,7 +1346,7 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 180 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 183 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
@@ -1326,9 +1433,18 @@ main() {
   PODMAN_GENERATOR="$REPO_ROOT/.scripts/compatibility/phase1-podman-differential-topology.mjs"
   STATE_DRIVER_SOURCE="$REPO_ROOT/.scripts/compatibility/phase2-client-credentials-state-driver.sh"
   INVARIANT_DRIVER_SOURCE="$REPO_ROOT/.scripts/compatibility/phase2-client-credentials-invariant-driver.sh"
+  GOOGLE_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-google-provider.mjs"
+  GOOGLE_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-google-provider-topology.mjs"
+  GOOGLE_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-google-provider-runtime.mjs"
   LAUNCHER_SOURCE="$REPO_ROOT/packages/integration-tests/src/compatibility/phase-2/launcher.mjs"
-  readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE LAUNCHER_SOURCE
-  [[ -f "$SOURCE_COMPOSE" && -f "$PODMAN_GENERATOR" && -f "$STATE_DRIVER_SOURCE" && -f "$INVARIANT_DRIVER_SOURCE" && -f "$LAUNCHER_SOURCE" ]] || { failure_stage='tracked-inputs'; fail; return 1; }
+  readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE
+  readonly GOOGLE_PROVIDER_SCRIPT GOOGLE_TOPOLOGY_MODULE GOOGLE_RUNTIME_HELPER LAUNCHER_SOURCE
+  for tracked_input in "$SOURCE_COMPOSE" "$PODMAN_GENERATOR" "$STATE_DRIVER_SOURCE" \
+    "$INVARIANT_DRIVER_SOURCE" "$GOOGLE_PROVIDER_SCRIPT" "$GOOGLE_TOPOLOGY_MODULE" \
+    "$GOOGLE_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
+    [[ -f "$tracked_input" && ! -L "$tracked_input" ]] \
+      || { failure_stage='tracked-inputs'; fail; return 1; }
+  done
 
   [[ -n "${ASTER_PHASE2_ASTER_ROOT+x}" && -n "${ASTER_PHASE2_ORACLE_IMAGE+x}" && -n "${ASTER_PHASE2_CANDIDATE_IMAGE+x}" && -n "${ASTER_PHASE2_SCRIPT_SUPERVISOR_IMAGE+x}" && -n "${ASTER_PHASE2_SCRIPT_EXECUTOR_IMAGE+x}" && -n "${ASTER_PHASE2_ENGINE_SOCKET+x}" ]] || { failure_stage='required-environment'; fail; return 1; }
   [[ "$ASTER_PHASE2_ORACLE_IMAGE" == "$ORACLE_IMAGE_PIN" ]] || { failure_stage='oracle-pin'; fail; return 1; }
@@ -1387,6 +1503,7 @@ main() {
   ORACLE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/oracle-fetch-observer-receipts"
   CANDIDATE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/candidate-fetch-observer-receipts"
   SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
+  GOOGLE_PROVIDER_ROOT="$RUN_DIR/google-provider"
   for directory in "$PRIVATE_HOME" "$BROWSER_TMP" "$XDG_RUNTIME" "$CONFIG_DIR" \
     "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
@@ -1398,7 +1515,7 @@ main() {
   readonly CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
   readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY EVIDENCE_DIR
   readonly TLS_DIRECTORY ORACLE_OBSERVER_RECEIPT_DIRECTORY
-  readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE
+  readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE GOOGLE_PROVIDER_ROOT
   ORACLE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   CANDIDATE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   [[ "$ORACLE_PROJECT_NAME" != "$CANDIDATE_PROJECT_NAME" ]] || { failure_stage='project-names'; fail; return 1; }
@@ -1440,6 +1557,14 @@ main() {
   SCRIPT_HOST_CLIENT_EXT="$TLS_DIRECTORY/script-host-client.ext"
   ORACLE_OBSERVER_RECEIPT="$ORACLE_OBSERVER_RECEIPT_DIRECTORY/observations.ndjson"
   CANDIDATE_OBSERVER_RECEIPT="$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY/observations.ndjson"
+  ORACLE_GOOGLE_CONFIG="$GOOGLE_PROVIDER_ROOT/oracle/configuration/configuration.json"
+  ORACLE_GOOGLE_RECEIPT="$GOOGLE_PROVIDER_ROOT/oracle/receipts/observations.json"
+  ORACLE_GOOGLE_DIAGNOSTIC="$GOOGLE_PROVIDER_ROOT/oracle/diagnostics/health.json"
+  ORACLE_GOOGLE_PROVIDER_INPUT="$GOOGLE_PROVIDER_ROOT/oracle/provider-input.json"
+  CANDIDATE_GOOGLE_CONFIG="$GOOGLE_PROVIDER_ROOT/candidate/configuration/configuration.json"
+  CANDIDATE_GOOGLE_RECEIPT="$GOOGLE_PROVIDER_ROOT/candidate/receipts/observations.json"
+  CANDIDATE_GOOGLE_DIAGNOSTIC="$GOOGLE_PROVIDER_ROOT/candidate/diagnostics/health.json"
+  CANDIDATE_GOOGLE_PROVIDER_INPUT="$GOOGLE_PROVIDER_ROOT/candidate/provider-input.json"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
@@ -1452,6 +1577,11 @@ main() {
   [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
   generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
   assert_private_runtime_material || { failure_stage='private-runtime-material'; fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" prepare "$GOOGLE_PROVIDER_ROOT" \
+    || { failure_stage='google-provider-private'; fail; return 1; }
+  assert_google_provider_private_material absent empty \
+    || { failure_stage='google-provider-private'; fail; return 1; }
 
   /usr/bin/mkdir -m 700 -- "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
   INVARIANT_HANDLE_ROOT_IDENTITY="$(capture_path_identity "$INVARIANT_HANDLE_ROOT")" || { failure_stage='invariant-handle-root'; fail; return 1; }
@@ -1722,6 +1852,72 @@ for (const [file, value] of [[oracleOutput, oracle], [candidateOutput, candidate
 NODE
   /usr/bin/rm -f -- "$generated"
   /usr/bin/chmod 0600 "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE"
+  "$NODE_BIN" --input-type=module - "$GOOGLE_TOPOLOGY_MODULE" \
+    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$GOOGLE_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
+    "$OBSERVER_SERVER_KEY" "$ORACLE_GOOGLE_CONFIG" "$ORACLE_GOOGLE_RECEIPT" \
+    "$CANDIDATE_GOOGLE_CONFIG" "$CANDIDATE_GOOGLE_RECEIPT" <<'GOOGLE_TOPOLOGY' \
+    || { failure_stage='google-provider-topology'; fail; return 1; }
+import { open, readFile, rename } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+
+const [modulePath, oraclePath, candidatePath, image, providerScript, ca, certificate, privateKey,
+  oracleConfiguration, oracleReceipt, candidateConfiguration, candidateReceipt] =
+  process.argv.slice(2);
+const { bindGoogleProviderTopology } = await import(pathToFileURL(modulePath).href);
+const [oracle, candidate] = await Promise.all([
+  readFile(oraclePath, 'utf8').then((value) => JSON.parse(value)),
+  readFile(candidatePath, 'utf8').then((value) => JSON.parse(value)),
+]);
+for (const [document, core, address] of [
+  [oracle, 'oracle-primary-core', '172.30.231.52'],
+  [candidate, 'candidate-primary-core', '172.30.241.52'],
+]) {
+  const current = document.services?.[core]?.extra_hosts ?? [];
+  if (
+    !Array.isArray(current) ||
+    current.some(
+      (value) =>
+        typeof value !== 'string' ||
+        /^(?:oauth2|openidconnect)\.googleapis\.com:/u.test(value)
+    )
+  ) {
+    throw new TypeError('Invalid Google provider host mapping');
+  }
+  document.services[core].extra_hosts = [
+    ...current,
+    `oauth2.googleapis.com:${address}`,
+    `openidconnect.googleapis.com:${address}`,
+  ];
+}
+const bound = bindGoogleProviderTopology(oracle, candidate, {
+  fixtureImage: image,
+  runtimeUid: process.getuid(),
+  runtimeGid: process.getgid(),
+  providerScript,
+  caFile: ca,
+  certificateFile: certificate,
+  privateKeyFile: privateKey,
+  oracleConfigurationFile: oracleConfiguration,
+  oracleReceiptFile: oracleReceipt,
+  candidateConfigurationFile: candidateConfiguration,
+  candidateReceiptFile: candidateReceipt,
+});
+for (const [destination, value] of [
+  [oraclePath, bound.oracle],
+  [candidatePath, bound.candidate],
+]) {
+  const temporary = `${destination}.google-provider`;
+  const handle = await open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(JSON.stringify(value));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temporary, destination);
+}
+GOOGLE_TOPOLOGY
   compose_oracle config --quiet >/dev/null 2>&1 || { fail; return 1; }
   compose_candidate config --quiet >/dev/null 2>&1 || { fail; return 1; }
 
@@ -1743,6 +1939,46 @@ NODE
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
   start_compose_stage candidate smtp candidate-primary-smtp || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
+
+  failure_stage='google-provider-create'
+  compose_oracle create oracle-google-provider >/dev/null || { fail; return 1; }
+  compose_candidate create candidate-google-provider >/dev/null || { fail; return 1; }
+  ORACLE_GOOGLE_PROVIDER_ID="$(compose_oracle ps --all -q oracle-google-provider)"
+  CANDIDATE_GOOGLE_PROVIDER_ID="$(compose_candidate ps --all -q candidate-google-provider)"
+  ORACLE_GOOGLE_PROVIDER_ID="$(docker_cli inspect --format '{{.Id}}' "$ORACLE_GOOGLE_PROVIDER_ID")"
+  CANDIDATE_GOOGLE_PROVIDER_ID="$(docker_cli inspect --format '{{.Id}}' "$CANDIDATE_GOOGLE_PROVIDER_ID")"
+  [[ "$ORACLE_GOOGLE_PROVIDER_ID" =~ ^[0-9a-f]{64}$ \
+    && "$CANDIDATE_GOOGLE_PROVIDER_ID" =~ ^[0-9a-f]{64}$ \
+    && "$ORACLE_GOOGLE_PROVIDER_ID" != "$CANDIDATE_GOOGLE_PROVIDER_ID" ]] \
+    || { fail; return 1; }
+  ORACLE_CONTAINER_IDS+=("$ORACLE_GOOGLE_PROVIDER_ID")
+  CANDIDATE_CONTAINER_IDS+=("$CANDIDATE_GOOGLE_PROVIDER_ID")
+  ORACLE_GOOGLE_PROVIDER_NAME="$(docker_cli inspect --format '{{.Name}}' \
+    "$ORACLE_GOOGLE_PROVIDER_ID")"
+  CANDIDATE_GOOGLE_PROVIDER_NAME="$(docker_cli inspect --format '{{.Name}}' \
+    "$CANDIDATE_GOOGLE_PROVIDER_ID")"
+  ORACLE_GOOGLE_PROVIDER_NAME="${ORACLE_GOOGLE_PROVIDER_NAME#/}"
+  CANDIDATE_GOOGLE_PROVIDER_NAME="${CANDIDATE_GOOGLE_PROVIDER_NAME#/}"
+  [[ "$ORACLE_GOOGLE_PROVIDER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ \
+    && "$CANDIDATE_GOOGLE_PROVIDER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] \
+    || { fail; return 1; }
+  assert_google_provider_state oracle oracle-google-provider created false 172.30.231.52 \
+    || { fail; return 1; }
+  assert_google_provider_state candidate candidate-google-provider created false 172.30.241.52 \
+    || { fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" write "$GOOGLE_PROVIDER_ROOT" \
+    "$ORACLE_GOOGLE_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$CANDIDATE_GOOGLE_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$PRIVATE_HOME" "$PODMAN_API_VERSION" \
+    oracle-google-provider candidate-google-provider \
+    || { failure_stage='google-provider-input'; fail; return 1; }
+  assert_google_provider_private_material present empty \
+    || { failure_stage='google-provider-input'; fail; return 1; }
+  ORACLE_GOOGLE_PROVIDER_INPUT_IDENTITY="$(artifact_identity "$ORACLE_GOOGLE_PROVIDER_INPUT")"
+  CANDIDATE_GOOGLE_PROVIDER_INPUT_IDENTITY="$(artifact_identity \
+    "$CANDIDATE_GOOGLE_PROVIDER_INPUT")"
+  readonly ORACLE_GOOGLE_PROVIDER_INPUT_IDENTITY CANDIDATE_GOOGLE_PROVIDER_INPUT_IDENTITY
 
   failure_stage='service-closure-oracle'
   assert_exact_project_services oracle "${ORACLE_SERVICES[@]}" || { fail; return 1; }
@@ -1801,6 +2037,9 @@ NODE
     PLAYWRIGHT_BROWSERS_PATH="$BROWSER_CACHE" TMPDIR="$BROWSER_TMP" \
     XDG_RUNTIME_DIR="$XDG_RUNTIME" \
     ASTER_PHASE2_ORACLE_SMTP_SOCKET="$ORACLE_SMTP_SOCKET" \
+    ASTER_PHASE2_ENGINE_SOCKET="$ENGINE_SOCKET" \
+    ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT="$ORACLE_GOOGLE_PROVIDER_INPUT" \
+    ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT="$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
     "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {
@@ -1928,8 +2167,9 @@ NODE
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)/common\.email\.code-registration\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/common\.email\.code-registration\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|((client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179)))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|((client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179)))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    forward_closed_common_row_failures "$RUN_DIR/evidence-sequence.stderr" || true
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|((client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182)))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \((candidate-invariant-device-([0-7]|1-(private-code-extraction|row-sql|row-missing|row-facts|schema-query|schema-clear-columns)|2-(arm|abort|foreign-poll-(error|invalid-client|authorization-pending|status)|response|finish)|7-(private-extraction|row-sql|row-facts|schema-query|schema-clear-columns|scan-(input|query|match)|normalized-(input|query|match)))|(oracle|candidate)(/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+(:((lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(-(authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other))))?)|-(fixture|discovery|controls|sanitizer(-(target|discovery|controls|ids|((client|device)-([0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182)))?|comparison|logout-session|verification-code|custom-jwt|target-(path|read|verify|prepare)|execution|harness|evidence|publish|cleanup|status-(admission|authorization|bootstrap|verification|identification|submit|bridge-(url|send|http-([1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(http|body|type|access|refresh)|introspection)|status-comparison-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-([0-9]|1[0-9]|2[0-6])-(kind|status|headers|body(-(sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-([0-9]|1[0-9]|2[0-6])-(short|full|resource|offline|other)-(short|full|resource|offline|other)))|differential-(target-path|target-read|target-pair|target-verify|target-prepare|execution|harness|evidence|publish|cleanup))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)/device-consent\.[a-z-]+:projection-(firstIssued|consent|completion)-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/device-consent\.[a-z-]+:projection-(firstIssued|consent|completion)-(status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
@@ -1953,6 +2193,20 @@ NODE
     fi
     fail; return 1;
   }
+  assert_google_provider_private_material present empty \
+    || { failure_stage='google-provider-proof-reset'; fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" probe "$GOOGLE_PROVIDER_ROOT" \
+    || { failure_stage='google-provider-proof-configuration'; fail; return 1; }
+  prove_google_provider_runtime oracle oracle-google-provider 172.30.231.52 \
+    || { failure_stage='oracle-google-provider-runtime'; fail; return 1; }
+  prove_google_provider_runtime candidate candidate-google-provider 172.30.241.52 \
+    || { failure_stage='candidate-google-provider-runtime'; fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" clear-probe "$GOOGLE_PROVIDER_ROOT" \
+    || { failure_stage='google-provider-proof-clear'; fail; return 1; }
+  assert_google_provider_private_material present empty \
+    || { failure_stage='google-provider-proof-clear'; fail; return 1; }
   remove_state_handle_root "$STATE_HANDLE_ROOT" || { failure_stage='state-handle-sweep-after-evidence'; fail; return 1; }
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-evidence'; fail; return 1; }
 

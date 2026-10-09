@@ -825,6 +825,42 @@ const phase2BrowserEnvironment = async () => {
   return Object.freeze(values);
 };
 
+export const readPhase2GoogleProviderEnvironment = async (browserEnvironment) => {
+  const keys = [
+    'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
+    'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
+  ];
+  const values = keys.map((key) => process.env[key]);
+  if (values.every((value) => value === undefined)) {
+    return Object.freeze({});
+  }
+  const runDirectory = path.dirname(browserEnvironment.HOME);
+  const accepted = await Promise.all(
+    values.map(async (value, index) => {
+      const role = index === 0 ? 'oracle' : 'candidate';
+      const expected = path.join(runDirectory, 'google-provider', role, 'provider-input.json');
+      if (value !== expected) {
+        return fail();
+      }
+      const [metadata, resolved] = await Promise.all([lstat(value), realpath(value)]);
+      if (
+        resolved !== value ||
+        !metadata.isFile() ||
+        metadata.isSymbolicLink() ||
+        metadata.uid !== process.getuid?.() ||
+        (metadata.mode & 0o777) !== 0o600 ||
+        metadata.nlink !== 1 ||
+        metadata.size < 2 ||
+        metadata.size > 65_536
+      ) {
+        return fail();
+      }
+      return [keys[index], value];
+    })
+  );
+  return Object.freeze(Object.fromEntries(accepted));
+};
+
 const manifestsEqual = (left, right) => {
   if (
     typeof left !== 'object' ||
@@ -876,6 +912,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     LC_ALL: 'C',
     PATH: '/usr/bin:/bin',
     ...browserEnvironment,
+    ...(await readPhase2GoogleProviderEnvironment(browserEnvironment)),
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

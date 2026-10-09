@@ -219,7 +219,10 @@
     "common.native.code-pkce",
     "common.email.password-sign-in",
     "common.email.code-sign-in",
-    "common.email.code-registration"
+    "common.email.code-registration",
+    "common.email.password-registration",
+    "common.password.recovery",
+    "common.google.existing-owner"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",
@@ -258,7 +261,11 @@
       "end_session_endpoint",
       "device_authorization_endpoint"
     ],
-    "scopesSupportedAppend": ["urn:aster:scope:sessions"],
-    "stillAbsent": ["registration_endpoint"]
+    "scopesSupportedAppend": [
+      "urn:aster:scope:sessions"
+    ],
+    "stillAbsent": [
+      "registration_endpoint"
+    ]
   }
 }
