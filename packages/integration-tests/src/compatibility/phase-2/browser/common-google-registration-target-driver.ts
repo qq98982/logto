@@ -372,6 +372,7 @@ export type CommonGoogleRegistrationTargetDriverInput = Readonly<{
 export type CommonGoogleRegistrationControlError =
   | 'connector.general'
   | 'guard.invalid_input'
+  | 'user.identity_not_exist'
   | 'user.missing_profile'
   | 'verification_record.permission_denied'
   | 'session.identity_conflict'
@@ -422,6 +423,7 @@ const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
     case 'connector.general':
     case 'guard.invalid_input':
+    case 'user.identity_not_exist':
     case 'user.missing_profile':
     case 'verification_record.permission_denied':
     case 'session.identity_conflict':
@@ -443,7 +445,6 @@ const rejectedControlError = (
     >
   | undefined => {
   switch (value) {
-    case 'user.identity_not_exist':
     case 'session.verification_session_not_found':
     case 'session.interaction_not_found':
     case 'session.invalid_credentials':
@@ -586,6 +587,7 @@ const runDeniedRegistrationControl = async (
         ? [
             'connector.general',
             'guard.invalid_input',
+            'user.identity_not_exist',
             'user.missing_profile',
             'verification_record.permission_denied',
             'none',
@@ -599,11 +601,15 @@ const runDeniedRegistrationControl = async (
     );
     const validStatus =
       (label === 'unverified-email' && failure.status === 200 && failure.code === 'none') ||
-      (failure.code === 'user.missing_profile'
+      (failure.code === 'user.identity_not_exist'
         ? label === 'unverified-email' &&
           failure.operation === 'identification' &&
-          failure.status === 422
-        : failure.status >= 400 && failure.status <= 499);
+          failure.status === 404
+        : failure.code === 'user.missing_profile'
+          ? label === 'unverified-email' &&
+            failure.operation === 'identification' &&
+            failure.status === 422
+          : failure.status >= 400 && failure.status <= 499);
     onStage(`${label}-control-outcome-code`);
     if (failure.code === 'unknown') {
       const classified = `${label}-control-unknown-${failure.operation}-${failure.status}` as const;
