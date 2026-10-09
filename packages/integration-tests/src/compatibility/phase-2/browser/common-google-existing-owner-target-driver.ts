@@ -523,6 +523,13 @@ async function executeCommonGoogleExistingOwnerForTarget(
                   input.signal,
                   target,
                   async (session) => {
+                    const adaptedSession = adaptPhase1SessionForEmailPassword(session, {
+                      ...input.browser,
+                      expectedIssuer,
+                      expectedSubject: value.ownerId,
+                      canonicalEmail: input.provider.originalOwnerEmail,
+                      resource: status.resource.indicator,
+                    });
                     if (mode === 'wrong-state') {
                       const readOutcome = session.readExternalCallbackOutcome;
                       if (typeof readOutcome !== 'function') {
@@ -531,9 +538,9 @@ async function executeCommonGoogleExistingOwnerForTarget(
                       stage = 'wrong-state-owner-before';
                       const before = structuredClone(await value.ownerSnapshot());
                       stage = 'wrong-state-open';
-                      await session.navigate('google-wrong-state-open', 'core', '/demo-app');
+                      await adaptedSession.navigate('google-wrong-state-open', '/demo-app');
                       stage = 'wrong-state-sign-in';
-                      await session.waitForRoute('google-wrong-state-sign-in', 'core', [
+                      await adaptedSession.waitForRoute('google-wrong-state-sign-in', [
                         '/sign-in',
                         '/sign-in/identifier',
                         '/sign-in/password',
@@ -594,13 +601,7 @@ async function executeCommonGoogleExistingOwnerForTarget(
                     try {
                       const normal = await runCommonGoogleExistingOwnerSignIn({
                         session: {
-                          ...adaptPhase1SessionForEmailPassword(session, {
-                            ...input.browser,
-                            expectedIssuer,
-                            expectedSubject: value.ownerId,
-                            canonicalEmail: input.provider.originalOwnerEmail,
-                            resource: status.resource.indicator,
-                          }),
+                          ...adaptedSession,
                           expectCount: async (step, selector, expected) =>
                             session.expectCount(step, selector, expected),
                         },

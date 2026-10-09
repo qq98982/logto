@@ -188,6 +188,7 @@ const createHarness = async (
     callbackRouteFails?: boolean;
     wrongState?: boolean;
     wrongStateFailure?:
+      | 'preload'
       | 'open'
       | 'sign-in'
       | 'provider-count'
@@ -214,6 +215,13 @@ const createHarness = async (
     Health: { Status: 'starting' },
   };
   const events: string[] = [];
+  const demoPreloads: Array<
+    Readonly<{
+      step: string;
+      storageKey: string;
+      value: Readonly<{ appId: string; prompt: string; scope: string; resource: string }>;
+    }>
+  > = [];
   const providerControl: GoogleProviderControl = {
     run: async (args) => {
       events.push(`provider:${args[0]}`);
@@ -380,8 +388,15 @@ const createHarness = async (
     const initial = initialFacts();
     const refreshed = refreshedFacts();
     const session: Phase1BrowserSession = {
-      preloadDemoConfiguration: async () => {},
+      preloadDemoConfiguration: async (step, storageKey, value) => {
+        events.push(`browser:preload:${step}`);
+        demoPreloads.push({ step, storageKey, value: structuredClone(value) });
+        if (options.wrongState && options.wrongStateFailure === 'preload') {
+          throw new Error('private wrong-state preload');
+        }
+      },
       navigate: async (step) => {
+        events.push(`browser:navigate:${step}`);
         if (step === 'google-wrong-state-open' && options.wrongStateFailure === 'open') {
           throw new Error('private wrong-state open');
         }
@@ -571,6 +586,7 @@ const createHarness = async (
   return {
     root,
     configFile,
+    demoPreloads,
     events,
     input,
     state: () => ({
@@ -737,7 +753,39 @@ test('runs one fresh wrong-state browser callback and preserves the complete own
       fulfilledOnce: true,
     },
   });
+  expect(harness.demoPreloads).toEqual([
+    {
+      step: 'preload-email-password',
+      storageKey: browser.storageKey,
+      value: browser.demo,
+    },
+  ]);
+  expect(harness.demoPreloads[0]?.value.appId).toBe('browser-app');
+  expect(harness.demoPreloads[0]?.value.appId).not.toBe('demo-app');
+  expect(harness.events.filter((event) => event.startsWith('browser:')).slice(0, 2)).toEqual([
+    'browser:preload:preload-email-password',
+    'browser:navigate:google-wrong-state-open',
+  ]);
   expect(harness.state()).toMatchObject({ role: false, connector: false, user: undefined });
+  await rm(harness.root, { recursive: true, force: true });
+});
+
+test('reports wrong-state open and completes cleanup when demo preload fails', async () => {
+  const harness = await createHarness({ wrongState: true, wrongStateFailure: 'preload' });
+  const operation = runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input);
+  await expect(operation).rejects.toThrow(
+    'Common Google existing-owner target failed: wrong-state-open'
+  );
+  await expect(operation).rejects.not.toThrow(/private wrong-state preload/u);
+  expect(harness.events).toContain('browser:preload:preload-email-password');
+  expect(harness.events).not.toContain('browser:navigate:google-wrong-state-open');
+  expect(harness.events).toContain('provider:stop');
+  expect(harness.state()).toMatchObject({
+    providerCredentialActive: false,
+    role: false,
+    connector: false,
+    user: undefined,
+  });
   await rm(harness.root, { recursive: true, force: true });
 });
 
