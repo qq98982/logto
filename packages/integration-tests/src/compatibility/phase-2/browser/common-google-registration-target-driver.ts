@@ -77,7 +77,8 @@ type RegistrationControlStage = `${'unverified-email' | 'occupied-email'}-contro
   | 'outcome'
   | 'outcome-code'
   | 'outcome-status'
-  | 'outcome-error'}`;
+  | 'outcome-error'
+  | 'outcome-accepted'}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -554,6 +555,7 @@ const runDeniedRegistrationControl = async (
       onStage(`${label}-control-outcome-error`);
       return targetFail('capability');
     }
+    onStage(`${label}-control-outcome-accepted`);
     return Object.freeze({
       status: failure.status,
       error,
