@@ -10,6 +10,14 @@ const intervalMilliseconds = 250;
 const fail = (): never => {
   throw new TypeError('Invalid WeChat Web provider denial control');
 };
+export type WechatWebProviderDenialStage =
+  | 'open'
+  | 'route'
+  | 'count'
+  | 'reset'
+  | 'click'
+  | 'response'
+  | 'owner';
 
 export const runWechatWebProviderDenialControl = async (
   input: Readonly<{
@@ -29,19 +37,25 @@ export const runWechatWebProviderDenialControl = async (
       readExperienceFailure(): Promise<Phase1BrowserExperienceFailure>;
     }>;
     timing?: Readonly<{ wait(milliseconds: number): Promise<void> }>;
+    reportStage?(stage: WechatWebProviderDenialStage): void;
     ownerSnapshot(): Promise<unknown>;
   }>
 ): Promise<CommonWechatWebProviderControlObservation> => {
   if (!input.selector) {
     return fail();
   }
+  input.reportStage?.('open');
   await input.session.navigate('wechat-web-control-open', '/demo-app');
+  input.reportStage?.('route');
   await input.session.waitForRoute('wechat-web-control-sign-in', [
     '/sign-in',
     '/sign-in/identifier',
   ]);
+  input.reportStage?.('count');
   await input.session.expectCount('wechat-web-control-provider-count', input.selector, 1);
+  input.reportStage?.('reset');
   await input.session.beginExperienceObservation();
+  input.reportStage?.('click');
   await input.session.click('wechat-web-control-provider', input.selector);
   const timing = input.timing ?? {
     wait: async (milliseconds: number) =>
@@ -50,6 +64,7 @@ export const runWechatWebProviderDenialControl = async (
       }),
   };
   let observed: Phase1BrowserExperienceFailure | undefined;
+  input.reportStage?.('response');
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const candidate = await input.session.readExperienceFailure();
     if (candidate.operation === 'social-verify' && candidate.status >= 400) {
@@ -58,6 +73,7 @@ export const runWechatWebProviderDenialControl = async (
     }
     await timing.wait(intervalMilliseconds);
   }
+  input.reportStage?.('owner');
   const ownerAfter = await input.ownerSnapshot();
   if (
     observed?.operation !== 'social-verify' ||

@@ -3,6 +3,7 @@ import { runWechatWebProviderDenialControl } from './wechat-web-provider-denial-
 
 test('captures the exact delayed no-UnionID response without waiting for consent', async () => {
   const actions: string[] = [];
+  const stages: string[] = [];
   let reads = 0;
   const result = await runWechatWebProviderDenialControl({
     selector: 'wechat',
@@ -10,6 +11,9 @@ test('captures the exact delayed no-UnionID response without waiting for consent
     expectedError: 'connector.wechat_unionid_required',
     ownerBefore: { id: 'owner', stable: true },
     ownerSnapshot: async () => ({ id: 'owner', stable: true }),
+    reportStage: (stage) => {
+      stages.push(stage);
+    },
     session: {
       navigate: async (step) => {
         actions.push(step);
@@ -54,6 +58,7 @@ test('captures the exact delayed no-UnionID response without waiting for consent
     'wechat-web-control-provider',
   ]);
   expect(reads).toBe(2);
+  expect(stages).toEqual(['open', 'route', 'count', 'reset', 'click', 'response', 'owner']);
 });
 
 test('rejects an unknown response or changed owner', async () => {

@@ -29,6 +29,7 @@ import {
   type WechatWebCrossInteractionObservation,
 } from './wechat-web-cross-interaction-control.js';
 import { runWechatWebProviderDenialControl } from './wechat-web-provider-denial-control.js';
+import type { WechatWebProviderDenialStage } from './wechat-web-provider-denial-control.js';
 import { completeWechatWebStateControlRetry } from './wechat-web-state-control-retry.js';
 
 const maximumDiscoveryBytes = 64 * 1024;
@@ -77,6 +78,7 @@ type Stage =
   | 'context-adapter'
   | 'context-flow'
   | 'context-after-flow'
+  | `context-control-${WechatWebProviderDenialStage}`
   | 'credentials'
   | 'discovery'
   | 'fixture'
@@ -454,7 +456,11 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                     : 'normal',
             use: async (value) => {
               const ownerBefore = await value.ownerSnapshot();
-              let contextProgress: 'adapter' | 'flow' | 'after-flow' = 'adapter';
+              let contextProgress:
+                | 'adapter'
+                | 'flow'
+                | `control-${WechatWebProviderDenialStage}`
+                | 'after-flow' = 'adapter';
               stage = 'capability';
               const crossControl =
                 providerCase === 'crossInteraction'
@@ -514,6 +520,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         expectedError: expected.error,
                         ownerBefore,
                         ownerSnapshot: value.ownerSnapshot,
+                        reportStage: (controlStage) => {
+                          contextProgress = `control-${controlStage}`;
+                        },
                         session: {
                           navigate: adapted.navigate,
                           waitForRoute: adapted.waitForRoute,
