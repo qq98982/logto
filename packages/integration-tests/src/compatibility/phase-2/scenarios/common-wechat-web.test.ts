@@ -128,7 +128,7 @@ test('describes only finite closed failure stages without leaking arbitrary mess
     )
   ).toBe('context-positive-provider');
   const consentTuple =
-    'consent-route-other-social-verify-400-not-applicable-connector-wechat_unionid_required-auth-111111100-state-unavailable';
+    'consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable';
   expect(
     describeCommonWechatWebFailure(new TypeError(`Common WeChat Web failed: ${consentTuple}`))
   ).toBe(consentTuple);

@@ -1819,8 +1819,8 @@ describe('Phase 2 CLI', () => {
     [
       'common.wechat.web',
       'wechat-web',
-      'Common WeChat Web failed: consent-route-other-social-verify-400-not-applicable-connector-wechat_unionid_required-auth-111111100-state-unavailable',
-      'consent-route-other-social-verify-400-not-applicable-connector-wechat_unionid_required-auth-111111100-state-unavailable',
+      'Common WeChat Web failed: consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
+      'consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
     ],
     ['common.google.existing-owner', 'google', 'private provider response', 'other'],
   ] as const)(
