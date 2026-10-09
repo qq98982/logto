@@ -127,6 +127,11 @@ test('describes only finite closed failure stages without leaking arbitrary mess
       new TypeError('Common Wechat existing-owner target failed: context-positive-provider')
     )
   ).toBe('context-positive-provider');
+  const consentTuple =
+    'consent-route-other-social-verify-400-not-applicable-connector-wechat_unionid_required-auth-111111100-state-unavailable';
+  expect(
+    describeCommonWechatWebFailure(new TypeError(`Common WeChat Web failed: ${consentTuple}`))
+  ).toBe(consentTuple);
   expect(describeCommonWechatWebFailure(new TypeError('private token secret'))).toBeUndefined();
   expect(
     describeCommonWechatWebFailure({ message: 'Common WeChat Web failed: profile' })

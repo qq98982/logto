@@ -115,7 +115,7 @@ const bounded = (value: unknown, maximum = 1024): string => {
 const preservesFlowStage = (error: unknown): error is TypeError =>
   !nodeTypes.isProxy(error) &&
   error instanceof TypeError &&
-  /^Common WeChat Web failed: (?:admission|initialization|provider-count|provider-click|consent-click|consent-route(?:-(?:sign-in|register|continue|demo|error|callback|other)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:complete|missing-resume-(?:not-issued|path-mismatch|expired|secure-mismatch|other)|missing-mapping|missing-shared|missing-session|not-applicable)-(?:user-identity-not-exist|user-missing-profile|session-verification-session-not-found|session-interaction-not-found|session-invalid-credentials|user-suspended|user-sign-in-method-not-enabled|session-identity-conflict|unknown|none)-(?:callback-complete|callback-incomplete)-(?:state-stored|state-cleared))?|callback(?:-[a-z0-9-]+)?|profile|refresh|provider)$/u.test(
+  /^Common WeChat Web failed: (?:admission|initialization|provider-count|provider-click|consent-click|consent-route(?:-(?:sign-in|register|continue|demo|error|callback|other)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:complete|missing-resume-(?:not-issued|path-mismatch|expired|secure-mismatch|other)|missing-mapping|missing-shared|missing-session|not-applicable)-(?:user-identity-not-exist|user-missing-profile|session-verification-session-not-found|session-interaction-not-found|session-invalid-credentials|user-suspended|user-sign-in-method-not-enabled|session-identity-conflict|connector-wechat_unionid_required|connector-social_auth_code_invalid|connector-invalid_response|unknown|none)-auth-[01]{9}-state-(?:stored|cleared|unavailable))?|callback(?:-[a-z0-9-]+)?|profile|refresh|provider)$/u.test(
     ownMessage(error) ?? ''
   );
 
@@ -552,7 +552,6 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                               code: 'none' as const,
                             };
                             if (
-                              providerCase !== 'positive' &&
                               response.status >= 400 &&
                               response.status <= 599 &&
                               response.code !== 'none'
@@ -564,18 +563,27 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                             }
                             const code = response.code.replaceAll('.', '-');
                             const authorization = value.observation();
-                            const callback =
-                              authorization.requestCount === 1 &&
-                              authorization.stateFormatValid &&
-                              authorization.stateRoundTrip &&
-                              authorization.fulfilledOnce
-                                ? 'callback-complete'
-                                : 'callback-incomplete';
-                            storedSocialState =
-                              (await session.hasStoredSocialState?.(value.connectorId)) ?? false;
-                            const storedState = storedSocialState
-                              ? 'state-stored'
-                              : 'state-cleared';
+                            const authorizationBits = [
+                              authorization.requestCount === 1,
+                              authorization.queryShapeExact,
+                              authorization.clientMatched,
+                              authorization.callbackMatched,
+                              authorization.responseTypeCode,
+                              authorization.scopeExact,
+                              authorization.stateFormatValid,
+                              authorization.stateRoundTrip,
+                              authorization.fulfilledOnce,
+                            ]
+                              .map((value) => (value ? '1' : '0'))
+                              .join('');
+                            let storedState = 'state-unavailable';
+                            try {
+                              storedSocialState =
+                                (await session.hasStoredSocialState?.(value.connectorId)) ?? false;
+                              storedState = storedSocialState ? 'state-stored' : 'state-cleared';
+                            } catch {
+                              storedSocialState = false;
+                            }
                             for (const [kind, paths] of [
                               ['sign-in', ['/sign-in', '/sign-in/identifier', '/sign-in/password']],
                               ['register', ['/register']],
@@ -590,12 +598,12 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                                   'core',
                                   paths
                                 );
-                                return `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-${callback}-${storedState}`;
+                                return `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
                               } catch {
                                 // Try the next closed route class.
                               }
                             }
-                            return `other-${response.operation}-${response.status}-${response.binding}-${code}-${callback}-${storedState}`;
+                            return `other-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
                           },
                         },
                         selector: wechatWebSignInButtonSelectorCandidate,
@@ -633,7 +641,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         ['missingState', 'wrongState', 'wrongCallback'].includes(providerCase) &&
                         storedSocialState &&
                         providerControlFailure === undefined &&
-                        /^Common WeChat Web failed: consent-route-(?:sign-in|register|continue|demo|error|callback|other)-none-0-not-applicable-none-callback-incomplete-state-stored$/u.test(
+                        /^Common WeChat Web failed: consent-route-(?:sign-in|register|continue|demo|error|callback|other)-none-0-not-applicable-none-auth-[01]{9}-state-stored$/u.test(
                           ownMessage(error) ?? ''
                         ) &&
                         value.observation().requestCount === 1 &&
