@@ -43,7 +43,7 @@ test('serves exact token and userinfo exchanges and rejects replayed codes', asy
   const receipt = `${root}/receipt.json`;
   await execute('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
     '-subj', '/CN=api.weixin.qq.com', '-keyout', key, '-out', certificate]);
-  await Promise.all([chmod(key, 0o600), chmod(certificate, 0o600), chmod(root, 0o700),
+  await Promise.all([chmod(key, 0o400), chmod(certificate, 0o444), chmod(root, 0o700),
     writeFile(configuration, `${JSON.stringify(valid())}\n`, { mode: 0o600 }),
     writeFile(receipt, '', { mode: 0o600 })]);
   const fixture = await startWechatProviderFixture({ certificateFile: certificate, privateKeyFile: key,

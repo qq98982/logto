@@ -57,7 +57,11 @@ const writeReceipt = async (file, facts) => {
 
 export const startWechatProviderFixture = async ({ certificateFile, privateKeyFile, configurationFile, receiptFile, host = '0.0.0.0', port = 443 }) => {
   if (typeof host !== 'string' || !Number.isInteger(port) || port < 0 || port > 65_535) fail();
-  const [certificate, privateKey, configuration] = await Promise.all([readOwnedFile(certificateFile), readOwnedFile(privateKeyFile), readConfiguration(configurationFile)]);
+  const [certificate, privateKey, configuration] = await Promise.all([
+    readOwnedFile(certificateFile, new Set([0o400, 0o444, 0o600])),
+    readOwnedFile(privateKeyFile, new Set([0o400, 0o600])),
+    readConfiguration(configurationFile),
+  ]);
   const acceptedCodes = new Map([
     [configuration.codes.setup, { behavior: 'positive', phase: 'setup' }],
     [configuration.codes.browser, { behavior: 'positive', phase: 'browser' }],
