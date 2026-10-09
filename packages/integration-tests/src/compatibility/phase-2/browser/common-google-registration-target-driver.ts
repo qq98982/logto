@@ -74,7 +74,10 @@ type RegistrationControlStage = `${'unverified-email' | 'occupied-email'}-contro
   | 'consent'
   | 'profile-route'
   | 'profile-input'
-  | 'outcome'}`;
+  | 'outcome'
+  | 'outcome-code'
+  | 'outcome-status'
+  | 'outcome-error'}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -541,8 +544,14 @@ const runDeniedRegistrationControl = async (
           failure.operation === 'identification' &&
           failure.status === 422
         : failure.status >= 400 && failure.status <= 499);
+    onStage(`${label}-control-outcome-code`);
     const error = controlError(failure.code);
-    if (!validStatus || !errors.has(error)) {
+    if (!validStatus) {
+      onStage(`${label}-control-outcome-status`);
+      return targetFail('capability');
+    }
+    if (!errors.has(error)) {
+      onStage(`${label}-control-outcome-error`);
       return targetFail('capability');
     }
     return Object.freeze({
