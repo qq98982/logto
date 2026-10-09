@@ -487,7 +487,14 @@ const runDeniedRegistrationControl = async (
     }
     if (failure.operation === 'social-verify' && failure.status >= 200 && failure.status < 300) {
       try {
-        await session.assertRoute(`google-${label}-incomplete-profile`, 'core', ['/register']);
+        await session.assertRoute(`google-${label}-incomplete-profile-route`, 'core', [
+          '/continue/email',
+        ]);
+        await session.expectCount(
+          `google-${label}-incomplete-profile-email-count`,
+          'input[name="identifier"]',
+          1
+        );
       } catch {
         return targetFail('capability');
       }
