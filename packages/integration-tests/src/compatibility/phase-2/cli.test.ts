@@ -1711,6 +1711,36 @@ describe('Phase 2 CLI', () => {
       'Common Google existing-owner failed: private-token',
       'other',
     ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner target failed: fixture-prepare-connector-health',
+      'fixture-prepare-connector-health',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Invalid Common Google existing-owner fixture runtime',
+      'fixture-input',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Invalid Common Google existing-owner scenario fixture',
+      'scenario-fixture',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Invalid Common Google existing-owner scenario projection',
+      'scenario-projection',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner target failed: fixture-private-token',
+      'other',
+    ],
     ['common.google.existing-owner', 'google', 'private provider response', 'other'],
   ] as const)(
     'forwards only the closed new Common stage for %s',
