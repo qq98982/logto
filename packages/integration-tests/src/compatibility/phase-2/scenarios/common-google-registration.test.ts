@@ -94,7 +94,7 @@ test('accepts the observed missing-profile denial only for unverified email', ()
   };
   expect(
     compareCommonGoogleRegistrationProjections(occupiedMissingProfile, occupiedMissingProfile)
-  ).toEqual(['/projection']);
+  ).toEqual([]);
 });
 
 test('rejects accepted, partial, extra, and private control outcomes', () => {

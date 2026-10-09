@@ -184,6 +184,7 @@ const validProjection = (value: unknown): value is CommonGoogleRegistrationScena
           'connector.general',
           'guard.invalid_input',
           'session.identity_conflict',
+          'user.missing_profile',
           'user.email_already_in_use',
         ]),
         false

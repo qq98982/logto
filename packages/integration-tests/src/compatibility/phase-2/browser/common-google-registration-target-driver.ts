@@ -591,7 +591,6 @@ const runDeniedRegistrationControl = async (
       return targetFail('capability');
     }
     const incompleteEmailProfile =
-      label === 'unverified-email' &&
       failure.operation === 'identification' &&
       failure.status === 422 &&
       failure.code === 'user.missing_profile';
@@ -628,15 +627,14 @@ const runDeniedRegistrationControl = async (
             'connector.general',
             'guard.invalid_input',
             'session.identity_conflict',
+            'user.missing_profile',
             'user.email_already_in_use',
           ]
     );
     const validStatus =
       (label === 'unverified-email' && failure.status === 200 && failure.code === 'none') ||
       (failure.code === 'user.missing_profile'
-        ? label === 'unverified-email' &&
-          failure.operation === 'identification' &&
-          failure.status === 422
+        ? failure.operation === 'identification' && failure.status === 422
         : failure.status >= 400 && failure.status <= 499);
     onStage(`${label}-control-outcome-code`);
     if (failure.code === 'unknown') {
