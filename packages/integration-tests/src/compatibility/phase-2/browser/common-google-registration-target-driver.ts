@@ -3,7 +3,10 @@ import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
-import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
+import type {
+  Phase1BrowserExperienceFailure,
+  Phase1BrowserGroupObserver,
+} from '../../phase-1/browser/contracts.js';
 import {
   isPlaywrightBrowserGroupObserver,
   type PlaywrightExternalAuthorizationCapability,
@@ -349,6 +352,34 @@ export type CommonGoogleRegistrationControlsObservation = Readonly<{
   unverifiedEmail: Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>;
   occupiedEmail: Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>;
 }>;
+export const waitForCommonGoogleRegistrationControlOutcome = async (
+  input: Readonly<{
+    signal: AbortSignal;
+    read(): Promise<Phase1BrowserExperienceFailure>;
+    wait?(milliseconds: number): Promise<void>;
+  }>
+): Promise<Phase1BrowserExperienceFailure> => {
+  const wait =
+    input.wait ??
+    (async (milliseconds: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, milliseconds);
+      }));
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
+    if (input.signal.aborted) {
+      return targetFail('capability');
+    }
+    const outcome = await input.read();
+    if (
+      outcome.operation !== 'none' &&
+      !(outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300)
+    ) {
+      return outcome;
+    }
+    await wait(25);
+  }
+  return targetFail('capability');
+};
 const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
     case 'connector.general':
@@ -437,14 +468,10 @@ const runDeniedRegistrationControl = async (
       1
     );
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
-    await adapted.waitForRoute(`google-${label}-outcome`, [
-      '/consent',
-      '/continue',
-      '/register',
-      '/sign-in',
-      '/sign-in/identifier',
-      '/error',
-    ]);
+    const failure = await waitForCommonGoogleRegistrationControlOutcome({
+      read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
+      signal: input.signal,
+    });
     let reachedConsent = true;
     try {
       await session.assertRoute(`google-${label}-consent-check`, 'core', ['/consent']);
@@ -454,7 +481,6 @@ const runDeniedRegistrationControl = async (
     if (reachedConsent) {
       return targetFail('capability');
     }
-    const failure = await session.readExperienceFailure();
     const errors = new Set<CommonGoogleRegistrationControlError>(
       label === 'unverified-email'
         ? [

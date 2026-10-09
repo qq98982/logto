@@ -2,6 +2,7 @@
 import {
   commonGoogleCleanupStageForTesting,
   commonGoogleRegistrationFlowStageForTesting,
+  waitForCommonGoogleRegistrationControlOutcome,
 } from './common-google-registration-target-driver.js';
 import type { CommonGoogleBrowserSession } from './common-google-registration.js';
 import { runCommonGoogleRegistration } from './common-google-registration.js';
@@ -12,6 +13,64 @@ test('preserves the connector DELETE status from cleanup aggregates', () => {
     'Selected Google connector cleanup failed'
   );
   expect(commonGoogleCleanupStageForTesting(error)).toBe('fixture-delete-connector-status-500');
+});
+
+test('waits for a concrete control response instead of accepting the stale Register page', async () => {
+  let reads = 0;
+  let waits = 0;
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      signal: new AbortController().signal,
+      read: async () => {
+        reads += 1;
+        return reads === 1
+          ? { operation: 'none', status: 0, binding: 'not-applicable', code: 'none' }
+          : reads === 2
+            ? {
+                operation: 'social-verify',
+                status: 200,
+                binding: 'not-applicable',
+                code: 'none',
+              }
+            : {
+                operation: 'identification',
+                status: 200,
+                binding: 'not-applicable',
+                code: 'none',
+              };
+      },
+      wait: async () => {
+        waits += 1;
+      },
+    })
+  ).resolves.toEqual({
+    operation: 'identification',
+    status: 200,
+    binding: 'not-applicable',
+    code: 'none',
+  });
+  expect(reads).toBe(3);
+  expect(waits).toBe(2);
+});
+
+test('bounds a missing control response at the browser-equivalent thirty-second budget', async () => {
+  let reads = 0;
+  let waits = 0;
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      signal: new AbortController().signal,
+      read: async () => {
+        reads += 1;
+        return { operation: 'none', status: 0, binding: 'not-applicable', code: 'none' };
+      },
+      wait: async (milliseconds) => {
+        expect(milliseconds).toBe(25);
+        waits += 1;
+      },
+    })
+  ).rejects.toThrow('Common Google registration target failed: capability');
+  expect(reads).toBe(1200);
+  expect(waits).toBe(1200);
 });
 
 test('preserves only closed registration flow stages for target diagnostics', () => {
