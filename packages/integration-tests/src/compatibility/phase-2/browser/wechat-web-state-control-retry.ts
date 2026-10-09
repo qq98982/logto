@@ -1,8 +1,28 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import type { WechatWebAuthorizationObservation } from './wechat-web-authorization-observer.js';
+
 const fail = (): never => {
   throw new TypeError('Invalid WeChat Web state control retry');
 };
+
+export const admitsWechatWebStateControlFailure = (
+  input: Readonly<{
+    errorMessage: string | undefined;
+    storedSocialState: boolean;
+    providerFailureObserved: boolean;
+    authorization: WechatWebAuthorizationObservation;
+  }>
+): boolean =>
+  input.storedSocialState &&
+  !input.providerFailureObserved &&
+  /^Common WeChat Web failed: consent-route-(?:sign-in|register|continue|demo|error|callback|other)-none-0-not-applicable-none-auth-[01]{9}-state-stored$/u.test(
+    input.errorMessage ?? ''
+  ) &&
+  input.authorization.requestCount === 1 &&
+  input.authorization.stateFormatValid &&
+  !input.authorization.stateRoundTrip &&
+  input.authorization.fulfilledOnce;
 
 export const completeWechatWebStateControlRetry = async (
   input: Readonly<{

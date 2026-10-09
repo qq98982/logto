@@ -1,5 +1,20 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods -- Ordered action capture proves the complete retry sequence. */
-import { completeWechatWebStateControlRetry } from './wechat-web-state-control-retry.js';
+import {
+  admitsWechatWebStateControlFailure,
+  completeWechatWebStateControlRetry,
+} from './wechat-web-state-control-retry.js';
+
+const rejectedAuthorization = Object.freeze({
+  requestCount: 1,
+  queryShapeExact: true,
+  clientMatched: true,
+  callbackMatched: true,
+  responseTypeCode: true,
+  scopeExact: true,
+  stateFormatValid: true,
+  stateRoundTrip: false,
+  fulfilledOnce: true,
+});
 
 const harness = (ownerAfter?: unknown) => {
   const actions: string[] = [];
@@ -48,6 +63,27 @@ test('completes the preserved proof through callback, profile, refresh, and owne
     'profile',
     'refresh',
   ]);
+});
+
+test('admits only the closed stored-state rejection before the correct retry', () => {
+  const input = {
+    errorMessage:
+      'Common WeChat Web failed: consent-route-error-none-0-not-applicable-none-auth-111111101-state-stored',
+    storedSocialState: true,
+    providerFailureObserved: false,
+    authorization: rejectedAuthorization,
+  };
+  expect(admitsWechatWebStateControlFailure(input)).toBe(true);
+  expect(admitsWechatWebStateControlFailure({ ...input, storedSocialState: false })).toBe(false);
+  expect(admitsWechatWebStateControlFailure({ ...input, providerFailureObserved: true })).toBe(
+    false
+  );
+  expect(
+    admitsWechatWebStateControlFailure({
+      ...input,
+      errorMessage: 'Common WeChat Web failed: private',
+    })
+  ).toBe(false);
 });
 
 test('rejects a retry when the owner changes after proof consumption', async () => {

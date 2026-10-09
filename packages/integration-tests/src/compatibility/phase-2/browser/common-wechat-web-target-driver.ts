@@ -30,7 +30,10 @@ import {
 } from './wechat-web-cross-interaction-control.js';
 import { runWechatWebProviderDenialControl } from './wechat-web-provider-denial-control.js';
 import type { WechatWebProviderDenialStage } from './wechat-web-provider-denial-control.js';
-import { completeWechatWebStateControlRetry } from './wechat-web-state-control-retry.js';
+import {
+  admitsWechatWebStateControlFailure,
+  completeWechatWebStateControlRetry,
+} from './wechat-web-state-control-retry.js';
 
 const maximumDiscoveryBytes = 64 * 1024;
 const connectorFixtureStages = new Set([
@@ -669,21 +672,14 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       }
                       return positive;
                     } catch (error: unknown) {
-                      if (observedConsentStage) {
-                        stage = observedConsentStage;
-                        throw error;
-                      }
                       if (
                         ['missingState', 'wrongState', 'wrongCallback'].includes(providerCase) &&
-                        storedSocialState &&
-                        providerControlFailure === undefined &&
-                        /^Common WeChat Web failed: consent-route-(?:sign-in|register|continue|demo|error|callback|other)-none-0-not-applicable-none-auth-[01]{9}-state-stored$/u.test(
-                          ownMessage(error) ?? ''
-                        ) &&
-                        value.observation().requestCount === 1 &&
-                        value.observation().stateFormatValid &&
-                        !value.observation().stateRoundTrip &&
-                        value.observation().fulfilledOnce
+                        admitsWechatWebStateControlFailure({
+                          errorMessage: ownMessage(error),
+                          storedSocialState,
+                          providerFailureObserved: providerControlFailure !== undefined,
+                          authorization: value.observation(),
+                        })
                       ) {
                         const retryPath = value.retryPath();
                         if (!retryPath) {
@@ -717,6 +713,10 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                           error: providerControlFailure.error,
                           ownerPreserved: true as const,
                         });
+                      }
+                      if (observedConsentStage) {
+                        stage = observedConsentStage;
+                        throw error;
                       }
                       if (preservesFlowStage(error)) {
                         flowError = new TypeError(error.message);
