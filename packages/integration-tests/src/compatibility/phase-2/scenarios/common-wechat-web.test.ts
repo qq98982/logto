@@ -3,6 +3,7 @@ import {
   compareCommonWechatWebProjections,
   describeCommonWechatWebFailure,
   describeCommonWechatWebProjectionDifference,
+  runCommonWechatControlForTesting,
 } from './common-wechat-web.js';
 
 const projection = () => ({
@@ -167,4 +168,14 @@ test.each([
   expect(describeCommonWechatWebFailure(new TypeError(`Common WeChat Web failed: ${stage}`))).toBe(
     stage
   );
+});
+
+test('retains the control identity when the inner browser error is rewritten', async () => {
+  await expect(
+    runCommonWechatControlForTesting('missing-state', async () => {
+      throw new TypeError(
+        'Common Wechat existing-owner target failed: context-positive-consent-complete'
+      );
+    })
+  ).rejects.toThrow('Common Wechat existing-owner target failed: controls-missing-state');
 });

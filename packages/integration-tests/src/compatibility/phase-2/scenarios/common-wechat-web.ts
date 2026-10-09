@@ -422,13 +422,17 @@ type ControlStage =
 const runControl = async <Result>(stage: ControlStage, run: () => Promise<Result>) => {
   try {
     return await run();
-  } catch (error: unknown) {
-    if (describeCommonWechatWebFailure(error)) {
-      throw error;
-    }
+  } catch {
     throw new TypeError(`Common Wechat existing-owner target failed: controls-${stage}`);
   }
 };
+export const runCommonWechatControlForTesting = async <Result>(
+  stage: ControlStage,
+  run: () => Promise<Result>
+): Promise<Result> =>
+  process.env.NODE_ENV === 'test'
+    ? runControl(stage, run)
+    : Promise.reject(new TypeError('Invalid Common WeChat control test entry'));
 
 export const runCommonWechatWebScenarioRow = async (
   input: Readonly<{
