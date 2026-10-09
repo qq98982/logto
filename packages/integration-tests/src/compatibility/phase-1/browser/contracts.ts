@@ -168,6 +168,7 @@ export type Phase1BrowserSession = {
   beginExperienceObservation?(): Promise<void>;
   readExperienceFailure?(): Promise<Phase1BrowserExperienceFailure>;
   hasStoredSocialState?(connectorId: string): Promise<boolean>;
+  expectExternalCallbackWithoutState?(): void;
   preloadDemoConfiguration(
     stepId: string,
     storageKey: string,

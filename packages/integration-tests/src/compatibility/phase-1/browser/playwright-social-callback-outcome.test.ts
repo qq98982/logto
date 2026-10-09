@@ -122,3 +122,54 @@ test('classifies an external callback with extra query data without retaining it
     });
   }
 });
+
+test('allows one armed missing-state callback before a strict correct retry', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<div>callback</div>');
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Invalid owned callback server');
+  }
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    const observer = createPlaywrightBrowserGroupObserver(chromium);
+    await expect(
+      observer.runInFreshContext(
+        'experience',
+        AbortSignal.timeout(20_000),
+        { label: 'candidate', coreUrl: origin, adminUrl: origin },
+        async (session) => {
+          if (!session.expectExternalCallbackWithoutState) {
+            throw new Error('Missing callback expectation capability');
+          }
+          session.expectExternalCallbackWithoutState();
+          await session.navigate(
+            'owned-missing-state-callback',
+            'core',
+            '/callback/wechat-owned?code=fixture-code'
+          );
+          await session.navigate(
+            'owned-correct-state-retry',
+            'core',
+            '/callback/wechat-owned?code=fixture-code&state=fixture-state'
+          );
+        }
+      )
+    ).resolves.toBeUndefined();
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+});

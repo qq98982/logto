@@ -664,6 +664,13 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       contextProgress = 'after-flow';
                       return denial;
                     }
+                    if (providerCase === 'missingState') {
+                      const expectWithoutState = session.expectExternalCallbackWithoutState;
+                      if (typeof expectWithoutState !== 'function') {
+                        return targetFail('capability');
+                      }
+                      expectWithoutState.call(session);
+                    }
                     try {
                       const positive = await runCommonWechatWebExistingOwner({
                         session: {

@@ -460,6 +460,7 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
   #managementAccess: string | undefined;
   #externalCallbackFailure: PlaywrightExternalCallbackFailureReason | undefined;
   #externalCallbackFailureReported = false;
+  #expectCallbackWithoutState = false;
   #resumeCookiePath: string | undefined;
   #resumeCookieSecure = false;
   #resumeCookieExpired = false;
@@ -510,6 +511,13 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
         `social_auth_state:${boundedConnector}`
       )
     );
+  }
+
+  expectExternalCallbackWithoutState(): void {
+    if (this.#expectCallbackWithoutState) {
+      throw new TypeError('Invalid browser callback expectation');
+    }
+    this.#expectCallbackWithoutState = true;
   }
 
   async preloadDemoConfiguration(
@@ -796,7 +804,11 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     this.#page.removeListener('response', this.#onResponse);
     this.#page.removeListener('framenavigated', this.#onFrameNavigation);
     await Promise.all([...this.#pending]);
-    if (this.#networkFailed || this.#networkGuard.hasViolation()) {
+    if (
+      this.#networkFailed ||
+      this.#networkGuard.hasViolation() ||
+      this.#expectCallbackWithoutState
+    ) {
       throw new Error('Browser network observation failed');
     }
     await this.#observer.run(fixedContext('session-cleanup', 'evaluation'), async () => {
@@ -1012,8 +1024,13 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
       if (method !== 'GET') {
         throw new TypeError('Browser external callback response failed: external-callback-method');
       }
-      if (!exactKeys(url.searchParams, ['code', 'state'])) {
+      const expectedMissingState =
+        this.#expectCallbackWithoutState && exactKeys(url.searchParams, ['code']);
+      if (!expectedMissingState && !exactKeys(url.searchParams, ['code', 'state'])) {
         throw new TypeError('Browser external callback response failed: external-callback-query');
+      }
+      if (expectedMissingState) {
+        this.#expectCallbackWithoutState = false;
       }
       if (url.hash) {
         throw new TypeError(
