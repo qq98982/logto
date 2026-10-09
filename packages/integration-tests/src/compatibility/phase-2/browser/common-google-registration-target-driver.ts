@@ -87,6 +87,12 @@ type RegistrationControlResponseStage = `${
 type RegistrationControlUnknownStage = `${
   | 'unverified-email'
   | 'occupied-email'}-control-unknown-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}`;
+type RegistrationControlRejectedStage = `${
+  | 'unverified-email'
+  | 'occupied-email'}-control-rejected-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}-${Exclude<
+  Phase1BrowserExperienceFailure['code'],
+  CommonGoogleRegistrationControlError | 'unknown'
+>}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -104,6 +110,7 @@ type Stage =
   | RegistrationControlStage
   | RegistrationControlResponseStage
   | RegistrationControlUnknownStage
+  | RegistrationControlRejectedStage
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -427,6 +434,31 @@ const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
     }
   }
 };
+const rejectedControlError = (
+  value: Phase1BrowserExperienceFailure['code']
+):
+  | Exclude<
+      Phase1BrowserExperienceFailure['code'],
+      CommonGoogleRegistrationControlError | 'unknown'
+    >
+  | undefined => {
+  switch (value) {
+    case 'user.identity_not_exist':
+    case 'session.verification_session_not_found':
+    case 'session.interaction_not_found':
+    case 'session.invalid_credentials':
+    case 'user.suspended':
+    case 'user.sign_in_method_not_enabled':
+    case 'connector.wechat_unionid_required':
+    case 'connector.social_auth_code_invalid':
+    case 'connector.invalid_response': {
+      return value;
+    }
+    default: {
+      return undefined;
+    }
+  }
+};
 
 const admit = (
   input: CommonGoogleRegistrationTargetDriverInput,
@@ -569,6 +601,12 @@ const runDeniedRegistrationControl = async (
     onStage(`${label}-control-outcome-code`);
     if (failure.code === 'unknown') {
       return targetFail(`${label}-control-unknown-${failure.operation}-${failure.status}`);
+    }
+    const rejected = rejectedControlError(failure.code);
+    if (rejected) {
+      return targetFail(
+        `${label}-control-rejected-${failure.operation}-${failure.status}-${rejected}`
+      );
     }
     const error = controlError(failure.code);
     if (!validStatus) {
