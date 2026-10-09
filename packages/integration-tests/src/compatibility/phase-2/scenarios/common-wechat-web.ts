@@ -421,7 +421,10 @@ type ControlStage =
 const runControl = async <Result>(stage: ControlStage, run: () => Promise<Result>) => {
   try {
     return await run();
-  } catch {
+  } catch (error: unknown) {
+    if (describeCommonWechatWebFailure(error)) {
+      throw error;
+    }
     throw new TypeError(`Common Wechat existing-owner target failed: controls-${stage}`);
   }
 };
