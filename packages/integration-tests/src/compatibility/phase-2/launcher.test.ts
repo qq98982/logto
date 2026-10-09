@@ -690,6 +690,22 @@ describe('Phase 2 tracked launcher', () => {
     ).not.toBe(privateDiagnostic);
   });
 
+  it.each([
+    ['wrong-state-status-o200-c400', true],
+    ['wrong-state-error-ounknown-cguard.invalid_input', true],
+    ['replay-second-status-o400-c404', true],
+    ['replay-second-error-oconnector.general-csession.verification_session_not_found', true],
+    ['contract-otrue-cfalse', true],
+    ['replay-second-status-o400-c999', false],
+    ['replay-second-error-oconnector.general-cprivate-token', false],
+  ] as const)('preserves only validated Google comparison values %s', (detail, accepted) => {
+    const value = `Phase 2 client credentials command failed (candidate-google-projection-${detail}).\n`;
+    const result: unknown = diagnosticForPhase2Child(value);
+    expect(result === value).toBe(accepted);
+    expect(result).not.toContain('private-token');
+    expect(diagnosticForPhase2Child(`${value}private-token`)).not.toContain('private-token');
+  });
+
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(

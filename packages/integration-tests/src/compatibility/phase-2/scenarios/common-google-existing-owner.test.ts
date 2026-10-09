@@ -4,6 +4,7 @@ import {
   commonGoogleExistingOwnerExpectedProjection,
   commonGoogleExistingOwnerScenarioIds,
   compareCommonGoogleExistingOwnerProjections,
+  describeCommonGoogleExistingOwnerProjectionDifference,
 } from './common-google-existing-owner.js';
 
 const projection = Object.freeze({
@@ -43,6 +44,128 @@ test('accepts only exact cross-target rejected wrong-state and replay observatio
       replay: { ...projection.replay, secondStatus: 409 },
     })
   ).toEqual(['/projection']);
+});
+
+test('returns no projection diagnostic for equal valid observations', () => {
+  expect(
+    describeCommonGoogleExistingOwnerProjectionDifference(projection, projection)
+  ).toBeUndefined();
+});
+
+test.each([
+  [
+    'wrong-state status',
+    { ...projection, wrongState: { ...projection.wrongState, status: 409 } },
+    { field: 'wrong-state-status', oracle: 400, candidate: 409 },
+  ],
+  [
+    'wrong-state error',
+    { ...projection, wrongState: { ...projection.wrongState, error: 'guard.invalid_input' } },
+    { field: 'wrong-state-error', oracle: 'unknown', candidate: 'guard.invalid_input' },
+  ],
+  [
+    'replay second status',
+    { ...projection, replay: { ...projection.replay, secondStatus: 400 } },
+    { field: 'replay-second-status', oracle: 404, candidate: 400 },
+  ],
+  [
+    'replay second error',
+    { ...projection, replay: { ...projection.replay, secondError: 'connector.general' } },
+    {
+      field: 'replay-second-error',
+      oracle: 'session.verification_session_not_found',
+      candidate: 'connector.general',
+    },
+  ],
+] as const)('reports only the first closed %s mismatch', (_name, candidate, expected) => {
+  const diagnostic = describeCommonGoogleExistingOwnerProjectionDifference(projection, candidate);
+  expect(diagnostic).toEqual(expected);
+  expect(Object.isFrozen(diagnostic)).toBe(true);
+});
+
+test('reports the first observed mismatch in deterministic field order', () => {
+  const candidate = {
+    ...projection,
+    wrongState: {
+      ...projection.wrongState,
+      status: 409,
+      error: 'guard.invalid_input' as const,
+    },
+    replay: {
+      ...projection.replay,
+      secondStatus: 400,
+      secondError: 'connector.general' as const,
+    },
+  };
+  expect(describeCommonGoogleExistingOwnerProjectionDifference(projection, candidate)).toEqual({
+    field: 'wrong-state-status',
+    oracle: 400,
+    candidate: 409,
+  });
+});
+
+test('reduces malformed and private error values to contract booleans', () => {
+  const malformed = {
+    ...projection,
+    wrongState: { ...projection.wrongState, status: 'private-status' },
+  };
+  const privateError = {
+    ...projection,
+    wrongState: { ...projection.wrongState, error: 'private.error' },
+  };
+  const malformedDiagnostic = describeCommonGoogleExistingOwnerProjectionDifference(
+    projection,
+    malformed
+  );
+  const errorDiagnostic = describeCommonGoogleExistingOwnerProjectionDifference(
+    projection,
+    privateError
+  );
+  expect(malformedDiagnostic).toEqual({
+    field: 'contract',
+    oracleMatches: true,
+    candidateMatches: false,
+  });
+  expect(errorDiagnostic).toEqual({
+    field: 'contract',
+    oracleMatches: true,
+    candidateMatches: false,
+  });
+  expect(JSON.stringify([malformedDiagnostic, errorDiagnostic])).not.toMatch(/private/u);
+  expect(Object.isFrozen(malformedDiagnostic)).toBe(true);
+  expect(Object.isFrozen(errorDiagnostic)).toBe(true);
+});
+
+test('rejects diagnostic accessors and proxies without invoking getters or retaining values', () => {
+  let getterCalls = 0;
+  const accessor = Object.defineProperty({ ...projection }, 'wrongState', {
+    enumerable: true,
+    get: () => {
+      getterCalls += 1;
+      throw new Error('private getter value');
+    },
+  });
+  const proxied = { ...projection, replay: new Proxy({ ...projection.replay }, {}) };
+  const accessorDiagnostic = describeCommonGoogleExistingOwnerProjectionDifference(
+    projection,
+    accessor
+  );
+  const proxyDiagnostic = describeCommonGoogleExistingOwnerProjectionDifference(
+    projection,
+    proxied
+  );
+  expect(accessorDiagnostic).toEqual({
+    field: 'contract',
+    oracleMatches: true,
+    candidateMatches: false,
+  });
+  expect(proxyDiagnostic).toEqual({
+    field: 'contract',
+    oracleMatches: true,
+    candidateMatches: false,
+  });
+  expect(getterCalls).toBe(0);
+  expect(JSON.stringify([accessorDiagnostic, proxyDiagnostic])).not.toMatch(/private|getter/u);
 });
 
 test.each([

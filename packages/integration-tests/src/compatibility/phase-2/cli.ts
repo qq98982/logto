@@ -144,6 +144,7 @@ import {
 import {
   commonGoogleExistingOwnerScenarioIds,
   compareCommonGoogleExistingOwnerProjections,
+  describeCommonGoogleExistingOwnerProjectionDifference,
   runCommonGoogleExistingOwnerScenarioRow,
   type CommonGoogleExistingOwnerScenarioResult,
 } from './scenarios/common-google-existing-owner.js';
@@ -794,6 +795,23 @@ export const commonReadyScenarioFailure = (
               : 'other';
   const stage = commonReadyStages.has(detail) ? detail : 'other';
   throw new Error(`Phase 2 stage failed: ${kind}-common-ready-${label}-${stage}`);
+};
+
+const googleProjectionStageFailurePattern =
+  /^Phase 2 stage failed: (candidate)-(google-projection-(?:(?:wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(?:true|false)-c(?:true|false)|other))$/u;
+export const commonGoogleProjectionScenarioFailure = (
+  oracle: unknown,
+  candidate: unknown
+): never => {
+  const difference = describeCommonGoogleExistingOwnerProjectionDifference(oracle, candidate);
+  if (!difference) {
+    throw new Error('Phase 2 stage failed: candidate-google-projection-other');
+  }
+  const detail =
+    difference.field === 'contract'
+      ? `contract-o${difference.oracleMatches}-c${difference.candidateMatches}`
+      : `${difference.field}-o${difference.oracle}-c${difference.candidate}`;
+  throw new Error(`Phase 2 stage failed: candidate-google-projection-${detail}`);
 };
 
 const candidateAdminConsumerStageFailurePattern =
@@ -1937,6 +1955,7 @@ const runTargetScenarios = async (
         candidateAdminBearerStageFailurePattern.test(error.message) ||
         candidateAdminConsumerStageFailurePattern.test(error.message) ||
         commonReadyStageFailurePattern.test(error.message) ||
+        googleProjectionStageFailurePattern.test(error.message) ||
         stageFailurePattern.test(error.message))
     ) {
       throw error;
@@ -2091,8 +2110,9 @@ export const executeDifferential = async (
         candidateScenario.projection as CommonGoogleExistingOwnerScenarioResult['projection']
       );
       if (found.length > 0) {
-        throw new Error(
-          `Phase 2 scenario failed: candidate/${commonGoogleExistingOwnerScenarioIds[0]}`
+        return commonGoogleProjectionScenarioFailure(
+          oracleScenario.projection,
+          candidateScenario.projection
         );
       }
       return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
@@ -2851,6 +2871,7 @@ export const runPhase2Cli = async (
                 candidateAdminBearerStageFailurePattern.test(error.message) ||
                 candidateAdminConsumerStageFailurePattern.test(error.message) ||
                 commonReadyStageFailurePattern.test(error.message) ||
+                googleProjectionStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -2891,6 +2912,7 @@ export const runPhase2Cli = async (
             candidateAdminBearerStageFailurePattern.test(error.message) ||
             candidateAdminConsumerStageFailurePattern.test(error.message) ||
             commonReadyStageFailurePattern.test(error.message) ||
+            googleProjectionStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -2987,7 +3009,8 @@ export const runPhase2CliMain = async (
         ? (stageFailurePattern.exec(original.message) ??
           candidateAdminBearerStageFailurePattern.exec(original.message) ??
           candidateAdminConsumerStageFailurePattern.exec(original.message) ??
-          commonReadyStageFailurePattern.exec(original.message))
+          commonReadyStageFailurePattern.exec(original.message) ??
+          googleProjectionStageFailurePattern.exec(original.message))
         : null;
     const candidateInvariantStage =
       original instanceof Error

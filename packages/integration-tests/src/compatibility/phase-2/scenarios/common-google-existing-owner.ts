@@ -251,6 +251,88 @@ export const compareCommonGoogleExistingOwnerProjections = (
     ? []
     : ['/projection'];
 
+export type CommonGoogleExistingOwnerProjectionDifference =
+  | Readonly<{
+      field: 'wrong-state-status' | 'replay-second-status';
+      oracle: number;
+      candidate: number;
+    }>
+  | Readonly<{
+      field: 'wrong-state-error' | 'replay-second-error';
+      oracle: GoogleBrowserReplayError;
+      candidate: GoogleBrowserReplayError;
+    }>
+  | Readonly<{
+      field: 'contract';
+      oracleMatches: boolean;
+      candidateMatches: boolean;
+    }>;
+
+export const describeCommonGoogleExistingOwnerProjectionDifference = (
+  oracle: unknown,
+  candidate: unknown
+): CommonGoogleExistingOwnerProjectionDifference | undefined => {
+  const oracleMatches = matchesExpectedContract(oracle);
+  const candidateMatches = matchesExpectedContract(candidate);
+  if (!oracleMatches || !candidateMatches) {
+    return Object.freeze({ field: 'contract', oracleMatches, candidateMatches });
+  }
+  if (isDeepStrictEqual(oracle, candidate)) {
+    return undefined;
+  }
+  const oracleProjection = exactDataRecord(oracle, projectionFields);
+  const candidateProjection = exactDataRecord(candidate, projectionFields);
+  const oracleWrongState = exactDataRecord(oracleProjection?.wrongState, wrongStateFields);
+  const candidateWrongState = exactDataRecord(candidateProjection?.wrongState, wrongStateFields);
+  const oracleReplay = exactDataRecord(oracleProjection?.replay, replayFields);
+  const candidateReplay = exactDataRecord(candidateProjection?.replay, replayFields);
+  if (
+    !oracleWrongState ||
+    !candidateWrongState ||
+    !oracleReplay ||
+    !candidateReplay ||
+    !validStatus(oracleWrongState.status) ||
+    !validStatus(candidateWrongState.status) ||
+    !validPublicError(oracleWrongState.error) ||
+    !validPublicError(candidateWrongState.error) ||
+    !validStatus(oracleReplay.secondStatus) ||
+    !validStatus(candidateReplay.secondStatus) ||
+    !validPublicError(oracleReplay.secondError) ||
+    !validPublicError(candidateReplay.secondError)
+  ) {
+    return Object.freeze({ field: 'contract', oracleMatches: false, candidateMatches: false });
+  }
+  if (oracleWrongState.status !== candidateWrongState.status) {
+    return Object.freeze({
+      field: 'wrong-state-status',
+      oracle: oracleWrongState.status,
+      candidate: candidateWrongState.status,
+    });
+  }
+  if (oracleWrongState.error !== candidateWrongState.error) {
+    return Object.freeze({
+      field: 'wrong-state-error',
+      oracle: oracleWrongState.error,
+      candidate: candidateWrongState.error,
+    });
+  }
+  if (oracleReplay.secondStatus !== candidateReplay.secondStatus) {
+    return Object.freeze({
+      field: 'replay-second-status',
+      oracle: oracleReplay.secondStatus,
+      candidate: candidateReplay.secondStatus,
+    });
+  }
+  if (oracleReplay.secondError !== candidateReplay.secondError) {
+    return Object.freeze({
+      field: 'replay-second-error',
+      oracle: oracleReplay.secondError,
+      candidate: candidateReplay.secondError,
+    });
+  }
+  return undefined;
+};
+
 const publishProjection = (
   positive: CommonGoogleExistingOwnerProjection,
   wrongState: CommonGoogleExistingOwnerWrongStateObservation,

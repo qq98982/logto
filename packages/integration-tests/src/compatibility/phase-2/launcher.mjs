@@ -282,6 +282,9 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
+  if (/^Phase 2 client credentials command failed \(candidate-(?:google-projection-(?:(?:wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(?:true|false)-c(?:true|false)|other))\)\.\n$/u.test(stderr)) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&

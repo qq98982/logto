@@ -47,6 +47,7 @@ import {
   closedDeviceFailureStage,
   commonEmailCodeRegistrationScenarioFailure,
   commonReadyScenarioFailure,
+  commonGoogleProjectionScenarioFailure,
   commonEmailPasswordScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
@@ -68,6 +69,7 @@ import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtu
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
 import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-password.js';
+import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 
 describe('device projection diagnostic fields', () => {
   it('maps a nested cookie difference to its closed root field', () => {
@@ -1781,6 +1783,60 @@ describe('Phase 2 CLI', () => {
       );
     }
   );
+
+  it('formats only validated public Google comparison values', () => {
+    const projection = {
+      ...commonGoogleExistingOwnerExpectedProjection,
+      wrongState: {
+        ...commonGoogleExistingOwnerExpectedProjection.wrongState,
+        status: 200,
+        error: 'unknown',
+      },
+      replay: {
+        ...commonGoogleExistingOwnerExpectedProjection.replay,
+        secondStatus: 400,
+        secondError: 'connector.general',
+      },
+    };
+    expect(() =>
+      commonGoogleProjectionScenarioFailure(projection, {
+        ...projection,
+        replay: { ...projection.replay, secondError: 'guard.invalid_input' },
+      })
+    ).toThrow(
+      'Phase 2 stage failed: candidate-google-projection-replay-second-error-oconnector.general-cguard.invalid_input'
+    );
+    expect(() =>
+      commonGoogleProjectionScenarioFailure(projection, {
+        ...projection,
+        replay: { ...projection.replay, secondError: 'private-token' },
+      })
+    ).toThrow('Phase 2 stage failed: candidate-google-projection-contract-otrue-cfalse');
+  });
+
+  it.each([
+    ['wrong-state-status-o200-c400', true],
+    ['replay-second-error-oconnector.general-cguard.invalid_input', true],
+    ['contract-otrue-cfalse', true],
+    ['replay-second-status-o400-c999', false],
+    ['replay-second-error-oconnector.general-cprivate-token', false],
+  ] as const)('forwards only closed Google comparison diagnostic %s', async (detail, accepted) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      executeOracle: async () => {
+        throw new Error(`Phase 2 stage failed: candidate-google-projection-${detail}`);
+      },
+    });
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      accepted
+        ? `stderr:Phase 2 client credentials command failed (candidate-google-projection-${detail}).`
+        : 'stderr:Phase 2 client credentials command failed (oracle-execution).'
+    );
+    expect(calls.join(' ')).not.toContain('private-token');
+  });
 
   it('preserves the closed diagnostic produced by the registration row failure wrapper', async () => {
     const calls: string[] = [];
