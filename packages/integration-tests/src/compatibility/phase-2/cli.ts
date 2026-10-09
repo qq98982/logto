@@ -888,6 +888,9 @@ export const commonReadyScenarioFailure = (
     ) ||
     /^(?:unverified-email|occupied-email)-control-unknown-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)$/u.test(
       selectedDetail
+    ) ||
+    /^(?:unverified-email|occupied-email)-control-rejected-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:user\.identity_not_exist|session\.verification_session_not_found|session\.interaction_not_found|session\.invalid_credentials|user\.suspended|user\.sign_in_method_not_enabled|connector\.wechat_unionid_required|connector\.social_auth_code_invalid|connector\.invalid_response)$/u.test(
+      selectedDetail
     )
       ? selectedDetail
       : 'other';

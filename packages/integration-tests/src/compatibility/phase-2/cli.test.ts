@@ -1413,6 +1413,18 @@ describe('Phase 2 CLI', () => {
     ]) {
       expect(() => parsePhase2Arguments(invalid)).toThrow('Invalid Phase 2 arguments.');
     }
+
+    expect(() =>
+      commonReadyScenarioFailure(
+        'oracle',
+        'common.google.registration',
+        new TypeError(
+          'Common Google registration target failed: unverified-email-control-rejected-resume-303-session.interaction_not_found'
+        )
+      )
+    ).toThrow(
+      'Phase 2 stage failed: oracle-common-ready-google-registration-unverified-email-control-rejected-resume-303-session.interaction_not_found'
+    );
   });
 
   it('publishes one exclusive mode-0600 fixed artifact and removes owned session roots', async () => {
