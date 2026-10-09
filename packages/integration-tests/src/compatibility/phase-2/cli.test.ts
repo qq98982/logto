@@ -46,6 +46,7 @@ import {
 import {
   closedDeviceFailureStage,
   commonEmailCodeRegistrationScenarioFailure,
+  commonReadyScenarioFailure,
   commonEmailPasswordScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
@@ -1657,6 +1658,78 @@ describe('Phase 2 CLI', () => {
         expected
           ? `stderr:Phase 2 client credentials command failed (${expected}).`
           : 'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+    }
+  );
+
+  it.each([
+    [
+      'common.email.password-registration',
+      'password-registration',
+      'Common email password registration target failed: controls-duplicate-identification',
+      'controls-duplicate-identification',
+    ],
+    [
+      'common.password.recovery',
+      'recovery',
+      'Common email recovery target failed: flow-new-password-reset',
+      'flow-new-password-reset',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner target failed: wrong-state-provider',
+      'wrong-state-provider',
+    ],
+    [
+      'common.email.password-registration',
+      'password-registration',
+      'Common email password registration target failed: private-token',
+      'other',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner failed: provider-click',
+      'flow-provider-click',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner failed: profile',
+      'flow-profile',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner failed: callback-callback-route',
+      'flow-callback-callback-route',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner failed: private-token',
+      'other',
+    ],
+    ['common.google.existing-owner', 'google', 'private provider response', 'other'],
+  ] as const)(
+    'forwards only the closed new Common stage for %s',
+    async (id, label, message, stage) => {
+      const calls: string[] = [];
+      const base = dependencies(calls);
+      expect(
+        await runPhase2CliMain(oracleArguments(), undefined, {
+          ...base,
+          executeOracle: async () => commonReadyScenarioFailure('oracle', id, new Error(message)),
+        })
+      ).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (oracle-common-ready-${label}-${stage}).`
+      );
+      expect(calls.join(' ')).not.toContain('private-token');
+      expect(calls.join(' ')).not.toContain('private provider response');
+      expect(() => commonReadyScenarioFailure('candidate', id, new Error(message))).toThrow(
+        `Phase 2 stage failed: candidate-common-ready-${label}-${stage}`
       );
     }
   );

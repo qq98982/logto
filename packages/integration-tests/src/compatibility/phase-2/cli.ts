@@ -507,7 +507,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^(?!.*common\.email\.(?:code-sign-in|code-registration):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration)|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^(?!.*common\.(?:email\.(?:code-sign-in|code-registration|password-registration)|password\.recovery|google\.existing-owner):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration|password-registration)|common\.password\.recovery|common\.google\.existing-owner|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -579,6 +579,131 @@ export const commonEmailCodeRegistrationScenarioFailure = (
 ): never => {
   throw new Error(`Phase 2 scenario failed: ${kind}/${commonEmailCodeRegistrationScenarioIds[0]}`);
 };
+const commonReadyStageFailurePattern =
+  /^Phase 2 stage failed: (oracle|candidate)-(common-ready-(?:password-registration|recovery|google)-(?:admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access))$/u;
+const commonReadyStages = new Set([
+  'admission',
+  'capability',
+  'discovery',
+  'subject',
+  'lease',
+  'cleanup',
+  'fixture',
+  'browser',
+  'admin',
+  'context',
+  'credentials',
+  'management',
+  'other',
+  'wrong-state-owner-before',
+  'wrong-state-browser',
+  'wrong-state-owner-after',
+  'wrong-state-provider',
+  'flow-admission',
+  'flow-initialization',
+  'flow-identifier',
+  'flow-delivery',
+  'flow-verification',
+  'flow-credential-fulfillment',
+  'flow-persisted-user',
+  'flow-callback',
+  'flow-registration-profile-refresh',
+  'flow-fresh-sign-in',
+  'flow-fresh-profile-refresh',
+  'flow-initial-password',
+  'flow-forgot-password',
+  'flow-passcode-retrieval',
+  'flow-passcode-format',
+  'flow-passcode-fill',
+  'flow-new-password-reset',
+  'flow-prior-access',
+  'flow-prior-refresh',
+  'flow-new-password-sign-in',
+  'flow-old-password-rejection',
+  'flow-profile',
+  'flow-refresh',
+  'flow-provider',
+  'flow-provider-count',
+  'flow-provider-click',
+  'flow-consent',
+  'flow-provider-case',
+  'flow-authorization',
+  'controls-admission',
+  'controls-incomplete-before',
+  'controls-incomplete-proof',
+  'controls-incomplete-identification',
+  'controls-incomplete-after',
+  'controls-duplicate-before',
+  'controls-duplicate-proof',
+  'controls-duplicate-identification',
+  'controls-duplicate-after',
+  'controls-policy-before',
+  'controls-policy-proof',
+  'controls-policy-profile',
+  'controls-policy-after',
+  'controls-replay',
+  'controls-wrong-purpose',
+  'flow-callback-callback-route',
+  'flow-callback-cardinality',
+  'flow-callback-signin-authority',
+  'flow-callback-signin-response',
+  'flow-callback-signin-client',
+  'flow-callback-signin-redirect',
+  'flow-callback-signin-mode',
+  'flow-callback-signin-scope',
+  'flow-callback-signin-resource',
+  'flow-callback-signin-pkce',
+  'flow-callback-callback-authority',
+  'flow-callback-callback-response',
+  'flow-callback-callback-state',
+  'flow-callback-callback-issuer',
+  'flow-callback-callback-code',
+  'flow-callback-exchange-authority',
+  'flow-callback-exchange-response',
+  'flow-callback-exchange-correlation',
+  'flow-callback-exchange-client',
+  'flow-callback-exchange-refresh',
+  'flow-callback-exchange-target',
+  'flow-callback-exchange-scope',
+  'flow-callback-exchange-access',
+]);
+
+export const commonReadyScenarioFailure = (
+  kind: 'oracle' | 'candidate',
+  id:
+    | 'common.email.password-registration'
+    | 'common.password.recovery'
+    | 'common.google.existing-owner',
+  error: unknown
+): never => {
+  const descriptor =
+    error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'message') : undefined;
+  const message: unknown =
+    descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  const label =
+    id === 'common.email.password-registration'
+      ? 'password-registration'
+      : id === 'common.password.recovery'
+        ? 'recovery'
+        : 'google';
+  const prefix =
+    id === 'common.email.password-registration'
+      ? 'Common email password registration target failed: '
+      : id === 'common.password.recovery'
+        ? 'Common email recovery target failed: '
+        : 'Common Google existing-owner target failed: ';
+  const detail =
+    typeof message === 'string' && message.startsWith(prefix)
+      ? message.slice(prefix.length)
+      : id === 'common.google.existing-owner' &&
+          typeof message === 'string' &&
+          message.startsWith('Common Google existing-owner failed: ')
+        ? `flow-${message.slice('Common Google existing-owner failed: '.length)}`
+        : 'other';
+  const stage = commonReadyStages.has(detail) ? detail : 'other';
+  throw new Error(`Phase 2 stage failed: ${kind}-common-ready-${label}-${stage}`);
+};
+
 const candidateAdminConsumerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-consumer-unknown)$/u;
 const customJwtStageFailurePattern =
@@ -1414,21 +1539,21 @@ const runTargetScenarios = async (
         fixture,
         observer: createPlaywrightBrowserGroupObserver(loadChromium()),
         signal: AbortSignal.timeout(600_000),
-      }).catch(() => {
-        throw new Error(
-          `Phase 2 scenario failed: ${descriptor.kind}/${commonEmailPasswordRegistrationScenarioIds[0]}`
-        );
-      });
+      }).catch((error: unknown) =>
+        commonReadyScenarioFailure(
+          descriptor.kind,
+          commonEmailPasswordRegistrationScenarioIds[0],
+          error
+        )
+      );
     const commonPasswordRecoveryScenario = await runCommonPasswordRecoveryScenarioRow({
       target: descriptor.target,
       fixture,
       observer: createPlaywrightBrowserGroupObserver(loadChromium()),
       signal: AbortSignal.timeout(600_000),
-    }).catch(() => {
-      throw new Error(
-        `Phase 2 scenario failed: ${descriptor.kind}/${commonPasswordRecoveryScenarioIds[0]}`
-      );
-    });
+    }).catch((error: unknown) =>
+      commonReadyScenarioFailure(descriptor.kind, commonPasswordRecoveryScenarioIds[0], error)
+    );
     const commonGoogleExistingOwnerScenario = await (async () => {
       const providerPath =
         descriptor.kind === 'oracle'
@@ -1456,11 +1581,9 @@ const runTargetScenarios = async (
         observer: createPlaywrightBrowserGroupObserver(loadChromium()),
         signal: AbortSignal.timeout(900_000),
       });
-    })().catch(() => {
-      throw new Error(
-        `Phase 2 scenario failed: ${descriptor.kind}/${commonGoogleExistingOwnerScenarioIds[0]}`
-      );
-    });
+    })().catch((error: unknown) =>
+      commonReadyScenarioFailure(descriptor.kind, commonGoogleExistingOwnerScenarioIds[0], error)
+    );
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -1721,6 +1844,7 @@ const runTargetScenarios = async (
         customJwtStageFailurePattern.test(error.message) ||
         candidateAdminBearerStageFailurePattern.test(error.message) ||
         candidateAdminConsumerStageFailurePattern.test(error.message) ||
+        commonReadyStageFailurePattern.test(error.message) ||
         stageFailurePattern.test(error.message))
     ) {
       throw error;
@@ -2634,6 +2758,7 @@ export const runPhase2Cli = async (
                 customJwtStageFailurePattern.test(error.message) ||
                 candidateAdminBearerStageFailurePattern.test(error.message) ||
                 candidateAdminConsumerStageFailurePattern.test(error.message) ||
+                commonReadyStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -2673,6 +2798,7 @@ export const runPhase2Cli = async (
             customJwtStageFailurePattern.test(error.message) ||
             candidateAdminBearerStageFailurePattern.test(error.message) ||
             candidateAdminConsumerStageFailurePattern.test(error.message) ||
+            commonReadyStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -2768,7 +2894,8 @@ export const runPhase2CliMain = async (
       original instanceof Error
         ? (stageFailurePattern.exec(original.message) ??
           candidateAdminBearerStageFailurePattern.exec(original.message) ??
-          candidateAdminConsumerStageFailurePattern.exec(original.message))
+          candidateAdminConsumerStageFailurePattern.exec(original.message) ??
+          commonReadyStageFailurePattern.exec(original.message))
         : null;
     const candidateInvariantStage =
       original instanceof Error

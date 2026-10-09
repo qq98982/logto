@@ -272,6 +272,16 @@ export const diagnosticForPhase2Child = (stderr) => {
   ) {
     return stderr;
   }
+  if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.(?:email\.password-registration|password\.recovery|google\.existing-owner)\)\.\n$/u.test(
+      stderr
+    ) ||
+    /^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(?:password-registration|recovery|google)-(?:admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access)\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
   if (
     deviceIdClaimKeysDifferenceMatch &&

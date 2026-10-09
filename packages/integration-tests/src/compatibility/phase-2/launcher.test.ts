@@ -660,6 +660,36 @@ describe('Phase 2 tracked launcher', () => {
       })
     ).toBe(named);
   });
+  it.each([
+    'oracle/common.email.password-registration',
+    'candidate/common.password.recovery',
+    'oracle/common.google.existing-owner',
+    'oracle-common-ready-password-registration-controls-incomplete-identification',
+    'candidate-common-ready-recovery-flow-new-password-reset',
+    'oracle-common-ready-google-wrong-state-provider',
+  ])('preserves exact new Common child diagnostic %s', (detail) => {
+    const diagnostic = `Phase 2 client credentials command failed (${detail}).\n`;
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: diagnostic,
+        timedOut: false,
+      })
+    ).toBe(diagnostic);
+    const privateDiagnostic = `Phase 2 client credentials command failed (${detail}:private-token).\n`;
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: privateDiagnostic,
+        timedOut: false,
+      })
+    ).not.toBe(privateDiagnostic);
+  });
+
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(
