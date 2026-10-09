@@ -25,6 +25,7 @@ import type {
   Phase1BrowserEndpoint,
   Phase1BrowserEndpointDiscoveryFact,
   Phase1BrowserExchangeFact,
+  Phase1BrowserExperienceFailure,
   Phase1BrowserGroupId,
   Phase1BrowserGroupObserver,
   Phase1BrowserNetworkFacts,
@@ -56,6 +57,32 @@ export const experienceOperationForTesting = (
         : method === 'GET' && /^\/oidc\/auth\/[^/]+$/u.test(pathname)
           ? 'resume'
           : undefined;
+export const experiencePublicCodeForTesting = (
+  value: unknown
+): Phase1BrowserExperienceFailure['code'] => {
+  switch (value) {
+    case 'user.identity_not_exist':
+    case 'user.missing_profile':
+    case 'session.verification_session_not_found':
+    case 'session.interaction_not_found':
+    case 'session.invalid_credentials':
+    case 'user.suspended':
+    case 'user.sign_in_method_not_enabled':
+    case 'session.identity_conflict':
+    case 'user.email_already_in_use':
+    case 'verification_record.permission_denied':
+    case 'guard.invalid_input':
+    case 'connector.general':
+    case 'connector.wechat_unionid_required':
+    case 'connector.social_auth_code_invalid':
+    case 'connector.invalid_response': {
+      return value;
+    }
+    default: {
+      return 'unknown';
+    }
+  }
+};
 const externalAuthorizationCapabilities = new WeakMap<
   object,
   PlaywrightExternalAuthorizationHandler
@@ -917,23 +944,7 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
           typeof body === 'object' && body !== null
             ? Object.getOwnPropertyDescriptor(body, 'code')?.value
             : undefined;
-        const publicCodes = new Set([
-          'user.identity_not_exist',
-          'user.missing_profile',
-          'session.verification_session_not_found',
-          'session.interaction_not_found',
-          'session.invalid_credentials',
-          'user.suspended',
-          'user.sign_in_method_not_enabled',
-          'session.identity_conflict',
-          'user.email_already_in_use',
-          'verification_record.permission_denied',
-          'guard.invalid_input',
-          'connector.general',
-        ]);
-        if (typeof candidate === 'string' && publicCodes.has(candidate)) {
-          code = candidate as typeof code;
-        }
+        code = experiencePublicCodeForTesting(candidate);
       }
       this.#experienceFailure = Object.freeze({
         operation: experienceOperation,

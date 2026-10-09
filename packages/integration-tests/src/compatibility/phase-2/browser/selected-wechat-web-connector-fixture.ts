@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
-import type { WechatProviderObservation } from './common-wechat-web.js';
+import type { WechatProviderTransportObservation } from './common-wechat-web.js';
 import { withSelectedWechatWebExistingOwner } from './selected-wechat-web-existing-owner-fixture.js';
 import {
   createWechatWebAuthorizationObserver,
@@ -12,6 +12,27 @@ import {
 
 const fail = (): never => {
   throw new TypeError('Invalid selected Wechat connector fixture');
+};
+
+const stableOwnerSnapshot = (value: unknown): Readonly<Record<string, unknown>> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail();
+  }
+  const fields = [
+    'id',
+    'username',
+    'primaryEmail',
+    'primaryPhone',
+    'name',
+    'avatar',
+    'customData',
+    'identities',
+    'hasPassword',
+    'isSuspended',
+  ] as const;
+  return Object.freeze(
+    Object.fromEntries(fields.map((field) => [field, structuredClone(Reflect.get(value, field))]))
+  );
 };
 
 const ownerStages = new Set([
@@ -94,7 +115,7 @@ export type SelectedWechatWebProviderLease = Readonly<{
   takeControlCode?(
     kind: 'noUnionId' | 'invalidCode' | 'replay' | 'malformedProvider'
   ): Promise<string>;
-  observation(): WechatProviderObservation;
+  observation(): Promise<WechatProviderTransportObservation>;
   stop(): Promise<void>;
 }>;
 
@@ -354,12 +375,14 @@ export const withSelectedWechatWebConnectorFixture = async <Result>(
           observation: authorization.observation,
           retryPath: authorization.retryPath,
           ownerSnapshot: async () =>
-            input.request({
-              method: 'GET',
-              path: `users/${encodeURIComponent(owner.id)}`,
-              expectedStatuses: [200],
-              responseKind: 'object',
-            }),
+            stableOwnerSnapshot(
+              await input.request({
+                method: 'GET',
+                path: `users/${encodeURIComponent(owner.id)}`,
+                expectedStatuses: [200],
+                responseKind: 'object',
+              })
+            ),
         });
       },
     });

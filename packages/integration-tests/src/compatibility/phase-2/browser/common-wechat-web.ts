@@ -11,14 +11,15 @@ export type CommonWechatBrowserSession = Pick<
     readProfile(): Promise<Readonly<{ sub?: unknown }>>;
   }>;
 
-export type WechatProviderObservation = Readonly<{
+export type WechatProviderTransportObservation = Readonly<{
   setupRequests: 0 | 1;
   browserRequests: 1;
-  authorizationExact: true;
   tokenExact: true;
   userinfoExact: true;
   unionIdStable: true;
 }>;
+export type WechatProviderObservation = WechatProviderTransportObservation &
+  Readonly<{ authorizationExact: true }>;
 
 type WebStage =
   | 'admission'
@@ -91,7 +92,7 @@ export const runCommonWechatWebExistingOwner = async (
     session: CommonWechatBrowserSession;
     selector: string;
     expectedSubject: string;
-    providerObservation(): WechatProviderObservation;
+    providerObservation(): Promise<WechatProviderObservation>;
   }>
 ) => {
   if (!input.selector || !input.expectedSubject) {
@@ -128,7 +129,7 @@ export const runCommonWechatWebExistingOwner = async (
       webFail('refresh');
     }
   });
-  const provider = input.providerObservation();
+  const provider = await input.providerObservation();
   await webStage('provider', async () => {
     assertProvider(provider, 1);
   });

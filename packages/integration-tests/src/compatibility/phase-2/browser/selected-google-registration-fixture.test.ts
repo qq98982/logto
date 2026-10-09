@@ -136,7 +136,7 @@ test.each([false, true, undefined] as const)(
     expect(user).toBeUndefined();
     expect(targets).toEqual(['github']);
     expect(signInMode).toBe('SignInAndRegister');
-    expect(signUp).toEqual({ identifiers: ['email'], password: false, verify: true });
+    expect(signUp).toEqual({ identifiers: [], password: false, verify: false });
     expect(metadata).toEqual({ redirectUris: ['https://old.invalid/callback'] });
     expect(cleanupDiagnosticStatus).toBe(hasPassword === undefined ? 503 : undefined);
   }

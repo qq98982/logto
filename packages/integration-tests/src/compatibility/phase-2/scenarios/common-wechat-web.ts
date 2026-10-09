@@ -384,6 +384,7 @@ const failurePatterns = Object.freeze([
   /^Common WeChat Web failed: (callback-(?:callback-route|callback-facts-s(?:0|1|many)-c(?:0|1|many)-i(?:0|1|many)|cardinality|signin-(?:authority|response|client|redirect|mode|scope|resource|pkce)|callback-(?:authority|response|state|issuer|code)|exchange-(?:authority|response|correlation|client|refresh|target|scope|access)))$/u,
   /^Common Wechat existing-owner target failed: (admission|capability|cleanup|context|credentials|discovery|fixture|management)$/u,
   /^Common Wechat existing-owner target failed: (fixture-(?:read-sie|get-app|patch-app|read-app|read-resource|create-role|create-connector|prepare-connector|prepare-connector-docker-environment|prepare-connector-admission|prepare-connector-configuration-file|prepare-connector-receipt-file|prepare-connector-container-admission|prepare-connector-configuration-write|prepare-connector-start|prepare-connector-health|prepare-connector-compensation|prepare-connector-unknown|patch-sie|read-sie-updated|existing-owner-create-user|existing-owner-associate|existing-owner-read-before|existing-owner-use|existing-owner-read-after|existing-owner-cleanup-user|stop-provider|stop-provider-state|stop-provider-config-identity|stop-provider-receipt-identity|restore-app|delete-role|restore-sie|delete-connector))$/u,
+  /^Common Wechat existing-owner target failed: (controls-(?:no-union-id|invalid-code|replay|malformed-provider|cross-interaction|missing-state|wrong-state|wrong-callback))$/u,
 ]);
 
 export const describeCommonWechatWebFailure = (error: unknown): string | undefined => {
@@ -406,6 +407,23 @@ const isRuntime = (value: unknown): value is CommonWechatWebFixtureRuntime =>
   typeof Reflect.get(value, 'provider') === 'object' &&
   typeof Reflect.get(value, 'withProviderCredentialLease') === 'function' &&
   typeof Reflect.get(value, 'prepareProvider') === 'function';
+
+type ControlStage =
+  | 'no-union-id'
+  | 'invalid-code'
+  | 'replay'
+  | 'malformed-provider'
+  | 'cross-interaction'
+  | 'missing-state'
+  | 'wrong-state'
+  | 'wrong-callback';
+const runControl = async <Result>(stage: ControlStage, run: () => Promise<Result>) => {
+  try {
+    return await run();
+  } catch {
+    throw new TypeError(`Common Wechat existing-owner target failed: controls-${stage}`);
+  }
+};
 
 export const runCommonWechatWebScenarioRow = async (
   input: Readonly<{
@@ -443,23 +461,36 @@ export const runCommonWechatWebScenarioRow = async (
     prepareProvider: runtime.prepareProvider,
   };
   const positive = await runCommonWechatWebExistingOwnerForTarget(driverInput);
-  const noUnionId = await runCommonWechatWebProviderControlForTarget(driverInput, 'noUnionId');
-  const invalidCode = await runCommonWechatWebProviderControlForTarget(driverInput, 'invalidCode');
-  const replay = await runCommonWechatWebProviderControlForTarget(driverInput, 'replay');
-  const malformedProvider = await runCommonWechatWebProviderControlForTarget(
-    driverInput,
-    'malformedProvider'
+  const noUnionId = await runControl('no-union-id', async () =>
+    runCommonWechatWebProviderControlForTarget(driverInput, 'noUnionId')
   );
-  const cross = await runCommonWechatWebCrossInteractionForTarget(driverInput);
+  const invalidCode = await runControl('invalid-code', async () =>
+    runCommonWechatWebProviderControlForTarget(driverInput, 'invalidCode')
+  );
+  const replay = await runControl('replay', async () =>
+    runCommonWechatWebProviderControlForTarget(driverInput, 'replay')
+  );
+  const malformedProvider = await runControl('malformed-provider', async () =>
+    runCommonWechatWebProviderControlForTarget(driverInput, 'malformedProvider')
+  );
+  const cross = await runControl('cross-interaction', async () =>
+    runCommonWechatWebCrossInteractionForTarget(driverInput)
+  );
   const crossInteraction = Object.freeze({
     status: cross.secondStatus,
     error: cross.secondError,
     accepted: cross.secondAccepted,
     ownerPreserved: cross.ownerPreserved,
   });
-  const missingState = await runCommonWechatWebStateControlForTarget(driverInput, 'missingState');
-  const wrongState = await runCommonWechatWebStateControlForTarget(driverInput, 'wrongState');
-  const wrongCallback = await runCommonWechatWebStateControlForTarget(driverInput, 'wrongCallback');
+  const missingState = await runControl('missing-state', async () =>
+    runCommonWechatWebStateControlForTarget(driverInput, 'missingState')
+  );
+  const wrongState = await runControl('wrong-state', async () =>
+    runCommonWechatWebStateControlForTarget(driverInput, 'wrongState')
+  );
+  const wrongCallback = await runControl('wrong-callback', async () =>
+    runCommonWechatWebStateControlForTarget(driverInput, 'wrongCallback')
+  );
   const projection = Object.freeze({
     ...positive,
     noUnionId,

@@ -1,12 +1,12 @@
 /* eslint-disable complexity, max-lines, no-await-in-loop, no-bitwise, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One lease owns a private file pair and one precreated provider container lifecycle, including a bounded sequential health poll. */
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { constants, readFileSync } from 'node:fs';
+import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import type { WechatProviderObservation } from './common-wechat-web.js';
+import type { WechatProviderTransportObservation } from './common-wechat-web.js';
 import type { SelectedWechatWebProviderLease } from './selected-wechat-web-connector-fixture.js';
 
 const execute = promisify(execFile);
@@ -114,26 +114,66 @@ const defaultHealthTiming: WechatWebProviderHealthTiming = Object.freeze({
     }),
 });
 
-const readProviderObservation = (receiptFile: string): WechatProviderObservation => {
-  const receipt = parsedRecord(readFileSync(receiptFile, 'utf8'));
+const exactRecordKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+  Reflect.ownKeys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+const validProviderPhase = (value: unknown): value is 'setup' | 'browser' =>
+  value === 'setup' || value === 'browser';
+
+const readProviderObservation = async (
+  receiptFile: string,
+  identity: FileIdentity
+): Promise<WechatProviderTransportObservation> => {
+  const receipt = await readPrivateMutableJson(receiptFile, identity);
+  if (!exactRecordKeys(receipt, ['schemaVersion', 'facts']) || receipt.schemaVersion !== 1) {
+    return fail();
+  }
   const { facts } = receipt;
   if (!Array.isArray(facts)) {
     return fail();
   }
   const records: unknown[] = facts;
-  const token = records.filter((value) => plainRecord(value).kind === 'token');
-  const userinfo = records.filter((value) => plainRecord(value).kind === 'userinfo');
+  const token = records
+    .map((value) => plainRecord(value))
+    .filter((value) => value.kind === 'token');
+  const userinfo = records
+    .map((value) => plainRecord(value))
+    .filter((value) => value.kind === 'userinfo');
   if (
     token.length !== 2 ||
     userinfo.length !== 2 ||
-    [...token, ...userinfo].some((value) => plainRecord(value).exact !== true)
+    token.some(
+      (value) =>
+        !exactRecordKeys(value, ['kind', 'phase', 'method', 'exact']) ||
+        !validProviderPhase(value.phase) ||
+        value.method !== 'GET' ||
+        value.exact !== true
+    ) ||
+    userinfo.some(
+      (value) =>
+        !exactRecordKeys(value, [
+          'kind',
+          'phase',
+          'method',
+          'exact',
+          'unionIdPresent',
+          'unionIdMatches',
+        ]) ||
+        !validProviderPhase(value.phase) ||
+        value.method !== 'GET' ||
+        value.exact !== true ||
+        value.unionIdPresent !== true ||
+        value.unionIdMatches !== true
+    ) ||
+    token.filter((value) => value.phase === 'setup').length !== 1 ||
+    token.filter((value) => value.phase === 'browser').length !== 1 ||
+    userinfo.filter((value) => value.phase === 'setup').length !== 1 ||
+    userinfo.filter((value) => value.phase === 'browser').length !== 1
   ) {
     return fail();
   }
   return Object.freeze({
     setupRequests: 1,
     browserRequests: 1,
-    authorizationExact: true,
     tokenExact: true,
     userinfoExact: true,
     unionIdStable: true,
@@ -191,6 +231,47 @@ const samePrivateMutableFile = async (filePath: string, expected: FileIdentity):
   const current = await inspectPrivateMutableFile(filePath);
   if (current.dev !== expected.dev || current.ino !== expected.ino) {
     return fail();
+  }
+};
+
+const readPrivateMutableJson = async (
+  filePath: string,
+  expected: FileIdentity
+): Promise<Record<string, unknown>> => {
+  await samePrivateMutableFile(filePath, expected);
+  const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW).catch(fail);
+  try {
+    const before = await handle.stat();
+    if (
+      before.dev !== expected.dev ||
+      before.ino !== expected.ino ||
+      before.uid !== currentUid() ||
+      before.nlink !== 1 ||
+      (before.mode & 0o777) !== 0o600 ||
+      before.size <= 0 ||
+      before.size > maximumFileBytes
+    ) {
+      return fail();
+    }
+    const bytes = await handle.readFile();
+    const [after, pathAfter] = await Promise.all([handle.stat(), lstat(filePath)]);
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      pathAfter.isSymbolicLink() ||
+      pathAfter.dev !== before.dev ||
+      pathAfter.ino !== before.ino ||
+      pathAfter.uid !== before.uid ||
+      pathAfter.nlink !== before.nlink ||
+      pathAfter.mode !== before.mode ||
+      pathAfter.size !== before.size
+    ) {
+      return fail();
+    }
+    return parsedRecord(new TextDecoder('utf8', { fatal: true }).decode(bytes));
+  } finally {
+    await handle.close();
   }
 };
 
@@ -634,7 +715,7 @@ export const prepareWechatWebProviderLease = async (
         takenControls.add(kind);
         return controlCodes[kind];
       },
-      observation: () => readProviderObservation(input.receiptFile),
+      observation: async () => readProviderObservation(input.receiptFile, receiptIdentity),
       stop: async () => {
         stopped = true;
         try {

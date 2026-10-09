@@ -240,6 +240,9 @@ export type Phase1BrowserExperienceFailure = Readonly<{
     | 'verification_record.permission_denied'
     | 'guard.invalid_input'
     | 'connector.general'
+    | 'connector.wechat_unionid_required'
+    | 'connector.social_auth_code_invalid'
+    | 'connector.invalid_response'
     | 'unknown'
     | 'none';
 }>;

@@ -1,5 +1,5 @@
 /* eslint-disable complexity, max-lines, no-await-in-loop, no-constant-condition, no-return-await, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/return-await -- Target admission, bounded discovery, credential scopes, provider fixture, browser context, and cleanup-stage preservation form one composition boundary. Explicit return-await keeps both target promises inside the outer stage-latch boundary. */
-import { types as nodeTypes } from 'node:util';
+import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
@@ -28,6 +28,7 @@ import {
   createWechatWebCrossInteractionTestControl,
   type WechatWebCrossInteractionObservation,
 } from './wechat-web-cross-interaction-control.js';
+import { completeWechatWebStateControlRetry } from './wechat-web-state-control-retry.js';
 
 const maximumDiscoveryBytes = 64 * 1024;
 const connectorFixtureStages = new Set([
@@ -448,6 +449,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                     ? 'wrong-callback'
                     : 'normal',
             use: async (value) => {
+              const ownerBefore = await value.ownerSnapshot();
               stage = 'capability';
               const crossControl =
                 providerCase === 'crossInteraction'
@@ -538,9 +540,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         },
                         selector: wechatWebSignInButtonSelectorCandidate,
                         expectedSubject: value.ownerId ?? fail(),
-                        providerObservation: () => {
+                        providerObservation: async () => {
                           const authorization = value.observation();
-                          const provider = providerLease?.observation();
+                          const provider = await providerLease?.observation();
                           if (
                             authorization.requestCount !== 1 ||
                             !authorization.queryShapeExact ||
@@ -555,7 +557,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                           ) {
                             return fail();
                           }
-                          return provider;
+                          return Object.freeze({ ...provider, authorizationExact: true as const });
                         },
                       });
                       if (providerCase === 'crossInteraction') {
@@ -579,10 +581,13 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         if (!retryPath) {
                           return fail();
                         }
-                        await adapted.navigate('wechat-web-correct-callback-retry', retryPath);
-                        await adapted.waitForRoute('wechat-web-correct-retry-consent', [
-                          '/consent',
-                        ]);
+                        await completeWechatWebStateControlRetry({
+                          retryPath,
+                          expectedOwnerId: value.ownerId ?? fail(),
+                          ownerBefore,
+                          ownerSnapshot: value.ownerSnapshot,
+                          session: adapted,
+                        });
                         return Object.freeze({
                           accepted: false as const,
                           status: 0,
@@ -594,6 +599,10 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         });
                       }
                       if (providerCase !== 'positive' && providerControlFailure) {
+                        const ownerAfter = await value.ownerSnapshot();
+                        if (!isDeepStrictEqual(ownerBefore, ownerAfter)) {
+                          return fail();
+                        }
                         return Object.freeze({
                           accepted: false as const,
                           status: providerControlFailure.status,

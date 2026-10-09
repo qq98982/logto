@@ -73,10 +73,14 @@ test('serves exact token and userinfo exchanges and rejects replayed codes', asy
     assert.equal((await request(replayPath)).openid, 'owned-openid');
     assert.equal((await request(replayPath)).errcode, 40029);
     const recorded = JSON.parse(await readFile(receipt, 'utf8'));
-    assert.deepEqual(recorded.facts.map(({ kind, exact }) => ({ kind, exact })), [
-      { kind: 'token', exact: true }, { kind: 'userinfo', exact: true },
-      { kind: 'token', exact: true }, { kind: 'userinfo', exact: true },
-      { kind: 'token', exact: true },
+    assert.deepEqual(recorded.facts, [
+      { kind: 'token', phase: 'setup', method: 'GET', exact: true },
+      { kind: 'userinfo', phase: 'setup', method: 'GET', exact: true,
+        unionIdPresent: true, unionIdMatches: true },
+      { kind: 'token', phase: 'browser', method: 'GET', exact: true },
+      { kind: 'userinfo', phase: 'browser', method: 'GET', exact: true,
+        unionIdPresent: false, unionIdMatches: false },
+      { kind: 'token', phase: 'browser', method: 'GET', exact: true },
     ]);
   } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
 });

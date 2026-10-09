@@ -44,15 +44,25 @@ const writeReceipt = async (file, facts) => {
   const before = await lstat(file);
   if (before.isSymbolicLink() || !before.isFile() || before.uid !== process.getuid() || before.nlink !== 1 || (before.mode & 0o777) !== 0o600 || await realpath(file) !== file) return fail();
   const handle = await open(file, fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW);
-  try { await handle.truncate(0); await handle.writeFile(`${JSON.stringify({ schemaVersion: 1, facts })}\n`, 'utf8'); await handle.sync(); } finally { await handle.close(); }
+  try {
+    const opened = await handle.stat();
+    if (opened.dev !== before.dev || opened.ino !== before.ino || opened.uid !== before.uid || opened.nlink !== 1 || opened.mode !== before.mode) return fail();
+    await handle.truncate(0);
+    await handle.writeFile(`${JSON.stringify({ schemaVersion: 1, facts })}\n`, 'utf8');
+    await handle.sync();
+    const [after, pathAfter] = await Promise.all([handle.stat(), lstat(file)]);
+    if (after.dev !== opened.dev || after.ino !== opened.ino || pathAfter.isSymbolicLink() || pathAfter.dev !== opened.dev || pathAfter.ino !== opened.ino || pathAfter.mode !== opened.mode || pathAfter.nlink !== 1) return fail();
+  } finally { await handle.close(); }
 };
 
 export const startWechatProviderFixture = async ({ certificateFile, privateKeyFile, configurationFile, receiptFile, host = '0.0.0.0', port = 443 }) => {
   if (typeof host !== 'string' || !Number.isInteger(port) || port < 0 || port > 65_535) fail();
   const [certificate, privateKey, configuration] = await Promise.all([readOwnedFile(certificateFile), readOwnedFile(privateKeyFile), readConfiguration(configurationFile)]);
   const acceptedCodes = new Map([
-    [configuration.codes.setup, 'positive'], [configuration.codes.browser, 'positive'],
-    [configuration.codes.noUnionId, 'no-union-id'], [configuration.codes.replay, 'positive'],
+    [configuration.codes.setup, { behavior: 'positive', phase: 'setup' }],
+    [configuration.codes.browser, { behavior: 'positive', phase: 'browser' }],
+    [configuration.codes.noUnionId, { behavior: 'no-union-id', phase: 'browser' }],
+    [configuration.codes.replay, { behavior: 'positive', phase: 'browser' }],
   ]);
   const issuedTokens = new Map();
   const facts = [];
@@ -69,21 +79,22 @@ export const startWechatProviderFixture = async ({ certificateFile, privateKeyFi
           response.end('{');
           return;
         }
-        const behavior = shapeValid && code !== null ? acceptedCodes.get(code) : undefined;
-        const valid = behavior !== undefined && acceptedCodes.delete(code);
+        const selected = shapeValid && code !== null ? acceptedCodes.get(code) : undefined;
+        const valid = selected !== undefined && acceptedCodes.delete(code);
         if (!valid) return writeJson(response, 200, { errcode: 40029, errmsg: 'invalid code' });
         const token = `owned-${code}`;
-        issuedTokens.set(token, behavior);
-        await record({ kind: 'token', method: 'GET', exact: true });
+        issuedTokens.set(token, selected);
+        await record({ kind: 'token', phase: selected.phase, method: 'GET', exact: true });
         return writeJson(response, 200, { access_token: token, openid: 'owned-openid', expires_in: 300 });
       }
       if (url.pathname === '/sns/userinfo') {
         const token = url.searchParams.get('access_token');
-        const behavior = token === null ? undefined : issuedTokens.get(token);
-        const valid = request.method === 'GET' && exactQuery(url, ['access_token', 'openid']) && url.searchParams.get('openid') === 'owned-openid' && token !== null && behavior !== undefined && issuedTokens.delete(token);
+        const selected = token === null ? undefined : issuedTokens.get(token);
+        const valid = request.method === 'GET' && exactQuery(url, ['access_token', 'openid']) && url.searchParams.get('openid') === 'owned-openid' && token !== null && selected !== undefined && issuedTokens.delete(token);
         if (!valid) return writeJson(response, 200, { errcode: 40014, errmsg: 'invalid token' });
-        await record({ kind: 'userinfo', method: 'GET', exact: true });
-        return writeJson(response, 200, { openid: 'owned-openid', ...(behavior === 'positive' && { unionid: configuration.unionId }), nickname: 'Owned WeChat' });
+        const unionIdPresent = selected.behavior === 'positive';
+        await record({ kind: 'userinfo', phase: selected.phase, method: 'GET', exact: true, unionIdPresent, unionIdMatches: unionIdPresent });
+        return writeJson(response, 200, { openid: 'owned-openid', ...(unionIdPresent && { unionid: configuration.unionId }), nickname: 'Owned WeChat' });
       }
       return writeJson(response, 404, { error: 'not_found' });
     })().catch(() => { if (!response.headersSent) writeJson(response, 500, { error: 'fixture_failure' }); else response.destroy(); });

@@ -112,6 +112,11 @@ test('describes only finite closed failure stages without leaking arbitrary mess
       new TypeError('Common Wechat existing-owner target failed: fixture-stop-provider')
     )
   ).toBe('fixture-stop-provider');
+  expect(
+    describeCommonWechatWebFailure(
+      new TypeError('Common Wechat existing-owner target failed: controls-wrong-callback')
+    )
+  ).toBe('controls-wrong-callback');
   expect(describeCommonWechatWebFailure(new TypeError('private token secret'))).toBeUndefined();
   expect(
     describeCommonWechatWebFailure({ message: 'Common WeChat Web failed: profile' })

@@ -10,6 +10,7 @@ import type { TargetConfig } from '../../model.js';
 import {
   createPlaywrightBrowserGroupObserver,
   experienceOperationForTesting,
+  experiencePublicCodeForTesting,
 } from './playwright-session.js';
 
 const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
@@ -26,6 +27,20 @@ test('classifies only closed Experience failure endpoints', () => {
   expect(experienceOperationForTesting('POST', '/api/experience/submit')).toBe('submit');
   expect(experienceOperationForTesting('GET', `/oidc/auth/${'a'.repeat(43)}`)).toBe('resume');
   expect(experienceOperationForTesting('GET', '/oidc/auth')).toBeUndefined();
+});
+
+test('retains only closed public Experience error codes', () => {
+  expect(experiencePublicCodeForTesting('connector.wechat_unionid_required')).toBe(
+    'connector.wechat_unionid_required'
+  );
+  expect(experiencePublicCodeForTesting('connector.social_auth_code_invalid')).toBe(
+    'connector.social_auth_code_invalid'
+  );
+  expect(experiencePublicCodeForTesting('connector.invalid_response')).toBe(
+    'connector.invalid_response'
+  );
+  expect(experiencePublicCodeForTesting('private.provider_detail')).toBe('unknown');
+  expect(experiencePublicCodeForTesting({ code: 'connector.invalid_response' })).toBe('unknown');
 });
 
 const compact = (value: Record<string, unknown>) =>
