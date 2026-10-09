@@ -86,7 +86,7 @@ test('ignores the pre-click Experience response until the provider callback chan
   expect(waits).toBe(2);
 });
 
-test('continues past the occupied control identity lookup to its submit outcome', async () => {
+test('continues past the occupied lookup to its Register identification collision', async () => {
   let reads = 0;
   let waits = 0;
   await expect(
@@ -103,7 +103,7 @@ test('continues past the occupied control identity lookup to its submit outcome'
               code: 'user.identity_not_exist' as const,
             }
           : {
-              operation: 'submit' as const,
+              operation: 'identification' as const,
               status: 422 as const,
               binding: 'not-applicable' as const,
               code: 'user.email_already_in_use' as const,
@@ -114,7 +114,7 @@ test('continues past the occupied control identity lookup to its submit outcome'
       },
     })
   ).resolves.toMatchObject({
-    operation: 'submit',
+    operation: 'identification',
     status: 422,
     code: 'user.email_already_in_use',
   });
