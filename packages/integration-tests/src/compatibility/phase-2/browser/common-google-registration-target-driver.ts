@@ -495,9 +495,7 @@ const runDeniedRegistrationControl = async (
         failure.code === 'user.missing_profile');
     if (incompleteEmailProfile) {
       try {
-        await session.assertRoute(`google-${label}-incomplete-profile-route`, 'core', [
-          '/continue/email',
-        ]);
+        await adapted.waitForRoute(`google-${label}-incomplete-profile-route`, ['/continue/email']);
         await session.expectCount(
           `google-${label}-incomplete-profile-email-count`,
           'input[name="identifier"]',
