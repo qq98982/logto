@@ -400,7 +400,6 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
       }));
-  let successfulSocialVerification: Phase1BrowserExperienceFailure | undefined;
   for (let attempt = 0; attempt < 1200; attempt += 1) {
     if (input.signal.aborted) {
       return targetFail('capability');
@@ -419,9 +418,6 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       await wait(25);
       continue;
     }
-    if (outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300) {
-      successfulSocialVerification = outcome;
-    }
     if (
       outcome.operation !== 'none' &&
       !(outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300)
@@ -430,9 +426,7 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
     }
     await wait(25);
   }
-  return input.continueAfterIdentityNotExist !== true && successfulSocialVerification
-    ? successfulSocialVerification
-    : targetFail('capability');
+  return targetFail('capability');
 };
 const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
@@ -574,11 +568,10 @@ const runDeniedRegistrationControl = async (
       return targetFail('capability');
     }
     const incompleteEmailProfile =
-      (failure.operation === 'social-verify' && failure.status >= 200 && failure.status < 300) ||
-      (label === 'unverified-email' &&
-        failure.operation === 'identification' &&
-        failure.status === 422 &&
-        failure.code === 'user.missing_profile');
+      label === 'unverified-email' &&
+      failure.operation === 'identification' &&
+      failure.status === 422 &&
+      failure.code === 'user.missing_profile';
     onStage(
       `${label}-control-observed-${failure.operation}-${failure.status}-${
         failure.code === 'unknown' ? 'unknown' : 'known'
