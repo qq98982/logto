@@ -28,6 +28,7 @@ import {
   createWechatWebCrossInteractionTestControl,
   type WechatWebCrossInteractionObservation,
 } from './wechat-web-cross-interaction-control.js';
+import { runWechatWebProviderDenialControl } from './wechat-web-provider-denial-control.js';
 import { completeWechatWebStateControlRetry } from './wechat-web-state-control-retry.js';
 
 const maximumDiscoveryBytes = 64 * 1024;
@@ -478,6 +479,42 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       canonicalEmail: input.provider.originalOwnerEmail,
                       resource: status.resource.indicator,
                     });
+                    if (isProviderControlKind(providerCase)) {
+                      const readFailure = session.readExperienceFailure;
+                      if (typeof readFailure !== 'function') {
+                        return targetFail('capability');
+                      }
+                      const expected =
+                        providerCase === 'noUnionId'
+                          ? {
+                              status: 400 as const,
+                              error: 'connector.wechat_unionid_required' as const,
+                            }
+                          : providerCase === 'malformedProvider'
+                            ? {
+                                status: 400 as const,
+                                error: 'connector.invalid_response' as const,
+                              }
+                            : {
+                                status: 401 as const,
+                                error: 'connector.social_auth_code_invalid' as const,
+                              };
+                      return runWechatWebProviderDenialControl({
+                        selector: wechatWebSignInButtonSelectorCandidate,
+                        expectedStatus: expected.status,
+                        expectedError: expected.error,
+                        ownerBefore,
+                        ownerSnapshot: value.ownerSnapshot,
+                        session: {
+                          navigate: adapted.navigate,
+                          waitForRoute: adapted.waitForRoute,
+                          expectCount: async (step, selector, expectedCount) =>
+                            session.expectCount(step, selector, expectedCount),
+                          click: adapted.click,
+                          readExperienceFailure: async () => readFailure.call(session),
+                        },
+                      });
+                    }
                     try {
                       const positive = await runCommonWechatWebExistingOwner({
                         session: {
