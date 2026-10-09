@@ -127,6 +127,11 @@ test('describes only finite closed failure stages without leaking arbitrary mess
       new TypeError('Common Wechat existing-owner target failed: context-positive-provider')
     )
   ).toBe('context-positive-provider');
+  expect(
+    describeCommonWechatWebFailure(
+      new TypeError('Common Wechat existing-owner target failed: context-positive-consent-state')
+    )
+  ).toBe('context-positive-consent-state');
   const consentTuple =
     'consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable';
   expect(

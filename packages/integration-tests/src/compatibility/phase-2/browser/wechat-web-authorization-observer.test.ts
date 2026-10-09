@@ -71,6 +71,16 @@ test('rejects a partial provider authorization query without consuming a code', 
     })
   ).resolves.toBe(false);
   expect(codeReads).toBe(0);
-  expect(observer.observation().fulfilledOnce).toBe(false);
+  expect(observer.observation()).toEqual({
+    requestCount: 1,
+    queryShapeExact: false,
+    clientMatched: true,
+    callbackMatched: true,
+    responseTypeCode: true,
+    scopeExact: true,
+    stateFormatValid: false,
+    stateRoundTrip: false,
+    fulfilledOnce: false,
+  });
 });
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-empty-function */

@@ -80,6 +80,7 @@ type Stage =
   | 'context-after-flow'
   | `context-control-${WechatWebProviderDenialStage}`
   | `context-positive-${CommonWechatWebStage}`
+  | `context-positive-consent-${'response' | 'authorization' | 'state' | 'route' | 'complete'}`
   | 'credentials'
   | 'discovery'
   | 'fixture'
@@ -461,6 +462,12 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                 | 'adapter'
                 | 'flow'
                 | `positive-${CommonWechatWebStage}`
+                | `positive-consent-${
+                    | 'response'
+                    | 'authorization'
+                    | 'state'
+                    | 'route'
+                    | 'complete'}`
                 | `control-${WechatWebProviderDenialStage}`
                 | 'after-flow' = 'adapter';
               stage = 'capability';
@@ -545,6 +552,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                           expectCount: async (step, selector, expected) =>
                             session.expectCount(step, selector, expected),
                           consentFailureRoute: async () => {
+                            contextProgress = 'positive-consent-response';
                             const response = (await session.readExperienceFailure?.()) ?? {
                               operation: 'none' as const,
                               status: 0 as const,
@@ -562,6 +570,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                               });
                             }
                             const code = response.code.replaceAll('.', '-');
+                            contextProgress = 'positive-consent-authorization';
                             const authorization = value.observation();
                             const authorizationBits = [
                               authorization.requestCount === 1,
@@ -576,6 +585,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                             ]
                               .map((value) => (value ? '1' : '0'))
                               .join('');
+                            contextProgress = 'positive-consent-state';
                             let storedState = 'state-unavailable';
                             try {
                               storedSocialState =
@@ -584,6 +594,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                             } catch {
                               storedSocialState = false;
                             }
+                            contextProgress = 'positive-consent-route';
                             for (const [kind, paths] of [
                               ['sign-in', ['/sign-in', '/sign-in/identifier', '/sign-in/password']],
                               ['register', ['/register']],
@@ -598,11 +609,13 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                                   'core',
                                   paths
                                 );
+                                contextProgress = 'positive-consent-complete';
                                 return `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
                               } catch {
                                 // Try the next closed route class.
                               }
                             }
+                            contextProgress = 'positive-consent-complete';
                             return `other-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
                           },
                         },

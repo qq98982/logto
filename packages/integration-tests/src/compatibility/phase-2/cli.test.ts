@@ -1848,6 +1848,12 @@ describe('Phase 2 CLI', () => {
     [
       'common.wechat.web',
       'wechat-web',
+      'Common Wechat existing-owner target failed: context-positive-consent-state',
+      'context-positive-consent-state',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
       'Common WeChat Web failed: consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
       'consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
     ],

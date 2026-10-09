@@ -74,6 +74,12 @@ export const createWechatWebAuthorizationObserver = (
         scopeExact: url.searchParams.get('scope') === scope,
         stateFormatValid: state !== null && statePattern.test(state),
       };
+      observation = Object.freeze({
+        requestCount,
+        ...facts,
+        stateRoundTrip: false,
+        fulfilledOnce: false,
+      });
       if (
         method !== 'GET' ||
         url.username ||
