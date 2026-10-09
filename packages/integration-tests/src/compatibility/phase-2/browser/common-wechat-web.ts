@@ -21,7 +21,7 @@ export type WechatProviderTransportObservation = Readonly<{
 export type WechatProviderObservation = WechatProviderTransportObservation &
   Readonly<{ authorizationExact: true }>;
 
-type WebStage =
+export type CommonWechatWebStage =
   | 'admission'
   | 'initialization'
   | 'provider-count'
@@ -45,6 +45,7 @@ const ownMessage = (error: unknown): string | undefined => {
 const webFail = (stage: WebStage): never => {
   throw new TypeError(`Common WeChat Web failed: ${stage}`);
 };
+type WebStage = CommonWechatWebStage;
 const webStage = async <Result>(stage: WebStage, operation: () => Promise<Result>) => {
   try {
     return await operation();
@@ -93,45 +94,56 @@ export const runCommonWechatWebExistingOwner = async (
     selector: string;
     expectedSubject: string;
     providerObservation(): Promise<WechatProviderObservation>;
+    reportStage?(stage: CommonWechatWebStage): void;
   }>
 ) => {
   if (!input.selector || !input.expectedSubject) {
     webFail('admission');
   }
+  input.reportStage?.('initialization');
   await webStage('initialization', async () => {
     await input.session.navigate('wechat-web-open', '/demo-app');
     await input.session.waitForRoute('wechat-web-sign-in', ['/sign-in', '/sign-in/identifier']);
   });
+  input.reportStage?.('provider-count');
   await webStage('provider-count', async () =>
     input.session.expectCount('wechat-web-provider-count', input.selector, 1)
   );
+  input.reportStage?.('provider-click');
   await webStage('provider-click', async () =>
     input.session.click('wechat-web-provider', input.selector)
   );
+  input.reportStage?.('consent-route');
   try {
     await input.session.waitForRoute('wechat-web-consent', ['/consent']);
   } catch {
     webFail(`consent-route-${await input.session.consentFailureRoute()}`);
   }
+  input.reportStage?.('consent-click');
   await webStage('consent-click', async () =>
     input.session.click('wechat-web-authorize', 'role=button[name="Authorize"]')
   );
+  input.reportStage?.('callback');
   await webStage('callback', async () => input.session.assertInitialCallback());
+  input.reportStage?.('profile');
   await webStage('profile', async () => {
     const profile = await input.session.readProfile();
     if (profile.sub !== input.expectedSubject) {
       webFail('profile');
     }
   });
+  input.reportStage?.('refresh');
   await webStage('refresh', async () => {
     const refresh = await input.session.refresh();
     if (refresh.subject !== input.expectedSubject || !refresh.rotated) {
       webFail('refresh');
     }
   });
-  const provider = await input.providerObservation();
-  await webStage('provider', async () => {
-    assertProvider(provider, 1);
+  input.reportStage?.('provider');
+  const provider = await webStage('provider', async () => {
+    const observed = await input.providerObservation();
+    assertProvider(observed, 1);
+    return observed;
   });
   return Object.freeze({
     channel: 'web' as const,

@@ -16,7 +16,7 @@ import {
   type ProvisionedPhase2Fixture,
 } from '../fixtures.js';
 
-import { runCommonWechatWebExistingOwner } from './common-wechat-web.js';
+import { runCommonWechatWebExistingOwner, type CommonWechatWebStage } from './common-wechat-web.js';
 import type { CommonEmailPasswordBrowserConfiguration } from './fresh-context-password-controls.js';
 import { adaptPhase1SessionForEmailPassword } from './phase1-session-adapter.js';
 import {
@@ -79,6 +79,7 @@ type Stage =
   | 'context-flow'
   | 'context-after-flow'
   | `context-control-${WechatWebProviderDenialStage}`
+  | `context-positive-${CommonWechatWebStage}`
   | 'credentials'
   | 'discovery'
   | 'fixture'
@@ -459,6 +460,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
               let contextProgress:
                 | 'adapter'
                 | 'flow'
+                | `positive-${CommonWechatWebStage}`
                 | `control-${WechatWebProviderDenialStage}`
                 | 'after-flow' = 'adapter';
               stage = 'capability';
@@ -598,6 +600,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         },
                         selector: wechatWebSignInButtonSelectorCandidate,
                         expectedSubject: value.ownerId ?? fail(),
+                        reportStage: (positiveStage) => {
+                          contextProgress = `positive-${positiveStage}`;
+                        },
                         providerObservation: async () => {
                           const authorization = value.observation();
                           const provider = await providerLease?.observation();

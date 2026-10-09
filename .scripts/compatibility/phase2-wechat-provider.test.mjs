@@ -64,6 +64,9 @@ test('serves exact token and userinfo exchanges and rejects replayed codes', asy
     const profile = await request(`/sns/userinfo?access_token=${token.access_token}&openid=owned-openid`);
     assert.equal(profile.unionid, 'stable-union');
     assert.equal((await request(tokenPath)).errcode, 40029);
+    const browser = await request('/sns/oauth2/access_token?appid=owned-app&secret=private-secret&code=browser-code&grant_type=authorization_code');
+    const browserProfile = await request(`/sns/userinfo?access_token=${browser.access_token}&openid=owned-openid`);
+    assert.equal(browserProfile.unionid, 'stable-union');
     const noUnion = await request('/sns/oauth2/access_token?appid=owned-app&secret=private-secret&code=no-union-code&grant_type=authorization_code');
     const noUnionProfile = await request(`/sns/userinfo?access_token=${noUnion.access_token}&openid=owned-openid`);
     assert.equal(Object.hasOwn(noUnionProfile, 'unionid'), false);
@@ -76,6 +79,9 @@ test('serves exact token and userinfo exchanges and rejects replayed codes', asy
     assert.deepEqual(recorded.facts, [
       { kind: 'token', phase: 'setup', method: 'GET', exact: true },
       { kind: 'userinfo', phase: 'setup', method: 'GET', exact: true,
+        unionIdPresent: true, unionIdMatches: true },
+      { kind: 'token', phase: 'browser', method: 'GET', exact: true },
+      { kind: 'userinfo', phase: 'browser', method: 'GET', exact: true,
         unionIdPresent: true, unionIdMatches: true },
       { kind: 'token', phase: 'browser', method: 'GET', exact: true },
       { kind: 'userinfo', phase: 'browser', method: 'GET', exact: true,

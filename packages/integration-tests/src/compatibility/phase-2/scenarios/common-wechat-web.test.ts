@@ -122,6 +122,11 @@ test('describes only finite closed failure stages without leaking arbitrary mess
       new TypeError('Common Wechat existing-owner target failed: context-control-response')
     )
   ).toBe('context-control-response');
+  expect(
+    describeCommonWechatWebFailure(
+      new TypeError('Common Wechat existing-owner target failed: context-positive-provider')
+    )
+  ).toBe('context-positive-provider');
   expect(describeCommonWechatWebFailure(new TypeError('private token secret'))).toBeUndefined();
   expect(
     describeCommonWechatWebFailure({ message: 'Common WeChat Web failed: profile' })
