@@ -725,6 +725,18 @@ describe('Phase 2 tracked launcher', () => {
     expect(diagnosticForPhase2Child(`${value}private-token`)).not.toContain('private-token');
   });
 
+  it.each([
+    'unverified-email-control',
+    'unverified-email-owner',
+    'occupied-email-control',
+    'occupied-email-owner',
+    'control-publication',
+  ] as const)('retains only closed registration stage %s', (stage) => {
+    const value = `Phase 2 client credentials command failed (oracle-common-ready-google-registration-${stage}).\n`;
+    expect(diagnosticForPhase2Child(value)).toBe(value);
+    expect(diagnosticForPhase2Child(`${value}private-token`)).not.toContain('private-token');
+  });
+
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(

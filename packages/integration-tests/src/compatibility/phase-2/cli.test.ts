@@ -1787,6 +1787,22 @@ describe('Phase 2 CLI', () => {
     }
   );
 
+  it.each([
+    'unverified-email-control',
+    'unverified-email-owner',
+    'occupied-email-control',
+    'occupied-email-owner',
+    'control-publication',
+  ] as const)('retains the closed registration control stage %s', (stage) => {
+    expect(() =>
+      commonReadyScenarioFailure(
+        'oracle',
+        'common.google.registration',
+        new TypeError(`Common Google registration target failed: ${stage}`)
+      )
+    ).toThrow(`Phase 2 stage failed: oracle-common-ready-google-registration-${stage}`);
+  });
+
   it('keeps registration public errors exact and rejects unrecognized diagnostic values', () => {
     const projection = commonGoogleRegistrationTestProjection;
     expect(() =>
