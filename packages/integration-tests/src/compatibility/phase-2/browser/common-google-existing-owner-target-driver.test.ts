@@ -224,7 +224,9 @@ const createHarness = async (
                   userinfoRequestCount: 1,
                   changedEmailCaseConsumed: false,
                 }
-              : receipt
+              : options.replay
+                ? { ...receipt, tokenRequestCount: 3, replayRejected: true }
+                : receipt
           ),
           { mode: 0o600 }
         );

@@ -86,7 +86,7 @@ test('binds Google connector and SIE to the immutable existing owner then restor
   };
   let roleCreated = false;
   let providerStopped = false;
-  let providerProofCalls = 0;
+  const providerProofModes: Array<'positive' | 'replay'> = [];
   const membershipRequest = createdMembershipRequest();
   const request = async (input: Phase2AdminRequest): Promise<unknown> => {
     if (input.method === 'GET' && input.path === 'applications/browser')
@@ -161,8 +161,8 @@ test('binds Google connector and SIE to the immutable existing owner then restor
       expect(connectorId).toBe('google-instance');
       return {
         associationData: { code: 'stable-code' },
-        assertChangedEmailProviderCase: async () => {
-          providerProofCalls += 1;
+        assertChangedEmailProviderCase: async (mode = 'positive') => {
+          providerProofModes.push(mode);
         },
         stop: async () => {
           providerStopped = true;
@@ -172,7 +172,7 @@ test('binds Google connector and SIE to the immutable existing owner then restor
     takeBrowserCode: async () => 'changed-code',
     use: async (value) => {
       expect(value.ownerId).toBe('owner');
-      await value.assertChangedEmailProviderCase();
+      await value.assertChangedEmailProviderCase('replay');
       return value.observation().fulfilledOnce;
     },
   });
@@ -187,7 +187,7 @@ test('binds Google connector and SIE to the immutable existing owner then restor
     postLogoutRedirectUris: [],
   });
   expect(user).toBeUndefined();
-  expect(providerProofCalls).toBe(1);
+  expect(providerProofModes).toEqual(['replay']);
   expect(providerStopped).toBe(true);
 });
 

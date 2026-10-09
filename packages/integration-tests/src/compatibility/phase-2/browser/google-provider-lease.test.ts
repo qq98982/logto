@@ -216,6 +216,16 @@ test('starts the exact owned provider, proves its receipt, and stops it idempote
   ]);
   await writeFile(files.receiptFile, JSON.stringify(validReceipt), { mode: 0o600 });
   await expect(lease.assertChangedEmailProviderCase()).resolves.toBeUndefined();
+  await expect(lease.assertChangedEmailProviderCase('replay')).resolves.toBeUndefined();
+  await writeFile(
+    files.receiptFile,
+    JSON.stringify({ ...validReceipt, tokenRequestCount: 3, replayRejected: true }),
+    { mode: 0o600 }
+  );
+  await expect(lease.assertChangedEmailProviderCase('replay')).resolves.toBeUndefined();
+  await expect(lease.assertChangedEmailProviderCase()).rejects.toThrow(
+    'Invalid Google provider lease'
+  );
   await lease.stop();
   await lease.stop();
   expect(calls.slice(-4)).toEqual([

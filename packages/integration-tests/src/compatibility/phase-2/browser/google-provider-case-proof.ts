@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 
 const changedEmailMessage = 'Invalid Google changed-email provider receipt';
+const replayMessage = 'Invalid Google replay provider receipt';
 const wrongStateMessage = 'Invalid Google wrong-state provider receipt';
 const keys = [
   'tokenRequestCount',
@@ -114,6 +115,34 @@ export const assertGoogleWrongStateProviderReceipt = async (
       receiptFail(wrongStateMessage);
   } catch {
     receiptFail(wrongStateMessage);
+  }
+};
+
+export const assertGoogleReplayProviderReceipt = async (
+  path: string,
+  expectedUserinfoMethod: 'GET' | 'POST'
+): Promise<void> => {
+  try {
+    const row = await readGoogleProviderReceipt(path, replayMessage);
+    const denialObserved =
+      (row.tokenRequestCount === 2 && row.replayRejected === false) ||
+      (row.tokenRequestCount === 3 && row.replayRejected === true);
+    if (
+      !denialObserved ||
+      row.userinfoRequestCount !== 2 ||
+      row.userinfoGetObserved !== (expectedUserinfoMethod === 'GET') ||
+      row.userinfoPostObserved !== (expectedUserinfoMethod === 'POST') ||
+      row.grantTypeExact !== true ||
+      row.callbackUriExact !== true ||
+      row.clientAuthenticationExact !== true ||
+      row.issuedBearerObserved !== true ||
+      row.stableSubjectCaseConsumed !== true ||
+      row.changedEmailCaseConsumed !== true ||
+      row.wrongStateControlCodeConsumed !== false
+    )
+      receiptFail(replayMessage);
+  } catch {
+    receiptFail(replayMessage);
   }
 };
 /* eslint-enable complexity, curly, no-bitwise, no-restricted-syntax, no-use-extend-native/no-use-extend-native, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/ban-types */

@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   assertGoogleChangedEmailProviderReceipt,
+  assertGoogleReplayProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
 
@@ -75,6 +76,36 @@ test('proves the wrong-state code never reaches Token or UserInfo', async () => 
     await writeFile(file, JSON.stringify(value), { mode: 0o600 });
     await expect(assertGoogleWrongStateProviderReceipt(file, 'GET')).rejects.toThrow(
       'Invalid Google wrong-state provider receipt'
+    );
+  }
+  await rm(root, { recursive: true, force: true });
+});
+
+test('accepts exact local and upstream replay denial receipts', async () => {
+  const root = await mkdtemp('/var/tmp/henry-build/google-replay-proof-');
+  const file = path.join(root, 'receipt');
+  await writeFile(file, JSON.stringify(valid), { mode: 0o600 });
+  await expect(assertGoogleReplayProviderReceipt(file, 'GET')).resolves.toBeUndefined();
+  const upstreamReplay = { ...valid, tokenRequestCount: 3, replayRejected: true };
+  await writeFile(file, JSON.stringify(upstreamReplay), { mode: 0o600 });
+  await expect(assertGoogleReplayProviderReceipt(file, 'GET')).resolves.toBeUndefined();
+  for (const value of [
+    { ...valid, tokenRequestCount: 3 },
+    { ...valid, replayRejected: true },
+    { ...upstreamReplay, tokenRequestCount: 4 },
+    { ...upstreamReplay, userinfoRequestCount: 3 },
+    { ...upstreamReplay, grantTypeExact: false },
+    { ...upstreamReplay, callbackUriExact: false },
+    { ...upstreamReplay, clientAuthenticationExact: false },
+    { ...upstreamReplay, issuedBearerObserved: false },
+    { ...upstreamReplay, stableSubjectCaseConsumed: false },
+    { ...upstreamReplay, changedEmailCaseConsumed: false },
+    { ...upstreamReplay, wrongStateControlCodeConsumed: true },
+    { ...upstreamReplay, secret: 'private' },
+  ]) {
+    await writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await expect(assertGoogleReplayProviderReceipt(file, 'GET')).rejects.toThrow(
+      'Invalid Google replay provider receipt'
     );
   }
   await rm(root, { recursive: true, force: true });

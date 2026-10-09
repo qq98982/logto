@@ -537,7 +537,10 @@ async function executeCommonGoogleExistingOwnerForTarget(
                         expectedSubject: value.ownerId,
                         originalOwnerEmail: input.provider.originalOwnerEmail,
                         changedProviderEmail: input.provider.changedProviderEmail,
-                        assertChangedEmailProviderCase: value.assertChangedEmailProviderCase,
+                        assertChangedEmailProviderCase: async () =>
+                          value.assertChangedEmailProviderCase(
+                            mode === 'replay' ? 'replay' : 'positive'
+                          ),
                         authorizationObservation: value.observation,
                       });
                       if (mode !== 'replay') {

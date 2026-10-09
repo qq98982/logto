@@ -63,7 +63,7 @@ export const googleSignInButtonSelectorCandidate = 'role=button[name=/Continue w
 
 export type SelectedGoogleProviderLease = Readonly<{
   associationData: Readonly<Record<string, unknown>>;
-  assertChangedEmailProviderCase(): Promise<void>;
+  assertChangedEmailProviderCase(mode?: 'positive' | 'replay'): Promise<void>;
   assertWrongStateProviderCase?(): Promise<void>;
   stop(): Promise<void>;
 }>;
@@ -89,7 +89,7 @@ export const withSelectedGoogleConnectorFixture = async <Result>(
         capability: ReturnType<typeof createGoogleAuthorizationObserver>['capability'];
         observation(): GoogleAuthorizationObservation;
         ownerSnapshot(): Promise<unknown>;
-        assertChangedEmailProviderCase(): Promise<void>;
+        assertChangedEmailProviderCase(mode?: 'positive' | 'replay'): Promise<void>;
         assertWrongStateProviderCase(): Promise<void>;
       }>
     ): Promise<Result>;
@@ -313,7 +313,8 @@ export const withSelectedGoogleConnectorFixture = async <Result>(
               expectedStatuses: [200],
               responseKind: 'object',
             }),
-          assertChangedEmailProviderCase: async () => prepared.assertChangedEmailProviderCase(),
+          assertChangedEmailProviderCase: async (mode) =>
+            prepared.assertChangedEmailProviderCase(mode),
           assertWrongStateProviderCase: async () =>
             prepared.assertWrongStateProviderCase?.() ?? fail(),
         });

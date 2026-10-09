@@ -110,10 +110,10 @@ const expectedService = (options, role) => {
     networks: {
       [network]: {
         ipv4_address: address,
-        mac_address: macAddress,
         aliases: [tokenHost, userinfoHost],
       },
     },
+    mac_address: macAddress,
     volumes: [
       `${options.providerScript}:${scriptContainerPath}:ro`,
       `${options.caFile}:${providerCaPath}:ro`,

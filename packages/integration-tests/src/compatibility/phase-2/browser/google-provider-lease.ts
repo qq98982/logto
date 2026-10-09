@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import {
   assertGoogleChangedEmailProviderReceipt,
+  assertGoogleReplayProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
 import type { SelectedGoogleProviderLease } from './selected-google-connector-fixture.js';
@@ -640,14 +641,18 @@ export const prepareGoogleProviderLease = async (
         wrongStateControlCodeTaken = true;
         return wrongStateControlCode;
       },
-      assertChangedEmailProviderCase: async () => {
+      assertChangedEmailProviderCase: async (mode = 'positive') => {
         try {
+          if (mode !== 'positive' && mode !== 'replay') {
+            return fail();
+          }
           await samePrivateMutableFile(input.configFile, configIdentity);
           await samePrivateMutableFile(input.receiptFile, receiptIdentity);
-          await assertGoogleChangedEmailProviderReceipt(
-            input.receiptFile,
-            input.expectedUserinfoMethod
-          );
+          const assertReceipt =
+            mode === 'replay'
+              ? assertGoogleReplayProviderReceipt
+              : assertGoogleChangedEmailProviderReceipt;
+          await assertReceipt(input.receiptFile, input.expectedUserinfoMethod);
         } catch {
           return fail();
         }
