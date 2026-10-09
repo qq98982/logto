@@ -406,6 +406,14 @@ export const diagnosticForPhase2ChildResult = (result) => {
     if (named !== diagnostic) {
       return named;
     }
+    const closedLines = result.stderr
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => `${line}\n`)
+      .filter((line) => diagnosticForPhase2Child(line) === line);
+    if (closedLines.length > 0) {
+      return `${closedLines.join('')}${stderrDiagnostic(result.stderr)}`;
+    }
   }
   if (result.stderr !== '') {
     return stderrDiagnostic(result.stderr);

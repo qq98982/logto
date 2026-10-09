@@ -713,6 +713,22 @@ describe('Phase 2 tracked launcher', () => {
     expect(diagnosticForPhase2Child(`${google}private-token\n`)).not.toContain('private-token');
   });
 
+  it('preserves closed lines and hashes the rest of mixed child stderr', () => {
+    const known =
+      'Phase 2 client credentials command failed (oracle-common-ready-google-registration-occupied-email-owner).\n';
+    const stderr = `${known}private-token\n`;
+    const result: unknown = diagnosticForPhase2ChildResult({
+      code: 1,
+      signal: null,
+      stdout: '',
+      stderr,
+      timedOut: false,
+    });
+    expect(result).toContain(known);
+    expect(result).toContain(`stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-`);
+    expect(result).not.toContain('private-token');
+  });
+
   it.each([
     ['wrong-state-status-o200-c400', true],
     ['wrong-state-error-ounknown-cguard.invalid_input', true],
