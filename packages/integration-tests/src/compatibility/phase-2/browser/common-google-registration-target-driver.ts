@@ -84,6 +84,9 @@ type RegistrationControlResponseStage = `${
   | 'occupied-email'}-control-observed-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}-${
   | 'known'
   | 'unknown'}-${'incomplete' | 'other'}`;
+type RegistrationControlUnknownStage = `${
+  | 'unverified-email'
+  | 'occupied-email'}-control-unknown-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -100,6 +103,7 @@ type Stage =
   | 'control-publication'
   | RegistrationControlStage
   | RegistrationControlResponseStage
+  | RegistrationControlUnknownStage
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -468,7 +472,7 @@ const runDeniedRegistrationControl = async (
     ? withPlaywrightExternalAuthorizationCapability(input.observer, capability)
     : input.observer;
   return observer.runInFreshContext('experience', input.signal, target, async (session) => {
-    if (!session.readExperienceFailure) {
+    if (!session.beginExperienceObservation || !session.readExperienceFailure) {
       return targetFail('capability');
     }
     const adapted = adaptPhase1SessionForEmailPassword(session, {
@@ -496,11 +500,10 @@ const runDeniedRegistrationControl = async (
       googleSignInButtonSelectorCandidate,
       1
     );
-    const initial = await session.readExperienceFailure();
+    await session.beginExperienceObservation();
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
     onStage(`${label}-control-response`);
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
-      initial,
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
       signal: input.signal,
     });
@@ -564,6 +567,9 @@ const runDeniedRegistrationControl = async (
           failure.status === 422
         : failure.status >= 400 && failure.status <= 499);
     onStage(`${label}-control-outcome-code`);
+    if (failure.code === 'unknown') {
+      return targetFail(`${label}-control-unknown-${failure.operation}-${failure.status}`);
+    }
     const error = controlError(failure.code);
     if (!validStatus) {
       onStage(`${label}-control-outcome-status`);

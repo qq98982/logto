@@ -492,6 +492,16 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     return this.#experienceFailure;
   }
 
+  async beginExperienceObservation(): Promise<void> {
+    await Promise.all([...this.#pending]);
+    this.#experienceFailure = Object.freeze({
+      operation: 'none',
+      status: 0,
+      binding: 'not-applicable',
+      code: 'none',
+    });
+  }
+
   async hasStoredSocialState(connectorId: string): Promise<boolean> {
     const boundedConnector = safeText(connectorId);
     return this.#observer.run(fixedContext('social-state-presence', 'evaluation'), async () =>

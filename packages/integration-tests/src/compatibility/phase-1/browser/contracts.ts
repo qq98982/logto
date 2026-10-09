@@ -165,6 +165,7 @@ export type Phase1BrowserNetworkFacts = Readonly<{
 }>;
 
 export type Phase1BrowserSession = {
+  beginExperienceObservation?(): Promise<void>;
   readExperienceFailure?(): Promise<Phase1BrowserExperienceFailure>;
   hasStoredSocialState?(connectorId: string): Promise<boolean>;
   preloadDemoConfiguration(
