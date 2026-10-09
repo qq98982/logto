@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import https from 'node:https';
 import { test } from 'node:test';
@@ -83,4 +83,37 @@ test('serves exact token and userinfo exchanges and rejects replayed codes', asy
       { kind: 'token', phase: 'browser', method: 'GET', exact: true },
     ]);
   } finally { await fixture.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('closes the owned HTTPS server and exits zero on SIGTERM', async () => {
+  const root = await mkdtemp('/var/tmp/henry-build/wechat-provider-signal-test.');
+  const key = `${root}/server.key`;
+  const certificate = `${root}/server.pem`;
+  const configuration = `${root}/configuration.json`;
+  const receipt = `${root}/receipt.json`;
+  try {
+    await execute('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+      '-subj', '/CN=api.weixin.qq.com', '-keyout', key, '-out', certificate]);
+    await Promise.all([chmod(key, 0o400), chmod(certificate, 0o444), chmod(root, 0o700),
+      writeFile(configuration, `${JSON.stringify(valid())}\n`, { mode: 0o600 }),
+      writeFile(receipt, '', { mode: 0o600 })]);
+    const child = spawn(process.execPath, [new URL('./phase2-wechat-provider.mjs', import.meta.url).pathname], {
+      env: {
+        PATH: process.env.PATH,
+        ASTER_WECHAT_PROVIDER_CERTIFICATE_FILE: certificate,
+        ASTER_WECHAT_PROVIDER_PRIVATE_KEY_FILE: key,
+        ASTER_WECHAT_PROVIDER_CONFIGURATION_FILE: configuration,
+        ASTER_WECHAT_PROVIDER_RECEIPT_FILE: receipt,
+        ASTER_WECHAT_PROVIDER_HOST: '127.0.0.1',
+        ASTER_WECHAT_PROVIDER_PORT: '0',
+      },
+      stdio: 'ignore',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    child.kill('SIGTERM');
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    assert.equal(code, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
