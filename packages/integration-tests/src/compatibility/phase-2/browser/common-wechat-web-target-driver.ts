@@ -70,11 +70,13 @@ const connectorFixtureStages = new Set([
   'delete-connector',
 ]);
 type FixtureStage = `fixture-${string}`;
+type ConsentStage = `consent-route-${string}`;
 type Stage =
   | 'admission'
   | 'capability'
   | 'cleanup'
   | 'context'
+  | 'consent-field-invalid'
   | 'context-adapter'
   | 'context-flow'
   | 'context-after-flow'
@@ -86,7 +88,8 @@ type Stage =
   | 'fixture'
   | 'management'
   | `cleanup-${string}`
-  | FixtureStage;
+  | FixtureStage
+  | ConsentStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Wechat existing-owner target composition');
 };
@@ -112,6 +115,16 @@ const bounded = (value: unknown, maximum = 1024): string => {
     return fail();
   }
   return value;
+};
+const consentStagePattern =
+  /^consent-route-(?:sign-in|register|continue|demo|error|callback|other)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:complete|missing-resume-(?:not-issued|path-mismatch|expired|secure-mismatch|other)|missing-mapping|missing-shared|missing-session|not-applicable)-(?:user-identity_not_exist|user-missing_profile|session-verification_session_not_found|session-interaction_not_found|session-invalid_credentials|user-suspended|user-sign_in_method_not_enabled|session-identity_conflict|user-email_already_in_use|verification_record-permission_denied|guard-invalid_input|connector-general|connector-wechat_unionid_required|connector-social_auth_code_invalid|connector-invalid_response|unknown|none)-auth-[01]{9}-state-(?:stored|cleared|unavailable)$/u;
+const closedConsentStage = (value: string): ConsentStage => {
+  if (!consentStagePattern.test(value)) {
+    return targetFail('consent-field-invalid');
+  }
+  // The exact closed grammar above is the runtime constructor for this template type.
+  // eslint-disable-next-line no-restricted-syntax
+  return value as ConsentStage;
 };
 const preservesFlowStage = (error: unknown): error is TypeError =>
   !nodeTypes.isProxy(error) &&
@@ -470,6 +483,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                     | 'complete'}`
                 | `control-${WechatWebProviderDenialStage}`
                 | 'after-flow' = 'adapter';
+              let observedConsentStage: ConsentStage | undefined;
               stage = 'capability';
               const crossControl =
                 providerCase === 'crossInteraction'
@@ -594,6 +608,11 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                             } catch {
                               storedSocialState = false;
                             }
+                            const consentDetail = (kind: string) => {
+                              const detail = `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
+                              observedConsentStage = closedConsentStage(`consent-route-${detail}`);
+                              return detail;
+                            };
                             contextProgress = 'positive-consent-route';
                             for (const [kind, paths] of [
                               ['sign-in', ['/sign-in', '/sign-in/identifier', '/sign-in/password']],
@@ -610,13 +629,13 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                                   paths
                                 );
                                 contextProgress = 'positive-consent-complete';
-                                return `${kind}-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
+                                return consentDetail(kind);
                               } catch {
                                 // Try the next closed route class.
                               }
                             }
                             contextProgress = 'positive-consent-complete';
-                            return `other-${response.operation}-${response.status}-${response.binding}-${code}-auth-${authorizationBits}-${storedState}`;
+                            return consentDetail('other');
                           },
                         },
                         selector: wechatWebSignInButtonSelectorCandidate,
@@ -650,6 +669,10 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       }
                       return positive;
                     } catch (error: unknown) {
+                      if (observedConsentStage) {
+                        stage = observedConsentStage;
+                        throw error;
+                      }
                       if (
                         ['missingState', 'wrongState', 'wrongCallback'].includes(providerCase) &&
                         storedSocialState &&
