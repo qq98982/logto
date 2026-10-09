@@ -51,6 +51,7 @@ test('binds two target-isolated confined providers to the fixed Google transport
     bound.oracle.services['oracle-google-provider'].networks['oracle-primary'],
     {
       ipv4_address: '172.30.231.52',
+      mac_address: '02:42:ac:1e:e7:34',
       aliases: ['oauth2.googleapis.com', 'openidconnect.googleapis.com'],
     }
   );
@@ -58,6 +59,7 @@ test('binds two target-isolated confined providers to the fixed Google transport
     bound.candidate.services['candidate-google-provider'].networks['candidate-primary'],
     {
       ipv4_address: '172.30.241.52',
+      mac_address: '02:42:ac:1e:f1:34',
       aliases: ['oauth2.googleapis.com', 'openidconnect.googleapis.com'],
     }
   );
@@ -88,7 +90,7 @@ test('binds two target-isolated confined providers to the fixed Google transport
   assert.equal(input.candidate.services['candidate-google-provider'], undefined);
 });
 
-test('rejects altered image, alias, trust, mount, user, capability, rootfs, or network confinement', () => {
+test('rejects altered image, alias, MAC, trust, mount, user, capability, rootfs, or network confinement', () => {
   const mutations = [
     (value) => {
       value.oracle.services['oracle-google-provider'].image = `sha256:${'8'.repeat(64)}`;
@@ -97,6 +99,11 @@ test('rejects altered image, alias, trust, mount, user, capability, rootfs, or n
       value.candidate.services['candidate-google-provider'].networks[
         'candidate-primary'
       ].aliases = ['oauth2.googleapis.com'];
+    },
+    (value) => {
+      value.oracle.services['oracle-google-provider'].networks[
+        'oracle-primary'
+      ].mac_address = '02:42:ac:1e:e7:35';
     },
     (value) => {
       value.candidate.services['candidate-primary-core'].environment.SSL_CERT_FILE =

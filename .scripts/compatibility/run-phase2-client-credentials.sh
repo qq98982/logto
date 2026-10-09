@@ -1098,14 +1098,20 @@ assert_google_provider_private_material() {
 }
 
 assert_google_provider_state() {
-  local role=$1 service=$2 expected_status=$3 expected_running=$4 expected_ip=$5 id document
+  local role=$1 service=$2 expected_status=$3 expected_running=$4 expected_ip=$5 id document expected_mac
+  case "$role" in
+    oracle) expected_mac='02:42:ac:1e:e7:34' ;;
+    candidate) expected_mac='02:42:ac:1e:f1:34' ;;
+    *) return 1 ;;
+  esac
   id="$(compose_for "$role" ps --all -q "$service")" || return 1
   document="$(docker_cli inspect "$id")" || return 1
   # The jq program intentionally uses literal container fields.
   # shellcheck disable=SC2016
   "$JQ_BIN" -e --arg id "$id" --arg image "$ORACLE_IMAGE_ID" \
     --arg project "$(project_name_for "$role")" --arg service "$service" \
-    --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" '
+    --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
+    --arg mac "$expected_mac" '
     length==1 and .[0].Id==$id and .[0].Image==$image
     and (.[0].Config.Image==$image or .[0].Config.Image==($image|sub("^sha256:";"")))
     and .[0].Config.Labels["com.docker.compose.project"]==$project
@@ -1113,6 +1119,8 @@ assert_google_provider_state() {
     and .[0].State.Status==$status and .[0].State.Running==$running
     and ([.[0].NetworkSettings.Networks[] | .IPAddress] |
       if $running then index($ip)!=null else all(.=="" or .==$ip) end)
+    and ([.[0].NetworkSettings.Networks[] | .MacAddress] |
+      if $running then .==[$mac] else all(.=="" or .==$mac) end)
     and .[0].HostConfig.ReadonlyRootfs==true
     and (.[0].HostConfig.CapAdd==null or .[0].HostConfig.CapAdd==[])
     and (.[0].HostConfig.SecurityOpt==["no-new-privileges"] or

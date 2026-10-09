@@ -88,6 +88,7 @@ const expectedService = (options, role) => {
   const receiptFile = oracle ? options.oracleReceiptFile : options.candidateReceiptFile;
   const network = oracle ? 'oracle-primary' : 'candidate-primary';
   const address = oracle ? '172.30.231.52' : '172.30.241.52';
+  const macAddress = oracle ? '02:42:ac:1e:e7:34' : '02:42:ac:1e:f1:34';
   return {
     image: options.fixtureImage,
     entrypoint: ['node'],
@@ -109,6 +110,7 @@ const expectedService = (options, role) => {
     networks: {
       [network]: {
         ipv4_address: address,
+        mac_address: macAddress,
         aliases: [tokenHost, userinfoHost],
       },
     },

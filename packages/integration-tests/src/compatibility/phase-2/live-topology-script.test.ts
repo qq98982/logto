@@ -368,6 +368,69 @@ afterAll(async () => {
 
 describe('Phase 2 client-credentials live topology runner', () => {
   it.each([
+    ['oracle', '172.30.231.52', '02:42:ac:1e:e7:34'],
+    ['candidate', '172.30.241.52', '02:42:ac:1e:f1:34'],
+  ] as const)(
+    'requires the stable provider network identity on every running %s restart',
+    async (role, ip, mac) => {
+      const id = 'a'.repeat(64);
+      const image = `sha256:${'b'.repeat(64)}`;
+      const service = `${role}-google-provider`;
+      const project = `aster-test-${role}`;
+      const metadataPath = path.join(temporaryRoot, 'provider-inspect.json');
+      const scriptPath = path.join(temporaryRoot, 'provider-network-proof.sh');
+      const verify = async (actualMac: string, running: boolean): Promise<number> => {
+        await writeFile(
+          metadataPath,
+          JSON.stringify([
+            {
+              Id: id,
+              Image: image,
+              Config: {
+                Image: image,
+                Labels: {
+                  'com.docker.compose.project': project,
+                  'com.docker.compose.service': service,
+                },
+              },
+              State: { Status: running ? 'running' : 'exited', Running: running },
+              NetworkSettings: {
+                Networks: { primary: { IPAddress: running ? ip : '', MacAddress: actualMac } },
+              },
+              HostConfig: {
+                ReadonlyRootfs: true,
+                CapAdd: [],
+                SecurityOpt: ['no-new-privileges:true'],
+              },
+            },
+          ]),
+          { mode: 0o600 }
+        );
+        await writeFile(
+          scriptPath,
+          `#!/usr/bin/env bash
+source '${runnerPath}'
+JQ_BIN=/usr/bin/jq
+ORACLE_IMAGE_ID='${image}'
+ORACLE_PROJECT_NAME='aster-test-oracle'
+CANDIDATE_PROJECT_NAME='aster-test-candidate'
+compose_for() { /usr/bin/printf '%s' '${id}'; }
+docker_cli() { /usr/bin/cat '${metadataPath}'; }
+assert_google_provider_state '${role}' '${service}' '${running ? 'running' : 'exited'}' '${running}' '${ip}'
+`,
+          { mode: 0o600 }
+        );
+        const result = await runBash(scriptPath);
+        return result.code;
+      };
+      expect(await verify(mac, true)).toBe(0);
+      expect(await verify('02:42:00:00:00:01', true)).toBe(1);
+      expect(await verify('', true)).toBe(1);
+      expect(await verify('', false)).toBe(0);
+    }
+  );
+
+  it.each([
     ['valid', 0],
     ['missing', 1],
     ['multiple', 1],
