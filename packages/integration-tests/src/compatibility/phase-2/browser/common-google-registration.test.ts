@@ -73,6 +73,38 @@ test('bounds a missing control response at the browser-equivalent thirty-second 
   expect(waits).toBe(1200);
 });
 
+test('retains a terminal successful social verification through the quiet response budget', async () => {
+  let reads = 0;
+  let waits = 0;
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      signal: new AbortController().signal,
+      read: async () => {
+        reads += 1;
+        return reads === 1
+          ? { operation: 'none', status: 0, binding: 'not-applicable', code: 'none' }
+          : {
+              operation: 'social-verify',
+              status: 200,
+              binding: 'not-applicable',
+              code: 'none',
+            };
+      },
+      wait: async (milliseconds) => {
+        expect(milliseconds).toBe(25);
+        waits += 1;
+      },
+    })
+  ).resolves.toEqual({
+    operation: 'social-verify',
+    status: 200,
+    binding: 'not-applicable',
+    code: 'none',
+  });
+  expect(reads).toBe(1200);
+  expect(waits).toBe(1200);
+});
+
 test('preserves only closed registration flow stages for target diagnostics', () => {
   expect(
     commonGoogleRegistrationFlowStageForTesting(

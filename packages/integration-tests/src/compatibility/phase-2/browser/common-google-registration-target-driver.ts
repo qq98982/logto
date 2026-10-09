@@ -365,11 +365,15 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
       }));
+  let successfulSocialVerification: Phase1BrowserExperienceFailure | undefined;
   for (let attempt = 0; attempt < 1200; attempt += 1) {
     if (input.signal.aborted) {
       return targetFail('capability');
     }
     const outcome = await input.read();
+    if (outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300) {
+      successfulSocialVerification = outcome;
+    }
     if (
       outcome.operation !== 'none' &&
       !(outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300)
@@ -378,7 +382,7 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
     }
     await wait(25);
   }
-  return targetFail('capability');
+  return successfulSocialVerification ?? targetFail('capability');
 };
 const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
@@ -480,6 +484,13 @@ const runDeniedRegistrationControl = async (
     }
     if (reachedConsent) {
       return targetFail('capability');
+    }
+    if (failure.operation === 'social-verify' && failure.status >= 200 && failure.status < 300) {
+      try {
+        await session.assertRoute(`google-${label}-incomplete-profile`, 'core', ['/register']);
+      } catch {
+        return targetFail('capability');
+      }
     }
     const errors = new Set<CommonGoogleRegistrationControlError>(
       label === 'unverified-email'
