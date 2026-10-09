@@ -412,13 +412,14 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
     }
     if (
       input.onIdentityNotExist &&
-      !identityNotExistHandled &&
       outcome.operation === 'identification' &&
       outcome.status === 404 &&
       outcome.code === 'user.identity_not_exist'
     ) {
-      identityNotExistHandled = true;
-      await input.onIdentityNotExist();
+      if (!identityNotExistHandled) {
+        identityNotExistHandled = true;
+        await input.onIdentityNotExist();
+      }
       await wait(25);
       continue;
     }
