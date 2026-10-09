@@ -209,6 +209,13 @@ const deviceIdClaimKeysDifferencePattern = new RegExp(
   'u'
 );
 export const diagnosticForPhase2Child = (stderr) => {
+  const lines = stderr.split('\n').filter(Boolean);
+  if (
+    lines.length > 1 &&
+    lines.every((line) => diagnosticForPhase2Child(`${line}\n`) === `${line}\n`)
+  ) {
+    return stderr;
+  }
   const match =
     /^Phase 2 client credentials command failed \((oracle|candidate)\/client-credentials\.([a-z-]+)\)\.\n$/u.exec(
       stderr

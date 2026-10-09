@@ -704,6 +704,15 @@ describe('Phase 2 tracked launcher', () => {
     expect(diagnosticForPhase2Child(`${diagnostic}private-token`)).not.toContain('private-token');
   });
 
+  it('preserves only multi-line diagnostics whose every line is independently closed', () => {
+    const google =
+      'Phase 2 client credentials command failed (oracle-common-ready-google-registration-occupied-email-owner).\n';
+    const cleanup =
+      'Phase 2 client credentials command failed (oracle-common-ready-google-registration-cleanup).\n';
+    expect(diagnosticForPhase2Child(`${google}${cleanup}`)).toBe(`${google}${cleanup}`);
+    expect(diagnosticForPhase2Child(`${google}private-token\n`)).not.toContain('private-token');
+  });
+
   it.each([
     ['wrong-state-status-o200-c400', true],
     ['wrong-state-error-ounknown-cguard.invalid_input', true],
