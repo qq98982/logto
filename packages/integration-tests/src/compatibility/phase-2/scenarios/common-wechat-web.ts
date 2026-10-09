@@ -3,6 +3,7 @@ import { isDeepStrictEqual, types as nodeTypes } from 'node:util';
 
 import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
+import { withPlaywrightExternalAuthorizationCapability } from '../../phase-1/browser/playwright-session.js';
 import { asterNativeSurfaceContract } from '../../phase-1/native-surface.js';
 import {
   runCommonWechatWebExistingOwnerForTarget,
@@ -456,7 +457,8 @@ export const runCommonWechatWebScenarioRow = async (
       resourceScope: status.resource.scopeName,
     },
     provider: runtime.provider,
-    createObserver: () => input.observer,
+    createObserver: (capability) =>
+      withPlaywrightExternalAuthorizationCapability(input.observer, capability),
     withProviderCredentialLease: runtime.withProviderCredentialLease,
     prepareProvider: runtime.prepareProvider,
   };
