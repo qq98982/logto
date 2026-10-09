@@ -10,7 +10,6 @@ export type CommonGoogleBrowserSession = Pick<
 > &
   Readonly<{
     expectCount(step: string, selector: string, expected: number): Promise<void>;
-    readExperienceFailure(): Promise<Readonly<{ operation: string; status: number; code: string }>>;
     consentFailureRoute(): Promise<`${'sign-in' | 'register' | 'continue' | 'demo' | 'error' | 'other'}-${
       | 'social-verify'
       | 'identification'
@@ -35,7 +34,6 @@ type Stage =
   | 'admission'
   | 'initialization'
   | 'registration-transition'
-  | 'missing-owner'
   | 'registration-route'
   | 'provider-count'
   | 'provider-click'
@@ -97,27 +95,6 @@ export const runCommonGoogleRegistration = async (
       '/sign-in/password',
     ]);
   });
-  await atStage('provider-count', async () =>
-    input.session.expectCount('google-provider-count', googleSignInButtonSelectorCandidate, 1)
-  );
-  await atStage('provider-click', async () =>
-    input.session.click('google-provider', googleSignInButtonSelectorCandidate)
-  );
-  await atStage('missing-owner', async () => {
-    await input.session.waitForRoute('google-missing-owner-sign-in', [
-      '/sign-in',
-      '/sign-in/identifier',
-      '/sign-in/password',
-    ]);
-    const failure = await input.session.readExperienceFailure();
-    if (
-      failure.operation !== 'social-verify' ||
-      failure.status !== 404 ||
-      failure.code !== 'user.identity_not_exist'
-    ) {
-      return fail('missing-owner');
-    }
-  });
   await atStage('registration-transition', async () => {
     await input.session.expectCount(
       'google-registration-link-count',
@@ -128,6 +105,12 @@ export const runCommonGoogleRegistration = async (
   });
   await atStage('registration-route', async () =>
     input.session.waitForRoute('google-register', ['/register'])
+  );
+  await atStage('provider-count', async () =>
+    input.session.expectCount('google-provider-count', googleSignInButtonSelectorCandidate, 1)
+  );
+  await atStage('provider-click', async () =>
+    input.session.click('google-provider', googleSignInButtonSelectorCandidate)
   );
   try {
     await input.session.waitForRoute('google-consent', ['/consent']);

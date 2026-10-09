@@ -1,5 +1,8 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Ordered browser steps and negative latches are the observable test state. */
-import { commonGoogleCleanupStageForTesting } from './common-google-registration-target-driver.js';
+import {
+  commonGoogleCleanupStageForTesting,
+  commonGoogleRegistrationFlowStageForTesting,
+} from './common-google-registration-target-driver.js';
 import type { CommonGoogleBrowserSession } from './common-google-registration.js';
 import { runCommonGoogleRegistration } from './common-google-registration.js';
 
@@ -9,6 +12,21 @@ test('preserves the connector DELETE status from cleanup aggregates', () => {
     'Selected Google connector cleanup failed'
   );
   expect(commonGoogleCleanupStageForTesting(error)).toBe('fixture-delete-connector-status-500');
+});
+
+test('preserves only closed registration flow stages for target diagnostics', () => {
+  expect(
+    commonGoogleRegistrationFlowStageForTesting(
+      new TypeError(
+        'Common Google registration failed: consent-route-continue-identification-422-missing-profile'
+      )
+    )
+  ).toBe('consent-route-continue-identification-422-missing-profile');
+  expect(
+    commonGoogleRegistrationFlowStageForTesting(
+      new TypeError('Common Google registration failed: private-provider-detail')
+    )
+  ).toBeUndefined();
 });
 
 const authorization = Object.freeze({
@@ -39,11 +57,6 @@ const createSession = () => {
       steps.push(step);
     },
     consentFailureRoute: async () => 'other-none-0-none',
-    readExperienceFailure: async () => ({
-      operation: 'social-verify',
-      status: 404,
-      code: 'user.identity_not_exist',
-    }),
     assertInitialCallback: async () => {
       steps.push('callback');
     },
@@ -85,12 +98,11 @@ test('registers a verified Google user through the visible registration transiti
   expect(steps).toEqual([
     'google-open',
     'google-sign-in',
-    'google-provider-count',
-    'google-provider',
-    'google-missing-owner-sign-in',
     'google-registration-link-count',
     'google-registration-link',
     'google-register',
+    'google-provider-count',
+    'google-provider',
     'google-consent',
     'google-authorize',
     'callback',

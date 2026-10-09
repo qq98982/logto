@@ -75,6 +75,11 @@ type Stage =
   | 'discovery'
   | 'fixture'
   | 'management'
+  | 'unverified-email-control'
+  | 'unverified-email-owner'
+  | 'occupied-email-control'
+  | 'occupied-email-owner'
+  | 'control-publication'
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -96,13 +101,6 @@ const bounded = (value: unknown, maximum = 1024): string => {
   }
   return value;
 };
-const preservesFlowStage = (error: unknown): error is TypeError =>
-  !nodeTypes.isProxy(error) &&
-  error instanceof TypeError &&
-  /^Common Google registration failed: (?:admission|initialization|registration-transition|registration-route|provider-count|provider-click|consent-(?:route(?:-(?:sign-in|register|continue|demo|error|other)-(?:social-verify|identification|submit|none)-(?:400|401|403|404|409|422|500|503|0)-(?:new-password-required|missing-profile|permission-denied|invalid-verification|interaction-not-found|invalid-credentials|suspended|method-disabled|identity-conflict|email-in-use|proof-absent|interaction-client-expiry|config-absent|event-invalid|owner-missing-signin|attested-email-absent|interaction-rejected|unknown|none))?|click)|callback(?:-(?:callback-route|callback-facts-s(?:0|1|many)-c(?:0|1|many)-i(?:0|1|many)|cardinality|signin-(?:authority|response|client|redirect|mode|scope|resource|pkce)|callback-(?:authority|response|state|issuer|code)|exchange-(?:authority|response|correlation|client|refresh|target|scope|access)))?|profile|refresh|owner-lookup|authorization)$/u.test(
-    ownMessage(error) ?? ''
-  );
-
 const ownMessage = (error: unknown): string | undefined => {
   const descriptor =
     !nodeTypes.isProxy(error) && error instanceof Error
@@ -112,6 +110,51 @@ const ownMessage = (error: unknown): string | undefined => {
     ? descriptor.value
     : undefined;
 };
+const simpleFlowStages = new Set([
+  'admission',
+  'initialization',
+  'registration-transition',
+  'registration-route',
+  'provider-count',
+  'provider-click',
+  'consent-route',
+  'consent-click',
+  'callback',
+  'profile',
+  'refresh',
+  'owner-lookup',
+  'authorization',
+]);
+const closedFlowStage = (error: unknown): string | undefined => {
+  if (nodeTypes.isProxy(error) || !(error instanceof TypeError)) {
+    return undefined;
+  }
+  const stage = /^Common Google registration failed: ([a-z0-9-]+)$/u.exec(
+    ownMessage(error) ?? ''
+  )?.[1];
+  if (!stage) {
+    return undefined;
+  }
+  if (simpleFlowStages.has(stage)) {
+    return stage;
+  }
+  if (
+    /^callback-(?:callback-route|callback-facts-s(?:0|1|many)-c(?:0|1|many)-i(?:0|1|many)|cardinality|signin-(?:authority|response|client|redirect|mode|scope|resource|pkce)|callback-(?:authority|response|state|issuer|code)|exchange-(?:authority|response|correlation|client|refresh|target|scope|access))$/u.test(
+      stage
+    )
+  ) {
+    return stage;
+  }
+  return /^consent-route-(?:sign-in|register|continue|demo|error|other)-(?:social-verify|identification|submit|none)-(?:400|401|403|404|409|422|500|503|0)-(?:new-password-required|missing-profile|permission-denied|invalid-verification|interaction-not-found|invalid-credentials|suspended|method-disabled|identity-conflict|email-in-use|proof-absent|interaction-client-expiry|config-absent|event-invalid|owner-missing-signin|attested-email-absent|interaction-rejected|unknown|none)$/u.test(
+    stage
+  )
+    ? stage
+    : undefined;
+};
+const preservesFlowStage = (error: unknown): error is TypeError =>
+  closedFlowStage(error) !== undefined;
+export const commonGoogleRegistrationFlowStageForTesting = (error: unknown): string | undefined =>
+  process.env.NODE_ENV === 'test' ? closedFlowStage(error) : undefined;
 const fixtureStage = (error: unknown, depth = 0): FixtureStage | undefined => {
   if (depth >= 4) {
     return undefined;
@@ -559,8 +602,6 @@ const executeCommonGoogleRegistrationForTarget = async (
                           },
                           expectCount: async (step, selector, expected) =>
                             session.expectCount(step, selector, expected),
-                          readExperienceFailure: async () =>
-                            session.readExperienceFailure?.() ?? targetFail('capability'),
                           consentFailureRoute: async () => 'other-none-0-unknown',
                         },
                         expectedEmail: input.provider.originalOwnerEmail,
@@ -576,6 +617,7 @@ const executeCommonGoogleRegistrationForTarget = async (
                   }
                 );
                 if (input.onControls) {
+                  stage = 'unverified-email-control';
                   const unverifiedEmail = await runDeniedRegistrationControl(
                     input,
                     target,
@@ -585,7 +627,9 @@ const executeCommonGoogleRegistrationForTarget = async (
                     'unverified-email',
                     requirePlaywrightBrand
                   );
+                  stage = 'unverified-email-owner';
                   await value.assertControlsPreservedOwner();
+                  stage = 'occupied-email-control';
                   const occupiedEmail = await runDeniedRegistrationControl(
                     input,
                     target,
@@ -595,7 +639,9 @@ const executeCommonGoogleRegistrationForTarget = async (
                     'occupied-email',
                     requirePlaywrightBrand
                   );
+                  stage = 'occupied-email-owner';
                   await value.assertControlsPreservedOwner();
+                  stage = 'control-publication';
                   await input.onControls(Object.freeze({ unverifiedEmail, occupiedEmail }));
                 }
                 return positive;
