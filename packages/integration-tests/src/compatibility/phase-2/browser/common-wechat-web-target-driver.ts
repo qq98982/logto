@@ -794,6 +794,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                         admitsWechatWebStateControlFailure({
                           errorMessage: ownMessage(error),
                           storedSocialState,
+                          expectedStoredSocialState: providerCase !== 'wrongState',
                           providerFailureObserved: providerControlFailure !== undefined,
                           authorization: value.observation(),
                         })

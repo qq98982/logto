@@ -70,11 +70,21 @@ test('admits only the closed stored-state rejection before the correct retry', (
     errorMessage:
       'Common WeChat Web failed: consent-route-error-none-0-not-applicable-none-auth-111111101-state-stored',
     storedSocialState: true,
+    expectedStoredSocialState: true,
     providerFailureObserved: false,
     authorization: rejectedAuthorization,
   };
   expect(admitsWechatWebStateControlFailure(input)).toBe(true);
   expect(admitsWechatWebStateControlFailure({ ...input, storedSocialState: false })).toBe(false);
+  expect(
+    admitsWechatWebStateControlFailure({
+      ...input,
+      errorMessage:
+        'Common WeChat Web failed: consent-route-error-none-0-not-applicable-none-auth-111111101-state-cleared',
+      storedSocialState: false,
+      expectedStoredSocialState: false,
+    })
+  ).toBe(true);
   expect(admitsWechatWebStateControlFailure({ ...input, providerFailureObserved: true })).toBe(
     false
   );
