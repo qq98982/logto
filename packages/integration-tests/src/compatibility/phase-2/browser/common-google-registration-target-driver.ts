@@ -389,6 +389,7 @@ export type CommonGoogleRegistrationControlsObservation = Readonly<{
 export const waitForCommonGoogleRegistrationControlOutcome = async (
   input: Readonly<{
     initial?: Phase1BrowserExperienceFailure;
+    continueAfterIdentityNotExist?: boolean;
     signal: AbortSignal;
     read(): Promise<Phase1BrowserExperienceFailure>;
     wait?(milliseconds: number): Promise<void>;
@@ -410,6 +411,15 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       await wait(25);
       continue;
     }
+    if (
+      input.continueAfterIdentityNotExist === true &&
+      outcome.operation === 'identification' &&
+      outcome.status === 404 &&
+      outcome.code === 'user.identity_not_exist'
+    ) {
+      await wait(25);
+      continue;
+    }
     if (outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300) {
       successfulSocialVerification = outcome;
     }
@@ -421,7 +431,9 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
     }
     await wait(25);
   }
-  return successfulSocialVerification ?? targetFail('capability');
+  return input.continueAfterIdentityNotExist !== true && successfulSocialVerification
+    ? successfulSocialVerification
+    : targetFail('capability');
 };
 const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
@@ -548,6 +560,7 @@ const runDeniedRegistrationControl = async (
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
     onStage(`${label}-control-response`);
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
+      continueAfterIdentityNotExist: label === 'occupied-email',
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
       signal: input.signal,
     });

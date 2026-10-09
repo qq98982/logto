@@ -86,6 +86,42 @@ test('ignores the pre-click Experience response until the provider callback chan
   expect(waits).toBe(2);
 });
 
+test('continues past the occupied control identity lookup to its submit outcome', async () => {
+  let reads = 0;
+  let waits = 0;
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      continueAfterIdentityNotExist: true,
+      signal: new AbortController().signal,
+      read: async () => {
+        reads += 1;
+        return reads === 1
+          ? {
+              operation: 'identification' as const,
+              status: 404 as const,
+              binding: 'not-applicable' as const,
+              code: 'user.identity_not_exist' as const,
+            }
+          : {
+              operation: 'submit' as const,
+              status: 422 as const,
+              binding: 'not-applicable' as const,
+              code: 'user.email_already_in_use' as const,
+            };
+      },
+      wait: async () => {
+        waits += 1;
+      },
+    })
+  ).resolves.toMatchObject({
+    operation: 'submit',
+    status: 422,
+    code: 'user.email_already_in_use',
+  });
+  expect(reads).toBe(2);
+  expect(waits).toBe(1);
+});
+
 test('bounds a missing control response at the browser-equivalent thirty-second budget', async () => {
   let reads = 0;
   let waits = 0;
@@ -135,6 +171,26 @@ test('retains a terminal successful social verification through the quiet respon
     code: 'none',
   });
   expect(reads).toBe(1200);
+  expect(waits).toBe(1200);
+});
+
+test('does not treat a quiet social verification as an occupied-email denial', async () => {
+  let waits = 0;
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      continueAfterIdentityNotExist: true,
+      signal: new AbortController().signal,
+      read: async () => ({
+        operation: 'social-verify',
+        status: 200,
+        binding: 'not-applicable',
+        code: 'none',
+      }),
+      wait: async () => {
+        waits += 1;
+      },
+    })
+  ).rejects.toThrow('Common Google registration target failed: capability');
   expect(waits).toBe(1200);
 });
 
