@@ -79,6 +79,11 @@ type RegistrationControlStage = `${'unverified-email' | 'occupied-email'}-contro
   | 'outcome-status'
   | 'outcome-error'
   | 'outcome-accepted'}`;
+type RegistrationControlResponseStage = `${
+  | 'unverified-email'
+  | 'occupied-email'}-control-observed-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}-${
+  | 'known'
+  | 'unknown'}-${'incomplete' | 'other'}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -94,6 +99,7 @@ type Stage =
   | 'occupied-email-owner'
   | 'control-publication'
   | RegistrationControlStage
+  | RegistrationControlResponseStage
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -451,7 +457,7 @@ const runDeniedRegistrationControl = async (
   capability: PlaywrightExternalAuthorizationCapability,
   label: 'unverified-email' | 'occupied-email',
   requirePlaywrightBrand: boolean,
-  onStage: (stage: RegistrationControlStage) => void
+  onStage: (stage: RegistrationControlStage | RegistrationControlResponseStage) => void
 ): Promise<Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>> => {
   const observer = requirePlaywrightBrand
     ? withPlaywrightExternalAuthorizationCapability(input.observer, capability)
@@ -507,6 +513,11 @@ const runDeniedRegistrationControl = async (
         failure.operation === 'identification' &&
         failure.status === 422 &&
         failure.code === 'user.missing_profile');
+    onStage(
+      `${label}-control-observed-${failure.operation}-${failure.status}-${
+        failure.code === 'unknown' ? 'unknown' : 'known'
+      }-${incompleteEmailProfile ? 'incomplete' : 'other'}`
+    );
     if (incompleteEmailProfile) {
       try {
         onStage(`${label}-control-profile-route`);
