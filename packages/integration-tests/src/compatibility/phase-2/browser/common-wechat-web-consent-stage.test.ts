@@ -1,3 +1,4 @@
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The invalid-field callback capture proves it runs before the error crosses a wrapper. */
 import { closedConsentStageForTesting } from './common-wechat-web-target-driver.js';
 
 const publicCodes = [
@@ -57,3 +58,27 @@ test.each([
     }).stage
   ).toMatch(/^consent-route-/u);
 });
+
+test('reports the exact invalid field before the thrown error can be rewritten', () => {
+  let reported: string | undefined;
+  expect(() =>
+    closedConsentStageForTesting(
+      {
+        route: 'other',
+        response: {
+          operation: 'social-verify',
+          status: 400,
+          binding: 'not-applicable',
+          code: 'connector.general',
+        },
+        authorizationBits: '111111100',
+        state: 'private-invalid-state',
+      },
+      (stage) => {
+        reported = stage;
+      }
+    )
+  ).toThrow('Common Wechat existing-owner target failed: consent-field-invalid-state');
+  expect(reported).toBe('consent-field-invalid-state');
+});
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */

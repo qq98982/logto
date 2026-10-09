@@ -175,46 +175,62 @@ const closedConsentCodes = new Set([
   'none',
 ]);
 const closedConsentStates = new Set(['state-stored', 'state-cleared', 'state-unavailable']);
+type InvalidConsentStage = `consent-field-invalid-${
+  | 'route'
+  | 'operation'
+  | 'status'
+  | 'binding'
+  | 'code'
+  | 'authorization'
+  | 'state'
+  | 'tuple'}`;
 const closedConsentStage = (
   input: Readonly<{
     route: string;
     response: Phase1BrowserExperienceFailure;
     authorizationBits: string;
     state: string;
-  }>
+  }>,
+  onInvalid?: (stage: InvalidConsentStage) => void
 ): Readonly<{ stage: ConsentStage; detail: string }> => {
+  const invalid = (stage: InvalidConsentStage): never => {
+    onInvalid?.(stage);
+    return targetFail(stage);
+  };
   if (!closedConsentRoutes.has(input.route)) {
-    return targetFail('consent-field-invalid-route');
+    return invalid('consent-field-invalid-route');
   }
   if (!closedConsentOperations.has(input.response.operation)) {
-    return targetFail('consent-field-invalid-operation');
+    return invalid('consent-field-invalid-operation');
   }
   if (!closedConsentStatuses.has(input.response.status)) {
-    return targetFail('consent-field-invalid-status');
+    return invalid('consent-field-invalid-status');
   }
   if (!closedConsentBindings.has(input.response.binding)) {
-    return targetFail('consent-field-invalid-binding');
+    return invalid('consent-field-invalid-binding');
   }
   if (!closedConsentCodes.has(input.response.code)) {
-    return targetFail('consent-field-invalid-code');
+    return invalid('consent-field-invalid-code');
   }
   if (!/^[01]{9}$/u.test(input.authorizationBits)) {
-    return targetFail('consent-field-invalid-authorization');
+    return invalid('consent-field-invalid-authorization');
   }
   if (!closedConsentStates.has(input.state)) {
-    return targetFail('consent-field-invalid-state');
+    return invalid('consent-field-invalid-state');
   }
   const detail = `${input.route}-${input.response.operation}-${input.response.status}-${input.response.binding}-${input.response.code.replaceAll('.', '-')}-auth-${input.authorizationBits}-${input.state}`;
   const value = `consent-route-${detail}`;
   if (!consentStagePattern.test(value)) {
-    return targetFail('consent-field-invalid-tuple');
+    return invalid('consent-field-invalid-tuple');
   }
   // The exact closed grammar above is the runtime constructor for this template type.
   // eslint-disable-next-line no-restricted-syntax
   return Object.freeze({ stage: value as ConsentStage, detail });
 };
-export const closedConsentStageForTesting = (input: Parameters<typeof closedConsentStage>[0]) =>
-  process.env.NODE_ENV === 'test' ? closedConsentStage(input) : fail();
+export const closedConsentStageForTesting = (
+  input: Parameters<typeof closedConsentStage>[0],
+  onInvalid?: (stage: InvalidConsentStage) => void
+) => (process.env.NODE_ENV === 'test' ? closedConsentStage(input, onInvalid) : fail());
 const preservesFlowStage = (error: unknown): error is TypeError =>
   !nodeTypes.isProxy(error) &&
   error instanceof TypeError &&
@@ -697,12 +713,12 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                               storedSocialState = false;
                             }
                             const consentDetail = (kind: string) => {
-                              const projection = closedConsentStage({
-                                route: kind,
-                                response,
-                                authorizationBits,
-                                state: storedState,
-                              });
+                              const projection = closedConsentStage(
+                                { route: kind, response, authorizationBits, state: storedState },
+                                (invalidStage) => {
+                                  stage = invalidStage;
+                                }
+                              );
                               observedConsentStage = projection.stage;
                               return projection.detail;
                             };
