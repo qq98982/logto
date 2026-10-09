@@ -61,8 +61,18 @@ import {
   compareCommonGoogleExistingOwnerProjections,
   type CommonGoogleExistingOwnerScenarioProjection,
 } from './scenarios/common-google-existing-owner.js';
+import {
+  commonGoogleRegistrationScenarioIds,
+  compareCommonGoogleRegistrationProjections,
+  type CommonGoogleRegistrationScenarioProjection,
+} from './scenarios/common-google-registration.js';
 import { commonNativeScenarioIds } from './scenarios/common-native.js';
 import { commonPasswordRecoveryScenarioIds } from './scenarios/common-password-recovery.js';
+import {
+  commonWechatWebScenarioIds,
+  compareCommonWechatWebProjections,
+  type CommonWechatWebScenarioProjection,
+} from './scenarios/common-wechat-web.js';
 import {
   deviceAuthorizationScenarioIds,
   publishDeviceScenarioProjection,
@@ -186,7 +196,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 183).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 185).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -370,7 +380,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 183).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 185).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -514,6 +524,24 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
         ]);
         const wire = snapshotJsonWire(projection) as CommonGoogleExistingOwnerScenarioProjection;
         if (compareCommonGoogleExistingOwnerProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonGoogleRegistrationScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`google-registration-${index}`, () => {
+        const wire = snapshotJsonWire(
+          scenario.projection
+        ) as CommonGoogleRegistrationScenarioProjection;
+        if (compareCommonGoogleRegistrationProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonWechatWebScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`wechat-web-${index}`, () => {
+        const wire = snapshotJsonWire(scenario.projection) as CommonWechatWebScenarioProjection;
+        if (compareCommonWechatWebProjections(wire, wire).length > 0) {
           return fail();
         }
         assertWithBothSanitizers(wire);

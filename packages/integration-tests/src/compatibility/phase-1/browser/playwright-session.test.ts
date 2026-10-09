@@ -7,11 +7,26 @@ import type { Browser, BrowserType } from '@playwright/test';
 
 import type { TargetConfig } from '../../model.js';
 
-import { createPlaywrightBrowserGroupObserver } from './playwright-session.js';
+import {
+  createPlaywrightBrowserGroupObserver,
+  experienceOperationForTesting,
+} from './playwright-session.js';
 
 const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
   chromium: BrowserType<Browser>;
 };
+
+test('classifies only closed Experience failure endpoints', () => {
+  expect(
+    experienceOperationForTesting('POST', '/api/experience/verification/social/google/verify')
+  ).toBe('social-verify');
+  expect(experienceOperationForTesting('POST', '/api/experience/identification')).toBe(
+    'identification'
+  );
+  expect(experienceOperationForTesting('POST', '/api/experience/submit')).toBe('submit');
+  expect(experienceOperationForTesting('GET', `/oidc/auth/${'a'.repeat(43)}`)).toBe('resume');
+  expect(experienceOperationForTesting('GET', '/oidc/auth')).toBeUndefined();
+});
 
 const compact = (value: Record<string, unknown>) =>
   Buffer.from(JSON.stringify(value)).toString('base64url');

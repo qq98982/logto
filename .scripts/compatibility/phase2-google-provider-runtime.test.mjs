@@ -179,6 +179,8 @@ test('writes a valid non-authenticating health probe in place and clears every m
         'stable',
         'changedEmail',
         'wrongStateControl',
+        'unverifiedEmailControl',
+        'occupiedEmailControl',
       ].toSorted());
       assert.equal(value.schemaVersion, 1);
       assert.equal(value.callbackUri, `${value.targetOrigin}/callback/${value.connectorId}`);

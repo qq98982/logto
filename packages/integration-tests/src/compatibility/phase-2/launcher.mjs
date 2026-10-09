@@ -273,16 +273,20 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.(?:email\.password-registration|password\.recovery|google\.existing-owner)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.(?:email\.password-registration|password\.recovery|google\.existing-owner|google\.registration|wechat\.web)\)\.\n$/u.test(
       stderr
     ) ||
-    /^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(?:password-registration|recovery|google)-(?:admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(?:password-registration|recovery|google|google-registration|wechat-web)-(?:admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality|authorization|callback|initialization|missing-owner|owner-lookup|profile|provider-count|provider-click|refresh|registration-route|registration-transition|consent-click|consent-route|fixture-registration-owner-before|fixture-registration-owner-use|fixture-registration-owner-after|fixture-registration-owner-cleanup|fixture-registration-owner-discovery|controls-no-union-id|controls-invalid-code|controls-replay|controls-malformed-provider|controls-cross-interaction|controls-missing-state|controls-wrong-state|controls-wrong-callback)\)\.\n$/u.test(
       stderr
     )
   ) {
     return stderr;
   }
-  if (/^Phase 2 client credentials command failed \(candidate-(?:google-projection-(?:(?:wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(?:true|false)-c(?:true|false)|other))\)\.\n$/u.test(stderr)) {
+  if (
+    /^Phase 2 client credentials command failed \(candidate-(?:google-projection-(?:(?:wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(?:none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(?:session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(?:true|false)-c(?:true|false)|other))\)\.\n$/u.test(
+      stderr
+    )
+  ) {
     return stderr;
   }
   const deviceIdClaimKeysDifferenceMatch = deviceIdClaimKeysDifferencePattern.exec(stderr);
@@ -343,6 +347,13 @@ export const diagnosticForPhase2Child = (stderr) => {
   }
   if (
     /^Phase 2 client credentials command failed \(candidate-invariant-legacy-[0-4]\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
+  if (
+    /^Phase 2 client credentials command failed \((candidate)-((?:google-registration|wechat-web)-projection-(?:contract-o(?:true|false)-c(?:true|false)|(?:unverified-email|occupied-email|no-union-id|invalid-code|replay|malformed-provider|cross-interaction|missing-state|wrong-state|wrong-callback)-(?:status-o[1-5][0-9]{2}-c[1-5][0-9]{2}|error-o(?:connector\.(?:general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(?:identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none)-c(?:connector\.(?:general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(?:identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none))|other))\)\.\n$/u.test(
       stderr
     )
   ) {
@@ -838,10 +849,10 @@ const phase2BrowserEnvironment = async () => {
   return Object.freeze(values);
 };
 
-export const readPhase2GoogleProviderEnvironment = async (browserEnvironment) => {
+const readPhase2ProviderEnvironment = async (browserEnvironment, provider) => {
   const keys = [
-    'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
-    'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
+    `ASTER_PHASE2_ORACLE_${provider.toUpperCase()}_PROVIDER_INPUT`,
+    `ASTER_PHASE2_CANDIDATE_${provider.toUpperCase()}_PROVIDER_INPUT`,
   ];
   const values = keys.map((key) => process.env[key]);
   if (values.every((value) => value === undefined)) {
@@ -851,7 +862,7 @@ export const readPhase2GoogleProviderEnvironment = async (browserEnvironment) =>
   const accepted = await Promise.all(
     values.map(async (value, index) => {
       const role = index === 0 ? 'oracle' : 'candidate';
-      const expected = path.join(runDirectory, 'google-provider', role, 'provider-input.json');
+      const expected = path.join(runDirectory, `${provider}-provider`, role, 'provider-input.json');
       if (value !== expected) {
         return fail();
       }
@@ -873,6 +884,11 @@ export const readPhase2GoogleProviderEnvironment = async (browserEnvironment) =>
   );
   return Object.freeze(Object.fromEntries(accepted));
 };
+
+export const readPhase2GoogleProviderEnvironment = (browserEnvironment) =>
+  readPhase2ProviderEnvironment(browserEnvironment, 'google');
+export const readPhase2WechatProviderEnvironment = (browserEnvironment) =>
+  readPhase2ProviderEnvironment(browserEnvironment, 'wechat');
 
 const manifestsEqual = (left, right) => {
   if (
@@ -926,6 +942,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     PATH: '/usr/bin:/bin',
     ...browserEnvironment,
     ...(await readPhase2GoogleProviderEnvironment(browserEnvironment)),
+    ...(await readPhase2WechatProviderEnvironment(browserEnvironment)),
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

@@ -257,67 +257,75 @@ it('accepts only the canonical optional oracle SMTP socket launcher environment'
     ).rejects.toThrow('Invalid Phase 2 provenance');
   }, Promise.resolve());
 });
-it('admits only paired owned Google provider paths alongside the exact launcher environment', async () => {
-  const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
-  const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
-  const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
-  const capability = 'd'.repeat(64);
-  const oraclePath = path.join(browserRunDirectory, 'google-provider/oracle/provider-input.json');
-  const candidatePath = path.join(
-    browserRunDirectory,
-    'google-provider/candidate/provider-input.json'
-  );
-  await Promise.all(
-    [oraclePath, candidatePath].map(async (filePath) => {
-      await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      await writeFile(filePath, '{}', { mode: 0o600 });
-    })
-  );
-  const environment = {
-    ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
-    ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT: oraclePath,
-    ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT: candidatePath,
-  };
-  installCapability(capability);
-  await expect(
-    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
-  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
-  installCapability(capability);
-  await expect(
-    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, {
-      ...environment,
-      ASTER_PHASE2_ORACLE_SMTP_SOCKET: '/var/tmp/henry-build/phase2-fixture/oracle-smtp.sock',
-    })
-  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
-  const invalidEnvironments = [
-    { ...environment, ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT: undefined },
-    { ...environment, ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT: undefined },
-    { ...environment, ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT: candidatePath },
-    { ...environment, ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT: 'provider-input.json' },
-    {
-      ...environment,
-      ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT: `${oraclePath}/../provider-input.json`,
-    },
-    { ...environment, ASTER_PHASE2_UNEXPECTED: 'present' },
-  ];
-  await invalidEnvironments.reduce(async (previous, invalidEnvironment) => {
-    await previous;
+it.each(['google', 'wechat'] as const)(
+  'admits only paired owned %s provider paths alongside the exact launcher environment',
+  async (provider) => {
+    const oracleKey = `ASTER_PHASE2_ORACLE_${provider.toUpperCase()}_PROVIDER_INPUT`;
+    const candidateKey = `ASTER_PHASE2_CANDIDATE_${provider.toUpperCase()}_PROVIDER_INPUT`;
+    const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
+    const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
+    const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
+    const capability = 'd'.repeat(64);
+    const oraclePath = path.join(
+      browserRunDirectory,
+      `${provider}-provider/oracle/provider-input.json`
+    );
+    const candidatePath = path.join(
+      browserRunDirectory,
+      `${provider}-provider/candidate/provider-input.json`
+    );
+    await Promise.all(
+      [oraclePath, candidatePath].map(async (filePath) => {
+        await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+        await writeFile(filePath, '{}', { mode: 0o600 });
+      })
+    );
+    const environment = {
+      ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
+      [oracleKey]: oraclePath,
+      [candidateKey]: candidatePath,
+    };
     installCapability(capability);
     await expect(
-      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+    ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, {
+        ...environment,
+        ASTER_PHASE2_ORACLE_SMTP_SOCKET: '/var/tmp/henry-build/phase2-fixture/oracle-smtp.sock',
+      })
+    ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+    const invalidEnvironments = [
+      { ...environment, [oracleKey]: undefined },
+      { ...environment, [candidateKey]: undefined },
+      { ...environment, [oracleKey]: candidatePath },
+      { ...environment, [candidateKey]: 'provider-input.json' },
+      {
+        ...environment,
+        [oracleKey]: `${oraclePath}/../provider-input.json`,
+      },
+      { ...environment, ASTER_PHASE2_UNEXPECTED: 'present' },
+    ];
+    await invalidEnvironments.reduce(async (previous, invalidEnvironment) => {
+      await previous;
+      installCapability(capability);
+      await expect(
+        inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+      ).rejects.toThrow('Invalid Phase 2 provenance');
+    }, Promise.resolve());
+    await chmod(candidatePath, 0o644);
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
     ).rejects.toThrow('Invalid Phase 2 provenance');
-  }, Promise.resolve());
-  await chmod(candidatePath, 0o644);
-  installCapability(capability);
-  await expect(
-    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
-  ).rejects.toThrow('Invalid Phase 2 provenance');
-  await chmod(candidatePath, 0o600);
-  await rm(candidatePath);
-  await symlink(oraclePath, candidatePath);
-  installCapability(capability);
-  await expect(
-    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
-  ).rejects.toThrow('Invalid Phase 2 provenance');
-});
+    await chmod(candidatePath, 0o600);
+    await rm(candidatePath);
+    await symlink(oraclePath, candidatePath);
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  }
+);
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

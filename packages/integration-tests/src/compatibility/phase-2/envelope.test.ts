@@ -42,6 +42,8 @@ import { phase2ExpectedProfileAuthority, type Phase2ProfileRegistries } from './
 import type { Phase2SourceIdentity } from './provenance.js';
 import { assertDiscoveryEndpointFieldsContract } from './scenarios/client-credentials.js';
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
+import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
+import { commonGoogleRegistrationTestProjection } from './testing/common-google-registration-projection.js';
 
 const profile: Phase2ProfileRegistries = {
   ...phase2ExpectedProfileAuthority,
@@ -179,7 +181,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 184 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 186 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -250,7 +252,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 184 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 186 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -556,6 +558,64 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 
+  it('publishes only complete Google registration controls without partial accounts', () => {
+    const projection = commonGoogleRegistrationTestProjection;
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.google.registration', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const changed of [
+      { ...projection, unverifiedEmail: { ...projection.unverifiedEmail, accepted: true } },
+      { ...projection, occupiedEmail: { ...projection.occupiedEmail, associationCreated: true } },
+      {
+        ...projection,
+        occupiedEmail: { ...projection.occupiedEmail, collisionOwnerPreserved: false },
+      },
+      { ...projection, occupiedEmail: { ...projection.occupiedEmail, error: 'private-token' } },
+      { ...projection, accessToken: 'private-token' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.google.registration', projection: changed }],
+        })
+      ).toBe('google-registration-0');
+    }
+  });
+
+  it('requires WeChat Web union identity and all callback/state controls before publication', () => {
+    const projection = commonWechatWebExpectedProjection;
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.wechat.web', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const changed of [
+      { ...projection, noUnionId: { ...projection.noUnionId, accepted: true } },
+      { ...projection, replay: { ...projection.replay, ownerPreserved: false } },
+      { ...projection, crossInteraction: { ...projection.crossInteraction, accepted: true } },
+      { ...projection, wrongState: { ...projection.wrongState, proofPreserved: false } },
+      {
+        ...projection,
+        wrongCallback: { ...projection.wrongCallback, correctRetryAccepted: false },
+      },
+      { ...projection, provider: { ...projection.provider, unionIdStable: false } },
+      { ...projection, rawProviderResponse: 'private-token' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.wechat.web', projection: changed }],
+        })
+      ).toBe('wechat-web-0');
+    }
+  });
+
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
     const artifactProfile = {
       ...profile,
@@ -727,8 +787,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 183-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 183 }, (_, index) => ({
+  it('publishes the full 185-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 185 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

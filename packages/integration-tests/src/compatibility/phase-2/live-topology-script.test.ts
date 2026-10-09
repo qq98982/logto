@@ -220,7 +220,8 @@ const evidenceTopology = (kind: 'oracle' | 'candidate') => ({
 const runEvidenceValidation = async (
   scenarioCount: number,
   invariantCount: number,
-  controlCount = 18
+  controlCount = 18,
+  leakedProviderCredential?: string
 ): Promise<Readonly<{ code: number; stderr: string }>> => {
   const directory = await mkdtemp(path.join(temporaryRoot, 'evidence-validation-'));
   const profilePath = path.join(directory, 'profile.json');
@@ -228,9 +229,27 @@ const runEvidenceValidation = async (
   const oraclePath = path.join(directory, 'oracle.json');
   const differentialPath = path.join(directory, 'differential.json');
   const invariantPath = path.join(directory, 'invariants.json');
+  const providerPaths = [
+    'oracle-google',
+    'candidate-google',
+    'oracle-wechat',
+    'candidate-wechat',
+  ].map((role) => path.join(directory, `${role}-provider.json`));
+  await Promise.all(
+    providerPaths.map(async (file) =>
+      writeFile(
+        file,
+        JSON.stringify({
+          clientId: 'private-provider-client',
+          clientSecret: 'private-provider-credential',
+        }),
+        { mode: 0o600 }
+      )
+    )
+  );
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 183 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 185 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -286,7 +305,10 @@ const runEvidenceValidation = async (
   }));
   const target = (kind: 'oracle' | 'candidate', count: number) => ({
     target: kind,
-    scenarios: differentialScenarioIds.slice(0, count).map((id) => ({ id, projection: {} })),
+    scenarios: differentialScenarioIds.slice(0, count).map((id) => ({
+      id,
+      projection: leakedProviderCredential ? { fixtureFact: leakedProviderCredential } : {},
+    })),
     discovery: {},
     controls,
   });
@@ -352,6 +374,7 @@ const runEvidenceValidation = async (
     'candidate-state-sha',
     'invariant-sha',
     'fixture-sha',
+    ...providerPaths,
     'private-runtime-path',
   ]);
 };
@@ -368,14 +391,16 @@ afterAll(async () => {
 
 describe('Phase 2 client-credentials live topology runner', () => {
   it.each([
-    ['oracle', '172.30.231.52', '02:42:ac:1e:e7:34'],
-    ['candidate', '172.30.241.52', '02:42:ac:1e:f1:34'],
+    ['google', 'oracle', '172.30.231.52', '02:42:ac:1e:e7:34'],
+    ['google', 'candidate', '172.30.241.52', '02:42:ac:1e:f1:34'],
+    ['wechat', 'oracle', '172.30.231.53', '02:42:ac:1e:e7:35'],
+    ['wechat', 'candidate', '172.30.241.53', '02:42:ac:1e:f1:35'],
   ] as const)(
-    'requires the stable provider network identity on every running %s restart',
-    async (role, ip, mac) => {
+    'requires the stable provider network identity on every running %s/%s restart',
+    async (provider, role, ip, mac) => {
       const id = 'a'.repeat(64);
       const image = `sha256:${'b'.repeat(64)}`;
-      const service = `${role}-google-provider`;
+      const service = `${role}-${provider}-provider`;
       const project = `aster-test-${role}`;
       const metadataPath = path.join(temporaryRoot, 'provider-inspect.json');
       const scriptPath = path.join(temporaryRoot, 'provider-network-proof.sh');
@@ -416,7 +441,7 @@ ORACLE_PROJECT_NAME='aster-test-oracle'
 CANDIDATE_PROJECT_NAME='aster-test-candidate'
 compose_for() { /usr/bin/printf '%s' '${id}'; }
 docker_cli() { /usr/bin/cat '${metadataPath}'; }
-assert_google_provider_state '${role}' '${service}' '${running ? 'running' : 'exited'}' '${running}' '${ip}'
+assert_${provider}_provider_state '${role}' '${service}' '${running ? 'running' : 'exited'}' '${running}' '${ip}'
 `,
           { mode: 0o600 }
         );
@@ -1222,9 +1247,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 183',
+      'scenarioCount !== 185',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 183',
+      'comparisonCount !== 185',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1263,11 +1288,18 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(185, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(183, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(183, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(185, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(185, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
+  });
+
+  it('rejects provider credentials in otherwise valid evidence', async () => {
+    await expect(
+      runEvidenceValidation(185, 24, 18, 'private-provider-credential')
+    ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('keeps secrets and raw service logs out of stdout and evidence handling', () => {

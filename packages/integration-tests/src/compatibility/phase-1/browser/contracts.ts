@@ -165,6 +165,8 @@ export type Phase1BrowserNetworkFacts = Readonly<{
 }>;
 
 export type Phase1BrowserSession = {
+  readExperienceFailure?(): Promise<Phase1BrowserExperienceFailure>;
+  hasStoredSocialState?(connectorId: string): Promise<boolean>;
   preloadDemoConfiguration(
     stepId: string,
     storageKey: string,
@@ -210,6 +212,37 @@ export type Phase1BrowserSession = {
     path: string
   ): Promise<Phase1BrowserExternalCallbackOutcome>;
 };
+
+export type Phase1BrowserExperienceFailure = Readonly<{
+  operation: 'social-verify' | 'identification' | 'submit' | 'resume' | 'none';
+  status: 200 | 201 | 204 | 302 | 303 | 400 | 401 | 403 | 404 | 409 | 422 | 500 | 503 | 0;
+  binding:
+    | 'complete'
+    | 'missing-resume-not-issued'
+    | 'missing-resume-path-mismatch'
+    | 'missing-resume-expired'
+    | 'missing-resume-secure-mismatch'
+    | 'missing-resume-other'
+    | 'missing-mapping'
+    | 'missing-shared'
+    | 'missing-session'
+    | 'not-applicable';
+  code:
+    | 'user.identity_not_exist'
+    | 'user.missing_profile'
+    | 'session.verification_session_not_found'
+    | 'session.interaction_not_found'
+    | 'session.invalid_credentials'
+    | 'user.suspended'
+    | 'user.sign_in_method_not_enabled'
+    | 'session.identity_conflict'
+    | 'user.email_already_in_use'
+    | 'verification_record.permission_denied'
+    | 'guard.invalid_input'
+    | 'connector.general'
+    | 'unknown'
+    | 'none';
+}>;
 
 export type Phase1BrowserExternalCallbackOutcome = Readonly<{
   callbackAccepted: boolean | 'unknown';

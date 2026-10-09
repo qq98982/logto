@@ -93,6 +93,10 @@ const googleProviderEnvironmentKeys = Object.freeze([
   'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
   'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
 ]);
+const wechatProviderEnvironmentKeys = Object.freeze([
+  'ASTER_PHASE2_ORACLE_WECHAT_PROVIDER_INPUT',
+  'ASTER_PHASE2_CANDIDATE_WECHAT_PROVIDER_INPUT',
+]);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -340,10 +344,13 @@ export const inspectLaunchedPhase2HarnessSource = async (
   const oracleSmtpSocket = environment.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
   const googleProviderPaths = googleProviderEnvironmentKeys.map((key) => environment[key]);
   const hasGoogleProvider = googleProviderPaths.some((value) => value !== undefined);
+  const wechatProviderPaths = wechatProviderEnvironmentKeys.map((key) => environment[key]);
+  const hasWechatProvider = wechatProviderPaths.some((value) => value !== undefined);
   const expectedKeys = [
     ...launcherEnvironmentKeys,
     ...(oracleSmtpSocket === undefined ? [] : ['ASTER_PHASE2_ORACLE_SMTP_SOCKET']),
     ...(hasGoogleProvider ? googleProviderEnvironmentKeys : []),
+    ...(hasWechatProvider ? wechatProviderEnvironmentKeys : []),
   ].toSorted();
   if (
     keys.length !== expectedKeys.length ||
@@ -360,14 +367,20 @@ export const inspectLaunchedPhase2HarnessSource = async (
     return fail();
   }
   await validateBrowserEnvironment(environment);
-  if (hasGoogleProvider) {
+  for (const [provider, paths, present] of [
+    ['google', googleProviderPaths, hasGoogleProvider],
+    ['wechat', wechatProviderPaths, hasWechatProvider],
+  ] as const) {
+    if (!present) {
+      continue;
+    }
     const home = environment.HOME ?? fail();
     await Promise.all(
-      googleProviderPaths.map(async (value, index) => {
+      paths.map(async (value, index) => {
         const role = index === 0 ? 'oracle' : 'candidate';
         const expected = path.join(
           path.dirname(home),
-          'google-provider',
+          `${provider}-provider`,
           role,
           'provider-input.json'
         );

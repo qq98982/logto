@@ -63,7 +63,7 @@ describe('Phase 2 profile loader', () => {
       'device.discover-oidc',
       'device.discover-oauth',
     ]);
-    expect(registries.differentialScenarios).toHaveLength(183);
+    expect(registries.differentialScenarios).toHaveLength(185);
     expect(registries.differentialScenarios[20]).toBe('token-status.public-access-active');
     expect(registries.differentialScenarios[46]).toBe(
       'token-status.confidential-owner-after-cross-client-active'
@@ -125,6 +125,8 @@ describe('Phase 2 profile loader', () => {
       'common.email.password-registration',
       'common.password.recovery',
       'common.google.existing-owner',
+      'common.google.registration',
+      'common.wechat.web',
     ]);
     expect(registries.differentialScenarios[12]).toBe('client-credentials.mixed-authentication');
     expect(registries.candidateInvariantScenarios).toEqual([
@@ -178,10 +180,10 @@ describe('Phase 2 profile loader', () => {
       'schemaSha256',
     ]);
     expect(registries.profileSha256).toBe(
-      '40a2f568b05e1cc9e400f48a491dd987b31b7248065b1c270495224c47427a5b'
+      '5390434f8351f5b5029b5ea97c8f988df51dafb530aaaa5996446dfe647df0b0'
     );
     expect(registries.schemaSha256).toBe(
-      '8588ab67a7cfef8d5a14850e03ba3ecdd6c6f3cbb58d3e83746752ef9b63f9f1'
+      '92255868bff122a4d8e37bfbce8f5f062e0e9896d0b7b8651bdaf284b7052c12'
     );
     expect(registries.baseAcceptance.harnessCommit).toBe(
       '83d08f0821345d1bdc01491152949cc6f044ecfb'

@@ -268,7 +268,9 @@
         "common.email.code-registration",
         "common.email.password-registration",
         "common.password.recovery",
-        "common.google.existing-owner"
+        "common.google.existing-owner",
+        "common.google.registration",
+        "common.wechat.web"
       ],
       "items": { "$ref": "#/$defs/scenarioId" }
     },

@@ -125,6 +125,46 @@ test('requires the complete existing Phase 1 callback chain', async () => {
   await expect(adapter.assertInitialCallback()).resolves.toBeUndefined();
 });
 
+test('resolves a newly registered subject at the refresh assertion boundary and fails closed', async () => {
+  let subject = '';
+  const before = initialFacts();
+  const refreshed: Phase1BrowserNetworkFacts = {
+    ...before,
+    exchanges: [
+      ...before.exchanges,
+      {
+        ...before.exchanges[0]!,
+        kind: 'management',
+        clientId: 'app',
+        redirectUri: null,
+        initialRefreshPresent: false,
+        resource: 'https://api.example',
+        responseScope: 'read:profile',
+        accessKind: 'compact',
+        compactAccess: {
+          issuer: 'https://core.example/oidc',
+          subject: 'user',
+          audience: 'https://api.example',
+          clientId: 'app',
+          scope: 'read:profile',
+          organizationIdPresent: false,
+        },
+      },
+    ],
+  };
+  let reads = 0;
+  const session = sessionWithFacts(before);
+  session.waitForNetworkFacts = async () => (reads++ === 0 ? before : refreshed);
+  const adapter = adaptPhase1SessionForEmailPassword(session, {
+    ...configuration,
+    expectedSubject: () => subject,
+  });
+  await expect(adapter.refresh()).rejects.toThrow('Common email password refresh failed: subject');
+  subject = 'user';
+  reads = 0;
+  await expect(adapter.refresh()).resolves.toEqual({ subject: 'user', rotated: true });
+});
+
 test('rejects a callback chain whose code exchange is not correlated', async () => {
   const facts = initialFacts();
   const adapter = adaptPhase1SessionForEmailPassword(

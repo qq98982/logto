@@ -43,6 +43,19 @@ const maximumSafeTextLength = 4096;
 const base64UrlPattern = /^[A-Za-z0-9_-]+$/u;
 const browserGroupObserverCapabilities = new WeakSet<object>();
 const browserGroupObserverTypes = new WeakMap<object, Pick<BrowserType<Browser>, 'launch'>>();
+export const experienceOperationForTesting = (
+  method: string,
+  pathname: string
+): 'social-verify' | 'identification' | 'submit' | 'resume' | undefined =>
+  method === 'POST' && /^\/api\/experience\/verification\/social\/[^/]+\/verify$/u.test(pathname)
+    ? 'social-verify'
+    : method === 'POST' && pathname === '/api/experience/identification'
+      ? 'identification'
+      : method === 'POST' && pathname === '/api/experience/submit'
+        ? 'submit'
+        : method === 'GET' && /^\/oidc\/auth\/[^/]+$/u.test(pathname)
+          ? 'resume'
+          : undefined;
 const externalAuthorizationCapabilities = new WeakMap<
   object,
   PlaywrightExternalAuthorizationHandler
@@ -420,6 +433,14 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
   #managementAccess: string | undefined;
   #externalCallbackFailure: PlaywrightExternalCallbackFailureReason | undefined;
   #externalCallbackFailureReported = false;
+  #resumeCookiePath: string | undefined;
+  #resumeCookieSecure = false;
+  #resumeCookieExpired = false;
+  #resumeCookiePairIssued = false;
+  #experienceFailure: Awaited<
+    ReturnType<NonNullable<Phase1BrowserSession['readExperienceFailure']>>
+  > = Object.freeze({ operation: 'none', status: 0, binding: 'not-applicable', code: 'none' });
+
   #networkFailed = false;
   #closed = false;
 
@@ -437,6 +458,21 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     this.#networkGuard = networkGuard;
     this.#page.on('response', this.#onResponse);
     this.#page.on('framenavigated', this.#onFrameNavigation);
+  }
+
+  async readExperienceFailure() {
+    await Promise.all([...this.#pending]);
+    return this.#experienceFailure;
+  }
+
+  async hasStoredSocialState(connectorId: string): Promise<boolean> {
+    const boundedConnector = safeText(connectorId);
+    return this.#observer.run(fixedContext('social-state-presence', 'evaluation'), async () =>
+      this.#page.evaluate(
+        (key) => sessionStorage.getItem(key) !== null,
+        `social_auth_state:${boundedConnector}`
+      )
+    );
   }
 
   async preloadDemoConfiguration(
@@ -794,6 +830,118 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     const request = response.request();
     const method = request.method().toUpperCase();
     const authority = authorityFor(this.#target, url);
+
+    if (method === 'GET' && url.pathname === '/oidc/auth') {
+      const setCookies = await response.headerValues('set-cookie');
+      const resumeCookies = setCookies.filter(
+        (value) =>
+          value.startsWith('_interaction_resume=') || value.startsWith('_interaction_resume.sig=')
+      );
+      if (resumeCookies.length === 2 && resumeCookies.every((value) => !value.includes('=;'))) {
+        const paths = resumeCookies.map((value) => /(?:^|;)\s*path=([^;]+)/iu.exec(value)?.[1]);
+        const expiries = resumeCookies.map(
+          (value) => /(?:^|;)\s*expires=([^;]+)/iu.exec(value)?.[1]
+        );
+        this.#resumeCookiePairIssued = true;
+        this.#resumeCookiePath = paths[0] && paths[0] === paths[1] ? paths[0] : undefined;
+        this.#resumeCookieSecure = resumeCookies.every((value) =>
+          /(?:^|;)\s*secure(?:;|$)/iu.test(value)
+        );
+        this.#resumeCookieExpired = expiries.some(
+          (value) =>
+            !value || !Number.isFinite(Date.parse(value)) || Date.parse(value) <= Date.now()
+        );
+      }
+    }
+
+    const experienceOperation = experienceOperationForTesting(method, url.pathname);
+    if (experienceOperation) {
+      const allowedStatuses = new Set([
+        200, 201, 204, 302, 303, 400, 401, 403, 404, 409, 422, 500, 503,
+      ]);
+      const status = allowedStatuses.has(response.status())
+        ? (response.status() as Awaited<
+            ReturnType<NonNullable<Phase1BrowserSession['readExperienceFailure']>>
+          >['status'])
+        : 0;
+      let code: Awaited<
+        ReturnType<NonNullable<Phase1BrowserSession['readExperienceFailure']>>
+      >['code'] = response.status() >= 400 ? 'unknown' : 'none';
+      let binding: Awaited<
+        ReturnType<NonNullable<Phase1BrowserSession['readExperienceFailure']>>
+      >['binding'] = 'not-applicable';
+      if (experienceOperation === 'resume') {
+        const cookieNames = new Set(
+          (request.headers().cookie ?? '')
+            .split(';')
+            .map((part) => part.split('=', 1)[0]?.trim())
+            .filter(Boolean)
+        );
+        const missingResume =
+          !cookieNames.has('_interaction_resume') || !cookieNames.has('_interaction_resume.sig');
+        binding = missingResume
+          ? this.#resumeCookiePairIssued
+            ? this.#resumeCookiePath === url.pathname
+              ? this.#resumeCookieExpired
+                ? 'missing-resume-expired'
+                : this.#resumeCookieSecure && url.protocol !== 'https:'
+                  ? 'missing-resume-secure-mismatch'
+                  : 'missing-resume-other'
+              : 'missing-resume-path-mismatch'
+            : 'missing-resume-not-issued'
+          : !cookieNames.has('_interaction') || !cookieNames.has('_interaction.sig')
+            ? 'missing-mapping'
+            : !cookieNames.has('_aster') || !cookieNames.has('_aster.sig')
+              ? 'missing-shared'
+              : !cookieNames.has('_session') || !cookieNames.has('_session.sig')
+                ? 'missing-session'
+                : 'complete';
+      }
+      if (response.status() >= 400) {
+        const declared = response.headers()['content-length'];
+        const maximum = 65_536;
+        if (declared && (!/^(?:0|[1-9]\d*)$/u.test(declared) || Number(declared) > maximum)) {
+          throw new TypeError('Invalid browser network observation');
+        }
+        const text = await response.text();
+        if (Buffer.byteLength(text) > maximum) {
+          throw new TypeError('Invalid browser network observation');
+        }
+        let body: unknown;
+        try {
+          body = JSON.parse(text);
+        } catch {
+          body = undefined;
+        }
+        const candidate: unknown =
+          typeof body === 'object' && body !== null
+            ? Object.getOwnPropertyDescriptor(body, 'code')?.value
+            : undefined;
+        const publicCodes = new Set([
+          'user.identity_not_exist',
+          'user.missing_profile',
+          'session.verification_session_not_found',
+          'session.interaction_not_found',
+          'session.invalid_credentials',
+          'user.suspended',
+          'user.sign_in_method_not_enabled',
+          'session.identity_conflict',
+          'user.email_already_in_use',
+          'verification_record.permission_denied',
+          'guard.invalid_input',
+          'connector.general',
+        ]);
+        if (typeof candidate === 'string' && publicCodes.has(candidate)) {
+          code = candidate as typeof code;
+        }
+      }
+      this.#experienceFailure = Object.freeze({
+        operation: experienceOperation,
+        status,
+        binding,
+        code,
+      });
+    }
 
     if (
       (url.pathname === '/api/experience' && method === 'PUT') ||

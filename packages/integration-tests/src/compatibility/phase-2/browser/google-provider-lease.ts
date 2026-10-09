@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import {
   assertGoogleChangedEmailProviderReceipt,
+  assertGooglePrimaryRegistrationProviderReceipt,
   assertGoogleReplayProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
@@ -97,7 +98,14 @@ export type GoogleProviderHealthTiming = Readonly<{
   wait(milliseconds: number): Promise<void>;
 }>;
 export type GoogleProviderLease = SelectedGoogleProviderLease &
-  Readonly<{ takeBrowserCode(): Promise<string>; takeWrongStateControlCode(): Promise<string> }>;
+  Readonly<{
+    takeBrowserCode(): Promise<string>;
+    takeWrongStateControlCode(): Promise<string>;
+    takePrimaryRegistrationCode(): Promise<string>;
+    takeUnverifiedEmailControlCode(): Promise<string>;
+    takeOccupiedEmailControlCode(): Promise<string>;
+    assertPrimaryRegistrationProviderCase(): Promise<void>;
+  }>;
 
 const defaultHealthTiming: GoogleProviderHealthTiming = Object.freeze({
   now: () => Date.now(),
@@ -553,6 +561,8 @@ export const prepareGoogleProviderLease = async (
     const stableCode = randomBytes(24).toString('hex');
     const changedCode = randomBytes(24).toString('hex');
     const wrongStateControlCode = randomBytes(24).toString('hex');
+    const unverifiedEmailControlCode = randomBytes(24).toString('hex');
+    const occupiedEmailControlCode = randomBytes(24).toString('hex');
     const callbackUri = new URL(`/callback/${encodeURIComponent(input.connectorId)}`, origin).href;
     const config = {
       schemaVersion: 1,
@@ -575,6 +585,24 @@ export const prepareGoogleProviderLease = async (
         code: wrongStateControlCode,
         accessToken: randomBytes(24).toString('hex'),
         profile: { sub: input.googleSubject, email: input.changedEmail, emailVerified: true },
+      },
+      unverifiedEmailControl: {
+        code: unverifiedEmailControlCode,
+        accessToken: randomBytes(24).toString('hex'),
+        profile: {
+          sub: `${input.googleSubject}-unverified`,
+          email: input.changedEmail,
+          emailVerified: false,
+        },
+      },
+      occupiedEmailControl: {
+        code: occupiedEmailControlCode,
+        accessToken: randomBytes(24).toString('hex'),
+        profile: {
+          sub: `${input.googleSubject}-occupied`,
+          email: input.originalEmail,
+          emailVerified: true,
+        },
       },
     };
     stage = 'configuration-file';
@@ -624,6 +652,8 @@ export const prepareGoogleProviderLease = async (
     }
     let browserCodeTaken = false;
     let wrongStateControlCodeTaken = false;
+    let unverifiedEmailControlCodeTaken = false;
+    let occupiedEmailControlCodeTaken = false;
     let stopped = false;
     return Object.freeze({
       associationData: { code: stableCode, redirectUri: callbackUri },
@@ -640,6 +670,27 @@ export const prepareGoogleProviderLease = async (
         }
         wrongStateControlCodeTaken = true;
         return wrongStateControlCode;
+      },
+      takePrimaryRegistrationCode: async () => {
+        if (browserCodeTaken || stopped) {
+          return fail();
+        }
+        browserCodeTaken = true;
+        return stableCode;
+      },
+      takeUnverifiedEmailControlCode: async () => {
+        if (unverifiedEmailControlCodeTaken || stopped) {
+          return fail();
+        }
+        unverifiedEmailControlCodeTaken = true;
+        return unverifiedEmailControlCode;
+      },
+      takeOccupiedEmailControlCode: async () => {
+        if (occupiedEmailControlCodeTaken || stopped) {
+          return fail();
+        }
+        occupiedEmailControlCodeTaken = true;
+        return occupiedEmailControlCode;
       },
       assertChangedEmailProviderCase: async (mode = 'positive') => {
         try {
@@ -662,6 +713,18 @@ export const prepareGoogleProviderLease = async (
           await samePrivateMutableFile(input.configFile, configIdentity);
           await samePrivateMutableFile(input.receiptFile, receiptIdentity);
           await assertGoogleWrongStateProviderReceipt(
+            input.receiptFile,
+            input.expectedUserinfoMethod
+          );
+        } catch {
+          return fail();
+        }
+      },
+      assertPrimaryRegistrationProviderCase: async () => {
+        try {
+          await samePrivateMutableFile(input.configFile, configIdentity);
+          await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+          await assertGooglePrimaryRegistrationProviderReceipt(
             input.receiptFile,
             input.expectedUserinfoMethod
           );

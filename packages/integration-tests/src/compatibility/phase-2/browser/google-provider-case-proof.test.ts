@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   assertGoogleChangedEmailProviderReceipt,
+  assertGooglePrimaryRegistrationProviderReceipt,
   assertGoogleReplayProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
@@ -20,8 +21,38 @@ const valid = {
   stableSubjectCaseConsumed: true,
   changedEmailCaseConsumed: true,
   wrongStateControlCodeConsumed: false,
+  unverifiedEmailControlConsumed: false,
+  occupiedEmailControlConsumed: false,
   replayRejected: false,
 };
+test('proves registration and both denied provider claims were consumed exactly once', async () => {
+  const root = await mkdtemp('/var/tmp/henry-build/google-registration-proof-');
+  const file = path.join(root, 'receipt');
+  const registration = {
+    ...valid,
+    tokenRequestCount: 3,
+    userinfoRequestCount: 3,
+    changedEmailCaseConsumed: false,
+    unverifiedEmailControlConsumed: true,
+    occupiedEmailControlConsumed: true,
+  };
+  await writeFile(file, JSON.stringify(registration), { mode: 0o600 });
+  await expect(
+    assertGooglePrimaryRegistrationProviderReceipt(file, 'GET')
+  ).resolves.toBeUndefined();
+  for (const value of [
+    { ...registration, tokenRequestCount: 2 },
+    { ...registration, unverifiedEmailControlConsumed: false },
+    { ...registration, occupiedEmailControlConsumed: false },
+    { ...registration, changedEmailCaseConsumed: true },
+  ]) {
+    await writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await expect(assertGooglePrimaryRegistrationProviderReceipt(file, 'GET')).rejects.toThrow(
+      'Invalid Google registration provider receipt'
+    );
+  }
+  await rm(root, { recursive: true, force: true });
+});
 test('accepts only the complete two-case provider receipt', async () => {
   const root = await mkdtemp('/var/tmp/henry-build/google-proof-');
   const file = path.join(root, 'receipt');

@@ -11,10 +11,10 @@ import { startGoogleProviderFixture } from './phase2-google-provider.mjs';
 const execute = promisify(execFile);
 const failure = 'Aster Phase 2 Google provider fixture failed';
 
-const probeCase = (suffix, email) => ({
+const probeCase = (suffix, email, subject = 'stable-subject', emailVerified = true) => ({
   code: `code-${suffix}`,
   accessToken: `access-${suffix}`,
-  profile: { sub: 'stable-subject', email, emailVerified: true },
+  profile: { sub: subject, email, emailVerified },
 });
 
 const createFixture = async ({ certificateMode = 0o444, keyMode = 0o400, configMode = 0o600 } = {}) => {
@@ -105,6 +105,17 @@ const createFixture = async ({ certificateMode = 0o444, keyMode = 0o400, configM
         stable: probeCase('stable', 'owner@example.invalid'),
         changedEmail: probeCase('changed', 'changed@example.invalid'),
         wrongStateControl: probeCase('wrong-state', 'changed@example.invalid'),
+        unverifiedEmailControl: probeCase(
+          'unverified',
+          'changed@example.invalid',
+          'stable-subject-unverified',
+          false
+        ),
+        occupiedEmailControl: probeCase(
+          'occupied',
+          'owner@example.invalid',
+          'stable-subject-occupied'
+        ),
       })}\n`,
       { mode: configMode }
     );

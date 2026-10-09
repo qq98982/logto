@@ -41,7 +41,7 @@ export const adaptPhase1SessionForEmailPassword = (
   configuration: Readonly<{
     storageKey: string;
     demo: Phase1ProfiledDemoConfiguration;
-    expectedSubject: string;
+    expectedSubject: string | (() => string);
     expectedIssuer: string;
     canonicalEmail: string;
     resource: string;
@@ -263,7 +263,11 @@ export const adaptPhase1SessionForEmailPassword = (
     if (compactAccess.issuer !== configuration.expectedIssuer) {
       refreshFail('compact-issuer');
     }
-    if (compactAccess.subject !== configuration.expectedSubject) {
+    const expectedSubject =
+      typeof configuration.expectedSubject === 'function'
+        ? configuration.expectedSubject()
+        : configuration.expectedSubject;
+    if (!expectedSubject || compactAccess.subject !== expectedSubject) {
       refreshFail('subject');
     }
     if (!exactResourceAudience(compactAccess.audience, configuration.resource)) {

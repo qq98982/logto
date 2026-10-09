@@ -40,6 +40,8 @@ const receipt = {
   stableSubjectCaseConsumed: true,
   changedEmailCaseConsumed: true,
   wrongStateControlCodeConsumed: false,
+  unverifiedEmailControlConsumed: false,
+  occupiedEmailControlConsumed: false,
   replayRejected: false,
 };
 

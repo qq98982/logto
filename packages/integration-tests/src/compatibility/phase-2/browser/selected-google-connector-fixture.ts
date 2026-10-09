@@ -65,6 +65,7 @@ export type SelectedGoogleProviderLease = Readonly<{
   associationData: Readonly<Record<string, unknown>>;
   assertChangedEmailProviderCase(mode?: 'positive' | 'replay'): Promise<void>;
   assertWrongStateProviderCase?(): Promise<void>;
+  assertPrimaryRegistrationProviderCase?(): Promise<void>;
   stop(): Promise<void>;
 }>;
 

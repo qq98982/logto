@@ -329,6 +329,15 @@ const healthProbeConfiguration = (role) => {
     stable: probeCase(subject, 'health-owner@example.invalid'),
     changedEmail: probeCase(subject, 'health-changed@example.invalid'),
     wrongStateControl: probeCase(subject, 'health-changed@example.invalid'),
+    unverifiedEmailControl: Object.freeze({
+      ...probeCase(`${subject}-unverified`, 'health-unverified@example.invalid'),
+      profile: Object.freeze({
+        sub: `${subject}-unverified`,
+        email: 'health-unverified@example.invalid',
+        emailVerified: false,
+      }),
+    }),
+    occupiedEmailControl: probeCase(`${subject}-occupied`, 'health-owner@example.invalid'),
   });
 };
 

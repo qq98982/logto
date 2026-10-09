@@ -15,6 +15,7 @@ import {
   diagnosticForPhase2ChildResult,
   diagnosticForPhase2Batch,
   readPhase2GoogleProviderEnvironment,
+  readPhase2WechatProviderEnvironment,
   launchPhase2,
   launchPhase2Batch,
   writeClosedChildDiagnostic,
@@ -706,6 +707,24 @@ describe('Phase 2 tracked launcher', () => {
     expect(diagnosticForPhase2Child(`${value}private-token`)).not.toContain('private-token');
   });
 
+  it.each([
+    ['google-registration-projection-unverified-email-status-o200-c400', true],
+    [
+      'google-registration-projection-occupied-email-error-ouser.email_already_in_use-cguard.invalid_input',
+      true,
+    ],
+    ['wechat-web-projection-contract-otrue-cfalse', true],
+    [
+      'wechat-web-projection-no-union-id-error-oconnector.wechat_unionid_required-cprivate-token',
+      false,
+    ],
+    ['google-registration-projection-unverified-email-status-o200-c999', false],
+  ] as const)('preserves only bounded new Common comparison values %s', (detail, accepted) => {
+    const value = `Phase 2 client credentials command failed (candidate-${detail}).\n`;
+    expect(diagnosticForPhase2Child(value) === value).toBe(accepted);
+    expect(diagnosticForPhase2Child(`${value}private-token`)).not.toContain('private-token');
+  });
+
   it('matches the runtime closure algorithm used inside the built CLI', async () => {
     const entry = path.resolve('lib/compatibility/phase-2/cli.js');
     await expect(computeRuntimeBundleIdentity(entry)).resolves.toEqual(
@@ -713,59 +732,66 @@ describe('Phase 2 tracked launcher', () => {
     );
   });
 
-  it('passes only both owned provider descriptor paths within the same run directory', async () => {
-    const keys = [
-      'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
-      'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
-    ] as const;
-    const previous = keys.map((key) => process.env[key]);
-    const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
-    const paths = keys.map((_key, index) =>
-      path.join(
-        runDirectory,
-        'google-provider',
-        index === 0 ? 'oracle' : 'candidate',
-        'provider-input.json'
-      )
-    );
-    try {
-      await Promise.all(
-        paths.map(async (file) => {
-          await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-          await writeFile(file, '{}', { mode: 0o600 });
-        })
+  it.each(['google', 'wechat'] as const)(
+    'passes only paired owned %s provider paths within the same run directory',
+    async (provider) => {
+      const readEnvironment =
+        provider === 'google'
+          ? readPhase2GoogleProviderEnvironment
+          : readPhase2WechatProviderEnvironment;
+      const keys = [
+        `ASTER_PHASE2_ORACLE_${provider.toUpperCase()}_PROVIDER_INPUT`,
+        `ASTER_PHASE2_CANDIDATE_${provider.toUpperCase()}_PROVIDER_INPUT`,
+      ] as const;
+      const previous = keys.map((key) => process.env[key]);
+      const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
+      const paths = keys.map((_key, index) =>
+        path.join(
+          runDirectory,
+          `${provider}-provider`,
+          index === 0 ? 'oracle' : 'candidate',
+          'provider-input.json'
+        )
       );
-      for (const [index, key] of keys.entries()) {
-        process.env[key] = paths[index];
-      }
-      expect(await readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).toEqual(
-        Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
-      );
-      process.env[keys[1]] = '/var/tmp/henry-build/unselected-provider-input.json';
-      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
-        'Invalid Phase 2 launcher'
-      );
-      Reflect.deleteProperty(process.env, keys[1]);
-      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
-        'Invalid Phase 2 launcher'
-      );
-      process.env[keys[1]] = paths[1];
-      await chmod(paths[0] ?? '', 0o644);
-      await expect(readPhase2GoogleProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
-        'Invalid Phase 2 launcher'
-      );
-    } finally {
-      for (const [index, key] of keys.entries()) {
-        const value = previous[index];
-        if (value === undefined) {
-          Reflect.deleteProperty(process.env, key);
-        } else {
-          process.env[key] = value;
+      try {
+        await Promise.all(
+          paths.map(async (file) => {
+            await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+            await writeFile(file, '{}', { mode: 0o600 });
+          })
+        );
+        for (const [index, key] of keys.entries()) {
+          process.env[key] = paths[index];
         }
+        expect(await readEnvironment({ HOME: process.env.HOME })).toEqual(
+          Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
+        );
+        process.env[keys[1]] = '/var/tmp/henry-build/unselected-provider-input.json';
+        await expect(readEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+          'Invalid Phase 2 launcher'
+        );
+        Reflect.deleteProperty(process.env, keys[1]);
+        await expect(readEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+          'Invalid Phase 2 launcher'
+        );
+        process.env[keys[1]] = paths[1];
+        await chmod(paths[0] ?? '', 0o644);
+        await expect(readEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+          'Invalid Phase 2 launcher'
+        );
+      } finally {
+        for (const [index, key] of keys.entries()) {
+          const value = previous[index];
+          if (value === undefined) {
+            Reflect.deleteProperty(process.env, key);
+          } else {
+            process.env[key] = value;
+          }
+        }
+        await rm(path.join(runDirectory, `${provider}-provider`), { recursive: true, force: true });
       }
-      await rm(path.join(runDirectory, 'google-provider'), { recursive: true, force: true });
     }
-  });
+  );
 
   it('builds only between equal clean HEAD checks and passes a closed expected identity', async () => {
     const calls: string[] = [];

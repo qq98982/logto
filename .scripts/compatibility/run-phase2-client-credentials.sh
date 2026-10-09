@@ -12,13 +12,13 @@ readonly EXPECTED_ASTER_SOURCE='https://github.com/qq98982/aster.git'
 readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
   oracle-fetch-observer oracle-primary-smtp
-  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider
+  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider oracle-wechat-provider
 )
 readonly CANDIDATE_SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core candidate-primary-smtp
   candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
-  candidate-fixture-coordinator candidate-google-provider
+  candidate-fixture-coordinator candidate-google-provider candidate-wechat-provider
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
 readonly LOOPBACK_PROXY_BINDINGS=(
@@ -161,7 +161,7 @@ generate_fetch_and_script_host_pki() {
     -out "$FETCH_OBSERVER_CA" >/dev/null 2>&1 || return 1
   "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=fetch-observer.aster.test' \
     -keyout "$OBSERVER_SERVER_KEY" -out "$OBSERVER_SERVER_CSR" >/dev/null 2>&1 || return 1
-  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test,DNS:oauth2.googleapis.com,DNS:openidconnect.googleapis.com\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test,DNS:oauth2.googleapis.com,DNS:openidconnect.googleapis.com,DNS:api.weixin.qq.com\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
   "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$serial" \
     -in "$OBSERVER_SERVER_CSR" -CA "$FETCH_OBSERVER_CA" -CAkey "$OBSERVER_CA_KEY" \
     -extfile "$OBSERVER_SERVER_EXT" -out "$OBSERVER_SERVER_CERT" >/dev/null 2>&1 || return 1
@@ -1149,6 +1149,103 @@ prove_google_provider_runtime() {
   assert_google_provider_state "$role" "$service" exited false "$expected_ip"
 }
 
+assert_wechat_provider_private_material() {
+  local expected_inputs=$1 expected_mutable=$2 directory file identity owner mode links size type
+  for directory in "$WECHAT_PROVIDER_ROOT" \
+    "$WECHAT_PROVIDER_ROOT/oracle" "$WECHAT_PROVIDER_ROOT/oracle/configuration" \
+    "$WECHAT_PROVIDER_ROOT/oracle/receipts" "$WECHAT_PROVIDER_ROOT/oracle/diagnostics" \
+    "$WECHAT_PROVIDER_ROOT/candidate" "$WECHAT_PROVIDER_ROOT/candidate/configuration" \
+    "$WECHAT_PROVIDER_ROOT/candidate/receipts" "$WECHAT_PROVIDER_ROOT/candidate/diagnostics"; do
+    [[ "$directory" == /* && -d "$directory" && ! -L "$directory" \
+      && "$(/usr/bin/realpath -e -- "$directory")" == "$directory" \
+      && "$(/usr/bin/stat -c '%u|%a|%F' -- "$directory")" \
+        == "$(/usr/bin/id -u)|700|directory" ]] || return 1
+  done
+  for file in "$ORACLE_WECHAT_CONFIG" "$ORACLE_WECHAT_RECEIPT" \
+    "$ORACLE_WECHAT_DIAGNOSTIC" "$CANDIDATE_WECHAT_CONFIG" \
+    "$CANDIDATE_WECHAT_RECEIPT" "$CANDIDATE_WECHAT_DIAGNOSTIC"; do
+    [[ "$file" == /* && -f "$file" && ! -L "$file" \
+      && "$(/usr/bin/realpath -e -- "$file")" == "$file" ]] || return 1
+    identity="$(/usr/bin/stat -c '%u|%a|%h|%s|%F' -- "$file")" || return 1
+    IFS='|' read -r owner mode links size type <<<"$identity"
+    [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == 600 && "$links" == 1 \
+      && "$size" =~ ^[0-9]+$ && "$type" =~ ^regular(\ empty)?\ file$ ]] || return 1
+    ((10#$size <= 65536)) || return 1
+    if [[ "$expected_mutable" == empty ]]; then
+      [[ "$size" == 0 ]] || return 1
+    elif [[ "$expected_mutable" != bounded ]]; then
+      return 1
+    fi
+  done
+  for file in "$ORACLE_WECHAT_PROVIDER_INPUT" "$CANDIDATE_WECHAT_PROVIDER_INPUT"; do
+    if [[ "$expected_inputs" == absent ]]; then
+      [[ ! -e "$file" && ! -L "$file" ]] || return 1
+    elif [[ "$expected_inputs" == present ]]; then
+      [[ -f "$file" && ! -L "$file" \
+        && "$(/usr/bin/realpath -e -- "$file")" == "$file" ]] || return 1
+      identity="$(/usr/bin/stat -c '%u|%a|%h|%s|%F' -- "$file")" || return 1
+      IFS='|' read -r owner mode links size type <<<"$identity"
+      [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == 600 && "$links" == 1 \
+        && "$size" =~ ^[1-9][0-9]*$ && "$type" == 'regular file' ]] || return 1
+      ((10#$size <= 65536)) || return 1
+    else
+      return 1
+    fi
+  done
+}
+
+assert_wechat_provider_state() {
+  local role=$1 service=$2 expected_status=$3 expected_running=$4 expected_ip=$5 id document expected_mac
+  case "$role" in
+    oracle) expected_mac='02:42:ac:1e:e7:35' ;;
+    candidate) expected_mac='02:42:ac:1e:f1:35' ;;
+    *) return 1 ;;
+  esac
+  id="$(compose_for "$role" ps --all -q "$service")" || return 1
+  document="$(docker_cli inspect "$id")" || return 1
+  # The jq program intentionally uses literal container fields.
+  # shellcheck disable=SC2016
+  "$JQ_BIN" -e --arg id "$id" --arg image "$ORACLE_IMAGE_ID" \
+    --arg project "$(project_name_for "$role")" --arg service "$service" \
+    --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
+    --arg mac "$expected_mac" '
+    length==1 and .[0].Id==$id and .[0].Image==$image
+    and (.[0].Config.Image==$image or .[0].Config.Image==($image|sub("^sha256:";"")))
+    and .[0].Config.Labels["com.docker.compose.project"]==$project
+    and .[0].Config.Labels["com.docker.compose.service"]==$service
+    and .[0].State.Status==$status and .[0].State.Running==$running
+    and ([.[0].NetworkSettings.Networks[] | .IPAddress] |
+      if $running then index($ip)!=null else all(.=="" or .==$ip) end)
+    and ([.[0].NetworkSettings.Networks[] | .MacAddress] |
+      if $running then .==[$mac] else all(.=="" or .==$mac) end)
+    and .[0].HostConfig.ReadonlyRootfs==true
+    and (.[0].HostConfig.CapAdd==null or .[0].HostConfig.CapAdd==[])
+    and (.[0].HostConfig.SecurityOpt==["no-new-privileges"] or
+      .[0].HostConfig.SecurityOpt==["no-new-privileges:true"])
+  ' <<<"$document" >/dev/null
+}
+
+prove_wechat_provider_runtime() {
+  local role=$1 service=$2 expected_ip=$3 id status_file sysctl_file field
+  start_compose_stage "$role" wechat-proof "$service" || return 1
+  assert_wechat_provider_state "$role" "$service" running true "$expected_ip" || return 1
+  id="$(compose_for "$role" ps --all -q "$service")" || return 1
+  status_file="$RUN_DIR/$role-wechat-provider-status"
+  sysctl_file="$RUN_DIR/$role-wechat-provider-port-start"
+  docker_cli exec "$id" /bin/cat /proc/1/status >"$status_file" 2>/dev/null || return 1
+  for field in CapInh CapPrm CapEff CapBnd CapAmb; do
+    [[ "$(/usr/bin/awk -v key="$field:" '$1==key{print $2}' "$status_file")" \
+      == 0000000000000000 ]] || return 1
+  done
+  [[ "$(/usr/bin/awk '$1=="NoNewPrivs:"{print $2}' "$status_file")" == 1 ]] || return 1
+  docker_cli exec "$id" /bin/cat /proc/sys/net/ipv4/ip_unprivileged_port_start \
+    >"$sysctl_file" 2>/dev/null || return 1
+  [[ "$(<"$sysctl_file")" == 443 ]] || return 1
+  /usr/bin/rm -- "$status_file" "$sysctl_file" || return 1
+  compose_for "$role" stop --timeout 5 "$service" >/dev/null || return 1
+  assert_wechat_provider_state "$role" "$service" exited false "$expected_ip"
+}
+
 topology_identity() {
   local role service metadata
   for role in oracle candidate; do
@@ -1159,7 +1256,8 @@ topology_identity() {
     fi
     for service in "$@"; do
       metadata="$(inspect_service "$role" "$service")" || return 1
-      if [[ "$service" == oracle-google-provider || "$service" == candidate-google-provider ]]; then
+      if [[ "$service" == oracle-google-provider || "$service" == candidate-google-provider \
+        || "$service" == oracle-wechat-provider || "$service" == candidate-wechat-provider ]]; then
         IFS='|' read -r id image configured project label _ <<<"$metadata"
         printf '%s|%s|%s|%s|%s|%s\n' \
           "$role" "$id" "$image" "$configured" "$project" "$label" || return 1
@@ -1206,11 +1304,16 @@ assert_runtime_identity_unchanged() {
     == "$ORACLE_GOOGLE_PROVIDER_INPUT_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_GOOGLE_PROVIDER_INPUT")" \
     == "$CANDIDATE_GOOGLE_PROVIDER_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$ORACLE_WECHAT_PROVIDER_INPUT")" \
+    == "$ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$CANDIDATE_WECHAT_PROVIDER_INPUT")" \
+    == "$CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
   assert_expected_fixture_images || return 1
   assert_google_provider_private_material present empty || return 1
+  assert_wechat_provider_private_material present empty || return 1
   assert_private_runtime_material || return 1
   assert_invariant_handle_root_owned "$INVARIANT_HANDLE_ROOT" || return 1
   assert_state_handle_root_clean || return 1
@@ -1258,7 +1361,9 @@ scan_evidence_for_private_values() {
     "$PROFILE_SOURCE" "$SCHEMA_SOURCE" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" "$INVARIANT_EVIDENCE" \
     "$ORACLE_ENV" "$CANDIDATE_ENV" "$H_HEAD" "$H_TREE" "$ORACLE_SOURCE_COMMIT" "$ASTER_HEAD" \
     "$ORACLE_IMAGE_ID" "$CANDIDATE_IMAGE_ID" "$ORACLE_STATE_DRIVER_SHA256" "$CANDIDATE_STATE_DRIVER_SHA256" \
-    "$CANDIDATE_INVARIANT_DRIVER_SHA256" "$ASTER_ADMIN_SHA256" "$RUN_DIR" "$REPO_ROOT" "$ASTER_ROOT" \
+    "$CANDIDATE_INVARIANT_DRIVER_SHA256" "$ASTER_ADMIN_SHA256" \
+    "$ORACLE_GOOGLE_PROVIDER_INPUT" "$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
+    "$ORACLE_WECHAT_PROVIDER_INPUT" "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$RUN_DIR" "$REPO_ROOT" "$ASTER_ROOT" \
     "$ENGINE_SOCKET" "$FIXTURE_SOCKET" "$STATE_HANDLE_ROOT" "$ORACLE_PROJECT_NAME" "$CANDIDATE_PROJECT_NAME" \
     "$ORACLE_PRIMARY_CORE_ID" "$ORACLE_FOREIGN_CORE_ID" "$CANDIDATE_PRIMARY_CORE_ID" "$CANDIDATE_FOREIGN_CORE_ID" <<'NODE'
 import { createHash } from 'node:crypto';
@@ -1267,6 +1372,7 @@ import { readFile, stat } from 'node:fs/promises';
 const [profilePath, schemaPath, oraclePath, differentialPath, invariantPath,
   oracleEnvPath, candidateEnvPath, harnessHead, harnessTree, oracleCommit, candidateCommit,
   oracleImage, candidateImage, oracleStateSha, candidateStateSha, invariantSha, fixtureSha,
+  oracleGoogleProviderPath, candidateGoogleProviderPath, oracleWechatProviderPath, candidateWechatProviderPath,
   ...forbiddenPrivateValues] = process.argv.slice(2);
 const fail = () => process.exit(1);
 const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
@@ -1338,13 +1444,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 183 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 185 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 183 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 185 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1354,7 +1460,7 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 183 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 185 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
@@ -1376,9 +1482,15 @@ for (const envPath of [oracleEnvPath, candidateEnvPath]) {
     }
   }
 }
+const providerValues = (await Promise.all([
+  oracleGoogleProviderPath, candidateGoogleProviderPath, oracleWechatProviderPath, candidateWechatProviderPath,
+].map(readJson))).flatMap((provider) => [
+  'clientId', 'clientSecret', 'googleSubject', 'originalOwnerEmail', 'changedProviderEmail', 'wechatSubject', 'unionId',
+].map((key) => provider[key]).filter((value) => typeof value === 'string' && value.length > 0));
 for (const text of serialized) {
   if (forbiddenPrivateValues.some((value) => value && text.includes(value)) ||
       envValues.some((value) => value && text.includes(value)) ||
+      providerValues.some((value) => text.includes(value)) ||
       /(?:\/home\/|\/var\/tmp\/|\.sock(?:"|\\)|"(?:containerId|projectName|socket)"\s*:)/u.test(text)) fail();
 }
 for (const file of [oraclePath, differentialPath, invariantPath]) {
@@ -1444,12 +1556,17 @@ main() {
   GOOGLE_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-google-provider.mjs"
   GOOGLE_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-google-provider-topology.mjs"
   GOOGLE_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-google-provider-runtime.mjs"
+  WECHAT_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider.mjs"
+  WECHAT_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider-topology.mjs"
+  WECHAT_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider-runtime.mjs"
   LAUNCHER_SOURCE="$REPO_ROOT/packages/integration-tests/src/compatibility/phase-2/launcher.mjs"
   readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE
   readonly GOOGLE_PROVIDER_SCRIPT GOOGLE_TOPOLOGY_MODULE GOOGLE_RUNTIME_HELPER LAUNCHER_SOURCE
+  readonly WECHAT_PROVIDER_SCRIPT WECHAT_TOPOLOGY_MODULE WECHAT_RUNTIME_HELPER
   for tracked_input in "$SOURCE_COMPOSE" "$PODMAN_GENERATOR" "$STATE_DRIVER_SOURCE" \
     "$INVARIANT_DRIVER_SOURCE" "$GOOGLE_PROVIDER_SCRIPT" "$GOOGLE_TOPOLOGY_MODULE" \
-    "$GOOGLE_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
+    "$GOOGLE_RUNTIME_HELPER" "$WECHAT_PROVIDER_SCRIPT" "$WECHAT_TOPOLOGY_MODULE" \
+    "$WECHAT_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
     [[ -f "$tracked_input" && ! -L "$tracked_input" ]] \
       || { failure_stage='tracked-inputs'; fail; return 1; }
   done
@@ -1512,6 +1629,7 @@ main() {
   CANDIDATE_OBSERVER_RECEIPT_DIRECTORY="$RUN_DIR/candidate-fetch-observer-receipts"
   SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
   GOOGLE_PROVIDER_ROOT="$RUN_DIR/google-provider"
+  WECHAT_PROVIDER_ROOT="$RUN_DIR/wechat-provider"
   for directory in "$PRIVATE_HOME" "$BROWSER_TMP" "$XDG_RUNTIME" "$CONFIG_DIR" \
     "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
@@ -1523,7 +1641,7 @@ main() {
   readonly CONFIG_DIR FIXTURE_DIRECTORY HOST_BIN_DIRECTORY
   readonly PRIMARY_KEYRING_DIRECTORY FOREIGN_KEYRING_DIRECTORY EVIDENCE_DIR
   readonly TLS_DIRECTORY ORACLE_OBSERVER_RECEIPT_DIRECTORY
-  readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE GOOGLE_PROVIDER_ROOT
+  readonly CANDIDATE_OBSERVER_RECEIPT_DIRECTORY SCRIPT_HOST_STATE GOOGLE_PROVIDER_ROOT WECHAT_PROVIDER_ROOT
   ORACLE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   CANDIDATE_PROJECT_NAME="aster-phase2-client-credentials-$(random_hex 8)"
   [[ "$ORACLE_PROJECT_NAME" != "$CANDIDATE_PROJECT_NAME" ]] || { failure_stage='project-names'; fail; return 1; }
@@ -1573,6 +1691,14 @@ main() {
   CANDIDATE_GOOGLE_RECEIPT="$GOOGLE_PROVIDER_ROOT/candidate/receipts/observations.json"
   CANDIDATE_GOOGLE_DIAGNOSTIC="$GOOGLE_PROVIDER_ROOT/candidate/diagnostics/health.json"
   CANDIDATE_GOOGLE_PROVIDER_INPUT="$GOOGLE_PROVIDER_ROOT/candidate/provider-input.json"
+  ORACLE_WECHAT_CONFIG="$WECHAT_PROVIDER_ROOT/oracle/configuration/configuration.json"
+  ORACLE_WECHAT_RECEIPT="$WECHAT_PROVIDER_ROOT/oracle/receipts/observations.json"
+  ORACLE_WECHAT_DIAGNOSTIC="$WECHAT_PROVIDER_ROOT/oracle/diagnostics/health.json"
+  ORACLE_WECHAT_PROVIDER_INPUT="$WECHAT_PROVIDER_ROOT/oracle/provider-input.json"
+  CANDIDATE_WECHAT_CONFIG="$WECHAT_PROVIDER_ROOT/candidate/configuration/configuration.json"
+  CANDIDATE_WECHAT_RECEIPT="$WECHAT_PROVIDER_ROOT/candidate/receipts/observations.json"
+  CANDIDATE_WECHAT_DIAGNOSTIC="$WECHAT_PROVIDER_ROOT/candidate/diagnostics/health.json"
+  CANDIDATE_WECHAT_PROVIDER_INPUT="$WECHAT_PROVIDER_ROOT/candidate/provider-input.json"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
@@ -1590,6 +1716,12 @@ main() {
     || { failure_stage='google-provider-private'; fail; return 1; }
   assert_google_provider_private_material absent empty \
     || { failure_stage='google-provider-private'; fail; return 1; }
+
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$WECHAT_RUNTIME_HELPER" prepare "$WECHAT_PROVIDER_ROOT" \
+    || { failure_stage='wechat-provider-private'; fail; return 1; }
+  assert_wechat_provider_private_material absent empty \
+    || { failure_stage='wechat-provider-private'; fail; return 1; }
 
   /usr/bin/mkdir -m 700 -- "$INVARIANT_HANDLE_ROOT" || { failure_stage='invariant-handle-root'; fail; return 1; }
   INVARIANT_HANDLE_ROOT_IDENTITY="$(capture_path_identity "$INVARIANT_HANDLE_ROOT")" || { failure_stage='invariant-handle-root'; fail; return 1; }
@@ -1926,6 +2058,71 @@ for (const [destination, value] of [
   await rename(temporary, destination);
 }
 GOOGLE_TOPOLOGY
+  "$NODE_BIN" --input-type=module - "$WECHAT_TOPOLOGY_MODULE" \
+    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$WECHAT_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
+    "$OBSERVER_SERVER_KEY" "$ORACLE_WECHAT_CONFIG" "$ORACLE_WECHAT_RECEIPT" \
+    "$CANDIDATE_WECHAT_CONFIG" "$CANDIDATE_WECHAT_RECEIPT" <<'WECHAT_TOPOLOGY' \
+    || { failure_stage='wechat-provider-topology'; fail; return 1; }
+import { open, readFile, rename } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+
+const [modulePath, oraclePath, candidatePath, image, providerScript, ca, certificate, privateKey,
+  oracleConfiguration, oracleReceipt, candidateConfiguration, candidateReceipt] =
+  process.argv.slice(2);
+const { bindWechatProviderTopology } = await import(pathToFileURL(modulePath).href);
+const [oracle, candidate] = await Promise.all([
+  readFile(oraclePath, 'utf8').then((value) => JSON.parse(value)),
+  readFile(candidatePath, 'utf8').then((value) => JSON.parse(value)),
+]);
+for (const [document, core, address] of [
+  [oracle, 'oracle-primary-core', '172.30.231.53'],
+  [candidate, 'candidate-primary-core', '172.30.241.53'],
+]) {
+  const current = document.services?.[core]?.extra_hosts ?? [];
+  if (
+    !Array.isArray(current) ||
+    current.some(
+      (value) =>
+        typeof value !== 'string' ||
+        /^api\.weixin\.qq\.com:/u.test(value)
+    )
+  ) {
+    throw new TypeError('Invalid Wechat provider host mapping');
+  }
+  document.services[core].extra_hosts = [
+    ...current,
+    `api.weixin.qq.com:${address}`,
+  ];
+}
+const bound = bindWechatProviderTopology(oracle, candidate, {
+  fixtureImage: image,
+  runtimeUid: process.getuid(),
+  runtimeGid: process.getgid(),
+  providerScript,
+  caFile: ca,
+  certificateFile: certificate,
+  privateKeyFile: privateKey,
+  oracleConfigurationFile: oracleConfiguration,
+  oracleReceiptFile: oracleReceipt,
+  candidateConfigurationFile: candidateConfiguration,
+  candidateReceiptFile: candidateReceipt,
+});
+for (const [destination, value] of [
+  [oraclePath, bound.oracle],
+  [candidatePath, bound.candidate],
+]) {
+  const temporary = `${destination}.wechat-provider`;
+  const handle = await open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(JSON.stringify(value));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename(temporary, destination);
+}
+WECHAT_TOPOLOGY
   compose_oracle config --quiet >/dev/null 2>&1 || { fail; return 1; }
   compose_candidate config --quiet >/dev/null 2>&1 || { fail; return 1; }
 
@@ -1988,6 +2185,46 @@ GOOGLE_TOPOLOGY
     "$CANDIDATE_GOOGLE_PROVIDER_INPUT")"
   readonly ORACLE_GOOGLE_PROVIDER_INPUT_IDENTITY CANDIDATE_GOOGLE_PROVIDER_INPUT_IDENTITY
 
+  failure_stage='wechat-provider-create'
+  compose_oracle create oracle-wechat-provider >/dev/null || { fail; return 1; }
+  compose_candidate create candidate-wechat-provider >/dev/null || { fail; return 1; }
+  ORACLE_WECHAT_PROVIDER_ID="$(compose_oracle ps --all -q oracle-wechat-provider)"
+  CANDIDATE_WECHAT_PROVIDER_ID="$(compose_candidate ps --all -q candidate-wechat-provider)"
+  ORACLE_WECHAT_PROVIDER_ID="$(docker_cli inspect --format '{{.Id}}' "$ORACLE_WECHAT_PROVIDER_ID")"
+  CANDIDATE_WECHAT_PROVIDER_ID="$(docker_cli inspect --format '{{.Id}}' "$CANDIDATE_WECHAT_PROVIDER_ID")"
+  [[ "$ORACLE_WECHAT_PROVIDER_ID" =~ ^[0-9a-f]{64}$ \
+    && "$CANDIDATE_WECHAT_PROVIDER_ID" =~ ^[0-9a-f]{64}$ \
+    && "$ORACLE_WECHAT_PROVIDER_ID" != "$CANDIDATE_WECHAT_PROVIDER_ID" ]] \
+    || { fail; return 1; }
+  ORACLE_CONTAINER_IDS+=("$ORACLE_WECHAT_PROVIDER_ID")
+  CANDIDATE_CONTAINER_IDS+=("$CANDIDATE_WECHAT_PROVIDER_ID")
+  ORACLE_WECHAT_PROVIDER_NAME="$(docker_cli inspect --format '{{.Name}}' \
+    "$ORACLE_WECHAT_PROVIDER_ID")"
+  CANDIDATE_WECHAT_PROVIDER_NAME="$(docker_cli inspect --format '{{.Name}}' \
+    "$CANDIDATE_WECHAT_PROVIDER_ID")"
+  ORACLE_WECHAT_PROVIDER_NAME="${ORACLE_WECHAT_PROVIDER_NAME#/}"
+  CANDIDATE_WECHAT_PROVIDER_NAME="${CANDIDATE_WECHAT_PROVIDER_NAME#/}"
+  [[ "$ORACLE_WECHAT_PROVIDER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ \
+    && "$CANDIDATE_WECHAT_PROVIDER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] \
+    || { fail; return 1; }
+  assert_wechat_provider_state oracle oracle-wechat-provider created false 172.30.231.53 \
+    || { fail; return 1; }
+  assert_wechat_provider_state candidate candidate-wechat-provider created false 172.30.241.53 \
+    || { fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$WECHAT_RUNTIME_HELPER" write "$WECHAT_PROVIDER_ROOT" \
+    "$ORACLE_WECHAT_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$CANDIDATE_WECHAT_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$PRIVATE_HOME" "$PODMAN_API_VERSION" \
+    oracle-wechat-provider candidate-wechat-provider \
+    || { failure_stage='wechat-provider-input'; fail; return 1; }
+  assert_wechat_provider_private_material present empty \
+    || { failure_stage='wechat-provider-input'; fail; return 1; }
+  ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY="$(artifact_identity "$ORACLE_WECHAT_PROVIDER_INPUT")"
+  CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY="$(artifact_identity \
+    "$CANDIDATE_WECHAT_PROVIDER_INPUT")"
+  readonly ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY
+
   failure_stage='service-closure-oracle'
   assert_exact_project_services oracle "${ORACLE_SERVICES[@]}" || { fail; return 1; }
   failure_stage='service-closure-candidate'
@@ -2048,6 +2285,8 @@ GOOGLE_TOPOLOGY
     ASTER_PHASE2_ENGINE_SOCKET="$ENGINE_SOCKET" \
     ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT="$ORACLE_GOOGLE_PROVIDER_INPUT" \
     ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT="$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
+    ASTER_PHASE2_ORACLE_WECHAT_PROVIDER_INPUT="$ORACLE_WECHAT_PROVIDER_INPUT" \
+    ASTER_PHASE2_CANDIDATE_WECHAT_PROVIDER_INPUT="$CANDIDATE_WECHAT_PROVIDER_INPUT" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
     "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {
@@ -2189,8 +2428,8 @@ NODE
       /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/device-(authorization|verification|consent|token|token-status|discovery)\.[a-z-]+:projection-id-(claimKeys|claimTypes-(aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     readonly id_claim_name='(iss|aud|sub|iat|exp|nbf|auth_time|sid|jti|client_id|acr|amr|name|picture|username|email|email_verified|phone_number|phone_number_verified|family_name|given_name|middle_name|nickname|preferred_username|profile|website|gender|birthdate|zoneinfo|locale|address|created_at|updated_at|roles|organizations|organization_roles|organization_id|permissions)'
-    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(password-registration|recovery|google)-(admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
-      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(password-registration|recovery|google)-(admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(password-registration|recovery|google|google-registration|wechat-web)-(admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality|authorization|callback|initialization|missing-owner|owner-lookup|profile|provider-count|provider-click|refresh|registration-route|registration-transition|consent-click|consent-route|fixture-registration-owner-before|fixture-registration-owner-use|fixture-registration-owner-after|fixture-registration-owner-cleanup|fixture-registration-owner-discovery|controls-no-union-id|controls-invalid-code|controls-replay|controls-malformed-provider|controls-cross-interaction|controls-missing-state|controls-wrong-state|controls-wrong-callback)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-(password-registration|recovery|google|google-registration|wechat-web)-(admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality|authorization|callback|initialization|missing-owner|owner-lookup|profile|provider-count|provider-click|refresh|registration-route|registration-transition|consent-click|consent-route|fixture-registration-owner-before|fixture-registration-owner-use|fixture-registration-owner-after|fixture-registration-owner-cleanup|fixture-registration-owner-discovery|controls-no-union-id|controls-invalid-code|controls-replay|controls-malformed-provider|controls-cross-interaction|controls-missing-state|controls-wrong-state|controls-wrong-callback)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-(google-projection-((wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(true|false)-c(true|false)|other))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-(google-projection-((wrong-state-status|replay-second-status)-o[1-5][0-9]{2}-c[1-5][0-9]{2}|wrong-state-error-o(none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)-c(none|session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general|unknown)|replay-second-error-o(session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)-c(session\.verification_session_not_found|entity\.not_found|guard\.invalid_input|connector\.general)|contract-o(true|false)-c(true|false)|other))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
@@ -2198,6 +2437,9 @@ NODE
     readonly id_claim_set="(none|${id_claim_name}(,${id_claim_name})*)"
     if /usr/bin/grep -Eq "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E "^Phase 2 device ID claimKeys differ \(only on oracle: ${id_claim_set}; only on candidate: ${id_claim_set}\)\.$" "$RUN_DIR/evidence-sequence.stderr" >&2
+    fi
+    if /usr/bin/grep -Eq '^Phase 2 client credentials command failed \(candidate-((google-registration|wechat-web)-projection-(contract-o(true|false)-c(true|false)|(unverified-email|occupied-email|no-union-id|invalid-code|replay|malformed-provider|cross-interaction|missing-state|wrong-state|wrong-callback)-(status-o[1-5][0-9]{2}-c[1-5][0-9]{2}|error-o(connector\.(general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none)-c(connector\.(general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none))|other))\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
+      /usr/bin/grep -E '^Phase 2 client credentials command failed \(candidate-((google-registration|wechat-web)-projection-(contract-o(true|false)-c(true|false)|(unverified-email|occupied-email|no-union-id|invalid-code|replay|malformed-provider|cross-interaction|missing-state|wrong-state|wrong-callback)-(status-o[1-5][0-9]{2}-c[1-5][0-9]{2}|error-o(connector\.(general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none)-c(connector\.(general|wechat_unionid_required|social_auth_code_invalid|invalid_response)|guard\.invalid_input|verification_record\.permission_denied|session\.(identity_conflict|verification_session_not_found)|user\.email_already_in_use|unknown|none))|other))\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
     fi
     if /usr/bin/grep -Eq '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr-bytes-[1-9][0-9]*-sha256-[0-9a-f]{64}|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr"; then
       /usr/bin/grep -E '^Phase 2 client credentials launcher child failed \((timeout|signal|stderr-bytes-[1-9][0-9]*-sha256-[0-9a-f]{64}|exit-code)\)\.$' "$RUN_DIR/evidence-sequence.stderr" >&2
@@ -2221,6 +2463,20 @@ NODE
     || { failure_stage='google-provider-proof-clear'; fail; return 1; }
   assert_google_provider_private_material present empty \
     || { failure_stage='google-provider-proof-clear'; fail; return 1; }
+  assert_wechat_provider_private_material present empty \
+    || { failure_stage='wechat-provider-proof-reset'; fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$WECHAT_RUNTIME_HELPER" probe "$WECHAT_PROVIDER_ROOT" \
+    || { failure_stage='wechat-provider-proof-configuration'; fail; return 1; }
+  prove_wechat_provider_runtime oracle oracle-wechat-provider 172.30.231.53 \
+    || { failure_stage='oracle-wechat-provider-runtime'; fail; return 1; }
+  prove_wechat_provider_runtime candidate candidate-wechat-provider 172.30.241.53 \
+    || { failure_stage='candidate-wechat-provider-runtime'; fail; return 1; }
+  "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$WECHAT_RUNTIME_HELPER" clear-probe "$WECHAT_PROVIDER_ROOT" \
+    || { failure_stage='wechat-provider-proof-clear'; fail; return 1; }
+  assert_wechat_provider_private_material present empty \
+    || { failure_stage='wechat-provider-proof-clear'; fail; return 1; }
   remove_state_handle_root "$STATE_HANDLE_ROOT" || { failure_stage='state-handle-sweep-after-evidence'; fail; return 1; }
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-after-evidence'; fail; return 1; }
 

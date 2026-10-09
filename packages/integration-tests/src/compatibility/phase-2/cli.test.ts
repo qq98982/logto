@@ -48,6 +48,7 @@ import {
   commonEmailCodeRegistrationScenarioFailure,
   commonReadyScenarioFailure,
   commonGoogleProjectionScenarioFailure,
+  commonAdditionProjectionScenarioFailure,
   commonEmailPasswordScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
@@ -70,6 +71,8 @@ import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './pr
 import { validatePhase2TargetDescriptor } from './runtime.js';
 import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-password.js';
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
+import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
+import { commonGoogleRegistrationTestProjection } from './testing/common-google-registration-projection.js';
 
 describe('device projection diagnostic fields', () => {
   it('maps a nested cookie difference to its closed root field', () => {
@@ -1783,6 +1786,33 @@ describe('Phase 2 CLI', () => {
       );
     }
   );
+
+  it('keeps registration public errors exact and rejects unrecognized diagnostic values', () => {
+    const projection = commonGoogleRegistrationTestProjection;
+    expect(() =>
+      commonAdditionProjectionScenarioFailure('google-registration', projection, {
+        ...projection,
+        occupiedEmail: { ...projection.occupiedEmail, error: 'guard.invalid_input' },
+      })
+    ).toThrow(
+      'candidate-google-registration-projection-occupied-email-error-ouser.email_already_in_use-cguard.invalid_input'
+    );
+    expect(() =>
+      commonAdditionProjectionScenarioFailure('google-registration', projection, {
+        ...projection,
+        occupiedEmail: { ...projection.occupiedEmail, error: 'private-token' },
+      })
+    ).toThrow('candidate-google-registration-projection-contract-otrue-cfalse');
+    expect(() =>
+      commonAdditionProjectionScenarioFailure('wechat-web', commonWechatWebExpectedProjection, {
+        ...commonWechatWebExpectedProjection,
+        wrongCallback: {
+          ...commonWechatWebExpectedProjection.wrongCallback,
+          correctRetryAccepted: false,
+        },
+      })
+    ).toThrow('candidate-wechat-web-projection-contract-otrue-cfalse');
+  });
 
   it('formats only validated public Google comparison values', () => {
     const projection = {

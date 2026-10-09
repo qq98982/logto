@@ -5,6 +5,7 @@ import { lstat, open, realpath } from 'node:fs/promises';
 const changedEmailMessage = 'Invalid Google changed-email provider receipt';
 const replayMessage = 'Invalid Google replay provider receipt';
 const wrongStateMessage = 'Invalid Google wrong-state provider receipt';
+const registrationMessage = 'Invalid Google registration provider receipt';
 const keys = [
   'tokenRequestCount',
   'userinfoRequestCount',
@@ -17,6 +18,8 @@ const keys = [
   'stableSubjectCaseConsumed',
   'changedEmailCaseConsumed',
   'wrongStateControlCodeConsumed',
+  'unverifiedEmailControlConsumed',
+  'occupiedEmailControlConsumed',
   'replayRejected',
 ].toSorted();
 const receiptFail = (message: string): never => {
@@ -84,6 +87,8 @@ export const assertGoogleChangedEmailProviderReceipt = async (
       row.stableSubjectCaseConsumed !== true ||
       row.changedEmailCaseConsumed !== true ||
       row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== false ||
       typeof row.replayRejected !== 'boolean'
     )
       receiptFail(changedEmailMessage);
@@ -110,11 +115,41 @@ export const assertGoogleWrongStateProviderReceipt = async (
       row.stableSubjectCaseConsumed !== true ||
       row.changedEmailCaseConsumed !== false ||
       row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== false ||
       typeof row.replayRejected !== 'boolean'
     )
       receiptFail(wrongStateMessage);
   } catch {
     receiptFail(wrongStateMessage);
+  }
+};
+
+export const assertGooglePrimaryRegistrationProviderReceipt = async (
+  path: string,
+  expectedUserinfoMethod: 'GET' | 'POST'
+): Promise<void> => {
+  try {
+    const row = await readGoogleProviderReceipt(path, registrationMessage);
+    if (
+      row.tokenRequestCount !== 3 ||
+      row.userinfoRequestCount !== 3 ||
+      row.userinfoGetObserved !== (expectedUserinfoMethod === 'GET') ||
+      row.userinfoPostObserved !== (expectedUserinfoMethod === 'POST') ||
+      row.grantTypeExact !== true ||
+      row.callbackUriExact !== true ||
+      row.clientAuthenticationExact !== true ||
+      row.issuedBearerObserved !== true ||
+      row.stableSubjectCaseConsumed !== true ||
+      row.changedEmailCaseConsumed !== false ||
+      row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== true ||
+      row.occupiedEmailControlConsumed !== true ||
+      row.replayRejected !== false
+    )
+      receiptFail(registrationMessage);
+  } catch {
+    receiptFail(registrationMessage);
   }
 };
 
@@ -138,7 +173,9 @@ export const assertGoogleReplayProviderReceipt = async (
       row.issuedBearerObserved !== true ||
       row.stableSubjectCaseConsumed !== true ||
       row.changedEmailCaseConsumed !== true ||
-      row.wrongStateControlCodeConsumed !== false
+      row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== false
     )
       receiptFail(replayMessage);
   } catch {
