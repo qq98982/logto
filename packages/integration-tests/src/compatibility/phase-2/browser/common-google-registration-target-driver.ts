@@ -487,7 +487,13 @@ const runDeniedRegistrationControl = async (
     if (reachedConsent) {
       return targetFail('capability');
     }
-    if (failure.operation === 'social-verify' && failure.status >= 200 && failure.status < 300) {
+    const incompleteEmailProfile =
+      (failure.operation === 'social-verify' && failure.status >= 200 && failure.status < 300) ||
+      (label === 'unverified-email' &&
+        failure.operation === 'identification' &&
+        failure.status === 422 &&
+        failure.code === 'user.missing_profile');
+    if (incompleteEmailProfile) {
       try {
         await session.assertRoute(`google-${label}-incomplete-profile-route`, 'core', [
           '/continue/email',
@@ -519,7 +525,11 @@ const runDeniedRegistrationControl = async (
     );
     const validStatus =
       (label === 'unverified-email' && failure.status === 200 && failure.code === 'none') ||
-      (failure.status >= 400 && failure.status <= 499);
+      (failure.code === 'user.missing_profile'
+        ? label === 'unverified-email' &&
+          failure.operation === 'identification' &&
+          failure.status === 422
+        : failure.status >= 400 && failure.status <= 499);
     const error = controlError(failure.code);
     if (!validStatus || !errors.has(error)) {
       return targetFail('capability');
