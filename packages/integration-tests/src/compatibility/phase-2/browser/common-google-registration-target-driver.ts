@@ -78,7 +78,10 @@ type RegistrationControlStage = `${'unverified-email' | 'occupied-email'}-contro
   | 'outcome-code'
   | 'outcome-status'
   | 'outcome-error'
-  | 'outcome-accepted'}`;
+  | 'outcome-accepted'
+  | 'link-count'
+  | 'link-click'
+  | 'link-complete'}`;
 type RegistrationControlResponseStage = `${
   | 'unverified-email'
   | 'occupied-email'}-control-observed-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}-${
@@ -560,15 +563,18 @@ const runDeniedRegistrationControl = async (
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
       onIdentityNotExist: async () => {
         if (label === 'occupied-email') {
+          onStage('occupied-email-control-link-count');
           await session.expectCount(
             'google-occupied-email-create-without-linking-count',
             'role=link[name="Link another email"]',
             1
           );
+          onStage('occupied-email-control-link-click');
           await session.click(
             'google-occupied-email-create-without-linking',
             'role=link[name="Link another email"]'
           );
+          onStage('occupied-email-control-link-complete');
         }
       },
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
