@@ -498,7 +498,13 @@ const runDeniedRegistrationControl = async (
   capability: PlaywrightExternalAuthorizationCapability,
   label: 'unverified-email' | 'occupied-email',
   requirePlaywrightBrand: boolean,
-  onStage: (stage: RegistrationControlStage | RegistrationControlResponseStage) => void
+  onStage: (
+    stage:
+      | RegistrationControlStage
+      | RegistrationControlResponseStage
+      | RegistrationControlUnknownStage
+      | RegistrationControlRejectedStage
+  ) => void
 ): Promise<Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>> => {
   const observer = requirePlaywrightBrand
     ? withPlaywrightExternalAuthorizationCapability(input.observer, capability)
@@ -600,13 +606,16 @@ const runDeniedRegistrationControl = async (
         : failure.status >= 400 && failure.status <= 499);
     onStage(`${label}-control-outcome-code`);
     if (failure.code === 'unknown') {
-      return targetFail(`${label}-control-unknown-${failure.operation}-${failure.status}`);
+      const classified = `${label}-control-unknown-${failure.operation}-${failure.status}` as const;
+      onStage(classified);
+      return targetFail(classified);
     }
     const rejected = rejectedControlError(failure.code);
     if (rejected) {
-      return targetFail(
-        `${label}-control-rejected-${failure.operation}-${failure.status}-${rejected}`
-      );
+      const classified =
+        `${label}-control-rejected-${failure.operation}-${failure.status}-${rejected}` as const;
+      onStage(classified);
+      return targetFail(classified);
     }
     const error = controlError(failure.code);
     if (!validStatus) {
