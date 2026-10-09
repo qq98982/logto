@@ -117,4 +117,18 @@ const main = async () => startWechatProviderFixture({
   host: bounded(process.env.ASTER_WECHAT_PROVIDER_HOST),
   port: Number(process.env.ASTER_WECHAT_PROVIDER_PORT),
 });
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) await main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main()
+    .then((fixture) => {
+      for (const signal of ['SIGINT', 'SIGTERM']) {
+        process.once(signal, async () => {
+          await fixture.close();
+          process.exit(0);
+        });
+      }
+    })
+    .catch(() => {
+      process.stderr.write(`${failure}\n`);
+      process.exitCode = 1;
+    });
+}

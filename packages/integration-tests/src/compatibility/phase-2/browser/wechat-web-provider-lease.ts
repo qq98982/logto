@@ -234,6 +234,26 @@ const samePrivateMutableFile = async (filePath: string, expected: FileIdentity):
   }
 };
 
+const clearPrivateFile = async (filePath: string, expected: FileIdentity): Promise<void> => {
+  const handle = await open(filePath, constants.O_RDWR | constants.O_NOFOLLOW).catch(fail);
+  try {
+    const opened = await handle.stat();
+    if (
+      opened.dev !== expected.dev ||
+      opened.ino !== expected.ino ||
+      opened.uid !== currentUid() ||
+      opened.nlink !== 1 ||
+      (opened.mode & 0o777) !== 0o600
+    ) {
+      return fail();
+    }
+    await handle.truncate(0);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+};
+
 const readPrivateMutableJson = async (
   filePath: string,
   expected: FileIdentity
@@ -445,8 +465,9 @@ const inspectOwnedContainer = async (input: OwnedContainer): Promise<ContainerId
     (config.Image !== input.image && config.Image !== input.image.slice('sha256:'.length)) ||
     labels['com.docker.compose.project'] !== input.project ||
     labels['com.docker.compose.service'] !== input.service ||
-    state.Status !== 'created' ||
-    state.Running !== false
+    (state.Status !== 'created' && state.Status !== 'exited') ||
+    state.Running !== false ||
+    state.ExitCode !== 0
   ) {
     return fail();
   }
@@ -730,6 +751,12 @@ export const prepareWechatWebProviderLease = async (
         }
         try {
           await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+        } catch {
+          return stagedFail('stop-receipt-identity');
+        }
+        try {
+          await clearPrivateFile(input.configFile, configIdentity);
+          await clearPrivateFile(input.receiptFile, receiptIdentity);
         } catch {
           return stagedFail('stop-receipt-identity');
         }
