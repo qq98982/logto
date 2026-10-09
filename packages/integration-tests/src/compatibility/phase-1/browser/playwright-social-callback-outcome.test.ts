@@ -8,6 +8,7 @@ import { createPlaywrightBrowserGroupObserver } from './playwright-session.js';
 const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
   chromium: BrowserType<Browser>;
 };
+const { jest } = import.meta;
 
 test.each([
   { terminal: 'sign-in', verify: false, accepted: false },
@@ -70,3 +71,54 @@ test.each([
     }
   }
 );
+
+test('classifies an external callback with extra query data without retaining its values', async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html' });
+    response.end('<div>callback</div>');
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Invalid owned callback server');
+  }
+  const origin = `http://127.0.0.1:${address.port}`;
+  const closedReasonObserved = jest.fn();
+  try {
+    const observer = createPlaywrightBrowserGroupObserver(chromium);
+    await expect(
+      observer.runInFreshContext(
+        'experience',
+        AbortSignal.timeout(20_000),
+        { label: 'candidate', coreUrl: origin, adminUrl: origin },
+        async (session) => {
+          await session.navigate(
+            'owned-malformed-social-callback',
+            'core',
+            '/callback/google-owned?code=fixture-code&state=fixture-state&private=forbidden'
+          );
+          await expect(
+            session.readExternalCallbackOutcome?.(
+              'owned-malformed-social-outcome',
+              '/callback/google-owned'
+            )
+          ).rejects.toThrow('Browser external callback outcome failed: external-callback-query');
+          closedReasonObserved();
+        }
+      )
+    ).rejects.toThrow();
+    expect(closedReasonObserved).toHaveBeenCalledTimes(1);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+});

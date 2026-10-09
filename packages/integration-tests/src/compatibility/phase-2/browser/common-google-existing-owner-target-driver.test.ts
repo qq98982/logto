@@ -12,6 +12,7 @@ import type {
 import {
   invokePlaywrightExternalAuthorizationCapability,
   type PlaywrightExternalAuthorizationCapability,
+  type PlaywrightExternalCallbackFailureReason,
 } from '../../phase-1/browser/playwright-session.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 
@@ -186,6 +187,15 @@ const createHarness = async (
     providerHealth?: 'healthy' | 'unhealthy';
     callbackRouteFails?: boolean;
     wrongState?: boolean;
+    wrongStateFailure?:
+      | 'open'
+      | 'sign-in'
+      | 'provider-count'
+      | 'provider-click'
+      | 'callback-outcome'
+      | 'callback-other';
+    wrongStateCallbackReason?: PlaywrightExternalCallbackFailureReason;
+    wrongStateObserverCleanup?: 'duplicate' | 'distinct';
     replay?: boolean;
     replayFailure?: boolean;
   }> = {}
@@ -371,8 +381,16 @@ const createHarness = async (
     const refreshed = refreshedFacts();
     const session: Phase1BrowserSession = {
       preloadDemoConfiguration: async () => {},
-      navigate: async () => {},
-      waitForRoute: async () => {},
+      navigate: async (step) => {
+        if (step === 'google-wrong-state-open' && options.wrongStateFailure === 'open') {
+          throw new Error('private wrong-state open');
+        }
+      },
+      waitForRoute: async (step) => {
+        if (step === 'google-wrong-state-sign-in' && options.wrongStateFailure === 'sign-in') {
+          throw new Error('private wrong-state sign-in');
+        }
+      },
       waitForExactRoute: async () => {
         if (options.callbackRouteFails) {
           throw new Error('private callback route');
@@ -382,6 +400,12 @@ const createHarness = async (
       assertExactRoute: async () => {},
       fill: async () => {},
       click: async (step) => {
+        if (
+          step === 'google-wrong-state-provider' &&
+          options.wrongStateFailure === 'provider-click'
+        ) {
+          throw new Error('private wrong-state provider click');
+        }
         if (!['google-provider', 'google-wrong-state-provider'].includes(step)) {
           return;
         }
@@ -438,13 +462,30 @@ const createHarness = async (
         }
       },
       expectText: async () => {},
-      expectCount: async () => {},
+      expectCount: async (step) => {
+        if (
+          step === 'google-wrong-state-provider-count' &&
+          options.wrongStateFailure === 'provider-count'
+        ) {
+          throw new Error('private wrong-state provider count');
+        }
+      },
       waitForNetworkFacts: async (step) => (step === 'email-refresh-facts' ? refreshed : initial),
-      readExternalCallbackOutcome: async () => ({
-        callbackAccepted: false,
-        status: 400,
-        error: 'unknown',
-      }),
+      readExternalCallbackOutcome: async () => {
+        if (options.wrongStateFailure === 'callback-outcome') {
+          throw new TypeError(
+            `Browser external callback outcome failed: ${options.wrongStateCallbackReason ?? 'external-callback-query'}`
+          );
+        }
+        if (options.wrongStateFailure === 'callback-other') {
+          throw new Error('private wrong-state callback value');
+        }
+        return {
+          callbackAccepted: false,
+          status: 400,
+          error: 'unknown',
+        };
+      },
       clickAndObserveObject: async (step, _selector, project) =>
         project(
           step === 'email-userinfo'
@@ -486,7 +527,26 @@ const createHarness = async (
     createObserverForTesting: (capability) => {
       events.push('observer-create');
       const observer: Phase1BrowserGroupObserver = {
-        runInFreshContext: async (_group, _signal, _target, use) => use(createSession(capability)),
+        runInFreshContext: async (_group, _signal, _target, use) => {
+          try {
+            return await use(createSession(capability));
+          } catch (error: unknown) {
+            if (options.wrongStateObserverCleanup) {
+              throw new AggregateError(
+                [
+                  error,
+                  new Error(
+                    options.wrongStateObserverCleanup === 'duplicate'
+                      ? 'Browser network observation failed'
+                      : 'private distinct browser cleanup failure'
+                  ),
+                ],
+                'private browser aggregate'
+              );
+            }
+            throw error;
+          }
+        },
       };
       return observer;
     },
@@ -678,6 +738,112 @@ test('runs one fresh wrong-state browser callback and preserves the complete own
     },
   });
   expect(harness.state()).toMatchObject({ role: false, connector: false, user: undefined });
+  await rm(harness.root, { recursive: true, force: true });
+});
+
+test.each([
+  ['open', 'wrong-state-open'],
+  ['sign-in', 'wrong-state-sign-in'],
+  ['provider-count', 'wrong-state-provider-count'],
+  ['provider-click', 'wrong-state-provider-click'],
+  ['callback-outcome', 'wrong-state-callback-external-callback-query'],
+] as const)(
+  'reports the fixed wrong-state %s failure after complete cleanup',
+  async (failure, stage) => {
+    const harness = await createHarness({ wrongState: true, wrongStateFailure: failure });
+    const operation = runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input);
+    await expect(operation).rejects.toThrow(`Common Google existing-owner target failed: ${stage}`);
+    await expect(operation).rejects.not.toThrow(/private wrong-state/u);
+    expect(harness.state()).toMatchObject({
+      providerCredentialActive: false,
+      role: false,
+      connector: false,
+      user: undefined,
+    });
+    expect(harness.events).toContain('provider:stop');
+    await rm(harness.root, { recursive: true, force: true });
+  }
+);
+
+test('maps an unknown callback observer failure to a fixed private-safe stage', async () => {
+  const harness = await createHarness({ wrongState: true, wrongStateFailure: 'callback-other' });
+  const operation = runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input);
+  await expect(operation).rejects.toThrow(
+    'Common Google existing-owner target failed: wrong-state-callback-observation-other'
+  );
+  await expect(operation).rejects.not.toThrow(/private wrong-state callback/u);
+  expect(harness.state()).toMatchObject({
+    providerCredentialActive: false,
+    role: false,
+    connector: false,
+    user: undefined,
+  });
+  await rm(harness.root, { recursive: true, force: true });
+});
+
+test.each([
+  'signal',
+  'guard',
+  'observation-other',
+  'external-callback-method',
+  'external-callback-query',
+  'external-callback-fragment',
+  'cardinality',
+] as const)('maps the closed callback reason %s after cleanup', async (reason) => {
+  const harness = await createHarness({
+    wrongState: true,
+    wrongStateFailure: 'callback-outcome',
+    wrongStateCallbackReason: reason,
+  });
+  await expect(
+    runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input)
+  ).rejects.toThrow(`Common Google existing-owner target failed: wrong-state-callback-${reason}`);
+  expect(harness.state()).toMatchObject({
+    providerCredentialActive: false,
+    role: false,
+    connector: false,
+    user: undefined,
+  });
+  await rm(harness.root, { recursive: true, force: true });
+});
+
+test('preserves a closed callback stage across its duplicate cleanup failure', async () => {
+  const harness = await createHarness({
+    wrongState: true,
+    wrongStateFailure: 'callback-outcome',
+    wrongStateCallbackReason: 'external-callback-query',
+    wrongStateObserverCleanup: 'duplicate',
+  });
+  await expect(
+    runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input)
+  ).rejects.toThrow(
+    'Common Google existing-owner target failed: wrong-state-callback-external-callback-query'
+  );
+  expect(harness.state()).toMatchObject({
+    providerCredentialActive: false,
+    role: false,
+    connector: false,
+    user: undefined,
+  });
+  await rm(harness.root, { recursive: true, force: true });
+});
+
+test('keeps distinct browser cleanup failure priority without exposing its message', async () => {
+  const harness = await createHarness({
+    wrongState: true,
+    wrongStateFailure: 'callback-outcome',
+    wrongStateCallbackReason: 'external-callback-query',
+    wrongStateObserverCleanup: 'distinct',
+  });
+  const operation = runCommonGoogleExistingOwnerWrongStateForTargetTesting(harness.input);
+  await expect(operation).rejects.toThrow('Common Google existing-owner target failed: cleanup');
+  await expect(operation).rejects.not.toThrow(/private distinct/u);
+  expect(harness.state()).toMatchObject({
+    providerCredentialActive: false,
+    role: false,
+    connector: false,
+    user: undefined,
+  });
   await rm(harness.root, { recursive: true, force: true });
 });
 

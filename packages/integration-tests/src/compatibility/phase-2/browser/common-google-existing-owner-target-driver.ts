@@ -6,6 +6,7 @@ import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
 import {
   type PlaywrightExternalAuthorizationCapability,
+  type PlaywrightExternalCallbackFailureReason,
   withPlaywrightExternalAuthorizationCapability,
 } from '../../phase-1/browser/playwright-session.js';
 import { withPhase2AdminManagementBearer } from '../clients/admin-management-bearer.js';
@@ -83,7 +84,12 @@ type Stage =
   | 'fixture'
   | 'management'
   | 'wrong-state-owner-before'
-  | 'wrong-state-browser'
+  | 'wrong-state-open'
+  | 'wrong-state-sign-in'
+  | 'wrong-state-provider-count'
+  | 'wrong-state-provider-click'
+  | 'wrong-state-callback-outcome'
+  | `wrong-state-callback-${PlaywrightExternalCallbackFailureReason}`
   | 'wrong-state-owner-after'
   | 'wrong-state-authorization'
   | `wrong-state-authorization-${string}`
@@ -124,6 +130,59 @@ const ownMessage = (error: unknown): string | undefined => {
   return descriptor && Object.hasOwn(descriptor, 'value') && typeof descriptor.value === 'string'
     ? descriptor.value
     : undefined;
+};
+const externalCallbackFailureReason = (error: unknown): PlaywrightExternalCallbackFailureReason => {
+  const reason =
+    /^Browser external callback outcome failed: (signal|guard|observation-other|external-callback-method|external-callback-query|external-callback-fragment|cardinality)$/u.exec(
+      ownMessage(error) ?? ''
+    )?.[1];
+  switch (reason) {
+    case 'signal':
+    case 'guard':
+    case 'observation-other':
+    case 'external-callback-method':
+    case 'external-callback-query':
+    case 'external-callback-fragment':
+    case 'cardinality': {
+      return reason;
+    }
+    default: {
+      return 'observation-other';
+    }
+  }
+};
+const isDuplicateExternalCallbackCleanup = (error: unknown, stage: Stage | undefined): boolean => {
+  if (
+    !stage?.startsWith('wrong-state-callback-') ||
+    nodeTypes.isProxy(error) ||
+    !(error instanceof AggregateError)
+  ) {
+    return false;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'errors');
+  const members: unknown =
+    descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  if (!Array.isArray(members) || nodeTypes.isProxy(members) || members.length !== 2) {
+    return false;
+  }
+  const entries = Object.getOwnPropertyDescriptors(members);
+  const first = entries['0'];
+  const second = entries['1'];
+  if (
+    !first ||
+    !second ||
+    !Object.hasOwn(first, 'value') ||
+    !Object.hasOwn(second, 'value') ||
+    !first.enumerable ||
+    !second.enumerable
+  ) {
+    return false;
+  }
+  const reason = stage.slice('wrong-state-callback-'.length);
+  return (
+    ownMessage(first.value) === `Browser external callback outcome failed: ${reason}` &&
+    ownMessage(second.value) === 'Browser network observation failed'
+  );
 };
 const fixtureStage = (error: unknown, depth = 0): FixtureStage | undefined => {
   if (depth >= 4) {
@@ -379,6 +438,7 @@ async function executeCommonGoogleExistingOwnerForTarget(
   }
   let flowError: TypeError | undefined;
   let selectedFixtureStage: FixtureStage | undefined;
+  let wrongStateCallbackStage: Stage | undefined;
   let cleanupFailed = false;
   let stage: Stage = 'credentials';
   try {
@@ -470,27 +530,37 @@ async function executeCommonGoogleExistingOwnerForTarget(
                       }
                       stage = 'wrong-state-owner-before';
                       const before = structuredClone(await value.ownerSnapshot());
-                      stage = 'wrong-state-browser';
+                      stage = 'wrong-state-open';
                       await session.navigate('google-wrong-state-open', 'core', '/demo-app');
+                      stage = 'wrong-state-sign-in';
                       await session.waitForRoute('google-wrong-state-sign-in', 'core', [
                         '/sign-in',
                         '/sign-in/identifier',
                         '/sign-in/password',
                       ]);
+                      stage = 'wrong-state-provider-count';
                       await session.expectCount(
                         'google-wrong-state-provider-count',
                         googleSignInButtonSelectorCandidate,
                         1
                       );
+                      stage = 'wrong-state-provider-click';
                       await session.click(
                         'google-wrong-state-provider',
                         googleSignInButtonSelectorCandidate
                       );
-                      const outcome = await readOutcome.call(
-                        session,
-                        'google-wrong-state-callback',
-                        `/callback/${encodeURIComponent(value.connectorId)}`
-                      );
+                      stage = 'wrong-state-callback-outcome';
+                      const outcome = await readOutcome
+                        .call(
+                          session,
+                          'google-wrong-state-callback',
+                          `/callback/${encodeURIComponent(value.connectorId)}`
+                        )
+                        .catch((error: unknown) => {
+                          stage = `wrong-state-callback-${externalCallbackFailureReason(error)}`;
+                          wrongStateCallbackStage = stage;
+                          throw error;
+                        });
                       stage = 'wrong-state-owner-after';
                       const after = structuredClone(await value.ownerSnapshot());
                       if (!isDeepStrictEqual(before, after)) {
@@ -560,7 +630,10 @@ async function executeCommonGoogleExistingOwnerForTarget(
                   }
                 );
               } catch (error: unknown) {
-                if (error instanceof AggregateError) {
+                if (
+                  error instanceof AggregateError &&
+                  !isDuplicateExternalCallbackCleanup(error, wrongStateCallbackStage)
+                ) {
                   cleanupFailed = true;
                 }
                 throw error;

@@ -1,5 +1,6 @@
 /* eslint-disable complexity, max-lines, max-params, no-restricted-syntax, no-control-regex, no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/no-throw-literal, unicorn/no-array-callback-reference, unicorn/no-await-expression-member, unicorn/no-useless-spread, prefer-destructuring -- The adapter owns raw Playwright pages, response bodies, credential-bearing request fields, sequential listener drainage, and fixed diagnostics; browser flows receive only closed safe facts. */
 import { createHash } from 'node:crypto';
+import { types as nodeTypes } from 'node:util';
 
 import type {
   Browser,
@@ -57,6 +58,44 @@ export type PlaywrightExternalAuthorizationHandler = (
 ) => Promise<boolean>;
 
 export type PlaywrightExternalAuthorizationCapability = Readonly<Record<never, never>>;
+
+export type PlaywrightExternalCallbackFailureReason =
+  | 'signal'
+  | 'guard'
+  | 'observation-other'
+  | 'external-callback-method'
+  | 'external-callback-query'
+  | 'external-callback-fragment'
+  | 'cardinality';
+
+const externalCallbackOutcomeFailure = (reason: PlaywrightExternalCallbackFailureReason): never => {
+  throw new TypeError(`Browser external callback outcome failed: ${reason}`);
+};
+
+const externalCallbackObservationFailure = (
+  error: unknown
+): PlaywrightExternalCallbackFailureReason => {
+  if (nodeTypes.isProxy(error) || !(error instanceof Error)) {
+    return 'observation-other';
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+  const message: unknown =
+    descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  switch (message) {
+    case 'Browser external callback response failed: external-callback-method': {
+      return 'external-callback-method';
+    }
+    case 'Browser external callback response failed: external-callback-query': {
+      return 'external-callback-query';
+    }
+    case 'Browser external callback response failed: external-callback-fragment': {
+      return 'external-callback-fragment';
+    }
+    default: {
+      return 'observation-other';
+    }
+  }
+};
 
 export const registerPlaywrightExternalAuthorizationCapability = (
   handler: PlaywrightExternalAuthorizationHandler
@@ -379,6 +418,8 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
   #callbackCode: string | undefined;
   #initialAccess: string | undefined;
   #managementAccess: string | undefined;
+  #externalCallbackFailure: PlaywrightExternalCallbackFailureReason | undefined;
+  #externalCallbackFailureReported = false;
   #networkFailed = false;
   #closed = false;
 
@@ -609,52 +650,69 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     }>
   > {
     const expected = absoluteProfiledUrl(this.#target, 'core', path);
-    return this.#observer.run(fixedContext(stepId, 'evaluation'), async () => {
-      for (let attempt = 0; attempt < networkWaitAttempts; attempt += 1) {
-        if (this.#signal.aborted || this.#networkFailed || this.#networkGuard.hasViolation()) {
-          throw new Error('Browser network observation failed');
-        }
-        await Promise.all([...this.#pending]);
-        const matching = this.#externalCallbacks.filter((fact) => fact.path === expected.pathname);
-        if (matching.length > 1) {
-          throw new Error('Browser callback observation cardinality failed');
-        }
-        const observed = matching[0];
-        if (observed) {
-          const page = new URL(this.#page.url());
-          const callbackAccepted =
-            observed.redirectedToConsent ||
-            (page.origin === expected.origin && page.pathname === '/consent')
-              ? true
-              : observed.status >= 400 ||
-                  (this.#externalCallbackNavigations.has(expected.pathname) &&
-                    page.origin === expected.origin &&
-                    page.pathname === '/sign-in' &&
-                    this.#callbacks.length === 0 &&
-                    this.#exchanges.length === 0 &&
-                    this.#socialVerificationStatuses.every((status) => status >= 400))
-                ? false
-                : ('unknown' as const);
-          if (callbackAccepted !== 'unknown') {
-            return Object.freeze({
-              callbackAccepted,
-              status: observed.status,
-              error: 'unknown' as const,
-            });
+    try {
+      return await this.#observer.run(fixedContext(stepId, 'evaluation'), async () => {
+        for (let attempt = 0; attempt < networkWaitAttempts; attempt += 1) {
+          if (this.#signal.aborted) {
+            return this.#reportExternalCallbackFailure('signal');
           }
+          if (this.#networkGuard.hasViolation()) {
+            return this.#reportExternalCallbackFailure('guard');
+          }
+          if (this.#networkFailed) {
+            return this.#reportExternalCallbackFailure(
+              this.#externalCallbackFailure ?? 'observation-other'
+            );
+          }
+          await Promise.all([...this.#pending]);
+          const matching = this.#externalCallbacks.filter(
+            (fact) => fact.path === expected.pathname
+          );
+          if (matching.length > 1) {
+            return this.#reportExternalCallbackFailure('cardinality');
+          }
+          const observed = matching[0];
+          if (observed) {
+            const page = new URL(this.#page.url());
+            const callbackAccepted =
+              observed.redirectedToConsent ||
+              (page.origin === expected.origin && page.pathname === '/consent')
+                ? true
+                : observed.status >= 400 ||
+                    (this.#externalCallbackNavigations.has(expected.pathname) &&
+                      page.origin === expected.origin &&
+                      page.pathname === '/sign-in' &&
+                      this.#callbacks.length === 0 &&
+                      this.#exchanges.length === 0 &&
+                      this.#socialVerificationStatuses.every((status) => status >= 400))
+                  ? false
+                  : ('unknown' as const);
+            if (callbackAccepted !== 'unknown') {
+              return Object.freeze({
+                callbackAccepted,
+                status: observed.status,
+                error: 'unknown' as const,
+              });
+            }
+          }
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, networkWaitIntervalMs);
+          });
         }
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, networkWaitIntervalMs);
+        return Object.freeze({
+          callbackAccepted: 'unknown' as const,
+          status:
+            this.#externalCallbacks.find((fact) => fact.path === expected.pathname)?.status ??
+            'unavailable',
+          error: 'unknown' as const,
         });
-      }
-      return Object.freeze({
-        callbackAccepted: 'unknown' as const,
-        status:
-          this.#externalCallbacks.find((fact) => fact.path === expected.pathname)?.status ??
-          'unavailable',
-        error: 'unknown' as const,
       });
-    });
+    } catch (error: unknown) {
+      if (this.#externalCallbackFailureReported) {
+        return externalCallbackOutcomeFailure(this.#externalCallbackFailure ?? 'observation-other');
+      }
+      throw error;
+    }
   }
 
   async close(): Promise<void> {
@@ -675,6 +733,12 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
       throw new Error('Browser network observation failed');
     }
     this.#networkGuard.close();
+  }
+
+  #reportExternalCallbackFailure(reason: PlaywrightExternalCallbackFailureReason): never {
+    this.#externalCallbackFailure = reason;
+    this.#externalCallbackFailureReported = true;
+    return externalCallbackOutcomeFailure(reason);
   }
 
   #snapshotFacts(): Phase1BrowserNetworkFacts {
@@ -707,7 +771,8 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     const prior = Promise.all(this.#pending);
     const pending = prior
       .then(async () => this.#observeResponse(response))
-      .catch(() => {
+      .catch((error: unknown) => {
+        this.#externalCallbackFailure ??= externalCallbackObservationFailure(error);
         this.#networkFailed = true;
       })
       .finally(() => {
@@ -775,8 +840,16 @@ class PlaywrightBrowserSession implements Phase1BrowserSession {
     }
 
     if (url.pathname.startsWith('/callback/')) {
-      if (method !== 'GET' || !exactKeys(url.searchParams, ['code', 'state']) || url.hash) {
-        throw new TypeError('Invalid browser network observation');
+      if (method !== 'GET') {
+        throw new TypeError('Browser external callback response failed: external-callback-method');
+      }
+      if (!exactKeys(url.searchParams, ['code', 'state'])) {
+        throw new TypeError('Browser external callback response failed: external-callback-query');
+      }
+      if (url.hash) {
+        throw new TypeError(
+          'Browser external callback response failed: external-callback-fragment'
+        );
       }
       const locationValue = response.headers().location;
       let redirectedToConsent = false;

@@ -1747,6 +1747,18 @@ describe('Phase 2 CLI', () => {
       'Common Google existing-owner target failed: wrong-state-authorization-state-round-trip',
       'wrong-state-authorization-state-round-trip',
     ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner target failed: wrong-state-callback-external-callback-query',
+      'wrong-state-callback-external-callback-query',
+    ],
+    [
+      'common.google.existing-owner',
+      'google',
+      'Common Google existing-owner target failed: wrong-state-callback-private-token',
+      'other',
+    ],
     ['common.google.existing-owner', 'google', 'private provider response', 'other'],
   ] as const)(
     'forwards only the closed new Common stage for %s',
