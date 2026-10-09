@@ -69,6 +69,12 @@ const connectorFixtureStages = new Set([
   'delete-connector',
 ]);
 type FixtureStage = `fixture-${string}`;
+type RegistrationControlStage = `${'unverified-email' | 'occupied-email'}-control-${
+  | 'response'
+  | 'consent'
+  | 'profile-route'
+  | 'profile-input'
+  | 'outcome'}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -83,6 +89,7 @@ type Stage =
   | 'occupied-email-control'
   | 'occupied-email-owner'
   | 'control-publication'
+  | RegistrationControlStage
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -439,7 +446,8 @@ const runDeniedRegistrationControl = async (
   status: NonNullable<ProvisionedPhase2Fixture['status']>,
   capability: PlaywrightExternalAuthorizationCapability,
   label: 'unverified-email' | 'occupied-email',
-  requirePlaywrightBrand: boolean
+  requirePlaywrightBrand: boolean,
+  onStage: (stage: RegistrationControlStage) => void
 ): Promise<Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>> => {
   const observer = requirePlaywrightBrand
     ? withPlaywrightExternalAuthorizationCapability(input.observer, capability)
@@ -474,11 +482,13 @@ const runDeniedRegistrationControl = async (
       1
     );
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
+    onStage(`${label}-control-response`);
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
       signal: input.signal,
     });
     let reachedConsent = true;
+    onStage(`${label}-control-consent`);
     try {
       await session.assertRoute(`google-${label}-consent-check`, 'core', ['/consent']);
     } catch {
@@ -495,7 +505,9 @@ const runDeniedRegistrationControl = async (
         failure.code === 'user.missing_profile');
     if (incompleteEmailProfile) {
       try {
+        onStage(`${label}-control-profile-route`);
         await adapted.waitForRoute(`google-${label}-incomplete-profile-route`, ['/continue/email']);
+        onStage(`${label}-control-profile-input`);
         await session.expectCount(
           `google-${label}-incomplete-profile-email-count`,
           'input[name="identifier"]',
@@ -505,6 +517,7 @@ const runDeniedRegistrationControl = async (
         return targetFail('capability');
       }
     }
+    onStage(`${label}-control-outcome`);
     const errors = new Set<CommonGoogleRegistrationControlError>(
       label === 'unverified-email'
         ? [
@@ -680,7 +693,10 @@ const executeCommonGoogleRegistrationForTarget = async (
                     status,
                     value.unverifiedEmailCapability,
                     'unverified-email',
-                    requirePlaywrightBrand
+                    requirePlaywrightBrand,
+                    (controlStage) => {
+                      stage = controlStage;
+                    }
                   );
                   stage = 'unverified-email-owner';
                   await value.assertControlsPreservedOwner();
@@ -692,7 +708,10 @@ const executeCommonGoogleRegistrationForTarget = async (
                     status,
                     value.occupiedEmailCapability,
                     'occupied-email',
-                    requirePlaywrightBrand
+                    requirePlaywrightBrand,
+                    (controlStage) => {
+                      stage = controlStage;
+                    }
                   );
                   stage = 'occupied-email-owner';
                   await value.assertControlsPreservedOwner();
