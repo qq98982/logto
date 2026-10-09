@@ -102,10 +102,13 @@ describe('Phase 2 tracked launcher', () => {
       expect(diagnosticForPhase2Child(stderr)).toBe(
         'Phase 2 client credentials launcher failed.\n'
       );
+      const closedPrefix = stderr.endsWith('\nprivate-secret')
+        ? 'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500).\n'
+        : '';
       expect(
         diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
       ).toBe(
-        `Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}).\n`
+        `${closedPrefix}Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}).\n`
       );
     }
   });
@@ -668,6 +671,7 @@ describe('Phase 2 tracked launcher', () => {
     'oracle-common-ready-password-registration-controls-incomplete-identification',
     'candidate-common-ready-recovery-flow-new-password-reset',
     'oracle-common-ready-google-wrong-state-provider',
+    'oracle-common-ready-wechat-web-context-after-flow',
   ])('preserves exact new Common child diagnostic %s', (detail) => {
     const diagnostic = `Phase 2 client credentials command failed (${detail}).\n`;
     expect(

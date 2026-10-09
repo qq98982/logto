@@ -1798,6 +1798,12 @@ describe('Phase 2 CLI', () => {
       'Common Google existing-owner target failed: wrong-state-callback-private-token',
       'other',
     ],
+    [
+      'common.wechat.web',
+      'wechat-web',
+      'Common Wechat existing-owner target failed: context-after-flow',
+      'context-after-flow',
+    ],
     ['common.google.existing-owner', 'google', 'private provider response', 'other'],
   ] as const)(
     'forwards only the closed new Common stage for %s',

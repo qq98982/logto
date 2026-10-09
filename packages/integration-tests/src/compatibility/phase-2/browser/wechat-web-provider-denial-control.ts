@@ -25,6 +25,7 @@ export const runWechatWebProviderDenialControl = async (
       waitForRoute(step: string, paths: readonly string[]): Promise<void>;
       expectCount(step: string, selector: string, expected: number): Promise<void>;
       click(step: string, selector: string): Promise<void>;
+      beginExperienceObservation(): Promise<void>;
       readExperienceFailure(): Promise<Phase1BrowserExperienceFailure>;
     }>;
     timing?: Readonly<{ wait(milliseconds: number): Promise<void> }>;
@@ -40,6 +41,7 @@ export const runWechatWebProviderDenialControl = async (
     '/sign-in/identifier',
   ]);
   await input.session.expectCount('wechat-web-control-provider-count', input.selector, 1);
+  await input.session.beginExperienceObservation();
   await input.session.click('wechat-web-control-provider', input.selector);
   const timing = input.timing ?? {
     wait: async (milliseconds: number) =>
@@ -50,7 +52,7 @@ export const runWechatWebProviderDenialControl = async (
   let observed: Phase1BrowserExperienceFailure | undefined;
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const candidate = await input.session.readExperienceFailure();
-    if (candidate.status !== 0 || candidate.code !== 'none') {
+    if (candidate.operation === 'social-verify' && candidate.status >= 400) {
       observed = candidate;
       break;
     }

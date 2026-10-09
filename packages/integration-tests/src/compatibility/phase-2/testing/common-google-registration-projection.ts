@@ -22,8 +22,8 @@ export const commonGoogleRegistrationTestProjection = Object.freeze({
   }),
   unverifiedEmail: Object.freeze({
     accepted: false as const,
-    status: 200,
-    error: 'none',
+    status: 422,
+    error: 'user.missing_profile',
     userCountUnchanged: true as const,
     associationCreated: false as const,
     collisionOwnerPreserved: true as const,

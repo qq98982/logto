@@ -74,6 +74,9 @@ type Stage =
   | 'capability'
   | 'cleanup'
   | 'context'
+  | 'context-adapter'
+  | 'context-flow'
+  | 'context-after-flow'
   | 'credentials'
   | 'discovery'
   | 'fixture'
@@ -451,6 +454,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                     : 'normal',
             use: async (value) => {
               const ownerBefore = await value.ownerSnapshot();
+              let contextProgress: 'adapter' | 'flow' | 'after-flow' = 'adapter';
               stage = 'capability';
               const crossControl =
                 providerCase === 'crossInteraction'
@@ -479,9 +483,14 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       canonicalEmail: input.provider.originalOwnerEmail,
                       resource: status.resource.indicator,
                     });
+                    contextProgress = 'flow';
                     if (isProviderControlKind(providerCase)) {
                       const readFailure = session.readExperienceFailure;
-                      if (typeof readFailure !== 'function') {
+                      const beginObservation = session.beginExperienceObservation;
+                      if (
+                        typeof readFailure !== 'function' ||
+                        typeof beginObservation !== 'function'
+                      ) {
                         return targetFail('capability');
                       }
                       const expected =
@@ -499,7 +508,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                                 status: 401 as const,
                                 error: 'connector.social_auth_code_invalid' as const,
                               };
-                      return runWechatWebProviderDenialControl({
+                      const denial = await runWechatWebProviderDenialControl({
                         selector: wechatWebSignInButtonSelectorCandidate,
                         expectedStatus: expected.status,
                         expectedError: expected.error,
@@ -511,9 +520,12 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                           expectCount: async (step, selector, expectedCount) =>
                             session.expectCount(step, selector, expectedCount),
                           click: adapted.click,
+                          beginExperienceObservation: async () => beginObservation.call(session),
                           readExperienceFailure: async () => readFailure.call(session),
                         },
                       });
+                      contextProgress = 'after-flow';
+                      return denial;
                     }
                     try {
                       const positive = await runCommonWechatWebExistingOwner({
@@ -597,6 +609,7 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                           return Object.freeze({ ...provider, authorizationExact: true as const });
                         },
                       });
+                      contextProgress = 'after-flow';
                       if (providerCase === 'crossInteraction') {
                         return crossControl?.observation() ?? fail();
                       }
@@ -655,6 +668,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                   }
                 );
               } catch (error: unknown) {
+                if (stage === 'context') {
+                  stage = `context-${contextProgress}`;
+                }
                 if (error instanceof AggregateError) {
                   cleanupFailed = true;
                 }

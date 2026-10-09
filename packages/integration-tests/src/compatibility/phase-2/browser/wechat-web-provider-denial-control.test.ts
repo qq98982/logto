@@ -23,10 +23,13 @@ test('captures the exact delayed no-UnionID response without waiting for consent
       click: async (step) => {
         actions.push(step);
       },
+      beginExperienceObservation: async () => {
+        actions.push('wechat-web-control-observation-reset');
+      },
       readExperienceFailure: async () => {
         reads += 1;
         return reads === 1
-          ? { operation: 'none', status: 0, binding: 'not-applicable', code: 'none' }
+          ? { operation: 'resume', status: 302, binding: 'complete', code: 'none' }
           : {
               operation: 'social-verify',
               status: 400,
@@ -47,6 +50,7 @@ test('captures the exact delayed no-UnionID response without waiting for consent
     'wechat-web-control-open',
     'wechat-web-control-sign-in',
     'wechat-web-control-provider-count',
+    'wechat-web-control-observation-reset',
     'wechat-web-control-provider',
   ]);
   expect(reads).toBe(2);
@@ -65,6 +69,7 @@ test('rejects an unknown response or changed owner', async () => {
         waitForRoute: async () => {},
         expectCount: async () => {},
         click: async () => {},
+        beginExperienceObservation: async () => {},
         readExperienceFailure: async () => ({
           operation: 'social-verify',
           status: 401,
