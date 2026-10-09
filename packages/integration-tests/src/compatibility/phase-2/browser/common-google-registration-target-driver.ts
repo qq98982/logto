@@ -388,8 +388,8 @@ export type CommonGoogleRegistrationControlsObservation = Readonly<{
 export const waitForCommonGoogleRegistrationControlOutcome = async (
   input: Readonly<{
     initial?: Phase1BrowserExperienceFailure;
-    continueAfterIdentityNotExist?: boolean;
     signal: AbortSignal;
+    onIdentityNotExist?(): Promise<void>;
     read(): Promise<Phase1BrowserExperienceFailure>;
     wait?(milliseconds: number): Promise<void>;
   }>
@@ -410,11 +410,12 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       continue;
     }
     if (
-      input.continueAfterIdentityNotExist === true &&
+      input.onIdentityNotExist &&
       outcome.operation === 'identification' &&
       outcome.status === 404 &&
       outcome.code === 'user.identity_not_exist'
     ) {
+      await input.onIdentityNotExist();
       await wait(25);
       continue;
     }
@@ -553,7 +554,19 @@ const runDeniedRegistrationControl = async (
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
     onStage(`${label}-control-response`);
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
-      continueAfterIdentityNotExist: true,
+      onIdentityNotExist: async () => {
+        if (label === 'occupied-email') {
+          await session.expectCount(
+            'google-occupied-email-create-without-linking-count',
+            'role=link[name="Create new one instead"]',
+            1
+          );
+          await session.click(
+            'google-occupied-email-create-without-linking',
+            'role=link[name="Create new one instead"]'
+          );
+        }
+      },
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
       signal: input.signal,
     });

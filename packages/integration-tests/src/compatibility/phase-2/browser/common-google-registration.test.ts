@@ -89,9 +89,12 @@ test('ignores the pre-click Experience response until the provider callback chan
 test('continues past the occupied lookup to its Register identification collision', async () => {
   let reads = 0;
   let waits = 0;
+  let identityMisses = 0;
   await expect(
     waitForCommonGoogleRegistrationControlOutcome({
-      continueAfterIdentityNotExist: true,
+      onIdentityNotExist: async () => {
+        identityMisses += 1;
+      },
       signal: new AbortController().signal,
       read: async () => {
         reads += 1;
@@ -120,6 +123,7 @@ test('continues past the occupied lookup to its Register identification collisio
   });
   expect(reads).toBe(2);
   expect(waits).toBe(1);
+  expect(identityMisses).toBe(1);
 });
 
 test('bounds a missing control response at the browser-equivalent thirty-second budget', async () => {
