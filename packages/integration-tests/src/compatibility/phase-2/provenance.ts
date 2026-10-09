@@ -89,9 +89,10 @@ const launcherEnvironmentKeys = Object.freeze(
     'PATH',
   ].toSorted()
 );
-const launcherEnvironmentKeysWithOracleSmtp = Object.freeze(
-  [...launcherEnvironmentKeys, 'ASTER_PHASE2_ORACLE_SMTP_SOCKET'].toSorted()
-);
+const googleProviderEnvironmentKeys = Object.freeze([
+  'ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT',
+  'ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT',
+]);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -337,10 +338,13 @@ export const inspectLaunchedPhase2HarnessSource = async (
 ): Promise<Phase2SourceIdentity> => {
   const keys = Object.keys(environment).toSorted();
   const oracleSmtpSocket = environment.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
-  const expectedKeys =
-    oracleSmtpSocket === undefined
-      ? launcherEnvironmentKeys
-      : launcherEnvironmentKeysWithOracleSmtp;
+  const googleProviderPaths = googleProviderEnvironmentKeys.map((key) => environment[key]);
+  const hasGoogleProvider = googleProviderPaths.some((value) => value !== undefined);
+  const expectedKeys = [
+    ...launcherEnvironmentKeys,
+    ...(oracleSmtpSocket === undefined ? [] : ['ASTER_PHASE2_ORACLE_SMTP_SOCKET']),
+    ...(hasGoogleProvider ? googleProviderEnvironmentKeys : []),
+  ].toSorted();
   if (
     keys.length !== expectedKeys.length ||
     keys.some((key, index) => key !== expectedKeys[index]) ||
@@ -356,6 +360,36 @@ export const inspectLaunchedPhase2HarnessSource = async (
     return fail();
   }
   await validateBrowserEnvironment(environment);
+  if (hasGoogleProvider) {
+    const home = environment.HOME ?? fail();
+    await Promise.all(
+      googleProviderPaths.map(async (value, index) => {
+        const role = index === 0 ? 'oracle' : 'candidate';
+        const expected = path.join(
+          path.dirname(home),
+          'google-provider',
+          role,
+          'provider-input.json'
+        );
+        if (value !== expected) {
+          return fail();
+        }
+        const [metadata, resolved] = await Promise.all([lstat(value), realpath(value)]).catch(fail);
+        if (
+          resolved !== value ||
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          metadata.uid !== process.getuid?.() ||
+          (metadata.mode & 0o777) !== 0o600 ||
+          metadata.nlink !== 1 ||
+          metadata.size < 2 ||
+          metadata.size > 65_536
+        ) {
+          fail();
+        }
+      })
+    );
+  }
   const expectedHead = environment.ASTER_PHASE2_HARNESS_HEAD;
   const expectedTree = environment.ASTER_PHASE2_HARNESS_TREE;
   const expectedBundle = environment.ASTER_PHASE2_RUNTIME_BUNDLE_SHA256;
