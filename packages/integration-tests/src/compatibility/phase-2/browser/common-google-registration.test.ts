@@ -23,7 +23,7 @@ test('waits for a concrete control response instead of accepting the stale Regis
       signal: new AbortController().signal,
       read: async () => {
         reads += 1;
-        return reads === 1
+        return reads < 3
           ? { operation: 'none', status: 0, binding: 'not-applicable', code: 'none' }
           : reads === 2
             ? {
@@ -98,7 +98,7 @@ test('continues past the occupied lookup to its Register identification collisio
       signal: new AbortController().signal,
       read: async () => {
         reads += 1;
-        return reads === 1
+        return reads < 3
           ? {
               operation: 'identification' as const,
               status: 404 as const,
@@ -121,8 +121,8 @@ test('continues past the occupied lookup to its Register identification collisio
     status: 422,
     code: 'user.email_already_in_use',
   });
-  expect(reads).toBe(2);
-  expect(waits).toBe(1);
+  expect(reads).toBe(3);
+  expect(waits).toBe(2);
   expect(identityMisses).toBe(1);
 });
 

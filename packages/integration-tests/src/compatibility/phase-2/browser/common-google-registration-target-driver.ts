@@ -400,6 +400,7 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
       }));
+  let identityNotExistHandled = false;
   for (let attempt = 0; attempt < 1200; attempt += 1) {
     if (input.signal.aborted) {
       return targetFail('capability');
@@ -411,10 +412,12 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
     }
     if (
       input.onIdentityNotExist &&
+      !identityNotExistHandled &&
       outcome.operation === 'identification' &&
       outcome.status === 404 &&
       outcome.code === 'user.identity_not_exist'
     ) {
+      identityNotExistHandled = true;
       await input.onIdentityNotExist();
       await wait(25);
       continue;
@@ -558,12 +561,12 @@ const runDeniedRegistrationControl = async (
         if (label === 'occupied-email') {
           await session.expectCount(
             'google-occupied-email-create-without-linking-count',
-            'role=link[name="Create new one instead"]',
+            'role=link[name="Link another email"]',
             1
           );
           await session.click(
             'google-occupied-email-create-without-linking',
-            'role=link[name="Create new one instead"]'
+            'role=link[name="Link another email"]'
           );
         }
       },
