@@ -72,6 +72,31 @@ test('reports the first public control mismatch', () => {
   });
 });
 
+test('accepts the observed missing-profile denial only for unverified email', () => {
+  const unverifiedMissingProfile = {
+    ...projection,
+    unverifiedEmail: {
+      ...projection.unverifiedEmail,
+      status: 422,
+      error: 'user.missing_profile' as const,
+    },
+  };
+  expect(
+    compareCommonGoogleRegistrationProjections(unverifiedMissingProfile, unverifiedMissingProfile)
+  ).toEqual([]);
+  const occupiedMissingProfile = {
+    ...projection,
+    occupiedEmail: {
+      ...projection.occupiedEmail,
+      status: 422,
+      error: 'user.missing_profile' as const,
+    },
+  };
+  expect(
+    compareCommonGoogleRegistrationProjections(occupiedMissingProfile, occupiedMissingProfile)
+  ).toEqual(['/projection']);
+});
+
 test('rejects accepted, partial, extra, and private control outcomes', () => {
   for (const candidate of [
     { ...projection, unverifiedEmail: { ...projection.unverifiedEmail, accepted: true } },

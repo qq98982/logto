@@ -344,6 +344,7 @@ export type CommonGoogleRegistrationTargetDriverInput = Readonly<{
 export type CommonGoogleRegistrationControlError =
   | 'connector.general'
   | 'guard.invalid_input'
+  | 'user.missing_profile'
   | 'verification_record.permission_denied'
   | 'session.identity_conflict'
   | 'user.email_already_in_use'
@@ -388,6 +389,7 @@ const controlError = (value: unknown): CommonGoogleRegistrationControlError => {
   switch (value) {
     case 'connector.general':
     case 'guard.invalid_input':
+    case 'user.missing_profile':
     case 'verification_record.permission_denied':
     case 'session.identity_conflict':
     case 'user.email_already_in_use':
@@ -504,6 +506,7 @@ const runDeniedRegistrationControl = async (
         ? [
             'connector.general',
             'guard.invalid_input',
+            'user.missing_profile',
             'verification_record.permission_denied',
             'none',
           ]

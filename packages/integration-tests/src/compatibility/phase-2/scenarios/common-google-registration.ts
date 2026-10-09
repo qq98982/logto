@@ -93,6 +93,7 @@ const denialFields = Object.freeze([
 const publicControlErrors = new Set([
   'connector.general',
   'guard.invalid_input',
+  'user.missing_profile',
   'verification_record.permission_denied',
   'session.identity_conflict',
   'user.email_already_in_use',
@@ -172,6 +173,7 @@ const validProjection = (value: unknown): value is CommonGoogleRegistrationScena
         new Set([
           'connector.general',
           'guard.invalid_input',
+          'user.missing_profile',
           'verification_record.permission_denied',
         ]),
         true
