@@ -621,7 +621,6 @@ const runDeniedRegistrationControl = async (
             'guard.invalid_input',
             'user.missing_profile',
             'verification_record.permission_denied',
-            'none',
           ]
         : [
             'connector.general',
@@ -632,10 +631,9 @@ const runDeniedRegistrationControl = async (
           ]
     );
     const validStatus =
-      (label === 'unverified-email' && failure.status === 200 && failure.code === 'none') ||
-      (failure.code === 'user.missing_profile'
+      failure.code === 'user.missing_profile'
         ? failure.operation === 'identification' && failure.status === 422
-        : failure.status >= 400 && failure.status <= 499);
+        : failure.status >= 400 && failure.status <= 499;
     onStage(`${label}-control-outcome-code`);
     if (failure.code === 'unknown') {
       const classified = `${label}-control-unknown-${failure.operation}-${failure.status}` as const;

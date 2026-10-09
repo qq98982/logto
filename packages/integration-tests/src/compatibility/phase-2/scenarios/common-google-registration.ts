@@ -132,11 +132,7 @@ const exactRecord = (
   );
 };
 
-const validDenial = (
-  value: unknown,
-  errors: ReadonlySet<string>,
-  allowIncompleteProfile: boolean
-): boolean => {
+const validDenial = (value: unknown, errors: ReadonlySet<string>): boolean => {
   const denial = exactRecord(value, denialFields);
   return Boolean(
     denial &&
@@ -144,8 +140,9 @@ const validDenial = (
       typeof denial.status === 'number' &&
       Number.isInteger(denial.status) &&
       typeof denial.error === 'string' &&
-      ((allowIncompleteProfile && denial.status === 200 && denial.error === 'none') ||
-        (denial.status >= 400 && denial.status <= 499 && errors.has(denial.error))) &&
+      denial.status >= 400 &&
+      denial.status <= 499 &&
+      errors.has(denial.error) &&
       denial.userCountUnchanged === true &&
       denial.associationCreated === false &&
       denial.collisionOwnerPreserved === true
@@ -175,8 +172,7 @@ const validProjection = (value: unknown): value is CommonGoogleRegistrationScena
           'guard.invalid_input',
           'user.missing_profile',
           'verification_record.permission_denied',
-        ]),
-        true
+        ])
       ) &&
       validDenial(
         projection.occupiedEmail,
@@ -186,8 +182,7 @@ const validProjection = (value: unknown): value is CommonGoogleRegistrationScena
           'session.identity_conflict',
           'user.missing_profile',
           'user.email_already_in_use',
-        ]),
-        false
+        ])
       )
   );
 };

@@ -28,8 +28,8 @@ const projection = Object.freeze({
   }),
   unverifiedEmail: Object.freeze({
     accepted: false,
-    status: 200,
-    error: 'none',
+    status: 422,
+    error: 'user.missing_profile',
     userCountUnchanged: true,
     associationCreated: false,
     collisionOwnerPreserved: true,
@@ -67,7 +67,7 @@ test('reports the first public control mismatch', () => {
     })
   ).toEqual({
     field: 'unverified-email-error',
-    oracle: 'none',
+    oracle: 'user.missing_profile',
     candidate: 'guard.invalid_input',
   });
 });
