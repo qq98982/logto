@@ -566,13 +566,13 @@ const runDeniedRegistrationControl = async (
           onStage('occupied-email-control-link-count');
           await session.expectCount(
             'google-occupied-email-create-without-linking-count',
-            'role=link[name="Link another email"]',
+            'a:text-is("Link another email")',
             1
           );
           onStage('occupied-email-control-link-click');
           await session.click(
             'google-occupied-email-create-without-linking',
-            'role=link[name="Link another email"]'
+            'a:text-is("Link another email")'
           );
           onStage('occupied-email-control-link-complete');
         }
