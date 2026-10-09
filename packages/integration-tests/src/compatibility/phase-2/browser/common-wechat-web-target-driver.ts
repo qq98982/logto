@@ -731,16 +731,20 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                               ['error', ['/error']],
                               ['callback', ['/callback']],
                             ] as const) {
+                              let routeMatched = false;
                               try {
                                 await session.assertRoute(
                                   `wechat-web-consent-failure-${kind}`,
                                   'core',
                                   paths
                                 );
-                                contextProgress = 'positive-consent-complete';
-                                return consentDetail(kind);
+                                routeMatched = true;
                               } catch {
                                 // Try the next closed route class.
+                              }
+                              if (routeMatched) {
+                                contextProgress = 'positive-consent-complete';
+                                return consentDetail(kind);
                               }
                             }
                             contextProgress = 'positive-consent-complete';
