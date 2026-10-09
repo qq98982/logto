@@ -1804,6 +1804,12 @@ describe('Phase 2 CLI', () => {
       'Common Wechat existing-owner target failed: context-after-flow',
       'context-after-flow',
     ],
+    [
+      'common.wechat.web',
+      'wechat-web',
+      'Common Wechat existing-owner target failed: context-control-response',
+      'context-control-response',
+    ],
     ['common.google.existing-owner', 'google', 'private provider response', 'other'],
   ] as const)(
     'forwards only the closed new Common stage for %s',

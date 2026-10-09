@@ -672,6 +672,7 @@ describe('Phase 2 tracked launcher', () => {
     'candidate-common-ready-recovery-flow-new-password-reset',
     'oracle-common-ready-google-wrong-state-provider',
     'oracle-common-ready-wechat-web-context-after-flow',
+    'oracle-common-ready-wechat-web-context-control-response',
   ])('preserves exact new Common child diagnostic %s', (detail) => {
     const diagnostic = `Phase 2 client credentials command failed (${detail}).\n`;
     expect(
