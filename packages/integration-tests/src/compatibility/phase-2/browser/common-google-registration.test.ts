@@ -53,6 +53,39 @@ test('waits for a concrete control response instead of accepting the stale Regis
   expect(waits).toBe(2);
 });
 
+test('ignores the pre-click Experience response until the provider callback changes it', async () => {
+  let reads = 0;
+  let waits = 0;
+  const initial = {
+    operation: 'resume' as const,
+    status: 302 as const,
+    binding: 'complete' as const,
+    code: 'none' as const,
+  };
+  await expect(
+    waitForCommonGoogleRegistrationControlOutcome({
+      initial,
+      signal: new AbortController().signal,
+      read: async () => {
+        reads += 1;
+        return reads < 3
+          ? initial
+          : {
+              operation: 'identification' as const,
+              status: 422 as const,
+              binding: 'not-applicable' as const,
+              code: 'user.missing_profile' as const,
+            };
+      },
+      wait: async () => {
+        waits += 1;
+      },
+    })
+  ).resolves.toMatchObject({ operation: 'identification', status: 422 });
+  expect(reads).toBe(3);
+  expect(waits).toBe(2);
+});
+
 test('bounds a missing control response at the browser-equivalent thirty-second budget', async () => {
   let reads = 0;
   let waits = 0;

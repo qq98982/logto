@@ -372,6 +372,7 @@ export type CommonGoogleRegistrationControlsObservation = Readonly<{
 }>;
 export const waitForCommonGoogleRegistrationControlOutcome = async (
   input: Readonly<{
+    initial?: Phase1BrowserExperienceFailure;
     signal: AbortSignal;
     read(): Promise<Phase1BrowserExperienceFailure>;
     wait?(milliseconds: number): Promise<void>;
@@ -389,6 +390,10 @@ export const waitForCommonGoogleRegistrationControlOutcome = async (
       return targetFail('capability');
     }
     const outcome = await input.read();
+    if (input.initial && JSON.stringify(outcome) === JSON.stringify(input.initial)) {
+      await wait(25);
+      continue;
+    }
     if (outcome.operation === 'social-verify' && outcome.status >= 200 && outcome.status < 300) {
       successfulSocialVerification = outcome;
     }
@@ -491,9 +496,11 @@ const runDeniedRegistrationControl = async (
       googleSignInButtonSelectorCandidate,
       1
     );
+    const initial = await session.readExperienceFailure();
     await session.click(`google-${label}-provider`, googleSignInButtonSelectorCandidate);
     onStage(`${label}-control-response`);
     const failure = await waitForCommonGoogleRegistrationControlOutcome({
+      initial,
       read: async () => session.readExperienceFailure?.() ?? targetFail('capability'),
       signal: input.signal,
     });
