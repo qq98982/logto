@@ -699,6 +699,38 @@ describe('Phase 2 tracked launcher', () => {
   });
 
   it.each([
+    'user.identity_not_exist',
+    'user.missing_profile',
+    'session.verification_session_not_found',
+    'session.interaction_not_found',
+    'session.invalid_credentials',
+    'user.suspended',
+    'user.sign_in_method_not_enabled',
+    'session.identity_conflict',
+    'user.email_already_in_use',
+    'verification_record.permission_denied',
+    'guard.invalid_input',
+    'connector.general',
+    'connector.wechat_unionid_required',
+    'connector.social_auth_code_invalid',
+    'connector.invalid_response',
+    'unknown',
+    'none',
+  ] as const)('preserves the exact WeChat consent child code %s', (code) => {
+    const stage = `consent-route-other-social-verify-400-not-applicable-${code.replaceAll('.', '-')}-auth-111111100-state-unavailable`;
+    const diagnostic = `Phase 2 client credentials command failed (oracle-common-ready-wechat-web-${stage}).\n`;
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: diagnostic,
+        timedOut: false,
+      })
+    ).toBe(diagnostic);
+  });
+
+  it.each([
     'unverified-email-control-profile-route',
     'occupied-email-control-link-complete',
     'unverified-email-control-unknown-identification-422',

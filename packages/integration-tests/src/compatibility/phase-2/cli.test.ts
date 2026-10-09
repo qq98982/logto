@@ -1702,6 +1702,35 @@ describe('Phase 2 CLI', () => {
   );
 
   it.each([
+    'user.identity_not_exist',
+    'user.missing_profile',
+    'session.verification_session_not_found',
+    'session.interaction_not_found',
+    'session.invalid_credentials',
+    'user.suspended',
+    'user.sign_in_method_not_enabled',
+    'session.identity_conflict',
+    'user.email_already_in_use',
+    'verification_record.permission_denied',
+    'guard.invalid_input',
+    'connector.general',
+    'connector.wechat_unionid_required',
+    'connector.social_auth_code_invalid',
+    'connector.invalid_response',
+    'unknown',
+    'none',
+  ] as const)('forwards the exact WeChat consent public code %s', (code) => {
+    const stage = `consent-route-other-social-verify-400-not-applicable-${code.replaceAll('.', '-')}-auth-111111100-state-unavailable`;
+    expect(() =>
+      commonReadyScenarioFailure(
+        'oracle',
+        'common.wechat.web',
+        new TypeError(`Common WeChat Web failed: ${stage}`)
+      )
+    ).toThrow(`Phase 2 stage failed: oracle-common-ready-wechat-web-${stage}`);
+  });
+
+  it.each([
     [
       'common.email.password-registration',
       'password-registration',
