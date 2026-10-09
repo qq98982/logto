@@ -270,8 +270,8 @@ export const startGoogleProviderFixture = async ({
   ) {
     return fail();
   }
-  const certificate = await atStartup('certificate-read', async () => readOwnedFile(certificateFile, new Set([0o400, 0o600])));
-  const privateKey = await atStartup('key-read', async () => readOwnedFile(privateKeyFile));
+  const certificate = await atStartup('certificate-read', async () => readOwnedFile(certificateFile, new Set([0o400, 0o444, 0o600])));
+  const privateKey = await atStartup('key-read', async () => readOwnedFile(privateKeyFile, new Set([0o400, 0o600])));
   const configurationBytes = await atStartup('config-read', async () => readOwnedFile(configurationFile));
   const configuration = await atStartup('config-validate', async () => {
     let value;
