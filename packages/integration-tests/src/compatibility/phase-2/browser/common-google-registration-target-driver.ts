@@ -93,6 +93,9 @@ type RegistrationControlRejectedStage = `${
   Phase1BrowserExperienceFailure['code'],
   CommonGoogleRegistrationControlError | 'unknown'
 >}`;
+type RegistrationControlValidationStage = `${
+  | 'unverified-email'
+  | 'occupied-email'}-control-${'invalid-status' | 'disallowed-error'}-${Phase1BrowserExperienceFailure['operation']}-${Phase1BrowserExperienceFailure['status']}-${CommonGoogleRegistrationControlError}`;
 type Stage =
   | 'admission'
   | 'capability'
@@ -111,6 +114,7 @@ type Stage =
   | RegistrationControlResponseStage
   | RegistrationControlUnknownStage
   | RegistrationControlRejectedStage
+  | RegistrationControlValidationStage
   | FixtureStage;
 const fail = (): never => {
   throw new TypeError('Invalid Common Google registration target composition');
@@ -505,6 +509,7 @@ const runDeniedRegistrationControl = async (
       | RegistrationControlResponseStage
       | RegistrationControlUnknownStage
       | RegistrationControlRejectedStage
+      | RegistrationControlValidationStage
   ) => void
 ): Promise<Readonly<{ status: number; error: CommonGoogleRegistrationControlError }>> => {
   const observer = requirePlaywrightBrand
@@ -625,11 +630,11 @@ const runDeniedRegistrationControl = async (
     }
     const error = controlError(failure.code);
     if (!validStatus) {
-      onStage(`${label}-control-outcome-status`);
+      onStage(`${label}-control-invalid-status-${failure.operation}-${failure.status}-${error}`);
       return targetFail('capability');
     }
     if (!errors.has(error)) {
-      onStage(`${label}-control-outcome-error`);
+      onStage(`${label}-control-disallowed-error-${failure.operation}-${failure.status}-${error}`);
       return targetFail('capability');
     }
     onStage(`${label}-control-outcome-accepted`);

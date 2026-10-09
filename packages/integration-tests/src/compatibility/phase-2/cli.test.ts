@@ -1425,6 +1425,28 @@ describe('Phase 2 CLI', () => {
     ).toThrow(
       'Phase 2 stage failed: oracle-common-ready-google-registration-unverified-email-control-rejected-resume-303-session.interaction_not_found'
     );
+    expect(() =>
+      commonReadyScenarioFailure(
+        'oracle',
+        'common.google.registration',
+        new TypeError(
+          'Common Google registration target failed: occupied-email-control-invalid-status-social-verify-200-none'
+        )
+      )
+    ).toThrow(
+      'Phase 2 stage failed: oracle-common-ready-google-registration-occupied-email-control-invalid-status-social-verify-200-none'
+    );
+    expect(() =>
+      commonReadyScenarioFailure(
+        'oracle',
+        'common.google.registration',
+        new TypeError(
+          'Common Google registration target failed: unverified-email-control-disallowed-error-identification-404-session.identity_conflict'
+        )
+      )
+    ).toThrow(
+      'Phase 2 stage failed: oracle-common-ready-google-registration-unverified-email-control-disallowed-error-identification-404-session.identity_conflict'
+    );
   });
 
   it('publishes one exclusive mode-0600 fixed artifact and removes owned session roots', async () => {
