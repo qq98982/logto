@@ -97,33 +97,6 @@ test('accepts the observed missing-profile denial only for unverified email', ()
   ).toEqual(['/projection']);
 });
 
-test('accepts the observed missing-identity denial only for unverified email', () => {
-  const unverifiedMissingIdentity = {
-    ...projection,
-    unverifiedEmail: {
-      ...projection.unverifiedEmail,
-      status: 404,
-      error: 'user.identity_not_exist' as const,
-    },
-  };
-  expect(
-    compareCommonGoogleRegistrationProjections(unverifiedMissingIdentity, unverifiedMissingIdentity)
-  ).toEqual([]);
-  expect(
-    compareCommonGoogleRegistrationProjections(
-      {
-        ...projection,
-        occupiedEmail: {
-          ...projection.occupiedEmail,
-          status: 404,
-          error: 'user.identity_not_exist' as const,
-        },
-      },
-      projection
-    )
-  ).toEqual(['/projection']);
-});
-
 test('rejects accepted, partial, extra, and private control outcomes', () => {
   for (const candidate of [
     { ...projection, unverifiedEmail: { ...projection.unverifiedEmail, accepted: true } },
