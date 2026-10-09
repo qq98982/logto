@@ -4,10 +4,36 @@ import { chmod, mkdtemp, open, rename, rm, writeFile } from 'node:fs/promises';
 import {
   prepareWechatWebProviderLease,
   type WechatWebProviderControl,
+  wechatWebProviderLeaseFailureStage,
 } from './wechat-web-provider-lease.js';
 
 const containerId = 'a'.repeat(64);
 const image = `sha256:${'b'.repeat(64)}`;
+
+test.each([
+  'docker-environment',
+  'admission',
+  'configuration-file',
+  'receipt-file',
+  'container-admission',
+  'configuration-write',
+  'start',
+  'health',
+  'compensation',
+  'stop-state',
+  'stop-config-identity',
+  'stop-receipt-identity',
+  'unknown',
+] as const)('reads the owned WechatWeb lease stage %s', (stage) => {
+  class SyntheticLeaseError extends TypeError {
+    readonly leaseStage = stage;
+    constructor() {
+      super('Invalid WechatWeb provider lease');
+    }
+  }
+  const error = new SyntheticLeaseError();
+  expect(wechatWebProviderLeaseFailureStage(error)).toBe(stage);
+});
 
 const createLease = async () => {
   const root = await mkdtemp('/var/tmp/henry-build/wechat-provider-lease.');

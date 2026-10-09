@@ -66,17 +66,15 @@ const providerStages = new Set([
   'unknown',
 ]);
 const wechatProviderLeaseFailureStage = (error: unknown): string | undefined => {
-  const message = ownMessage(error);
   const descriptor =
     error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'leaseStage') : undefined;
   const propertyStage: unknown =
     descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
-  const stage =
-    /^WeChat provider lease failed: ([a-z]+(?:-[a-z]+)*)$/u.exec(message ?? '')?.[1] ??
-    (message === 'Invalid WechatBrowser provider lease' && typeof propertyStage === 'string'
-      ? propertyStage
-      : undefined);
-  return stage && providerStages.has(stage) ? stage : undefined;
+  return ownMessage(error) === 'Invalid WechatWeb provider lease' &&
+    typeof propertyStage === 'string' &&
+    providerStages.has(propertyStage)
+    ? propertyStage
+    : undefined;
 };
 const ownerStage = (error: unknown, depth = 0): string | undefined => {
   if (depth >= 4) return undefined;
