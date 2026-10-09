@@ -692,6 +692,19 @@ describe('Phase 2 tracked launcher', () => {
   });
 
   it.each([
+    'unverified-email-control-profile-route',
+    'occupied-email-control-link-complete',
+    'unverified-email-control-unknown-identification-422',
+    'occupied-email-control-rejected-resume-303-session.interaction_not_found',
+    'occupied-email-control-invalid-status-identification-422-user.missing_profile',
+    'unverified-email-control-disallowed-error-identification-404-session.identity_conflict',
+  ])('preserves closed Google registration control diagnostic %s', (stage) => {
+    const diagnostic = `Phase 2 client credentials command failed (oracle-common-ready-google-registration-${stage}).\n`;
+    expect(diagnosticForPhase2Child(diagnostic)).toBe(diagnostic);
+    expect(diagnosticForPhase2Child(`${diagnostic}private-token`)).not.toContain('private-token');
+  });
+
+  it.each([
     ['wrong-state-status-o200-c400', true],
     ['wrong-state-error-ounknown-cguard.invalid_input', true],
     ['replay-second-status-o400-c404', true],

@@ -238,6 +238,11 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)-common-ready-google-registration-(?:unverified-email|occupied-email)-control-(?:(?:response|consent|profile-route|profile-input|outcome|outcome-code|outcome-status|outcome-error|outcome-accepted|link-count|link-click|link-complete)|unknown-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)|observed-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:known|unknown)-(?:incomplete|other)|rejected-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:user\.identity_not_exist|session\.verification_session_not_found|session\.interaction_not_found|session\.invalid_credentials|user\.suspended|user\.sign_in_method_not_enabled|connector\.wechat_unionid_required|connector\.social_auth_code_invalid|connector\.invalid_response)|(?:invalid-status|disallowed-error)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:connector\.general|guard\.invalid_input|user\.identity_not_exist|user\.missing_profile|verification_record\.permission_denied|session\.identity_conflict|user\.email_already_in_use|none))\)\.\n$/u.test(stderr)
+  ) {
+    return stderr;
+  }
+  if (
     /^Phase 2 client credentials command failed \((oracle|candidate)\/verification-code\.(?:experience-(?:request-verify|recipient-mismatch|replaced-current|retry-cap|consumed-replay)|recipient-send-cap|failed-delivery-preserves-current|account-request-verify-replay)\)\.\n$/u.test(
       stderr
     )
