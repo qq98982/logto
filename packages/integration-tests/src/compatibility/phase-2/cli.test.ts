@@ -1963,6 +1963,14 @@ describe('Phase 2 CLI', () => {
     expect(() =>
       commonAdditionProjectionScenarioFailure('google-registration', projection, {
         ...projection,
+        occupiedEmail: { ...projection.occupiedEmail, error: 'user.missing_profile' },
+      })
+    ).toThrow(
+      'candidate-google-registration-projection-occupied-email-error-ouser.email_already_in_use-cuser.missing_profile'
+    );
+    expect(() =>
+      commonAdditionProjectionScenarioFailure('google-registration', projection, {
+        ...projection,
         occupiedEmail: { ...projection.occupiedEmail, error: 'private-token' },
       })
     ).toThrow('candidate-google-registration-projection-contract-otrue-cfalse');

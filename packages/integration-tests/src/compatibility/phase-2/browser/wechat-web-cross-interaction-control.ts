@@ -182,6 +182,7 @@ export const createWechatWebCrossInteractionTestControl = (
   }>
 ): Readonly<{
   capability: PlaywrightExternalAuthorizationCapability;
+  complete(): void;
   failureStage(): WechatWebCrossInteractionFailureStage | undefined;
   observation(): WechatWebCrossInteractionObservation | undefined;
 }> => {
@@ -271,7 +272,7 @@ export const createWechatWebCrossInteractionTestControl = (
         : secondError === 'none' || secondError === 'unknown'
           ? ('unknown' as const)
           : false;
-    observation = Object.freeze({
+    const completedObservation = Object.freeze({
       requestCount: 1,
       firstStatus: 200,
       firstOutcome: 'verified',
@@ -285,7 +286,8 @@ export const createWechatWebCrossInteractionTestControl = (
     failureStage = 'cleanup';
     await cleanupForeign?.().catch(() => failForeign('cleanup'));
     cleanupForeign = undefined;
-    failureStage = undefined;
+    observation = completedObservation;
+    failureStage = 'after-control';
     return true;
   };
   const capability = registerPlaywrightExternalAuthorizationCapability(
@@ -305,6 +307,9 @@ export const createWechatWebCrossInteractionTestControl = (
   );
   return Object.freeze({
     capability,
+    complete: () => {
+      failureStage = undefined;
+    },
     failureStage: () => failureStage,
     observation: () => observation,
   });

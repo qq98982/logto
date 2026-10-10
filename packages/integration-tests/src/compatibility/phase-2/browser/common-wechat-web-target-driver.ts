@@ -518,7 +518,6 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
   let selectedFixtureStage: FixtureStage | undefined;
   let cleanupFailed = false;
   let readCrossFailure: (() => WechatWebCrossInteractionFailureStage | undefined) | undefined;
-  let readCrossObservation: (() => WechatWebCrossInteractionObservation | undefined) | undefined;
   let stage: Stage = 'credentials';
   try {
     return await input.withProviderCredentialLease(async (credentials) => {
@@ -607,7 +606,6 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                     })
                   : undefined;
               readCrossFailure = crossControl?.failureStage;
-              readCrossObservation = crossControl?.observation;
               const observer = input.createObserver(crossControl?.capability ?? value.capability);
               if (requirePlaywrightBrand && !isPlaywrightBrowserGroupObserver(observer)) {
                 return targetFail('capability');
@@ -794,16 +792,15 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       });
                       contextProgress = 'after-flow';
                       if (providerCase === 'crossInteraction') {
-                        if (crossControl?.observation()) {
-                          throw new TypeError('Invalid WeChat Web cross-interaction after-control');
-                        }
                         const crossFailure = crossControl?.failureStage();
-                        if (crossFailure) {
+                        if (crossFailure && crossFailure !== 'after-control') {
                           throw new TypeError(
                             `Invalid WeChat Web cross-interaction ${crossFailure}`
                           );
                         }
-                        return crossControl?.observation() ?? fail();
+                        const crossObservation = crossControl?.observation() ?? fail();
+                        crossControl?.complete();
+                        return crossObservation;
                       }
                       return positive;
                     } catch (error: unknown) {
@@ -911,10 +908,6 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
     });
   } catch {
     if (providerCase === 'crossInteraction') {
-      const crossObservation = readCrossObservation?.();
-      if (crossObservation) {
-        return crossObservation;
-      }
       const crossFailure = readCrossFailure?.();
       if (crossFailure) {
         throw new TypeError(`Invalid WeChat Web cross-interaction ${crossFailure}`);
