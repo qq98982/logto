@@ -247,6 +247,7 @@ test('reuses the same owned container across three compensated provider controls
     await lease.stop();
     expect(await readFile(files.configFile, 'utf8')).toBe('');
     expect(await readFile(files.receiptFile, 'utf8')).toBe('');
+    expect(await readFile(files.healthDiagnosticFile, 'utf8')).toBe('');
   }
   expect(shared.admissions).toEqual([
     { id, status: 'created', running: false },

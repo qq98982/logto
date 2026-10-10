@@ -738,9 +738,11 @@ export const prepareGoogleProviderLease = async (
           await quiesceOwnedContainer(input.control, identity.id, true);
           await samePrivateMutableFile(input.configFile, configIdentity);
           await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+          await samePrivateMutableFile(input.healthDiagnosticFile, healthDiagnosticIdentity);
           if (input.resetPrivateFilesOnStop) {
             await clearPrivateFile(input.configFile, configIdentity);
             await clearPrivateFile(input.receiptFile, receiptIdentity);
+            await clearPrivateFile(input.healthDiagnosticFile, healthDiagnosticIdentity);
           }
         } catch {
           return fail();
