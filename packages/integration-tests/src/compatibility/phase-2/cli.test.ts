@@ -1854,6 +1854,30 @@ describe('Phase 2 CLI', () => {
     [
       'common.wechat.web',
       'wechat-web',
+      'Common Wechat existing-owner target failed: fixture-stop-provider-state',
+      'fixture-stop-provider-state',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
+      'Common Wechat existing-owner target failed: fixture-stop-provider-config-identity',
+      'fixture-stop-provider-config-identity',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
+      'Common Wechat existing-owner target failed: fixture-stop-provider-receipt-identity',
+      'fixture-stop-provider-receipt-identity',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
+      'Invalid Common WeChat Web scenario projection',
+      'scenario-projection',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
       'Common WeChat Web failed: consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
       'consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
     ],

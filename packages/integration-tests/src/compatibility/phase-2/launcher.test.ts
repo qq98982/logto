@@ -675,6 +675,9 @@ describe('Phase 2 tracked launcher', () => {
     'oracle-common-ready-wechat-web-context-control-response',
     'oracle-common-ready-wechat-web-context-positive-provider',
     'oracle-common-ready-wechat-web-context-positive-consent-state',
+    'oracle-common-ready-wechat-web-fixture-stop-provider-state',
+    'oracle-common-ready-wechat-web-fixture-stop-provider-config-identity',
+    'oracle-common-ready-wechat-web-fixture-stop-provider-receipt-identity',
     'oracle-common-ready-wechat-web-consent-route-other-social-verify-400-not-applicable-connector-general-auth-111111100-state-unavailable',
   ])('preserves exact new Common child diagnostic %s', (detail) => {
     const diagnostic = `Phase 2 client credentials command failed (${detail}).\n`;

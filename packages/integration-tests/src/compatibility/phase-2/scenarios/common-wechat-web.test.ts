@@ -178,4 +178,11 @@ test('retains the control identity when the inner browser error is rewritten', a
       );
     })
   ).rejects.toThrow('Common Wechat existing-owner target failed: controls-missing-state');
+
+  await expect(
+    runCommonWechatControlForTesting('wrong-state', async () => ({ accepted: false }), {
+      accepted: false,
+      correctRetryAccepted: true,
+    })
+  ).rejects.toThrow('Common Wechat existing-owner target failed: controls-wrong-state');
 });

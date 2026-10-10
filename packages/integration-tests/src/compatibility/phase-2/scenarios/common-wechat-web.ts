@@ -419,19 +419,28 @@ type ControlStage =
   | 'missing-state'
   | 'wrong-state'
   | 'wrong-callback';
-const runControl = async <Result>(stage: ControlStage, run: () => Promise<Result>) => {
+const runControl = async <Result>(
+  stage: ControlStage,
+  run: () => Promise<Result>,
+  expected?: unknown
+) => {
   try {
-    return await run();
+    const result = await run();
+    if (expected !== undefined && !isDeepStrictEqual(result, expected)) {
+      throw new TypeError('Invalid Common WeChat Web control projection');
+    }
+    return result;
   } catch {
     throw new TypeError(`Common Wechat existing-owner target failed: controls-${stage}`);
   }
 };
 export const runCommonWechatControlForTesting = async <Result>(
   stage: ControlStage,
-  run: () => Promise<Result>
+  run: () => Promise<Result>,
+  expected?: unknown
 ): Promise<Result> =>
   process.env.NODE_ENV === 'test'
-    ? runControl(stage, run)
+    ? runControl(stage, run, expected)
     : Promise.reject(new TypeError('Invalid Common WeChat control test entry'));
 
 export const runCommonWechatWebScenarioRow = async (
@@ -471,20 +480,35 @@ export const runCommonWechatWebScenarioRow = async (
     prepareProvider: runtime.prepareProvider,
   };
   const positive = await runCommonWechatWebExistingOwnerForTarget(driverInput);
-  const noUnionId = await runControl('no-union-id', async () =>
-    runCommonWechatWebProviderControlForTarget(driverInput, 'noUnionId')
+  const noUnionId = await runControl(
+    'no-union-id',
+    async () => runCommonWechatWebProviderControlForTarget(driverInput, 'noUnionId'),
+    commonWechatWebExpectedProjection.noUnionId
   );
-  const invalidCode = await runControl('invalid-code', async () =>
-    runCommonWechatWebProviderControlForTarget(driverInput, 'invalidCode')
+  const invalidCode = await runControl(
+    'invalid-code',
+    async () => runCommonWechatWebProviderControlForTarget(driverInput, 'invalidCode'),
+    commonWechatWebExpectedProjection.invalidCode
   );
-  const replay = await runControl('replay', async () =>
-    runCommonWechatWebProviderControlForTarget(driverInput, 'replay')
+  const replay = await runControl(
+    'replay',
+    async () => runCommonWechatWebProviderControlForTarget(driverInput, 'replay'),
+    commonWechatWebExpectedProjection.replay
   );
-  const malformedProvider = await runControl('malformed-provider', async () =>
-    runCommonWechatWebProviderControlForTarget(driverInput, 'malformedProvider')
+  const malformedProvider = await runControl(
+    'malformed-provider',
+    async () => runCommonWechatWebProviderControlForTarget(driverInput, 'malformedProvider'),
+    commonWechatWebExpectedProjection.malformedProvider
   );
-  const cross = await runControl('cross-interaction', async () =>
-    runCommonWechatWebCrossInteractionForTarget(driverInput)
+  const cross = await runControl(
+    'cross-interaction',
+    async () => runCommonWechatWebCrossInteractionForTarget(driverInput),
+    {
+      secondStatus: commonWechatWebExpectedProjection.crossInteraction.status,
+      secondError: commonWechatWebExpectedProjection.crossInteraction.error,
+      secondAccepted: commonWechatWebExpectedProjection.crossInteraction.accepted,
+      ownerPreserved: commonWechatWebExpectedProjection.crossInteraction.ownerPreserved,
+    }
   );
   const crossInteraction = Object.freeze({
     status: cross.secondStatus,
@@ -492,14 +516,20 @@ export const runCommonWechatWebScenarioRow = async (
     accepted: cross.secondAccepted,
     ownerPreserved: cross.ownerPreserved,
   });
-  const missingState = await runControl('missing-state', async () =>
-    runCommonWechatWebStateControlForTarget(driverInput, 'missingState')
+  const missingState = await runControl(
+    'missing-state',
+    async () => runCommonWechatWebStateControlForTarget(driverInput, 'missingState'),
+    commonWechatWebExpectedProjection.missingState
   );
-  const wrongState = await runControl('wrong-state', async () =>
-    runCommonWechatWebStateControlForTarget(driverInput, 'wrongState')
+  const wrongState = await runControl(
+    'wrong-state',
+    async () => runCommonWechatWebStateControlForTarget(driverInput, 'wrongState'),
+    commonWechatWebExpectedProjection.wrongState
   );
-  const wrongCallback = await runControl('wrong-callback', async () =>
-    runCommonWechatWebStateControlForTarget(driverInput, 'wrongCallback')
+  const wrongCallback = await runControl(
+    'wrong-callback',
+    async () => runCommonWechatWebStateControlForTarget(driverInput, 'wrongCallback'),
+    commonWechatWebExpectedProjection.wrongCallback
   );
   const projection = Object.freeze({
     ...positive,
