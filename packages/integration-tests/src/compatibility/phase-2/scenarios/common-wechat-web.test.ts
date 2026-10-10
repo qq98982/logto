@@ -3,6 +3,7 @@ import {
   compareCommonWechatWebProjections,
   describeCommonWechatWebFailure,
   describeCommonWechatWebProjectionDifference,
+  projectCommonWechatCrossInteraction,
   runCommonWechatControlForTesting,
 } from './common-wechat-web.js';
 
@@ -185,4 +186,18 @@ test('retains the control identity when the inner browser error is rewritten', a
       correctRetryAccepted: true,
     })
   ).rejects.toThrow('Common Wechat existing-owner target failed: controls-wrong-state');
+});
+
+test('projects complete cross-interaction proof into the public control shape', () => {
+  expect(
+    projectCommonWechatCrossInteraction({
+      requestCount: 2,
+      firstStatus: 200,
+      firstOutcome: 'verified',
+      secondStatus: 404,
+      secondError: 'session.verification_session_not_found',
+      secondAccepted: false,
+      ownerPreserved: true,
+    })
+  ).toEqual(projection().crossInteraction);
 });

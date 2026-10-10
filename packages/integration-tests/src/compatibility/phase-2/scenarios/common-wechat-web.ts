@@ -443,6 +443,16 @@ export const runCommonWechatControlForTesting = async <Result>(
     ? runControl(stage, run, expected)
     : Promise.reject(new TypeError('Invalid Common WeChat control test entry'));
 
+export const projectCommonWechatCrossInteraction = (
+  cross: Awaited<ReturnType<typeof runCommonWechatWebCrossInteractionForTarget>>
+) =>
+  Object.freeze({
+    status: cross.secondStatus,
+    error: cross.secondError,
+    accepted: cross.secondAccepted,
+    ownerPreserved: cross.ownerPreserved,
+  });
+
 export const runCommonWechatWebScenarioRow = async (
   input: Readonly<{
     target: TargetConfig;
@@ -504,12 +514,7 @@ export const runCommonWechatWebScenarioRow = async (
     'cross-interaction',
     async () => {
       const cross = await runCommonWechatWebCrossInteractionForTarget(driverInput);
-      return Object.freeze({
-        status: cross.secondStatus,
-        error: cross.secondError,
-        accepted: cross.secondAccepted,
-        ownerPreserved: cross.ownerPreserved,
-      });
+      return projectCommonWechatCrossInteraction(cross);
     },
     commonWechatWebExpectedProjection.crossInteraction
   );
