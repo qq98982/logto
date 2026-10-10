@@ -730,6 +730,7 @@ const executeCommonGoogleRegistrationForTarget = async (
                 originalEmail: input.provider.originalOwnerEmail,
                 changedEmail: input.provider.changedProviderEmail,
                 expectedUserinfoMethod: input.provider.expectedUserinfoMethod,
+                resetPrivateFilesOnStop: true,
                 ...(input.provider.healthTiming && {
                   healthTiming: input.provider.healthTiming,
                 }),
