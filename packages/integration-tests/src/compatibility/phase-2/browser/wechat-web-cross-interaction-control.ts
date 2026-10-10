@@ -1,8 +1,7 @@
 /* eslint-disable complexity, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One-use route interception retains private proof material only inside the browser control. */
-import { createRequire } from 'node:module';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { APIResponse, APIRequest } from '@playwright/test';
+import type { APIResponse, Request } from '@playwright/test';
 
 import {
   invokePlaywrightExternalAuthorizationCapability,
@@ -32,11 +31,6 @@ const fail = (): never => {
   throw new TypeError('Invalid WeChat Web cross-interaction control');
 };
 const maximumBodyBytes = 65_536;
-// Runtime loading keeps Playwright external to the ESM bundle; its published type validates the port.
-// eslint-disable-next-line no-restricted-syntax
-const { request: playwrightRequest } = createRequire(import.meta.url)('@playwright/test') as {
-  request: APIRequest;
-};
 const boundedBody = async (response: APIResponse): Promise<Record<string, unknown>> => {
   const bytes = await response.body();
   if (bytes.byteLength > maximumBodyBytes) {
@@ -57,27 +51,35 @@ type ForeignInteractionRequest = (
     verifyUrl: URL;
     headers: Readonly<Record<string, string>>;
     postData: Uint8Array;
+    request: Request;
   }>
 ) => Promise<Readonly<{ status: number; body: Record<string, unknown> }>>;
 const requestInForeignInteraction: ForeignInteractionRequest = async (input) => {
-  const context = await playwrightRequest.newContext({
-    baseURL: input.target.origin,
-    extraHTTPHeaders: input.headers,
+  const browser = input.request.frame().page().context().browser();
+  if (!browser) {
+    return fail();
+  }
+  const context = await browser.newContext({
+    acceptDownloads: false,
+    locale: 'en',
+    serviceWorkers: 'block',
   });
   try {
-    const initialized = await context.put('/api/experience', {
+    const initialized = await context.request.put(new URL('/api/experience', input.target).href, {
       data: { interactionEvent: 'SignIn' },
+      headers: input.headers,
     });
     if (initialized.status() !== 200) {
       return fail();
     }
-    const response = await context.fetch(input.verifyUrl.href, {
+    const response = await context.request.fetch(input.verifyUrl.href, {
       method: 'POST',
       data: input.postData,
+      headers: input.headers,
     });
     return Object.freeze({ status: response.status(), body: await boundedBody(response) });
   } finally {
-    await context.dispose();
+    await context.close();
   }
 };
 const closedError = (value: unknown): WechatWebCrossInteractionError => {
@@ -170,6 +172,7 @@ export const createWechatWebCrossInteractionTestControl = (
         verifyUrl: url,
         headers,
         postData,
+        request: originalRequest,
       });
       const after = structuredClone(await input.ownerSnapshot());
       if (!isDeepStrictEqual(before, after)) {
