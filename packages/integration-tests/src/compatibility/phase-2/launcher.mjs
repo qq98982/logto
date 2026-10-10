@@ -422,7 +422,7 @@ export const diagnosticForPhase2ChildResult = (result) => {
       .map((line) => `${line}\n`)
       .filter((line) => diagnosticForPhase2Child(line) === line);
     if (closedLines.length > 0) {
-      return `${closedLines.join('')}${stderrDiagnostic(result.stderr)}`;
+      return `${closedLines.join('')}${stderrCategoryDiagnostic(result.stderr)}${stderrDiagnostic(result.stderr)}`;
     }
   }
   if (result.stderr !== '') {
