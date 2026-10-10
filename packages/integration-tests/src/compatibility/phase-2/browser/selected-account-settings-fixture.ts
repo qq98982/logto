@@ -47,6 +47,11 @@ export const isolateAccountPasswordPolicy = (
   });
 };
 
+export const accountPasswordPolicyMatches = (
+  signInExperience: unknown,
+  expected: Readonly<Record<string, unknown>>
+): boolean => isDeepStrictEqual(record(signInExperience).passwordPolicy, expected);
+
 const accountCenter = (value: unknown): AccountCenterRecord => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return fail();
@@ -120,16 +125,20 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   let cleanupError: unknown;
   try {
     if (passwordPolicy.isolated !== undefined) {
-      const patchedExperience = record(
-        await input.request({
-          method: 'PATCH',
-          path: 'sign-in-exp',
-          body: { passwordPolicy: passwordPolicy.isolated },
-          expectedStatuses: [200],
-          responseKind: 'object',
-        })
-      );
-      if (!isDeepStrictEqual(patchedExperience.passwordPolicy, passwordPolicy.isolated)) {
+      await input.request({
+        method: 'PATCH',
+        path: 'sign-in-exp',
+        body: { passwordPolicy: passwordPolicy.isolated },
+        expectedStatuses: [200],
+        responseKind: 'object',
+      });
+      const patchedExperience: unknown = await input.request({
+        method: 'GET',
+        path: 'sign-in-exp',
+        expectedStatuses: [200],
+        responseKind: 'object',
+      });
+      if (!accountPasswordPolicyMatches(patchedExperience, passwordPolicy.isolated)) {
         return fail();
       }
     }
@@ -159,6 +168,15 @@ export const withSelectedAccountSettingsFixture = async <Result>(
           expectedStatuses: [200],
           responseKind: 'object',
         });
+        const restoredExperience: unknown = await input.request({
+          method: 'GET',
+          path: 'sign-in-exp',
+          expectedStatuses: [200],
+          responseKind: 'object',
+        });
+        if (!accountPasswordPolicyMatches(restoredExperience, passwordPolicy.previous)) {
+          cleanupError = new TypeError('Invalid selected Account settings fixture cleanup');
+        }
       }
       const restored = accountCenter(
         await input.request({

@@ -1,4 +1,7 @@
-import { isolateAccountPasswordPolicy } from './selected-account-settings-fixture.js';
+import {
+  accountPasswordPolicyMatches,
+  isolateAccountPasswordPolicy,
+} from './selected-account-settings-fixture.js';
 
 describe('selected Account settings fixture', () => {
   it('disables only the pwned-password check for the default empty policy', () => {
@@ -35,5 +38,14 @@ describe('selected Account settings fixture', () => {
     expect(() => isolateAccountPasswordPolicy({ rejects: null })).toThrow(
       'Invalid selected Account settings fixture'
     );
+  });
+
+  it('validates persisted password policy from an independent readback', () => {
+    const expected = { rejects: { pwned: false } };
+
+    expect(accountPasswordPolicyMatches({ passwordPolicy: expected }, expected)).toBe(true);
+    expect(accountPasswordPolicyMatches({ updatedAt: 1 }, expected)).toBe(false);
+    expect(accountPasswordPolicyMatches({ passwordPolicy: {} }, expected)).toBe(false);
+    expect(accountPasswordPolicyMatches({ passwordPolicy: {} }, {})).toBe(true);
   });
 });
