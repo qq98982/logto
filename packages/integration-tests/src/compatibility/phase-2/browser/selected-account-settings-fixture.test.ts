@@ -7,7 +7,16 @@ describe('selected Account settings fixture', () => {
   it('disables only the pwned-password check for the default empty policy', () => {
     expect(isolateAccountPasswordPolicy({})).toEqual({
       previous: {},
-      isolated: { rejects: { pwned: false } },
+      isolated: {
+        length: { min: 8, max: 256 },
+        characterTypes: { min: 1 },
+        rejects: {
+          pwned: false,
+          repetitionAndSequence: true,
+          userInfo: true,
+          words: [],
+        },
+      },
     });
   });
 
@@ -22,8 +31,14 @@ describe('selected Account settings fixture', () => {
     expect(result).toEqual({
       previous: input,
       isolated: {
-        length: { min: 12 },
-        rejects: { repetitionAndSequence: true, pwned: false },
+        length: { min: 12, max: 256 },
+        characterTypes: { min: 1 },
+        rejects: {
+          repetitionAndSequence: true,
+          pwned: false,
+          userInfo: true,
+          words: [],
+        },
       },
     });
     expect(result.previous).toEqual(input);

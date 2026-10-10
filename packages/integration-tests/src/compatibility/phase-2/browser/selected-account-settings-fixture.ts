@@ -1,6 +1,8 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The wrapper preserves primary and cleanup failures across compensated fixture mutation. */
 import { isDeepStrictEqual } from 'node:util';
 
+import { passwordPolicyGuard } from '@logto/core-kit';
+
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 import {
@@ -40,10 +42,12 @@ export const isolateAccountPasswordPolicy = (
   const rejects = rejectsValue === undefined ? {} : record(rejectsValue);
   return Object.freeze({
     previous,
-    isolated: Object.freeze({
-      ...previous,
-      rejects: Object.freeze({ ...rejects, pwned: false }),
-    }),
+    isolated: Object.freeze(
+      passwordPolicyGuard.parse({
+        ...previous,
+        rejects: Object.freeze({ ...rejects, pwned: false }),
+      })
+    ),
   });
 };
 
