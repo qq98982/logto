@@ -1316,6 +1316,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('2>"$RUN_DIR/evidence-sequence.stderr"');
     expect(source).toContain('^Phase 2 client credentials command failed ');
     expect(source).toContain('^Phase 2 client credentials launcher child failed ');
+    expect(source).toContain('controls-cross-interaction(-(execution|status|error|accepted))?');
     expect(source).toContain('^Phase 2 client credentials batch failed ');
     expect(source).toContain('^Phase 2 evidence sequence failed ');
     expect(source).toContain(
