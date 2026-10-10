@@ -53,6 +53,7 @@ type ForeignInteractionRequest = (
     headers: Readonly<Record<string, string>>;
     postData: Uint8Array;
     request: Request;
+    registerCleanup(cleanup: () => Promise<void>): void;
     reportStage(stage: ForeignInteractionStage): void;
   }>
 ) => Promise<Readonly<{ status: number; body: Record<string, unknown> }>>;
@@ -92,60 +93,35 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
   const context = await browser
     .newContext({ acceptDownloads: false, locale: 'en', serviceWorkers: 'block' })
     .catch(() => failForeign('context'));
-  let result: Readonly<{ status: number; body: Record<string, unknown> }> | undefined;
-  let primaryError: unknown;
-  let cleanupFailed = false;
-  try {
-    input.reportStage('init-request');
-    const initialized = await context.request
-      .put(new URL('/api/experience', input.target).href, {
-        data: { interactionEvent: 'SignIn' },
-        headers: input.headers,
-        maxRedirects: 0,
-      })
-      .catch(() => failForeign('init-request'));
-    const initializedStatus = initialized.status();
-    await initialized.dispose().catch(() => failForeign('cleanup'));
-    if (initializedStatus !== 204) {
-      input.reportStage('init-status');
-      return failForeign('init-status');
-    }
-    input.reportStage('replay-request');
-    const response = await context.request
-      .fetch(input.verifyUrl.href, {
-        method: 'POST',
-        data: input.postData,
-        headers: input.headers,
-        maxRedirects: 0,
-      })
-      .catch(() => failForeign('replay-request'));
-    input.reportStage('replay-body');
-    const body = await boundedBody(response).catch(() => failForeign('replay-body'));
-    const responseStatus = response.status();
-    await response.dispose().catch(() => failForeign('cleanup'));
-    result = Object.freeze({ status: responseStatus, body });
-  } catch (error: unknown) {
-    primaryError = error;
-  } finally {
-    input.reportStage('cleanup');
-    try {
-      await context.close();
-    } catch {
-      if (!primaryError) {
-        cleanupFailed = true;
-      }
-    }
+  input.registerCleanup(async () => context.close());
+  input.reportStage('init-request');
+  const initialized = await context.request
+    .put(new URL('/api/experience', input.target).href, {
+      data: { interactionEvent: 'SignIn' },
+      headers: input.headers,
+      maxRedirects: 0,
+    })
+    .catch(() => failForeign('init-request'));
+  const initializedStatus = initialized.status();
+  await initialized.dispose().catch(() => failForeign('cleanup'));
+  if (initializedStatus !== 204) {
+    input.reportStage('init-status');
+    return failForeign('init-status');
   }
-  if (primaryError instanceof Error) {
-    throw primaryError;
-  }
-  if (primaryError !== undefined) {
-    return fail();
-  }
-  if (cleanupFailed) {
-    return failForeign('cleanup');
-  }
-  return result ?? fail();
+  input.reportStage('replay-request');
+  const response = await context.request
+    .fetch(input.verifyUrl.href, {
+      method: 'POST',
+      data: input.postData,
+      headers: input.headers,
+      maxRedirects: 0,
+    })
+    .catch(() => failForeign('replay-request'));
+  input.reportStage('replay-body');
+  const body = await boundedBody(response).catch(() => failForeign('replay-body'));
+  const responseStatus = response.status();
+  await response.dispose().catch(() => failForeign('cleanup'));
+  return Object.freeze({ status: responseStatus, body });
 };
 const closedError = (value: unknown): WechatWebCrossInteractionError => {
   switch (value) {
@@ -181,6 +157,7 @@ export const createWechatWebCrossInteractionTestControl = (
   let intercepted = false;
   let failureStage: WechatWebCrossInteractionFailureStage | undefined = 'not-observed';
   let observation: WechatWebCrossInteractionObservation | undefined;
+  let cleanupForeign: (() => Promise<void>) | undefined;
   const handler = async (method: string, url: URL, route: PlaywrightExternalAuthorizationRoute) => {
     if (
       await invokePlaywrightExternalAuthorizationCapability(input.authorization, method, url, route)
@@ -238,6 +215,9 @@ export const createWechatWebCrossInteractionTestControl = (
       headers,
       postData,
       request: originalRequest,
+      registerCleanup: (cleanup) => {
+        cleanupForeign = cleanup;
+      },
       reportStage: (stage) => {
         failureStage = stage;
       },
@@ -265,6 +245,9 @@ export const createWechatWebCrossInteractionTestControl = (
     });
     failureStage = 'fulfill';
     await route.fulfill({ response: first });
+    failureStage = 'cleanup';
+    await cleanupForeign?.().catch(() => failForeign('cleanup'));
+    cleanupForeign = undefined;
     failureStage = undefined;
     return true;
   };
@@ -274,6 +257,11 @@ export const createWechatWebCrossInteractionTestControl = (
         return await handler(method, url, route);
       } catch {
         await route.abort().catch(() => false);
+        failureStage ??= 'cleanup';
+        await cleanupForeign?.().catch(() => {
+          failureStage = 'cleanup';
+        });
+        cleanupForeign = undefined;
         return true;
       }
     }
