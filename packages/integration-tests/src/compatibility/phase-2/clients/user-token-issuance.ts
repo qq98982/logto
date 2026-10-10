@@ -161,11 +161,14 @@ const issueUserTokens = async (
   options: Readonly<{
     subjectPassword?: string;
     subjectUsername?: string;
+    subjectIdentifier?: Readonly<{ type: 'username' | 'email'; value: string }>;
     resourceAtCodeExchange?: boolean;
     signal?: AbortSignal;
     nativeClient?: NativeCallbackClient;
     nativeIdentityFixture?: NativeCallbackIdentityFixture;
     stopAtNativeCallback?: boolean;
+    authorizationResources?: readonly string[];
+    authorizationScope?: string;
   }> = {}
 ): Promise<IssuedPublicUserTokens | IssuedPublicUserSession | NativeCallbackHandoff> => {
   let stage = 'admission';
@@ -259,24 +262,29 @@ const issueUserTokens = async (
       return response;
     };
     const authorization = endpoint('/oidc/auth');
-    authorization.search = new URLSearchParams({
+    const authorizationQuery = new URLSearchParams({
       client_id: client.id,
       redirect_uri: client.redirectUri,
       response_type: 'code',
       prompt: 'login consent',
-      scope: options.stopAtNativeCallback
-        ? `openid offline_access profile ${resourceScope}`
-        : 'openid offline_access profile email address phone ' +
-          resourceScope +
-          (captureBrowserSession
-            ? ` ${target.label === 'oracle' ? 'urn:logto:scope:sessions' : 'urn:aster:scope:sessions'}`
-            : ''),
-      resource,
+      scope:
+        options.authorizationScope ??
+        (options.stopAtNativeCallback
+          ? `openid offline_access profile ${resourceScope}`
+          : 'openid offline_access profile email address phone ' +
+            resourceScope +
+            (captureBrowserSession
+              ? ` ${target.label === 'oracle' ? 'urn:logto:scope:sessions' : 'urn:aster:scope:sessions'}`
+              : '')),
       code_challenge: challenge,
       code_challenge_method: 'S256',
       ...(state === undefined ? {} : { state }),
       ...(nonce === undefined ? {} : { nonce }),
-    }).toString();
+    });
+    for (const requestedResource of options.authorizationResources ?? [resource]) {
+      authorizationQuery.append('resource', bounded(requestedResource));
+    }
+    authorization.search = authorizationQuery.toString();
     stage = 'authorization';
     await discard(await requireStatus(await send(authorization, 'GET'), 303));
     stage = 'bootstrap';
@@ -328,8 +336,9 @@ const issueUserTokens = async (
             })
           )
         : identifyWithPassword(options.subjectPassword, {
-            type: 'username',
-            value: options.subjectUsername ?? status.user.username,
+            type: options.subjectIdentifier?.type ?? 'username',
+            value:
+              options.subjectIdentifier?.value ?? options.subjectUsername ?? status.user.username,
           }));
     stage = 'submit';
     const submitted = await jsonBody(
@@ -509,6 +518,22 @@ export const issuePublicUserTokensForSubject = async (
   issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
     subjectPassword: subject.password,
     subjectUsername: subject.username,
+  }) as Promise<IssuedPublicUserTokens>;
+
+export const issuePublicAccountTokensForSubject = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  subject: Readonly<{ username: string; password: string } | { email: string; password: string }>,
+  requestFetch: typeof fetch = fetch
+): Promise<IssuedPublicUserTokens> =>
+  issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+    subjectPassword: subject.password,
+    subjectIdentifier:
+      'email' in subject
+        ? { type: 'email', value: subject.email }
+        : { type: 'username', value: subject.username },
+    authorizationResources: ['urn:aster:resource:management', 'urn:aster:resource:account'],
+    authorizationScope: 'openid offline_access profile email phone identities custom_data all',
   }) as Promise<IssuedPublicUserTokens>;
 
 export const issueConfidentialUserSession = async (

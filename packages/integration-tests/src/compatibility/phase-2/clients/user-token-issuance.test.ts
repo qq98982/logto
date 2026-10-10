@@ -8,6 +8,7 @@ import {
   exchangePublicRefresh,
   issueConfidentialUserSession,
   issueConfidentialUserTokens,
+  issuePublicAccountTokensForSubject,
   issuePublicUserTokens,
   stopPublicNativeAtCallback,
 } from './user-token-issuance.js';
@@ -458,6 +459,35 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(form.get('code')).toBe('private-code');
     expect(form.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(form.get('client_secret')).toBeNull();
+  });
+
+  it('issues an opaque Account bearer from the selected subject with both resource requests', async () => {
+    const transport = flow();
+    const tokens = await issuePublicAccountTokensForSubject(
+      target,
+      fixture,
+      { email: 'account-owner@example.invalid', password: 'private-account-password' },
+      transport.fetch
+    );
+    expect(tokens.access).toBe('private-access');
+    expect(tokens.refresh).toBe('private-refresh');
+    const authorization = transport.requests[0]?.url;
+    expect(authorization?.searchParams.getAll('resource')).toEqual([
+      'urn:aster:resource:management',
+      'urn:aster:resource:account',
+    ]);
+    expect(authorization?.searchParams.get('scope')).toBe(
+      'openid offline_access profile email phone identities custom_data all'
+    );
+    expect(JSON.parse(String(transport.requests[2]?.init.body))).toMatchObject({
+      identifier: { type: 'email', value: 'account-owner@example.invalid' },
+      password: 'private-account-password',
+    });
+    expect(
+      Object.fromEntries(new URLSearchParams(String(transport.requests[9]?.init.body)))
+    ).toEqual(
+      expect.objectContaining({ grant_type: 'authorization_code', client_id: 'public-client' })
+    );
   });
 
   it('issues confidential user tokens with PKCE and Basic proof kept out of the form', async () => {
