@@ -68,6 +68,7 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
     const initialized = await context.request.put(new URL('/api/experience', input.target).href, {
       data: { interactionEvent: 'SignIn' },
       headers: input.headers,
+      maxRedirects: 0,
     });
     if (initialized.status() !== 200) {
       return fail();
@@ -76,6 +77,7 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
       method: 'POST',
       data: input.postData,
       headers: input.headers,
+      maxRedirects: 0,
     });
     return Object.freeze({ status: response.status(), body: await boundedBody(response) });
   } finally {
