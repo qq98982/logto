@@ -1,9 +1,15 @@
-/* eslint-disable unicorn/consistent-function-scoping -- Per-test request fakes assert local inputs. */
+/* eslint-disable unicorn/consistent-function-scoping, @typescript-eslint/consistent-type-assertions -- Minimal observer/session fakes exercise normalization boundaries only. */
+import type { TargetConfig } from '../../model.js';
+import type {
+  Phase1BrowserGroupObserver,
+  Phase1BrowserSession,
+} from '../../phase-1/browser/contracts.js';
 import type { Phase2AdminRequestFunction } from '../fixtures.js';
 
 import {
   readRegisteredUserByPhone,
   runCommonPhoneCodeAdminBoundary,
+  runCommonPhoneCodeInFreshContext,
 } from './common-phone-code-target-driver.js';
 
 test('binds a registration subject only from one exact Management phone match', async () => {
@@ -68,4 +74,46 @@ test('collapses an arbitrary private admin consumer error to the closed other st
     })
   ).rejects.toThrow('Common phone code target failed: other');
 });
-/* eslint-enable unicorn/consistent-function-scoping */
+
+const wrappedObserver = (): Phase1BrowserGroupObserver =>
+  ({
+    runInFreshContext: async (
+      _group: string,
+      _signal: AbortSignal,
+      _target: TargetConfig,
+      use: (session: Phase1BrowserSession) => Promise<unknown>
+    ) => {
+      try {
+        return await use({} as Phase1BrowserSession);
+      } catch {
+        throw new Error('private observer normalization');
+      }
+    },
+  }) as Phase1BrowserGroupObserver;
+
+test('preserves a finite phone flow stage across browser observer normalization', async () => {
+  await expect(
+    runCommonPhoneCodeInFreshContext(
+      wrappedObserver(),
+      new AbortController().signal,
+      { label: 'candidate', coreUrl: 'https://core.example', adminUrl: 'https://admin.example' },
+      async () => {
+        throw new TypeError('Selected phone code fixture failed: use-registration-identifier');
+      }
+    )
+  ).rejects.toThrow('Common phone code target failed: flow-registration-identifier');
+});
+
+test('collapses an unmatched browser error after observer normalization', async () => {
+  await expect(
+    runCommonPhoneCodeInFreshContext(
+      wrappedObserver(),
+      new AbortController().signal,
+      { label: 'candidate', coreUrl: 'https://core.example', adminUrl: 'https://admin.example' },
+      async () => {
+        throw new Error('private browser and credential detail');
+      }
+    )
+  ).rejects.toThrow('Common phone code target failed: browser');
+});
+/* eslint-enable unicorn/consistent-function-scoping, @typescript-eslint/consistent-type-assertions */

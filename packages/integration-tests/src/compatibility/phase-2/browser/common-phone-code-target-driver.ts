@@ -90,6 +90,27 @@ export const runCommonPhoneCodeAdminBoundary = async <Result>(
   }
 };
 
+export const runCommonPhoneCodeInFreshContext = async <Result>(
+  observer: Phase1BrowserGroupObserver,
+  signal: AbortSignal,
+  target: TargetConfig,
+  use: (session: Phase1BrowserSession) => Promise<Result>
+): Promise<Result> => {
+  let closedStage: string | undefined;
+  try {
+    return await observer.runInFreshContext('experience', signal, target, async (session) => {
+      try {
+        return await use(session);
+      } catch (error: unknown) {
+        closedStage = closedPhoneConsumerStage(error);
+        throw error;
+      }
+    });
+  } catch {
+    return fail(closedStage ?? 'browser');
+  }
+};
+
 export type CommonPhoneCodeScenario = 'registration' | 'sign-in';
 export type CommonPhoneCodeScenarioProjection = Readonly<{
   flow: CommonPhoneCodeProjection['registration'] | CommonPhoneCodeProjection['signIn'];
@@ -225,7 +246,8 @@ const execute = async (
       use: async (selected) => {
         const runInContext = async <Result>(
           operation: (session: Phase1BrowserSession) => Promise<Result>
-        ) => input.observer.runInFreshContext('experience', input.signal, input.target, operation);
+        ) =>
+          runCommonPhoneCodeInFreshContext(input.observer, input.signal, input.target, operation);
         const configuration = {
           ...input.browser,
           expectedIssuer: issuer,
