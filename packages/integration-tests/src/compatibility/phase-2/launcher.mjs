@@ -15,14 +15,6 @@ const stderrDiagnostic = (stderr) =>
   childDiagnostic(
     `stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}`
   );
-const diagnosticBit = (value) => (value ? '1' : '0');
-const stderrCategoryDiagnostic = (stderr) => {
-  const lineCount = stderr.split('\n').filter(Boolean).length;
-  const lines = lineCount < 10 ? String(lineCount) : 'many';
-  return childDiagnostic(
-    `stderr-category-lines-${lines}-max-${diagnosticBit(stderr.includes('MaxListenersExceededWarning'))}-experimental-${diagnosticBit(stderr.includes('ExperimentalWarning'))}-deprecation-${diagnosticBit(stderr.includes('DeprecationWarning'))}-new-context-${diagnosticBit(stderr.includes('browser.newContext'))}-api-request-${diagnosticBit(stderr.includes('apiRequestContext') || stderr.includes('APIRequestContext'))}-target-closed-${diagnosticBit(stderr.includes('Target page, context or browser has been closed'))}-tls-${diagnosticBit(/(?:certificate|ERR_TLS|SELF_SIGNED|unable to verify)/iu.test(stderr))}-closed-stage-${diagnosticBit(stderr.includes('Phase 2 client credentials command failed ('))}`
-  );
-};
 const batchFailureModes = new Set([
   'oracle',
   'differential',
@@ -422,11 +414,11 @@ export const diagnosticForPhase2ChildResult = (result) => {
       .map((line) => `${line}\n`)
       .filter((line) => diagnosticForPhase2Child(line) === line);
     if (closedLines.length > 0) {
-      return `${closedLines.join('')}${stderrCategoryDiagnostic(result.stderr)}${stderrDiagnostic(result.stderr)}`;
+      return `${closedLines.join('')}${stderrDiagnostic(result.stderr)}`;
     }
   }
   if (result.stderr !== '') {
-    return `${stderrCategoryDiagnostic(result.stderr)}${stderrDiagnostic(result.stderr)}`;
+    return stderrDiagnostic(result.stderr);
   }
   return childDiagnostic('exit-code');
 };

@@ -70,7 +70,7 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
       headers: input.headers,
       maxRedirects: 0,
     });
-    if (initialized.status() !== 200) {
+    if (initialized.status() !== 204) {
       return fail();
     }
     const response = await context.request.fetch(input.verifyUrl.href, {

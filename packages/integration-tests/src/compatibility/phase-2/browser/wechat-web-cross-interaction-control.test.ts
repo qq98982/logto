@@ -65,14 +65,13 @@ test('replays the first successful social verification and releases it for norma
     request.on('end', () => {
       if (request.url === '/api/experience' && request.method === 'PUT') {
         interactionCount += 1;
-        response.writeHead(200, {
-          'content-type': 'application/json',
+        response.writeHead(204, {
           'set-cookie': [
             '_interaction=foreign; Path=/; HttpOnly',
             '_interaction.sig=foreign-signature; Path=/; HttpOnly',
           ],
         });
-        response.end('{}');
+        response.end();
         return;
       }
       if (request.url?.endsWith('/verify')) {

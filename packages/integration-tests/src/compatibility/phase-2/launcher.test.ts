@@ -105,11 +105,10 @@ describe('Phase 2 tracked launcher', () => {
       const closedPrefix = stderr.endsWith('\nprivate-secret')
         ? 'Phase 2 client credentials command failed (candidate-custom-jwt-19:http-500).\n'
         : '';
-      const category = `Phase 2 client credentials launcher child failed (stderr-category-lines-${String(stderr.split('\n').filter(Boolean).length)}-max-0-experimental-0-deprecation-0-new-context-0-api-request-0-target-closed-0-tls-0-closed-stage-1).\n`;
       expect(
         diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
       ).toBe(
-        `${closedPrefix}${category}Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}).\n`
+        `${closedPrefix}Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}).\n`
       );
     }
   });
@@ -633,17 +632,15 @@ describe('Phase 2 tracked launcher', () => {
         timedOut: false,
       })
     ).toBe('Phase 2 client credentials launcher child failed (signal).\n');
-    const categorized: unknown = diagnosticForPhase2ChildResult({
-      code: 1,
-      signal: null,
-      stdout: '',
-      stderr: 'private stderr',
-      timedOut: false,
-    });
-    expect(categorized).toContain(
-      'Phase 2 client credentials launcher child failed (stderr-category-lines-1-max-0-experimental-0-deprecation-0-new-context-0-api-request-0-target-closed-0-tls-0-closed-stage-0).\n'
-    );
-    expect(categorized).toContain(
+    expect(
+      diagnosticForPhase2ChildResult({
+        code: 1,
+        signal: null,
+        stdout: '',
+        stderr: 'private stderr',
+        timedOut: false,
+      })
+    ).toBe(
       `Phase 2 client credentials launcher child failed (stderr-bytes-${String(Buffer.byteLength('private stderr'))}-sha256-${createHash('sha256').update('private stderr').digest('hex')}).\n`
     );
     expect(
