@@ -10,6 +10,7 @@ import {
   issueConfidentialUserTokens,
   issuePublicAccountTokensForSubject,
   issuePublicUserTokens,
+  observePublicAccountPasswordSignIn,
   stopPublicNativeAtCallback,
 } from './user-token-issuance.js';
 
@@ -486,6 +487,30 @@ describe('Phase 2 public user token issuance transport', () => {
     ).toEqual(
       expect.objectContaining({ grant_type: 'authorization_code', client_id: 'public-client' })
     );
+  });
+
+  it('classifies only password-verification failure as a rejected Account sign-in', async () => {
+    const invalidPassword = flow({
+      step: 2,
+      response: response(401, { code: 'session.invalid_credentials' }),
+    });
+    await expect(
+      observePublicAccountPasswordSignIn(
+        target,
+        fixture,
+        { email: 'owner@example.invalid', password: 'private-old-password' },
+        invalidPassword.fetch
+      )
+    ).resolves.toEqual({ accepted: false });
+    const brokenAuthorization = flow({ step: 0, response: response(500, { private: true }) });
+    await expect(
+      observePublicAccountPasswordSignIn(
+        target,
+        fixture,
+        { email: 'owner@example.invalid', password: 'private-old-password' },
+        brokenAuthorization.fetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (authorization)');
   });
 
   it('issues confidential user tokens with PKCE and Basic proof kept out of the form', async () => {

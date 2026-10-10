@@ -539,6 +539,27 @@ export const issuePublicAccountTokensForSubject = async (
     authorizationScope: 'openid offline_access profile email',
   }) as Promise<IssuedPublicUserTokens>;
 
+export const observePublicAccountPasswordSignIn = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  subject: Readonly<{ email: string; password: string }>,
+  requestFetch: typeof fetch = fetch
+): Promise<Readonly<{ accepted: boolean }>> => {
+  try {
+    await issuePublicAccountTokensForSubject(targetInput, fixture, subject, requestFetch);
+    return Object.freeze({ accepted: true });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      Object.getOwnPropertyDescriptor(error, 'message')?.value ===
+        'Invalid Phase 2 public user token issuance (verification)'
+    ) {
+      return Object.freeze({ accepted: false });
+    }
+    throw error;
+  }
+};
+
 export const issueConfidentialUserSession = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,

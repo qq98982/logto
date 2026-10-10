@@ -23,7 +23,7 @@ const projection = () =>
     denialStatePreserved: true as const,
     oldAccessRetained: true as const,
     oldRefreshRotated: true as const,
-    oldPasswordRejected: true as const,
+    oldPasswordLoginRejected: true as const,
     newPasswordAccepted: true as const,
     ownerPreserved: true as const,
   });

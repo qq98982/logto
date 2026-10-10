@@ -11,6 +11,7 @@ import {
 import {
   exchangePublicRefresh,
   issuePublicAccountTokensForSubject,
+  observePublicAccountPasswordSignIn,
 } from '../clients/user-token-issuance.js';
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
@@ -28,7 +29,7 @@ export type CommonAccountPasswordUpdateProjection = Readonly<{
   denialStatePreserved: true;
   oldAccessRetained: true;
   oldRefreshRotated: true;
-  oldPasswordRejected: true;
+  oldPasswordLoginRejected: true;
   newPasswordAccepted: true;
   ownerPreserved: true;
 }>;
@@ -54,7 +55,7 @@ export const commonAccountPasswordUpdateExpectedProjection = Object.freeze({
   denialStatePreserved: true as const,
   oldAccessRetained: true as const,
   oldRefreshRotated: true as const,
-  oldPasswordRejected: true as const,
+  oldPasswordLoginRejected: true as const,
   newPasswordAccepted: true as const,
   ownerPreserved: true as const,
 });
@@ -226,6 +227,12 @@ export const runCommonAccountPasswordUpdate = async (
             },
             requestFetch
           );
+          const oldPasswordSignIn = await observePublicAccountPasswordSignIn(
+            input.target,
+            input.fixture,
+            { email: identity.primaryEmail, password: input.getSelectedPassword() },
+            requestFetch
+          );
           const newTokens = await issuePublicAccountTokensForSubject(
             input.target,
             input.fixture,
@@ -255,6 +262,7 @@ export const runCommonAccountPasswordUpdate = async (
             refreshed.refresh === ownerTokens.refresh ||
             oldPassword.status !== 401 ||
             oldPassword.error !== 'session.invalid_credentials' ||
+            oldPasswordSignIn.accepted ||
             newProfile.status !== 200 ||
             !newProfile.ownerMatches
           ) {
@@ -273,7 +281,7 @@ export const runCommonAccountPasswordUpdate = async (
               denialStatePreserved: true,
               oldAccessRetained: true,
               oldRefreshRotated: true,
-              oldPasswordRejected: true,
+              oldPasswordLoginRejected: true,
               newPasswordAccepted: true,
               ownerPreserved: true,
             })
