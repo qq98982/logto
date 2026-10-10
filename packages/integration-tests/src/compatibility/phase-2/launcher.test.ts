@@ -1,7 +1,7 @@
 /* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, closed diagnostics, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -15,6 +15,7 @@ import {
   diagnosticForPhase2ChildResult,
   diagnosticForPhase2Batch,
   readPhase2GoogleProviderEnvironment,
+  readPhase2SmsProviderEnvironment,
   readPhase2WechatProviderEnvironment,
   launchPhase2,
   launchPhase2Batch,
@@ -776,6 +777,28 @@ describe('Phase 2 tracked launcher', () => {
     expect(diagnosticForPhase2Child(`${google}private-token\n`)).not.toContain('private-token');
   });
 
+  it.each([
+    'oracle-phone-registration-sms-lease',
+    'oracle-phone-registration-registration-delivery',
+    'candidate-phone-sign-in-controls',
+    'candidate-phone-sign-in-fixture-cleanup',
+    'oracle-phone-sign-in-other',
+  ])('preserves the closed Common phone diagnostic %s', (stage) => {
+    const diagnostic = `Phase 2 client credentials command failed (${stage}).\n`;
+    expect(diagnosticForPhase2Child(diagnostic)).toBe(diagnostic);
+    expect(diagnosticForPhase2Child(`${diagnostic}private-token`)).not.toContain('private-token');
+  });
+
+  it.each([
+    'oracle-phone-registration-private-token',
+    'oracle-phone-registration-registration-delivery-extra',
+    'candidate-phone-sign-in-controls:private-token',
+  ])('rejects the unclosed Common phone diagnostic %s', (stage) => {
+    expect(
+      diagnosticForPhase2Child(`Phase 2 client credentials command failed (${stage}).\n`)
+    ).not.toContain(stage);
+  });
+
   it('preserves closed lines and hashes the rest of mixed child stderr', () => {
     const known =
       'Phase 2 client credentials command failed (oracle-common-ready-google-registration-occupied-email-owner).\n';
@@ -905,6 +928,91 @@ describe('Phase 2 tracked launcher', () => {
       }
     }
   );
+
+  it('admits and forwards only the paired role-specific SMS input files', async () => {
+    const keys = [
+      'ASTER_PHASE2_ORACLE_SMS_PROVIDER_INPUT',
+      'ASTER_PHASE2_CANDIDATE_SMS_PROVIDER_INPUT',
+    ] as const;
+    const previous = keys.map((key) => process.env[key]);
+    const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
+    const paths = [
+      path.join(runDirectory, 's', 'o', 'input.json'),
+      path.join(runDirectory, 's', 'c', 'input.json'),
+    ] as const;
+    const secret = 'private-sms-provider-value';
+    try {
+      await Promise.all(
+        paths.map(async (file) => {
+          await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+          await writeFile(file, JSON.stringify({ secret }), { mode: 0o600 });
+        })
+      );
+      for (const [index, key] of keys.entries()) {
+        process.env[key] = paths[index];
+      }
+      await expect(readPhase2SmsProviderEnvironment({ HOME: process.env.HOME })).resolves.toEqual(
+        Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
+      );
+
+      let childEnvironment: Record<string, string> | undefined;
+      await expect(
+        launchPhase2(['oracle'], {
+          inspect: async () => ({ head: '7'.repeat(40), tree: '8'.repeat(40) }),
+          build: async (): Promise<undefined> => undefined,
+          identity: async () => ({
+            sha256: '9'.repeat(64),
+            moduleCount: 1,
+            entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+            libraryRootUrl: 'file:///private/lib/',
+            modules: { 'file:///private/lib/compatibility/phase-2/cli.js': '9'.repeat(64) },
+          }),
+          execute: async (
+            _entry: string,
+            _arguments: readonly string[],
+            environment: Record<string, string>
+          ) => {
+            childEnvironment = environment;
+            return 0;
+          },
+        })
+      ).resolves.toBe(0);
+      expect(childEnvironment).toMatchObject(
+        Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
+      );
+      expect(JSON.stringify(childEnvironment)).not.toContain(secret);
+
+      process.env[keys[1]] = path.join(runDirectory, 's', 'candidate', 'input.json');
+      await expect(readPhase2SmsProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+      Reflect.deleteProperty(process.env, keys[1]);
+      await expect(readPhase2SmsProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+      process.env[keys[1]] = paths[1];
+      await chmod(paths[0], 0o644);
+      await expect(readPhase2SmsProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+      await chmod(paths[0], 0o600);
+      await rm(paths[0]);
+      await symlink(paths[1], paths[0]);
+      await expect(readPhase2SmsProviderEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+        'Invalid Phase 2 launcher'
+      );
+    } finally {
+      for (const [index, key] of keys.entries()) {
+        const value = previous[index];
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, key);
+        } else {
+          process.env[key] = value;
+        }
+      }
+      await rm(path.join(runDirectory, 's'), { recursive: true, force: true });
+    }
+  });
 
   it('builds only between equal clean HEAD checks and passes a closed expected identity', async () => {
     const calls: string[] = [];

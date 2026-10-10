@@ -45,6 +45,7 @@ import {
 } from './candidate-invariants/verification-code.js';
 import {
   closedDeviceFailureStage,
+  commonPhoneScenarioFailure,
   commonEmailCodeRegistrationScenarioFailure,
   commonReadyScenarioFailure,
   commonGoogleProjectionScenarioFailure,
@@ -73,6 +74,68 @@ import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
 import { commonGoogleRegistrationTestProjection } from './testing/common-google-registration-projection.js';
+
+describe('Common phone scenario failure diagnostics', () => {
+  it.each([
+    ['Invalid SMS provider lease', 'sms-lease'],
+    ['Invalid Common phone code controls', 'controls'],
+    ['Common phone code target failed: discovery', 'discovery'],
+    ['Common phone code target failed: subject', 'subject'],
+    ['Common phone code stage failed: registration-delivery', 'registration-delivery'],
+    ['Common phone code stage failed: sign-in-refresh', 'sign-in-refresh'],
+    ['Selected phone code fixture failed: read-sie', 'fixture'],
+    ['Selected phone code fixture failed: cleanup-delete-role', 'fixture-cleanup'],
+    ['private credential and query payload', 'other'],
+  ] as const)('maps a bounded registration failure to %s', (message, stage) => {
+    expect(() =>
+      commonPhoneScenarioFailure('oracle', 'common.phone.code-registration', new Error(message))
+    ).toThrow(`Phase 2 stage failed: oracle-phone-registration-${stage}`);
+  });
+
+  it('does not read inherited, accessor, or arbitrary stage messages', () => {
+    const inherited = new Error('placeholder');
+    Reflect.deleteProperty(inherited, 'message');
+    Object.setPrototypeOf(inherited, new Error('Common phone code target failed: discovery'));
+    const accessor = new Error('placeholder');
+    Object.defineProperty(accessor, 'message', { get: () => 'Invalid SMS provider lease' });
+    for (const error of [
+      inherited,
+      accessor,
+      new Error('Common phone code target failed: private-token'),
+      new Error('Common phone code stage failed: sign-in-refresh:private-token'),
+    ]) {
+      expect(() =>
+        commonPhoneScenarioFailure('candidate', 'common.phone.code-sign-in', error)
+      ).toThrow('Phase 2 stage failed: candidate-phone-sign-in-other');
+    }
+  });
+
+  it('reports fixture cleanup only when a bounded phone failure is the primary aggregate error', () => {
+    expect(() =>
+      commonPhoneScenarioFailure(
+        'oracle',
+        'common.phone.code-registration',
+        new AggregateError(
+          [
+            new Error('Phase 2 stage failed: oracle-phone-registration-registration-callback'),
+            new Error('private cleanup failure'),
+          ],
+          'fixture failed'
+        )
+      )
+    ).toThrow('Phase 2 stage failed: oracle-phone-registration-fixture-cleanup');
+    expect(() =>
+      commonPhoneScenarioFailure(
+        'oracle',
+        'common.phone.code-registration',
+        new AggregateError(
+          [new Error('private primary failure'), new Error('cleanup')],
+          'fixture failed'
+        )
+      )
+    ).toThrow('Phase 2 stage failed: oracle-phone-registration-other');
+  });
+});
 
 describe('device projection diagnostic fields', () => {
   it('maps a nested cookie difference to its closed root field', () => {
@@ -2144,6 +2207,26 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (candidate-execution).'
     );
     expect(candidateCalls.join(' ')).not.toContain('private candidate execution detail');
+  });
+
+  it('emits only the closed Common phone other stage through the real CLI boundary', async () => {
+    const calls: string[] = [];
+    const output = path.join(root, 'phase-2-client-credentials-oracle.json');
+    const code = await runPhase2CliMain(oracleArguments(output), undefined, {
+      ...dependencies(calls),
+      executeOracle: async () =>
+        commonPhoneScenarioFailure(
+          'oracle',
+          'common.phone.code-registration',
+          new Error('wrong payload with private credential value')
+        ),
+    });
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-phone-registration-other).'
+    );
+    expect(calls.join(' ')).not.toContain('private credential value');
+    await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('forwards only closed device candidate-invariant stages', async () => {

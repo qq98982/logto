@@ -626,6 +626,91 @@ const commonReadyStageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(common-ready-(?:password-registration|recovery|google|google-registration|wechat-web)-(?:admission|capability|discovery|subject|lease|cleanup|fixture|browser|admin|context|consent-field-invalid-(?:route|operation|status|binding|code|authorization|state|tuple)|context-adapter|context-flow|context-after-flow|context-control-(?:open|route|count|reset|click|response|owner)|context-positive-(?:admission|initialization|provider-count|provider-click|consent-route|consent-click|callback|profile|refresh|provider)|context-positive-consent-(?:response|authorization|state|route|complete)|credentials|management|other|wrong-state-owner-before|wrong-state-browser|wrong-state-owner-after|wrong-state-provider|flow-admission|flow-initialization|flow-identifier|flow-delivery|flow-verification|flow-credential-fulfillment|flow-persisted-user|flow-callback|flow-registration-profile-refresh|flow-fresh-sign-in|flow-fresh-profile-refresh|flow-initial-password|flow-forgot-password|flow-passcode-retrieval|flow-passcode-format|flow-passcode-fill|flow-new-password-reset|flow-prior-access|flow-prior-refresh|flow-new-password-sign-in|flow-old-password-rejection|flow-profile|flow-refresh|flow-provider|flow-provider-count|flow-provider-click|flow-consent|flow-provider-case|flow-authorization|controls-admission|controls-incomplete-before|controls-incomplete-proof|controls-incomplete-identification|controls-incomplete-after|controls-duplicate-before|controls-duplicate-proof|controls-duplicate-identification|controls-duplicate-after|controls-policy-before|controls-policy-proof|controls-policy-profile|controls-policy-after|controls-replay|controls-wrong-purpose|flow-callback-callback-route|flow-callback-cardinality|flow-callback-signin-authority|flow-callback-signin-response|flow-callback-signin-client|flow-callback-signin-redirect|flow-callback-signin-mode|flow-callback-signin-scope|flow-callback-signin-resource|flow-callback-signin-pkce|flow-callback-callback-authority|flow-callback-callback-response|flow-callback-callback-state|flow-callback-callback-issuer|flow-callback-callback-code|flow-callback-exchange-authority|flow-callback-exchange-response|flow-callback-exchange-correlation|flow-callback-exchange-client|flow-callback-exchange-refresh|flow-callback-exchange-target|flow-callback-exchange-scope|flow-callback-exchange-access|fixture-read-sie|fixture-get-app|fixture-patch-app|fixture-read-app|fixture-read-resource|fixture-create-role|fixture-create-connector|fixture-prepare-connector|fixture-prepare-connector-docker-environment|fixture-prepare-connector-admission|fixture-prepare-connector-configuration-file|fixture-prepare-connector-receipt-file|fixture-prepare-connector-container-admission|fixture-prepare-connector-configuration-write|fixture-prepare-connector-start|fixture-prepare-connector-health|fixture-prepare-connector-compensation|fixture-prepare-connector-unknown|fixture-patch-sie|fixture-read-sie-updated|fixture-existing-owner-create-user|fixture-existing-owner-associate|fixture-existing-owner-read-before|fixture-existing-owner-use|fixture-existing-owner-read-after|fixture-existing-owner-cleanup-user|fixture-stop-provider(?:-(?:state|config-identity|receipt-identity))?|fixture-restore-app|fixture-delete-role|fixture-restore-sie|fixture-delete-connector|fixture-input|scenario-fixture|scenario-projection|wrong-state-authorization|wrong-state-authorization-request-count|wrong-state-authorization-query-shape|wrong-state-authorization-client|wrong-state-authorization-callback|wrong-state-authorization-response-type|wrong-state-authorization-scope|wrong-state-authorization-state-format|wrong-state-authorization-state-round-trip|wrong-state-authorization-fulfilled|flow-callback-callback-facts-s0-c0-i0|flow-callback-callback-facts-s0-c0-i1|flow-callback-callback-facts-s0-c0-imany|flow-callback-callback-facts-s0-c1-i0|flow-callback-callback-facts-s0-c1-i1|flow-callback-callback-facts-s0-c1-imany|flow-callback-callback-facts-s0-cmany-i0|flow-callback-callback-facts-s0-cmany-i1|flow-callback-callback-facts-s0-cmany-imany|flow-callback-callback-facts-s1-c0-i0|flow-callback-callback-facts-s1-c0-i1|flow-callback-callback-facts-s1-c0-imany|flow-callback-callback-facts-s1-c1-i0|flow-callback-callback-facts-s1-c1-i1|flow-callback-callback-facts-s1-c1-imany|flow-callback-callback-facts-s1-cmany-i0|flow-callback-callback-facts-s1-cmany-i1|flow-callback-callback-facts-s1-cmany-imany|flow-callback-callback-facts-smany-c0-i0|flow-callback-callback-facts-smany-c0-i1|flow-callback-callback-facts-smany-c0-imany|flow-callback-callback-facts-smany-c1-i0|flow-callback-callback-facts-smany-c1-i1|flow-callback-callback-facts-smany-c1-imany|flow-callback-callback-facts-smany-cmany-i0|flow-callback-callback-facts-smany-cmany-i1|flow-callback-callback-facts-smany-cmany-imany|wrong-state-open|wrong-state-sign-in|wrong-state-provider-count|wrong-state-provider-click|wrong-state-callback-outcome|wrong-state-callback-signal|wrong-state-callback-guard|wrong-state-callback-observation-other|wrong-state-callback-external-callback-method|wrong-state-callback-external-callback-query|wrong-state-callback-external-callback-fragment|wrong-state-callback-cardinality|authorization|callback|initialization|missing-owner|owner-lookup|profile|provider-count|provider-click|refresh|registration-route|registration-transition|consent-click|consent-route|consent-route-(?:sign-in|register|continue|demo|error|callback|other)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:complete|missing-resume-(?:not-issued|path-mismatch|expired|secure-mismatch|other)|missing-mapping|missing-shared|missing-session|not-applicable)-(?:user-identity_not_exist|user-missing_profile|session-verification_session_not_found|session-interaction_not_found|session-invalid_credentials|user-suspended|user-sign_in_method_not_enabled|session-identity_conflict|user-email_already_in_use|verification_record-permission_denied|guard-invalid_input|connector-general|connector-wechat_unionid_required|connector-social_auth_code_invalid|connector-invalid_response|unknown|none)-auth-[01]{9}-state-(?:stored|cleared|unavailable)|fixture-registration-owner-before|fixture-registration-owner-use|fixture-registration-owner-after|fixture-registration-owner-cleanup|fixture-registration-owner-discovery|controls-no-union-id|controls-invalid-code|controls-replay|controls-malformed-provider|controls-cross-interaction(?:-(?:execution(?:-(?:target|result|not-observed|after-control|browser|context|init-request|init-status|replay-request|replay-body|cleanup|first-response|owner-before|request|owner-after|fulfill))?|status|error|accepted))?|controls-missing-state|controls-wrong-state|controls-wrong-callback|unverified-email-control-(?:invalid-status|disallowed-error)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:connector.general|guard.invalid_input|user.identity_not_exist|user.missing_profile|verification_record.permission_denied|session.identity_conflict|user.email_already_in_use|none)|occupied-email-control-(?:invalid-status|disallowed-error)-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:connector.general|guard.invalid_input|user.identity_not_exist|user.missing_profile|verification_record.permission_denied|session.identity_conflict|user.email_already_in_use|none)|unverified-email-control-rejected-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:user.identity_not_exist|session.verification_session_not_found|session.interaction_not_found|session.invalid_credentials|user.suspended|user.sign_in_method_not_enabled|connector.wechat_unionid_required|connector.social_auth_code_invalid|connector.invalid_response)|unverified-email-control-unknown-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)|unverified-email-control-observed-(?:social-verify|identification|submit|resume|none)-(?:200|201|204|302|303|400|401|403|404|409|422|500|503|0)-(?:known|unknown)-(?:incomplete|other)|unverified-email-control(?:-(?:response|consent|profile-route|profile-input|outcome|outcome-code|outcome-status|outcome-error|outcome-accepted|link-count|link-click|link-complete))?|unverified-email-owner|occupied-email-control(?:-(?:response|consent|profile-route|profile-input|outcome|outcome-code|outcome-status|outcome-error|outcome-accepted|link-count|link-click|link-complete))?|occupied-email-owner|control-publication))$/u;
 const accountReadyStageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(common-ready-account-(?:password|email)-other)$/u;
+const commonPhoneStageFailurePattern =
+  /^Phase 2 stage failed: (oracle|candidate)-(phone-(?:registration|sign-in)-(?:admission|capability|discovery|subject|sms-lease|controls|fixture|fixture-cleanup|other|(?:registration|sign-in)-(?:input|initialization|identifier|delivery|code-format|code-fill|consent|callback|profile|refresh|subject)))$/u;
+const commonPhoneTargetFailurePattern =
+  /^Common phone code target failed: (admission|capability|discovery|subject)$/u;
+const commonPhoneFlowFailurePattern =
+  /^Common phone code stage failed: ((?:registration|sign-in)-(?:input|initialization|identifier|delivery|code-format|code-fill|consent|callback|profile|refresh|subject))$/u;
+const commonPhoneFixtureFailurePattern =
+  /^Selected phone code fixture failed: (?:read-sie|get-app|patch-app|read-resource|create-role|create-connector|patch-sie|create-owner|create-control-owner|create-collision-owner|create-suspended|assign-role|registration-owner-before|use)$/u;
+const commonPhoneFixtureCleanupFailurePattern =
+  /^Selected phone code fixture failed: cleanup-(?:discover-registered-ambiguous|discover-registered|registered-owner-remains|read-registered-owner-after|delete-role|delete-connector|restore-sie|restore-app)(?:\+(?:discover-registered-ambiguous|discover-registered|registered-owner-remains|read-registered-owner-after|delete-role|delete-connector|restore-sie|restore-app))*$/u;
+
+const ownErrorMessage = (error: unknown): string | undefined => {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+  return descriptor && Object.hasOwn(descriptor, 'value') && typeof descriptor.value === 'string'
+    ? descriptor.value
+    : undefined;
+};
+
+const commonPhoneFailureStage = (error: unknown): string | undefined => {
+  const message = ownErrorMessage(error);
+  if (message === undefined) {
+    return undefined;
+  }
+  if (message === 'Invalid SMS provider lease') {
+    return 'sms-lease';
+  }
+  if (message === 'Invalid Common phone code controls') {
+    return 'controls';
+  }
+  if (
+    message === 'Invalid Common phone code scenario fixture' ||
+    message === 'Missing Common phone provider fixture'
+  ) {
+    return 'fixture';
+  }
+  return (
+    commonPhoneTargetFailurePattern.exec(message)?.[1] ??
+    commonPhoneFlowFailurePattern.exec(message)?.[1] ??
+    (commonPhoneFixtureFailurePattern.test(message) ? 'fixture' : undefined) ??
+    (commonPhoneFixtureCleanupFailurePattern.test(message) ? 'fixture-cleanup' : undefined)
+  );
+};
+
+const closedCommonPhoneFailure = (error: unknown): Error | undefined => {
+  const message = ownErrorMessage(error);
+  if (message !== undefined && commonPhoneStageFailurePattern.test(message)) {
+    return error as Error;
+  }
+  if (!(error instanceof AggregateError)) {
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'errors');
+  const errors: unknown =
+    descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  if (
+    !Array.isArray(errors) ||
+    Object.getPrototypeOf(errors) !== Array.prototype ||
+    errors.length !== 2
+  ) {
+    return undefined;
+  }
+  const primary = commonPhoneStageFailurePattern.exec(ownErrorMessage(errors[0]) ?? '');
+  if (!primary?.[1] || !primary[2]) {
+    return undefined;
+  }
+  const role = primary[2].startsWith('phone-registration-') ? 'registration' : 'sign-in';
+  return new Error(`Phase 2 stage failed: ${primary[1]}-phone-${role}-fixture-cleanup`);
+};
+
+export const commonPhoneScenarioFailure = (
+  kind: 'oracle' | 'candidate',
+  id: (typeof commonPhoneCodeScenarioIds)[number],
+  error: unknown
+): never => {
+  const role = id === commonPhoneCodeScenarioIds[0] ? 'registration' : 'sign-in';
+  const stage = commonPhoneFailureStage(error) ?? 'other';
+  const aggregate = closedCommonPhoneFailure(error);
+  if (aggregate) {
+    throw aggregate;
+  }
+  throw new Error(`Phase 2 stage failed: ${kind}-phone-${role}-${stage}`);
+};
 const commonReadyStages = new Set([
   'unverified-email-control',
   'unverified-email-control-response',
@@ -2018,8 +2103,8 @@ const runTargetScenarios = async (
             withProviderLease: async (use) => withSmsProviderLease(inputFile, use),
           })
         );
-      } catch {
-        throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${id}`);
+      } catch (error: unknown) {
+        commonPhoneScenarioFailure(descriptor.kind, id, error);
       }
     }
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
@@ -2281,6 +2366,10 @@ const runTargetScenarios = async (
     readPublicJwks: async () => fetchPhase2PublicJwks(descriptor.target),
     use: collectScenarios,
   }).catch((error: unknown) => {
+    const phoneFailure = closedCommonPhoneFailure(error);
+    if (phoneFailure) {
+      throw phoneFailure;
+    }
     if (
       error instanceof Error &&
       (scenarioFailurePattern.test(error.message) ||
@@ -2291,6 +2380,7 @@ const runTargetScenarios = async (
         accountReadyStageFailurePattern.test(error.message) ||
         googleProjectionStageFailurePattern.test(error.message) ||
         commonAdditionProjectionStageFailurePattern.test(error.message) ||
+        commonPhoneStageFailurePattern.test(error.message) ||
         stageFailurePattern.test(error.message))
     ) {
       throw error;
@@ -3273,6 +3363,7 @@ export const runPhase2Cli = async (
                 accountReadyStageFailurePattern.test(error.message) ||
                 googleProjectionStageFailurePattern.test(error.message) ||
                 commonAdditionProjectionStageFailurePattern.test(error.message) ||
+                commonPhoneStageFailurePattern.test(error.message) ||
                 stageFailurePattern.test(error.message))
             ) {
               throw error;
@@ -3316,6 +3407,7 @@ export const runPhase2Cli = async (
             accountReadyStageFailurePattern.test(error.message) ||
             googleProjectionStageFailurePattern.test(error.message) ||
             commonAdditionProjectionStageFailurePattern.test(error.message) ||
+            commonPhoneStageFailurePattern.test(error.message) ||
             stageFailurePattern.test(error.message) ||
             (command.mode === 'candidate-invariants' &&
               candidateInvariantStageFailurePattern.test(error.message)))
@@ -3415,7 +3507,8 @@ export const runPhase2CliMain = async (
           commonReadyStageFailurePattern.exec(original.message) ??
           accountReadyStageFailurePattern.exec(original.message) ??
           googleProjectionStageFailurePattern.exec(original.message) ??
-          commonAdditionProjectionStageFailurePattern.exec(original.message))
+          commonAdditionProjectionStageFailurePattern.exec(original.message) ??
+          commonPhoneStageFailurePattern.exec(original.message))
         : null;
     const candidateInvariantStage =
       original instanceof Error

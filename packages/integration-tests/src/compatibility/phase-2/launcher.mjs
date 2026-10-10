@@ -287,6 +287,13 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
+    /^Phase 2 client credentials command failed \((oracle|candidate)-phone-(?:registration|sign-in)-(?:admission|capability|discovery|subject|sms-lease|controls|fixture|fixture-cleanup|other|(?:registration|sign-in)-(?:input|initialization|identifier|delivery|code-format|code-fill|consent|callback|profile|refresh|subject))\)\.\n$/u.test(
+      stderr
+    )
+  ) {
+    return stderr;
+  }
+  if (
     /^Phase 2 client credentials command failed \((oracle|candidate)\/common\.(?:email\.password-registration|password\.recovery|google\.existing-owner|google\.registration|wechat\.web)\)\.\n$/u.test(
       stderr
     ) ||
@@ -884,7 +891,10 @@ const readPhase2ProviderEnvironment = async (browserEnvironment, provider) => {
   const accepted = await Promise.all(
     values.map(async (value, index) => {
       const role = index === 0 ? 'oracle' : 'candidate';
-      const expected = path.join(runDirectory, `${provider}-provider`, role, 'provider-input.json');
+      const expected =
+        provider === 'sms'
+          ? path.join(runDirectory, 's', role === 'oracle' ? 'o' : 'c', 'input.json')
+          : path.join(runDirectory, `${provider}-provider`, role, 'provider-input.json');
       if (value !== expected) {
         return fail();
       }
@@ -911,6 +921,8 @@ export const readPhase2GoogleProviderEnvironment = (browserEnvironment) =>
   readPhase2ProviderEnvironment(browserEnvironment, 'google');
 export const readPhase2WechatProviderEnvironment = (browserEnvironment) =>
   readPhase2ProviderEnvironment(browserEnvironment, 'wechat');
+export const readPhase2SmsProviderEnvironment = (browserEnvironment) =>
+  readPhase2ProviderEnvironment(browserEnvironment, 'sms');
 
 const manifestsEqual = (left, right) => {
   if (
@@ -965,6 +977,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     ...browserEnvironment,
     ...(await readPhase2GoogleProviderEnvironment(browserEnvironment)),
     ...(await readPhase2WechatProviderEnvironment(browserEnvironment)),
+    ...(await readPhase2SmsProviderEnvironment(browserEnvironment)),
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

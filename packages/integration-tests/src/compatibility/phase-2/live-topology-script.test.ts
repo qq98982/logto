@@ -1866,6 +1866,21 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         expected: 1,
       },
       {
+        name: 'phone-registration-stage',
+        line: 'Phase 2 client credentials command failed (oracle-phone-registration-registration-delivery).',
+        expected: 1,
+      },
+      {
+        name: 'phone-sign-in-cleanup',
+        line: 'Phase 2 client credentials command failed (candidate-phone-sign-in-fixture-cleanup).',
+        expected: 1,
+      },
+      {
+        name: 'phone-private-stage',
+        line: 'Phase 2 client credentials command failed (oracle-phone-registration-private-token).',
+        expected: 0,
+      },
+      {
         name: 'private-registration',
         line: 'Phase 2 client credentials command failed (oracle/common.email.code-registration:private).',
         expected: 0,
