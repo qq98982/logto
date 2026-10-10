@@ -785,6 +785,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       });
                       contextProgress = 'after-flow';
                       if (providerCase === 'crossInteraction') {
+                        if (crossControl?.observation()) {
+                          throw new TypeError('Invalid WeChat Web cross-interaction after-control');
+                        }
                         const crossFailure = crossControl?.failureStage();
                         if (crossFailure) {
                           throw new TypeError(

@@ -66,6 +66,8 @@ type ForeignInteractionStage =
   | 'cleanup';
 export type WechatWebCrossInteractionFailureStage =
   | ForeignInteractionStage
+  | 'not-observed'
+  | 'after-control'
   | 'first-response'
   | 'owner-before'
   | 'request'
@@ -173,7 +175,7 @@ export const createWechatWebCrossInteractionTestControl = (
   const target = new URL(input.targetOrigin);
   const expectedPath = `/api/experience/verification/social/${encodeURIComponent(input.connectorId)}/verify`;
   let intercepted = false;
-  let failureStage: WechatWebCrossInteractionFailureStage | undefined;
+  let failureStage: WechatWebCrossInteractionFailureStage | undefined = 'not-observed';
   let observation: WechatWebCrossInteractionObservation | undefined;
   const handler = async (method: string, url: URL, route: PlaywrightExternalAuthorizationRoute) => {
     if (

@@ -679,6 +679,8 @@ describe('Phase 2 tracked launcher', () => {
     'oracle-common-ready-wechat-web-fixture-stop-provider-config-identity',
     'oracle-common-ready-wechat-web-fixture-stop-provider-receipt-identity',
     'oracle-common-ready-wechat-web-controls-cross-interaction-execution',
+    'oracle-common-ready-wechat-web-controls-cross-interaction-execution-not-observed',
+    'oracle-common-ready-wechat-web-controls-cross-interaction-execution-after-control',
     'oracle-common-ready-wechat-web-controls-cross-interaction-execution-browser',
     'oracle-common-ready-wechat-web-controls-cross-interaction-execution-context',
     'oracle-common-ready-wechat-web-controls-cross-interaction-execution-init-request',
