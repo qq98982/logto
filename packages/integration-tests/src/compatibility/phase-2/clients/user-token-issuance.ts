@@ -247,6 +247,9 @@ const issueUserTokens = async (
       if (authorization !== undefined) {
         headers.set('authorization', authorization);
       }
+      if (url.pathname.startsWith('/api/experience')) {
+        headers.set(target.label === 'oracle' ? 'logto-app-id' : 'aster-app-id', client.id);
+      }
       const response = await requestFetch(url, {
         method,
         headers,
@@ -532,7 +535,6 @@ export const issuePublicAccountTokensForSubject = async (
       'email' in subject
         ? { type: 'email', value: subject.email }
         : { type: 'username', value: subject.username },
-    authorizationResources: ['urn:aster:resource:management', 'urn:aster:resource:account'],
     authorizationScope: 'openid offline_access profile email phone identities custom_data all',
   }) as Promise<IssuedPublicUserTokens>;
 

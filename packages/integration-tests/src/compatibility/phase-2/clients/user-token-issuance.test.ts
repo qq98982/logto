@@ -461,7 +461,7 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(form.get('client_secret')).toBeNull();
   });
 
-  it('issues an opaque Account bearer from the selected subject with both resource requests', async () => {
+  it('issues an opaque Account bearer from the selected subject with ordinary user scopes', async () => {
     const transport = flow();
     const tokens = await issuePublicAccountTokensForSubject(
       target,
@@ -472,10 +472,7 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(tokens.access).toBe('private-access');
     expect(tokens.refresh).toBe('private-refresh');
     const authorization = transport.requests[0]?.url;
-    expect(authorization?.searchParams.getAll('resource')).toEqual([
-      'urn:aster:resource:management',
-      'urn:aster:resource:account',
-    ]);
+    expect(authorization?.searchParams.getAll('resource')).toEqual([]);
     expect(authorization?.searchParams.get('scope')).toBe(
       'openid offline_access profile email phone identities custom_data all'
     );
@@ -483,6 +480,9 @@ describe('Phase 2 public user token issuance transport', () => {
       identifier: { type: 'email', value: 'account-owner@example.invalid' },
       password: 'private-account-password',
     });
+    expect(new Headers(transport.requests[2]?.init.headers).get('aster-app-id')).toBe(
+      'public-client'
+    );
     expect(
       Object.fromEntries(new URLSearchParams(String(transport.requests[9]?.init.body)))
     ).toEqual(
