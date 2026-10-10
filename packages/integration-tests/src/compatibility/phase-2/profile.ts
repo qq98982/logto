@@ -7,8 +7,8 @@ import path from 'node:path';
 import { Ajv2020, type AnySchema } from 'ajv/dist/2020.js';
 
 const maximumInputBytes = 1024 * 1024;
-const expectedProfileSha256 = '5390434f8351f5b5029b5ea97c8f988df51dafb530aaaa5996446dfe647df0b0';
-const expectedSchemaSha256 = '92255868bff122a4d8e37bfbce8f5f062e0e9896d0b7b8651bdaf284b7052c12';
+const expectedProfileSha256 = '6d30992a7bb93c7652502526acb6a00341ca4a694580b52fb2224df0edeb0048';
+const expectedSchemaSha256 = '6e898dd3004da754e83a86dd233ba480e251082ba5ed1695ebdd9f628a735ede';
 export const phase2ExpectedBaseAcceptance = Object.freeze({
   recordCommit: 'f6dcacc04226511d36547b08aaee600208c39c6d',
   recordPath: 'compatibility/phase-1-acceptance/phase-1-accepted.md',
@@ -211,6 +211,8 @@ const differentialScenarioIds = [
   'common.google.existing-owner',
   'common.google.registration',
   'common.wechat.web',
+  'common.account.password-update',
+  'common.account.email-change',
 ] as const;
 const deviceOperationIds = [
   'device.authorize',

@@ -12,8 +12,8 @@ const observation = (status: number, error: 'none' | 'verification_record.permis
   Object.freeze({ status, error });
 const projection = () =>
   Object.freeze({
-    bearerOpaque: true as const,
-    proof: 'current-password' as const,
+    opaqueAccess: true as const,
+    proof: 'current' as const,
     mutation: observation(204, 'none'),
     missingProof: observation(401, 'verification_record.permission_denied'),
     foreignProof: observation(401, 'verification_record.permission_denied'),

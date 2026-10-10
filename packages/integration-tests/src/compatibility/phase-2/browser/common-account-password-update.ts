@@ -20,8 +20,8 @@ import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fi
 import { withSelectedAccountSettingsFixture } from './selected-account-settings-fixture.js';
 
 export type CommonAccountPasswordUpdateProjection = Readonly<{
-  bearerOpaque: true;
-  proof: 'current-password';
+  opaqueAccess: true;
+  proof: 'current';
   mutation: AccountSettingsObservation;
   missingProof: AccountSettingsObservation;
   foreignProof: AccountSettingsObservation;
@@ -38,8 +38,8 @@ export type CommonAccountPasswordUpdateProjection = Readonly<{
 }>;
 
 export const commonAccountPasswordUpdateExpectedProjection = Object.freeze({
-  bearerOpaque: true as const,
-  proof: 'current-password' as const,
+  opaqueAccess: true as const,
+  proof: 'current' as const,
   mutation: Object.freeze({ status: 204, error: 'none' as const }),
   missingProof: Object.freeze({
     status: 401,
@@ -291,8 +291,8 @@ export const runCommonAccountPasswordUpdate = async (
           }
           return assertCommonAccountPasswordUpdateProjection(
             Object.freeze({
-              bearerOpaque: true,
-              proof: 'current-password',
+              opaqueAccess: true,
+              proof: 'current',
               mutation,
               missingProof,
               foreignProof,

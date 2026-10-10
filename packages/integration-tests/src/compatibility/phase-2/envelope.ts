@@ -50,6 +50,16 @@ import {
   type Phase2PublicHarnessProvenance,
   type Phase2SourceIdentity,
 } from './provenance.js';
+import {
+  commonAccountEmailChangeScenarioIds,
+  compareCommonAccountEmailChangeProjections,
+  type CommonAccountEmailChangeScenarioResult,
+} from './scenarios/common-account-email-change.js';
+import {
+  commonAccountPasswordUpdateScenarioIds,
+  compareCommonAccountPasswordUpdateProjections,
+  type CommonAccountPasswordUpdateScenarioResult,
+} from './scenarios/common-account-password-update.js';
 import { commonEmailCodeRegistrationScenarioIds } from './scenarios/common-email-code-registration.js';
 import { commonEmailPasswordRegistrationScenarioIds } from './scenarios/common-email-password-registration.js';
 import {
@@ -196,7 +206,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 185).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 187).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -380,7 +390,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 185).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 187).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -542,6 +552,28 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
       assertSanitizedAt(`wechat-web-${index}`, () => {
         const wire = snapshotJsonWire(scenario.projection) as CommonWechatWebScenarioProjection;
         if (compareCommonWechatWebProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if (
+      (commonAccountPasswordUpdateScenarioIds as readonly string[]).includes(scenario.id)
+    ) {
+      assertSanitizedAt(`account-password-${index}`, () => {
+        const wire = snapshotJsonWire(
+          scenario.projection
+        ) as CommonAccountPasswordUpdateScenarioResult['projection'];
+        if (compareCommonAccountPasswordUpdateProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonAccountEmailChangeScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`account-email-${index}`, () => {
+        const wire = snapshotJsonWire(
+          scenario.projection
+        ) as CommonAccountEmailChangeScenarioResult['projection'];
+        if (compareCommonAccountEmailChangeProjections(wire, wire).length > 0) {
           return fail();
         }
         assertWithBothSanitizers(wire);

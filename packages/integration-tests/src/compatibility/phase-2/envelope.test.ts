@@ -2,6 +2,8 @@
 import { jsonValueGuard } from '../model.js';
 import type { JsonValue } from '../normalize.js';
 
+import { commonAccountEmailChangeExpectedProjection } from './browser/common-account-email-change.js';
+import { commonAccountPasswordUpdateExpectedProjection } from './browser/common-account-password-update.js';
 import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
@@ -181,7 +183,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 186 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 188 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -252,7 +254,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 186 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 188 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -616,6 +618,56 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 
+  it('requires the complete Account password-update contract before publication', () => {
+    const projection = commonAccountPasswordUpdateExpectedProjection;
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.account.password-update', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const changed of [
+      { ...projection, missingProof: { status: 204, error: 'none' } },
+      { ...projection, denialStatePreserved: false },
+      { ...projection, oldPasswordLoginRejected: false },
+      { ...projection, newRefreshRotated: false },
+      { ...projection, privatePassword: 'private-token' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.account.password-update', projection: changed }],
+        })
+      ).toBe('account-password-0');
+    }
+  });
+
+  it('requires the complete Account email-change contract before publication', () => {
+    const projection = commonAccountEmailChangeExpectedProjection;
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.account.email-change', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const changed of [
+      { ...projection, collision: { status: 204, error: 'none' } },
+      { ...projection, destinationReplay: { status: 401, error: 'unknown' } },
+      { ...projection, denialStatePreserved: false },
+      { ...projection, newEmailVerified: false },
+      { ...projection, privateEmail: 'private@example.invalid' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.account.email-change', projection: changed }],
+        })
+      ).toBe('account-email-0');
+    }
+  });
+
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
     const artifactProfile = {
       ...profile,
@@ -787,8 +839,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 185-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 185 }, (_, index) => ({
+  it('publishes the full 187-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 187 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

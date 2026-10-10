@@ -249,7 +249,7 @@ const runEvidenceValidation = async (
   );
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 185 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 187 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -1247,9 +1247,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 185',
+      'scenarioCount !== 187',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 185',
+      'comparisonCount !== 187',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1288,17 +1288,17 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(185, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(187, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(185, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(185, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(187, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(187, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(185, 24, 18, 'private-provider-credential')
+      runEvidenceValidation(187, 24, 18, 'private-provider-credential')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 

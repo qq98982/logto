@@ -1,5 +1,6 @@
 /* eslint-disable complexity, max-lines -- The Account email main flow keeps destination, collision, mutation and login evidence in one compensated callback. */
 import { randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import type { TargetConfig } from '../../model.js';
 import {
@@ -20,8 +21,8 @@ import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fi
 import { withSelectedAccountSettingsFixture } from './selected-account-settings-fixture.js';
 
 export type CommonAccountEmailChangeProjection = Readonly<{
-  bearerOpaque: true;
-  proof: 'current-password+destination-email';
+  opaqueAccess: true;
+  proof: 'current+destination-email';
   mutation: AccountSettingsObservation;
   missingCurrentProof: AccountSettingsObservation;
   wrongAccountProof: AccountSettingsObservation;
@@ -34,9 +35,34 @@ export type CommonAccountEmailChangeProjection = Readonly<{
   refreshRotated: true;
 }>;
 
+export const commonAccountEmailChangeExpectedProjection = Object.freeze({
+  opaqueAccess: true as const,
+  proof: 'current+destination-email' as const,
+  mutation: Object.freeze({ status: 204, error: 'none' as const }),
+  missingCurrentProof: Object.freeze({
+    status: 401,
+    error: 'verification_record.permission_denied' as const,
+  }),
+  wrongAccountProof: Object.freeze({
+    status: 401,
+    error: 'verification_record.permission_denied' as const,
+  }),
+  destinationReplay: Object.freeze({ status: 204, error: 'none' as const }),
+  collision: Object.freeze({ status: 422, error: 'user.email_already_in_use' as const }),
+  denialStatePreserved: true as const,
+  ownerPreserved: true as const,
+  newEmailVerified: true as const,
+  newEmailLoginAccepted: true as const,
+  refreshRotated: true as const,
+});
+
 const fail = (): never => {
   throw new TypeError('Invalid Common Account email change flow');
 };
+export const assertCommonAccountEmailChangeProjection = (
+  value: CommonAccountEmailChangeProjection
+): CommonAccountEmailChangeProjection =>
+  isDeepStrictEqual(value, commonAccountEmailChangeExpectedProjection) ? value : fail();
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
@@ -305,20 +331,22 @@ export const runCommonAccountEmailChange = async (
           ) {
             return fail();
           }
-          return Object.freeze({
-            bearerOpaque: true,
-            proof: 'current-password+destination-email',
-            mutation,
-            missingCurrentProof,
-            wrongAccountProof,
-            destinationReplay,
-            collision,
-            denialStatePreserved: true,
-            ownerPreserved: true,
-            newEmailVerified: true,
-            newEmailLoginAccepted: true,
-            refreshRotated: true,
-          });
+          return assertCommonAccountEmailChangeProjection(
+            Object.freeze({
+              opaqueAccess: true,
+              proof: 'current+destination-email',
+              mutation,
+              missingCurrentProof,
+              wrongAccountProof,
+              destinationReplay,
+              collision,
+              denialStatePreserved: true,
+              ownerPreserved: true,
+              newEmailVerified: true,
+              newEmailLoginAccepted: true,
+              refreshRotated: true,
+            })
+          );
         },
         requestFetch
       );
