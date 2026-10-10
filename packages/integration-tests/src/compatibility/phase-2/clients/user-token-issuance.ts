@@ -169,6 +169,7 @@ const issueUserTokens = async (
     stopAtNativeCallback?: boolean;
     authorizationResources?: readonly string[];
     authorizationScope?: string;
+    observePasswordResponse?(value: Readonly<{ status: number; code: unknown }>): Promise<void>;
   }> = {}
 ): Promise<IssuedPublicUserTokens | IssuedPublicUserSession | NativeCallbackHandoff> => {
   let stage = 'admission';
@@ -303,18 +304,27 @@ const issueUserTokens = async (
         )
       );
       stage = 'verification';
-      const verification = await jsonBody(
-        await requireStatus(
-          await send(endpoint('/api/experience/verification/password'), 'POST', {
-            identifier: {
-              type: identifier.type,
-              value: identifier.value,
-            },
-            password,
-          }),
-          200
-        )
+      const verificationResponse = await send(
+        endpoint('/api/experience/verification/password'),
+        'POST',
+        {
+          identifier: {
+            type: identifier.type,
+            value: identifier.value,
+          },
+          password,
+        }
       );
+      if (options.observePasswordResponse) {
+        const observed: Record<string, unknown> = await jsonBody(
+          verificationResponse.clone()
+        ).catch(() => Object.fromEntries([]));
+        await options.observePasswordResponse({
+          status: verificationResponse.status,
+          code: observed.code,
+        });
+      }
+      const verification = await jsonBody(await requireStatus(verificationResponse, 200));
       const verificationId = bounded(verification.verificationId, 4096);
       stage = 'identification';
       await discard(
@@ -545,15 +555,20 @@ export const observePublicAccountPasswordSignIn = async (
   subject: Readonly<{ email: string; password: string }>,
   requestFetch: typeof fetch = fetch
 ): Promise<Readonly<{ accepted: boolean }>> => {
+  let rejected = false;
   try {
-    await issuePublicAccountTokensForSubject(targetInput, fixture, subject, requestFetch);
+    await issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+      subjectPassword: subject.password,
+      subjectIdentifier: { type: 'email', value: subject.email },
+      authorizationResources: [],
+      authorizationScope: 'openid offline_access profile email',
+      observePasswordResponse: async (value) => {
+        rejected = value.status === 401 && value.code === 'session.invalid_credentials';
+      },
+    });
     return Object.freeze({ accepted: true });
   } catch (error: unknown) {
-    if (
-      error instanceof Error &&
-      Object.getOwnPropertyDescriptor(error, 'message')?.value ===
-        'Invalid Phase 2 public user token issuance (verification)'
-    ) {
+    if (rejected) {
       return Object.freeze({ accepted: false });
     }
     throw error;

@@ -26,6 +26,27 @@ const record = (value: unknown): Record<string, unknown> =>
     ? Object.fromEntries(Object.entries(value))
     : fail();
 
+export const isolateAccountPasswordPolicy = (
+  value?: unknown
+): Readonly<{
+  previous?: Readonly<Record<string, unknown>>;
+  isolated?: Readonly<Record<string, unknown>>;
+}> => {
+  if (value === undefined) {
+    return Object.freeze({});
+  }
+  const previous = Object.freeze(record(value));
+  const rejectsValue = previous.rejects;
+  const rejects = rejectsValue === undefined ? {} : record(rejectsValue);
+  return Object.freeze({
+    previous,
+    isolated: Object.freeze({
+      ...previous,
+      rejects: Object.freeze({ ...rejects, pwned: false }),
+    }),
+  });
+};
+
 const accountCenter = (value: unknown): AccountCenterRecord => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return fail();
@@ -69,16 +90,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     expectedStatuses: [200],
     responseKind: 'object',
   });
-  const previousPasswordPolicy = record(signInExperience).passwordPolicy;
-  if (typeof previousPasswordPolicy !== 'object' || previousPasswordPolicy === null) {
-    return fail();
-  }
-  const previousPolicyRecord = record(previousPasswordPolicy);
-  const previousRejects = record(previousPolicyRecord.rejects);
-  const isolatedPasswordPolicy = Object.freeze({
-    ...previousPolicyRecord,
-    rejects: Object.freeze({ ...previousRejects, pwned: false }),
-  });
+  const passwordPolicy = isolateAccountPasswordPolicy(record(signInExperience).passwordPolicy);
   const selected = Object.freeze({
     enabled: true,
     fields: Object.freeze({ ...previous.fields, [input.field]: 'Edit' }),
@@ -107,17 +119,19 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   let primaryError: unknown;
   let cleanupError: unknown;
   try {
-    const patchedExperience = record(
-      await input.request({
-        method: 'PATCH',
-        path: 'sign-in-exp',
-        body: { passwordPolicy: isolatedPasswordPolicy },
-        expectedStatuses: [200],
-        responseKind: 'object',
-      })
-    );
-    if (!isDeepStrictEqual(patchedExperience.passwordPolicy, isolatedPasswordPolicy)) {
-      return fail();
+    if (passwordPolicy.isolated !== undefined) {
+      const patchedExperience = record(
+        await input.request({
+          method: 'PATCH',
+          path: 'sign-in-exp',
+          body: { passwordPolicy: passwordPolicy.isolated },
+          expectedStatuses: [200],
+          responseKind: 'object',
+        })
+      );
+      if (!isDeepStrictEqual(patchedExperience.passwordPolicy, passwordPolicy.isolated)) {
+        return fail();
+      }
     }
     await patchControl({ enabled: selected.enabled, field: 'Edit' });
     result = await withSelectedEmailPasswordFixture({
@@ -137,13 +151,15 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     primaryError = error;
   } finally {
     try {
-      await input.request({
-        method: 'PATCH',
-        path: 'sign-in-exp',
-        body: { passwordPolicy: previousPasswordPolicy },
-        expectedStatuses: [200],
-        responseKind: 'object',
-      });
+      if (passwordPolicy.previous !== undefined) {
+        await input.request({
+          method: 'PATCH',
+          path: 'sign-in-exp',
+          body: { passwordPolicy: passwordPolicy.previous },
+          expectedStatuses: [200],
+          responseKind: 'object',
+        });
+      }
       const restored = accountCenter(
         await input.request({
           method: 'PATCH',

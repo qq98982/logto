@@ -511,6 +511,21 @@ describe('Phase 2 public user token issuance transport', () => {
         brokenAuthorization.fetch
       )
     ).rejects.toThrow('Invalid Phase 2 public user token issuance (authorization)');
+    const verificationNetworkFailure = flow();
+    const failedFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (new URL(String(input)).pathname === '/api/experience/verification/password') {
+        throw new Error('private transport failure');
+      }
+      return verificationNetworkFailure.fetch(input, init);
+    }) as typeof fetch;
+    await expect(
+      observePublicAccountPasswordSignIn(
+        target,
+        fixture,
+        { email: 'owner@example.invalid', password: 'private-old-password' },
+        failedFetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (verification)');
   });
 
   it('issues confidential user tokens with PKCE and Basic proof kept out of the form', async () => {
