@@ -110,8 +110,8 @@ export const runCommonAccountEmailChange = async (
               primaryEmail: collisionEmail,
               password: `C9!${randomBytes(18).toString('hex')}`,
             },
-            expectedStatuses: [201],
-            responseKind: 'created',
+            expectedStatuses: [200],
+            responseKind: 'object',
           });
           const collisionUserId: unknown = record(collisionUser).id;
           if (typeof collisionUserId !== 'string' || collisionUserId.length === 0) {
