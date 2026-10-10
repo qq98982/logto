@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment -- JSON and Management payloads are narrowed immediately at the boundary. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment -- JSON and Management payloads are narrowed immediately at the boundary. */
 import type { TargetConfig } from '../../model.js';
 import type {
   Phase1BrowserGroupObserver,
@@ -32,6 +32,62 @@ import {
 
 const fail = (stage: string): never => {
   throw new TypeError(`Common phone code target failed: ${stage}`);
+};
+
+const closedPhoneConsumerStage = (error: unknown): string | undefined => {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+  const message: unknown = descriptor?.value;
+  if (typeof message !== 'string') {
+    return undefined;
+  }
+  const fixture =
+    /^Selected phone code fixture failed: (read-sie|get-app|patch-app|read-resource|create-role|create-connector|patch-sie|create-owner|create-control-owner|create-collision-owner|create-suspended|assign-role|registration-owner-before|use(?:-(?:sign-in|registration)-(?:input|initialization|identifier|delivery|code-format|code-fill|consent|callback|profile|refresh|subject))?|cleanup-(?:discover-registered-ambiguous|discover-registered|delete-registered|delete-suspended|delete-collision-owner|delete-control-owner|delete-owner|delete-role|delete-connector|restore-sie|restore-app|registered-owner-remains|read-registered-owner-after)(?:\+(?:discover-registered-ambiguous|discover-registered|delete-registered|delete-suspended|delete-collision-owner|delete-control-owner|delete-owner|delete-role|delete-connector|restore-sie|restore-app|registered-owner-remains|read-registered-owner-after))*)$/u.exec(
+      message
+    )?.[1];
+  if (fixture) {
+    return fixture.startsWith('use-') ? `flow-${fixture.slice(4)}` : `fixture-${fixture}`;
+  }
+  return /^Common phone code target failed: (admission|capability|discovery|subject)$/u.exec(
+    message
+  )?.[1];
+};
+
+const phoneAdminStage = (error: unknown): string | undefined => {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+  const message: unknown = descriptor?.value;
+  return typeof message === 'string'
+    ? /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks|consumer)\)$/u.exec(
+        message
+      )?.[1]
+    : undefined;
+};
+
+export const runCommonPhoneCodeAdminBoundary = async <Result>(
+  runAdmin: (capture: (operation: () => Promise<Result>) => Promise<Result>) => Promise<Result>
+): Promise<Result> => {
+  let consumerStage: string | undefined;
+  try {
+    return await runAdmin(async (operation) => {
+      try {
+        return await operation();
+      } catch (error: unknown) {
+        consumerStage = closedPhoneConsumerStage(error);
+        throw error;
+      }
+    });
+  } catch (error: unknown) {
+    if (consumerStage) {
+      return fail(`admin-consumer-${consumerStage}`);
+    }
+    const stage = phoneAdminStage(error);
+    return fail(stage && stage !== 'consumer' ? `admin-${stage}` : 'other');
+  }
 };
 
 export type CommonPhoneCodeScenario = 'registration' | 'sign-in';
@@ -225,12 +281,16 @@ const execute = async (
     });
   return input.withProviderLease(async (lease) => {
     if (input.target.label === 'candidate') {
-      return withPhase2AdminManagementBearer(
-        input.target,
-        input.fixture,
-        async (bearer) =>
-          run(createBearerPhase2AdminRequest(input.target, bearer, requestFetch), lease),
-        { fetch: requestFetch }
+      return runCommonPhoneCodeAdminBoundary(async (capture) =>
+        withPhase2AdminManagementBearer(
+          input.target,
+          input.fixture,
+          async (bearer) =>
+            capture(async () =>
+              run(createBearerPhase2AdminRequest(input.target, bearer, requestFetch), lease)
+            ),
+          { fetch: requestFetch }
+        )
       );
     }
     return run(createReferencePhase2AdminRequest(input.target, requestFetch), lease);
@@ -259,4 +319,4 @@ export const runCommonPhoneCodeForTargetTesting = async (
   }
   return execute(input);
 };
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment */

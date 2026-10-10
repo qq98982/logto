@@ -1,7 +1,10 @@
 /* eslint-disable unicorn/consistent-function-scoping -- Per-test request fakes assert local inputs. */
 import type { Phase2AdminRequestFunction } from '../fixtures.js';
 
-import { readRegisteredUserByPhone } from './common-phone-code-target-driver.js';
+import {
+  readRegisteredUserByPhone,
+  runCommonPhoneCodeAdminBoundary,
+} from './common-phone-code-target-driver.js';
 
 test('binds a registration subject only from one exact Management phone match', async () => {
   const request: Phase2AdminRequestFunction = async (input) => {
@@ -36,5 +39,33 @@ test.each([
   await expect(readRegisteredUserByPhone(request, '8613800138000')).rejects.toThrow(
     'Common phone code target failed: subject'
   );
+});
+
+test('preserves one finite phone fixture stage across admin consumer normalization', async () => {
+  await expect(
+    runCommonPhoneCodeAdminBoundary(async (capture) => {
+      try {
+        return await capture(async () => {
+          throw new TypeError('Selected phone code fixture failed: use-registration-profile');
+        });
+      } catch {
+        throw new TypeError('Invalid Phase 2 Admin Management bearer flow (consumer)');
+      }
+    })
+  ).rejects.toThrow('Common phone code target failed: admin-consumer-flow-registration-profile');
+});
+
+test('collapses an arbitrary private admin consumer error to the closed other stage', async () => {
+  await expect(
+    runCommonPhoneCodeAdminBoundary(async (capture) => {
+      try {
+        return await capture(async () => {
+          throw new Error('private credential and response detail');
+        });
+      } catch {
+        throw new TypeError('Invalid Phase 2 Admin Management bearer flow (consumer)');
+      }
+    })
+  ).rejects.toThrow('Common phone code target failed: other');
 });
 /* eslint-enable unicorn/consistent-function-scoping */
