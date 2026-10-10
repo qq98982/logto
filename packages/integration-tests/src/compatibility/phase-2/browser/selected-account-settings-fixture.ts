@@ -56,6 +56,17 @@ export const accountPasswordPolicyMatches = (
   expected: Readonly<Record<string, unknown>>
 ): boolean => isDeepStrictEqual(record(signInExperience).passwordPolicy, expected);
 
+export const selectAccountSettingsFields = (
+  previous: Readonly<Record<string, unknown>>,
+  field: AccountField,
+  value: 'Edit' | 'ReadOnly'
+): Readonly<Record<string, unknown>> =>
+  Object.freeze({
+    ...previous,
+    ...(field === 'password' ? { email: 'ReadOnly' } : {}),
+    [field]: value,
+  });
+
 const accountCenter = (value: unknown): AccountCenterRecord => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return fail();
@@ -102,14 +113,14 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   const passwordPolicy = isolateAccountPasswordPolicy(record(signInExperience).passwordPolicy);
   const selected = Object.freeze({
     enabled: true,
-    fields: Object.freeze({ ...previous.fields, [input.field]: 'Edit' }),
+    fields: selectAccountSettingsFields(previous.fields, input.field, 'Edit'),
   });
   const patchControl = async (
     value: Readonly<{ enabled: boolean; field: 'Edit' | 'ReadOnly' }>
   ) => {
     const expected = Object.freeze({
       enabled: value.enabled,
-      fields: Object.freeze({ ...previous.fields, [input.field]: value.field }),
+      fields: selectAccountSettingsFields(previous.fields, input.field, value.field),
     });
     const patched = accountCenter(
       await input.request({

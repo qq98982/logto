@@ -1,6 +1,7 @@
 import {
   accountPasswordPolicyMatches,
   isolateAccountPasswordPolicy,
+  selectAccountSettingsFields,
 } from './selected-account-settings-fixture.js';
 
 describe('selected Account settings fixture', () => {
@@ -62,5 +63,25 @@ describe('selected Account settings fixture', () => {
     expect(accountPasswordPolicyMatches({ updatedAt: 1 }, expected)).toBe(false);
     expect(accountPasswordPolicyMatches({ passwordPolicy: {} }, expected)).toBe(false);
     expect(accountPasswordPolicyMatches({ passwordPolicy: {} }, {})).toBe(true);
+  });
+
+  it('selects only the fields required by each Account main flow', () => {
+    const previous = { name: 'ReadOnly' };
+
+    expect(selectAccountSettingsFields(previous, 'password', 'Edit')).toEqual({
+      name: 'ReadOnly',
+      password: 'Edit',
+      email: 'ReadOnly',
+    });
+    expect(selectAccountSettingsFields(previous, 'password', 'ReadOnly')).toEqual({
+      name: 'ReadOnly',
+      password: 'ReadOnly',
+      email: 'ReadOnly',
+    });
+    expect(selectAccountSettingsFields(previous, 'email', 'Edit')).toEqual({
+      name: 'ReadOnly',
+      email: 'Edit',
+    });
+    expect(previous).toEqual({ name: 'ReadOnly' });
   });
 });
