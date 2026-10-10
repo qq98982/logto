@@ -6,6 +6,7 @@ import {
   observeAccountPasswordProof,
   updateAccountEmail,
   updateAccountPassword,
+  verifyAccountEmailProof,
 } from './account-settings.js';
 
 const target = (label: 'oracle' | 'candidate'): TargetConfig => ({
@@ -86,6 +87,33 @@ test('sends separate current and destination proofs for email change', async () 
     email: 'new@example.invalid',
     newIdentifierVerificationRecordId: 'private-destination-proof',
   });
+});
+
+test('uses the public verificationId wire field for destination email proof', async () => {
+  let body: unknown;
+  const requestFetch = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+    body = JSON.parse(String(init?.body));
+    return response(200);
+  }) as typeof fetch;
+
+  await expect(
+    verifyAccountEmailProof(
+      {
+        target: target('oracle'),
+        bearer: 'private-bearer',
+        email: 'new@example.invalid',
+        code: 'private-code',
+        verificationRecordId: 'private-record',
+      },
+      requestFetch
+    )
+  ).resolves.toEqual({ status: 200, error: 'none' });
+  expect(body).toEqual({
+    identifier: { type: 'email', value: 'new@example.invalid' },
+    verificationId: 'private-record',
+    code: 'private-code',
+  });
+  expect(body).not.toHaveProperty('verificationRecordId');
 });
 
 test('maps only closed public Account errors', async () => {

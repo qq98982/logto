@@ -241,7 +241,7 @@ export const verifyAccountEmailProof = async (
       'POST',
       {
         identifier: { type: 'email', value: bounded(input.email, 320) },
-        verificationRecordId: bounded(input.verificationRecordId, 4096),
+        verificationId: bounded(input.verificationRecordId, 4096),
         code: bounded(input.code, 64),
       },
       undefined,
