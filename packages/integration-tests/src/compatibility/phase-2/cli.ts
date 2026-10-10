@@ -18,6 +18,7 @@ import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 import { readCommonGoogleExistingOwnerFixtureRuntime } from './browser/common-google-existing-owner-fixture-runtime.js';
 import { readCommonGoogleRegistrationFixtureRuntime } from './browser/common-google-registration-fixture-runtime.js';
 import { readCommonWechatWebFixtureRuntime } from './browser/common-wechat-web-fixture-runtime.js';
+import { withSmsProviderLease } from './browser/sms-provider-lease.js';
 import {
   runClientCredentialsCandidateInvariants,
   type CandidateInvariantControlEvidence,
@@ -183,6 +184,12 @@ import {
   type CommonPasswordRecoveryScenarioResult,
 } from './scenarios/common-password-recovery.js';
 import {
+  commonPhoneCodeScenarioIds,
+  compareCommonPhoneCodeProjections,
+  runCommonPhoneCodeScenarioRow,
+  type CommonPhoneCodeScenarioResult,
+} from './scenarios/common-phone-code.js';
+import {
   commonWechatWebScenarioIds,
   compareCommonWechatWebProjections,
   describeCommonWechatWebProjectionDifference,
@@ -324,6 +331,7 @@ type TargetScenarioEvidence = Readonly<{
     | CommonEmailPasswordScenarioResult
     | CommonAccountPasswordUpdateScenarioResult
     | CommonAccountEmailChangeScenarioResult
+    | CommonPhoneCodeScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
   >;
@@ -1058,6 +1066,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (commonGoogleRegistrationScenarioIds as readonly string[]).includes(value) ||
   (commonAccountPasswordUpdateScenarioIds as readonly string[]).includes(value) ||
   (commonAccountEmailChangeScenarioIds as readonly string[]).includes(value) ||
+  (commonPhoneCodeScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
   /^Invalid Phase 2 Admin Management bearer flow \((admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks)\)$/u;
@@ -1988,6 +1997,31 @@ const runTargetScenarios = async (
     }).catch((error: unknown) =>
       commonReadyScenarioFailure(descriptor.kind, commonAccountEmailChangeScenarioIds[0], error)
     );
+    const commonPhoneCodeScenarios: CommonPhoneCodeScenarioResult[] = [];
+    for (const scenario of ['registration', 'sign-in'] as const) {
+      const id = commonPhoneCodeScenarioIds[scenario === 'registration' ? 0 : 1];
+      try {
+        const inputFile =
+          descriptor.kind === 'oracle'
+            ? process.env.ASTER_PHASE2_ORACLE_SMS_PROVIDER_INPUT
+            : process.env.ASTER_PHASE2_CANDIDATE_SMS_PROVIDER_INPUT;
+        if (!inputFile) {
+          throw new TypeError('Missing Common phone provider fixture');
+        }
+        commonPhoneCodeScenarios.push(
+          await runCommonPhoneCodeScenarioRow({
+            scenario,
+            target: descriptor.target,
+            fixture,
+            observer: createPlaywrightBrowserGroupObserver(loadChromium()),
+            signal: AbortSignal.timeout(600_000),
+            withProviderLease: async (use) => withSmsProviderLease(inputFile, use),
+          })
+        );
+      } catch {
+        throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${id}`);
+      }
+    }
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];
     for (const scenario of createDeviceAuthorizationScenarioRegistry(profile)) {
       try {
@@ -2236,6 +2270,7 @@ const runTargetScenarios = async (
       commonWechatWebScenario,
       commonAccountPasswordUpdateScenario,
       commonAccountEmailChangeScenario,
+      ...commonPhoneCodeScenarios,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -2456,6 +2491,18 @@ export const executeDifferential = async (
         );
       }
       return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
+    }
+    if ((commonPhoneCodeScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+      const id = oracleScenario.id as CommonPhoneCodeScenarioResult['id'];
+      const found = compareCommonPhoneCodeProjections(
+        id,
+        oracleScenario.projection as CommonPhoneCodeScenarioResult['projection'],
+        candidateScenario.projection as CommonPhoneCodeScenarioResult['projection']
+      );
+      if (found.length > 0) {
+        throw new Error(`Phase 2 scenario failed: candidate/${id}`);
+      }
+      return Object.freeze({ scenarioId: id, differenceCount: 0 });
     }
     if ((commonAccountEmailChangeScenarioIds as readonly string[]).includes(oracleScenario.id)) {
       const found = compareCommonAccountEmailChangeProjections(

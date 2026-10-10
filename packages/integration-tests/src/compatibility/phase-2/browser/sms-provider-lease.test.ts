@@ -122,4 +122,20 @@ it('rejects public or oversized configuration with a fixed credential-free error
   });
 });
 
+it('preserves consumer failure identity while revoking its escaped retrieval lease', async () => {
+  let escaped: SmsProviderLease | undefined;
+  const failure = new TypeError('Common phone code stage failed: registration-consent');
+  await withFixture(async (inputFile) => {
+    await expect(
+      withSmsProviderLease(inputFile, async (lease) => {
+        escaped = lease;
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    await expect(escaped?.arm('8613800000000', 'SignIn')).rejects.toThrow(
+      'Invalid SMS provider lease'
+    );
+  });
+});
+
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */

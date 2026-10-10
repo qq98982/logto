@@ -234,6 +234,8 @@ const runEvidenceValidation = async (
     'candidate-google',
     'oracle-wechat',
     'candidate-wechat',
+    'oracle-sms',
+    'candidate-sms',
   ].map((role) => path.join(directory, `${role}-provider.json`));
   await Promise.all(
     providerPaths.map(async (file) =>
@@ -242,6 +244,8 @@ const runEvidenceValidation = async (
         JSON.stringify({
           clientId: 'private-provider-client',
           clientSecret: 'private-provider-credential',
+          accessKeySecret: 'private-sms-provider-credential',
+          controlCapability: 'private-sms-control-capability',
         }),
         { mode: 0o600 }
       )
@@ -249,7 +253,7 @@ const runEvidenceValidation = async (
   );
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 187 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 189 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -1106,6 +1110,16 @@ wait_for_service candidate candidate-primary-postgres
     );
   });
 
+  it('starts both SMS transports before checking the complete owned service closure', () => {
+    const main = source.slice(source.indexOf('main() {'));
+    const oracleStart = main.indexOf('start_compose_stage oracle sms oracle-sms-provider');
+    const candidateStart = main.indexOf('start_compose_stage candidate sms candidate-sms-provider');
+    const closure = main.indexOf('assert_exact_project_services oracle');
+    expect(oracleStart).toBeGreaterThan(0);
+    expect(candidateStart).toBeGreaterThan(oracleStart);
+    expect(closure).toBeGreaterThan(candidateStart);
+  });
+
   it('builds descriptors only from actual engine and image inspection', () => {
     for (const inspectField of [
       '{{.Id}}',
@@ -1247,9 +1261,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 187',
+      'scenarioCount !== 189',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 187',
+      'comparisonCount !== 189',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1288,17 +1302,29 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(187, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(189, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(187, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(187, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(189, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(189, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(187, 24, 18, 'private-provider-credential')
+      runEvidenceValidation(189, 24, 18, 'private-provider-credential')
+    ).resolves.toEqual({ code: 1, stderr: '' });
+  });
+
+  it('rejects SMS provider credentials in otherwise valid evidence', async () => {
+    await expect(
+      runEvidenceValidation(189, 24, 18, 'private-sms-provider-credential')
+    ).resolves.toEqual({ code: 1, stderr: '' });
+  });
+
+  it('rejects SMS retrieval capabilities in otherwise valid evidence', async () => {
+    await expect(
+      runEvidenceValidation(189, 24, 18, 'private-sms-control-capability')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 

@@ -183,7 +183,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 188 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 190 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -254,7 +254,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 188 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 190 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -668,6 +668,70 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 
+  it.each([
+    ['common.phone.code-registration', 'created'],
+    ['common.phone.code-sign-in', 'accepted'],
+  ])(
+    'requires verified phone ownership and exact denial controls before publishing %s',
+    (id, outcome) => {
+      const projection = {
+        flow: {
+          identifier: 'phone',
+          outcome,
+          consent: true,
+          callback: 'state-issuer-code-bound',
+          pkce: 'S256',
+          profileSubject: true,
+          phoneVerified: true,
+          refreshRotated: true,
+        },
+        controls: {
+          occupiedRegistration: {
+            status: 422,
+            code: 'user.phone_already_in_use',
+            ownerUnchanged: true,
+          },
+          consumedReplay: { status: 400, code: 'verification_code.not_found' },
+          recipientMismatch: {
+            status: 400,
+            code: 'verification_code.phone_mismatch',
+            ownerRetained: true,
+          },
+          suspendedOwner: { status: 401, code: 'user.suspended' },
+        },
+      };
+      const evidence = {
+        target: 'oracle',
+        discovery: {},
+        controls: [],
+        scenarios: [{ id, projection }],
+      };
+      expect(sanitizerStageOf(evidence)).toBe('accepted');
+      for (const changed of [
+        { ...projection, flow: { ...projection.flow, phoneVerified: false } },
+        {
+          ...projection,
+          controls: { ...projection.controls, suspendedOwner: { status: 200, code: 'none' } },
+        },
+        {
+          ...projection,
+          controls: {
+            ...projection.controls,
+            occupiedRegistration: {
+              ...projection.controls.occupiedRegistration,
+              ownerUnchanged: false,
+            },
+          },
+        },
+        { ...projection, verificationCode: '123456' },
+      ]) {
+        expect(sanitizerStageOf({ ...evidence, scenarios: [{ id, projection: changed }] })).toBe(
+          'phone-0'
+        );
+      }
+    }
+  );
+
   it('round-trips legitimate device evidence while rejecting planted secrets', () => {
     const artifactProfile = {
       ...profile,
@@ -839,8 +903,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 187-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 187 }, (_, index) => ({
+  it('publishes the full 189-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 189 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

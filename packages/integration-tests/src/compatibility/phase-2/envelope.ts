@@ -79,6 +79,11 @@ import {
 import { commonNativeScenarioIds } from './scenarios/common-native.js';
 import { commonPasswordRecoveryScenarioIds } from './scenarios/common-password-recovery.js';
 import {
+  commonPhoneCodeScenarioIds,
+  compareCommonPhoneCodeProjections,
+  type CommonPhoneCodeScenarioResult,
+} from './scenarios/common-phone-code.js';
+import {
   commonWechatWebScenarioIds,
   compareCommonWechatWebProjections,
   type CommonWechatWebScenarioProjection,
@@ -206,7 +211,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 187).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 189).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -390,7 +395,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 187).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 189).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -564,6 +569,17 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
           scenario.projection
         ) as CommonAccountPasswordUpdateScenarioResult['projection'];
         if (compareCommonAccountPasswordUpdateProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonPhoneCodeScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`phone-${index}`, () => {
+        const id = scenario.id as CommonPhoneCodeScenarioResult['id'];
+        const wire = snapshotJsonWire(
+          scenario.projection
+        ) as CommonPhoneCodeScenarioResult['projection'];
+        if (compareCommonPhoneCodeProjections(id, wire, wire).length > 0) {
           return fail();
         }
         assertWithBothSanitizers(wire);

@@ -290,7 +290,9 @@
         "common.google.registration",
         "common.wechat.web",
         "common.account.password-update",
-        "common.account.email-change"
+        "common.account.email-change",
+        "common.phone.code-registration",
+        "common.phone.code-sign-in"
       ],
       "items": {
         "$ref": "#/$defs/scenarioId"

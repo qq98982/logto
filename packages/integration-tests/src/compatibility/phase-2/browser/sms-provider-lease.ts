@@ -143,6 +143,7 @@ export const withSmsProviderLease = async <Result>(
   use: (lease: SmsProviderLease) => Promise<Result>
 ): Promise<Result> => {
   let active = true;
+  let consumerEntered = false;
   try {
     if (!safePath(inputFile)) {
       return fail();
@@ -211,6 +212,7 @@ export const withSmsProviderLease = async <Result>(
       }
       return result;
     };
+    consumerEntered = true;
     return await use(
       Object.freeze({
         configuration,
@@ -224,7 +226,10 @@ export const withSmsProviderLease = async <Result>(
         },
       })
     );
-  } catch {
+  } catch (error: unknown) {
+    if (consumerEntered) {
+      throw error;
+    }
     return fail();
   } finally {
     active = false;

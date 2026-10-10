@@ -1363,7 +1363,9 @@ scan_evidence_for_private_values() {
     "$ORACLE_IMAGE_ID" "$CANDIDATE_IMAGE_ID" "$ORACLE_STATE_DRIVER_SHA256" "$CANDIDATE_STATE_DRIVER_SHA256" \
     "$CANDIDATE_INVARIANT_DRIVER_SHA256" "$ASTER_ADMIN_SHA256" \
     "$ORACLE_GOOGLE_PROVIDER_INPUT" "$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
-    "$ORACLE_WECHAT_PROVIDER_INPUT" "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$RUN_DIR" "$REPO_ROOT" "$ASTER_ROOT" \
+    "$ORACLE_WECHAT_PROVIDER_INPUT" "$CANDIDATE_WECHAT_PROVIDER_INPUT" \
+    "$SMS_PROVIDER_ROOT/o/configuration.json" "$SMS_PROVIDER_ROOT/c/configuration.json" \
+    "$RUN_DIR" "$REPO_ROOT" "$ASTER_ROOT" \
     "$ENGINE_SOCKET" "$FIXTURE_SOCKET" "$STATE_HANDLE_ROOT" "$ORACLE_PROJECT_NAME" "$CANDIDATE_PROJECT_NAME" \
     "$ORACLE_PRIMARY_CORE_ID" "$ORACLE_FOREIGN_CORE_ID" "$CANDIDATE_PRIMARY_CORE_ID" "$CANDIDATE_FOREIGN_CORE_ID" <<'NODE'
 import { createHash } from 'node:crypto';
@@ -1373,7 +1375,7 @@ const [profilePath, schemaPath, oraclePath, differentialPath, invariantPath,
   oracleEnvPath, candidateEnvPath, harnessHead, harnessTree, oracleCommit, candidateCommit,
   oracleImage, candidateImage, oracleStateSha, candidateStateSha, invariantSha, fixtureSha,
   oracleGoogleProviderPath, candidateGoogleProviderPath, oracleWechatProviderPath, candidateWechatProviderPath,
-  ...forbiddenPrivateValues] = process.argv.slice(2);
+  oracleSmsProviderPath, candidateSmsProviderPath, ...forbiddenPrivateValues] = process.argv.slice(2);
 const fail = () => process.exit(1);
 const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 const hash = async (file) => createHash('sha256').update(await readFile(file)).digest('hex');
@@ -1444,13 +1446,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 187 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 189 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 187 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 189 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1460,7 +1462,7 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 187 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 189 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
@@ -1484,8 +1486,10 @@ for (const envPath of [oracleEnvPath, candidateEnvPath]) {
 }
 const providerValues = (await Promise.all([
   oracleGoogleProviderPath, candidateGoogleProviderPath, oracleWechatProviderPath, candidateWechatProviderPath,
+  oracleSmsProviderPath, candidateSmsProviderPath,
 ].map(readJson))).flatMap((provider) => [
   'clientId', 'clientSecret', 'googleSubject', 'originalOwnerEmail', 'changedProviderEmail', 'wechatSubject', 'unionId',
+  'accessKeyId', 'accessKeySecret', 'signName', 'controlCapability',
 ].map((key) => provider[key]).filter((value) => typeof value === 'string' && value.length > 0));
 for (const text of serialized) {
   if (forbiddenPrivateValues.some((value) => value && text.includes(value)) ||
@@ -2263,6 +2267,9 @@ SMS_TOPOLOGY
   readonly ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY
 
   failure_stage='service-closure-oracle'
+  start_compose_stage oracle sms oracle-sms-provider || { failure_stage='oracle-sms-provider-start'; fail; return 1; }
+  start_compose_stage candidate sms candidate-sms-provider || { failure_stage='candidate-sms-provider-start'; fail; return 1; }
+
   assert_exact_project_services oracle "${ORACLE_SERVICES[@]}" || { fail; return 1; }
   failure_stage='service-closure-candidate'
   assert_exact_project_services candidate "${CANDIDATE_SERVICES[@]}" || { fail; return 1; }
@@ -2295,9 +2302,6 @@ SMS_TOPOLOGY
   IFS='|' read -r CANDIDATE_PRIMARY_CORE_ID _ <<<"$candidate_primary_metadata"
   IFS='|' read -r CANDIDATE_FOREIGN_CORE_ID _ <<<"$candidate_foreign_metadata"
   readonly ORACLE_PRIMARY_CORE_ID ORACLE_FOREIGN_CORE_ID CANDIDATE_PRIMARY_CORE_ID CANDIDATE_FOREIGN_CORE_ID
-
-  start_compose_stage oracle sms oracle-sms-provider || { failure_stage='oracle-sms-provider-start'; fail; return 1; }
-  start_compose_stage candidate sms candidate-sms-provider || { failure_stage='candidate-sms-provider-start'; fail; return 1; }
 
   failure_stage='descriptors'
   write_descriptors || { fail; return 1; }
