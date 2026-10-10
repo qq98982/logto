@@ -15,6 +15,30 @@ const stderrDiagnostic = (stderr) =>
   childDiagnostic(
     `stderr-bytes-${String(Buffer.byteLength(stderr))}-sha256-${createHash('sha256').update(stderr).digest('hex')}`
   );
+const writePrivateChildCategory = (stderr) => {
+  const root = process.env.ASTER_PHASE2_BUILD_ROOT;
+  if (!root || !path.isAbsolute(root)) {
+    return;
+  }
+  const receipt = Object.freeze({
+    bytes: Buffer.byteLength(stderr),
+    sha256: createHash('sha256').update(stderr).digest('hex'),
+    lines: stderr.split('\n').filter(Boolean).length,
+    maxListeners: stderr.includes('MaxListenersExceededWarning'),
+    experimental: stderr.includes('ExperimentalWarning'),
+    deprecation: stderr.includes('DeprecationWarning'),
+    browserNewContext: stderr.includes('browser.newContext'),
+    apiRequest: stderr.includes('apiRequestContext') || stderr.includes('APIRequestContext'),
+    targetClosed: stderr.includes('Target page, context or browser has been closed'),
+    tls: /(?:certificate|ERR_TLS|SELF_SIGNED|unable to verify)/iu.test(stderr),
+    closedStage: stderr.includes('Phase 2 client credentials command failed ('),
+  });
+  writeFileSync(path.join(root, '.child-category.json'), `${JSON.stringify(receipt)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+    mode: 0o600,
+  });
+};
 const batchFailureModes = new Set([
   'oracle',
   'differential',
@@ -814,6 +838,7 @@ const defaultDependencies = Object.freeze({
     );
     if (result.timedOut || result.code !== 0 || result.signal !== null || result.stderr !== '') {
       const childResultDiagnostic = diagnosticForPhase2ChildResult(result);
+      writePrivateChildCategory(result.stderr);
       writeClosedChildDiagnostic(args, childResultDiagnostic);
       process.stderr.write(childResultDiagnostic);
       throw new Error(childResultDiagnostic);
