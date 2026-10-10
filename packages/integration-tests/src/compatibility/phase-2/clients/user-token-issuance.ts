@@ -536,7 +536,7 @@ export const issuePublicAccountTokensForSubject = async (
         ? { type: 'email', value: subject.email }
         : { type: 'username', value: subject.username },
     authorizationResources: [],
-    authorizationScope: 'openid offline_access profile email phone identities custom_data',
+    authorizationScope: 'openid offline_access profile email',
   }) as Promise<IssuedPublicUserTokens>;
 
 export const issueConfidentialUserSession = async (
