@@ -500,22 +500,19 @@ export const runCommonWechatWebScenarioRow = async (
     async () => runCommonWechatWebProviderControlForTarget(driverInput, 'malformedProvider'),
     commonWechatWebExpectedProjection.malformedProvider
   );
-  const cross = await runControl(
+  const crossInteraction = await runControl(
     'cross-interaction',
-    async () => runCommonWechatWebCrossInteractionForTarget(driverInput),
-    {
-      secondStatus: commonWechatWebExpectedProjection.crossInteraction.status,
-      secondError: commonWechatWebExpectedProjection.crossInteraction.error,
-      secondAccepted: commonWechatWebExpectedProjection.crossInteraction.accepted,
-      ownerPreserved: commonWechatWebExpectedProjection.crossInteraction.ownerPreserved,
-    }
+    async () => {
+      const cross = await runCommonWechatWebCrossInteractionForTarget(driverInput);
+      return Object.freeze({
+        status: cross.secondStatus,
+        error: cross.secondError,
+        accepted: cross.secondAccepted,
+        ownerPreserved: cross.ownerPreserved,
+      });
+    },
+    commonWechatWebExpectedProjection.crossInteraction
   );
-  const crossInteraction = Object.freeze({
-    status: cross.secondStatus,
-    error: cross.secondError,
-    accepted: cross.secondAccepted,
-    ownerPreserved: cross.ownerPreserved,
-  });
   const missingState = await runControl(
     'missing-state',
     async () => runCommonWechatWebStateControlForTarget(driverInput, 'missingState'),
