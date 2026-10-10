@@ -12,13 +12,13 @@ readonly EXPECTED_ASTER_SOURCE='https://github.com/qq98982/aster.git'
 readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
   oracle-fetch-observer oracle-primary-smtp
-  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider oracle-wechat-provider
+  oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider oracle-wechat-provider oracle-sms-provider
 )
 readonly CANDIDATE_SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core candidate-primary-smtp
   candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
-  candidate-fixture-coordinator candidate-google-provider candidate-wechat-provider
+  candidate-fixture-coordinator candidate-google-provider candidate-wechat-provider candidate-sms-provider
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
 readonly LOOPBACK_PROXY_BINDINGS=(
@@ -161,7 +161,7 @@ generate_fetch_and_script_host_pki() {
     -out "$FETCH_OBSERVER_CA" >/dev/null 2>&1 || return 1
   "$OPENSSL_BIN" req -newkey rsa:2048 -nodes -sha256 -subj '/CN=fetch-observer.aster.test' \
     -keyout "$OBSERVER_SERVER_KEY" -out "$OBSERVER_SERVER_CSR" >/dev/null 2>&1 || return 1
-  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test,DNS:oauth2.googleapis.com,DNS:openidconnect.googleapis.com,DNS:api.weixin.qq.com\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nsubjectAltName=DNS:fetch-observer.aster.test,DNS:oauth2.googleapis.com,DNS:openidconnect.googleapis.com,DNS:api.weixin.qq.com,DNS:dysmsapi.aliyuncs.com\nextendedKeyUsage=serverAuth\n' >"$OBSERVER_SERVER_EXT"
   "$OPENSSL_BIN" x509 -req -days 1 -sha256 -set_serial "0x$serial" \
     -in "$OBSERVER_SERVER_CSR" -CA "$FETCH_OBSERVER_CA" -CAkey "$OBSERVER_CA_KEY" \
     -extfile "$OBSERVER_SERVER_EXT" -out "$OBSERVER_SERVER_CERT" >/dev/null 2>&1 || return 1
@@ -1559,14 +1559,19 @@ main() {
   WECHAT_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider.mjs"
   WECHAT_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider-topology.mjs"
   WECHAT_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-wechat-provider-runtime.mjs"
+  SMS_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider.mjs"
+  SMS_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider-topology.mjs"
+  SMS_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider-runtime.mjs"
   LAUNCHER_SOURCE="$REPO_ROOT/packages/integration-tests/src/compatibility/phase-2/launcher.mjs"
   readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE
   readonly GOOGLE_PROVIDER_SCRIPT GOOGLE_TOPOLOGY_MODULE GOOGLE_RUNTIME_HELPER LAUNCHER_SOURCE
   readonly WECHAT_PROVIDER_SCRIPT WECHAT_TOPOLOGY_MODULE WECHAT_RUNTIME_HELPER
+  readonly SMS_PROVIDER_SCRIPT SMS_TOPOLOGY_MODULE SMS_RUNTIME_HELPER
   for tracked_input in "$SOURCE_COMPOSE" "$PODMAN_GENERATOR" "$STATE_DRIVER_SOURCE" \
     "$INVARIANT_DRIVER_SOURCE" "$GOOGLE_PROVIDER_SCRIPT" "$GOOGLE_TOPOLOGY_MODULE" \
     "$GOOGLE_RUNTIME_HELPER" "$WECHAT_PROVIDER_SCRIPT" "$WECHAT_TOPOLOGY_MODULE" \
-    "$WECHAT_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
+    "$WECHAT_RUNTIME_HELPER" "$SMS_PROVIDER_SCRIPT" "$SMS_TOPOLOGY_MODULE" \
+    "$SMS_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
     [[ -f "$tracked_input" && ! -L "$tracked_input" ]] \
       || { failure_stage='tracked-inputs'; fail; return 1; }
   done
@@ -1630,6 +1635,10 @@ main() {
   SCRIPT_HOST_STATE="$RUN_DIR/script-host-state"
   GOOGLE_PROVIDER_ROOT="$RUN_DIR/google-provider"
   WECHAT_PROVIDER_ROOT="$RUN_DIR/wechat-provider"
+  SMS_PROVIDER_ROOT="$RUN_DIR/s"
+  ORACLE_SMS_PROVIDER_INPUT="$SMS_PROVIDER_ROOT/o/input.json"
+  CANDIDATE_SMS_PROVIDER_INPUT="$SMS_PROVIDER_ROOT/c/input.json"
+  readonly SMS_PROVIDER_ROOT ORACLE_SMS_PROVIDER_INPUT CANDIDATE_SMS_PROVIDER_INPUT
   for directory in "$PRIVATE_HOME" "$BROWSER_TMP" "$XDG_RUNTIME" "$CONFIG_DIR" \
     "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
@@ -2123,6 +2132,34 @@ for (const [destination, value] of [
   await rename(temporary, destination);
 }
 WECHAT_TOPOLOGY
+  "$NODE_BIN" --input-type=module - "$SMS_RUNTIME_HELPER" "$SMS_TOPOLOGY_MODULE" \
+    "$SMS_PROVIDER_ROOT" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$SMS_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
+    "$OBSERVER_SERVER_KEY" <<'SMS_TOPOLOGY' \
+    || { failure_stage='sms-provider-topology'; fail; return 1; }
+import { open, readFile, rename } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+const [runtimeModule, topologyModule, root, oraclePath, candidatePath, fixtureImage,
+  providerScript, caFile, certificateFile, privateKeyFile] = process.argv.slice(2);
+const { createSmsProviderRuntime } = await import(pathToFileURL(runtimeModule).href);
+const { bindSmsProviderTopology } = await import(pathToFileURL(topologyModule).href);
+const roles = await createSmsProviderRuntime(root);
+const [oracle, candidate] = await Promise.all([oraclePath, candidatePath].map(async (file) =>
+  JSON.parse(await readFile(file, 'utf8'))));
+const bound = bindSmsProviderTopology(oracle, candidate, { fixtureImage, providerScript,
+  caFile, certificateFile, privateKeyFile, runtimeUid: process.getuid(), runtimeGid: process.getgid(),
+  oracleConfigurationFile: roles.oracle.configurationFile,
+  oracleReceiptFile: roles.oracle.receiptFile, oracleControlDirectory: roles.oracle.controlDirectory,
+  candidateConfigurationFile: roles.candidate.configurationFile,
+  candidateReceiptFile: roles.candidate.receiptFile, candidateControlDirectory: roles.candidate.controlDirectory });
+for (const [destination, value] of [[oraclePath, bound.oracle], [candidatePath, bound.candidate]]) {
+  const temporary = `${destination}.sms-provider`;
+  const handle = await open(temporary, 'wx', 0o600);
+  try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
+  finally { await handle.close(); }
+  await rename(temporary, destination);
+}
+SMS_TOPOLOGY
   compose_oracle config --quiet >/dev/null 2>&1 || { fail; return 1; }
   compose_candidate config --quiet >/dev/null 2>&1 || { fail; return 1; }
 
@@ -2259,6 +2296,9 @@ WECHAT_TOPOLOGY
   IFS='|' read -r CANDIDATE_FOREIGN_CORE_ID _ <<<"$candidate_foreign_metadata"
   readonly ORACLE_PRIMARY_CORE_ID ORACLE_FOREIGN_CORE_ID CANDIDATE_PRIMARY_CORE_ID CANDIDATE_FOREIGN_CORE_ID
 
+  start_compose_stage oracle sms oracle-sms-provider || { failure_stage='oracle-sms-provider-start'; fail; return 1; }
+  start_compose_stage candidate sms candidate-sms-provider || { failure_stage='candidate-sms-provider-start'; fail; return 1; }
+
   failure_stage='descriptors'
   write_descriptors || { fail; return 1; }
   ORACLE_PRIMARY_CORE_IDENTITY="$(core_identity oracle oracle-primary-core "$ORACLE_IMAGE_ID")"
@@ -2282,6 +2322,8 @@ WECHAT_TOPOLOGY
     PLAYWRIGHT_BROWSERS_PATH="$BROWSER_CACHE" TMPDIR="$BROWSER_TMP" \
     XDG_RUNTIME_DIR="$XDG_RUNTIME" \
     ASTER_PHASE2_ORACLE_SMTP_SOCKET="$ORACLE_SMTP_SOCKET" \
+    ASTER_PHASE2_ORACLE_SMS_PROVIDER_INPUT="$ORACLE_SMS_PROVIDER_INPUT" \
+    ASTER_PHASE2_CANDIDATE_SMS_PROVIDER_INPUT="$CANDIDATE_SMS_PROVIDER_INPUT" \
     ASTER_PHASE2_ENGINE_SOCKET="$ENGINE_SOCKET" \
     ASTER_PHASE2_ORACLE_GOOGLE_PROVIDER_INPUT="$ORACLE_GOOGLE_PROVIDER_INPUT" \
     ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT="$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
