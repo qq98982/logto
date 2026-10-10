@@ -97,6 +97,10 @@ const wechatProviderEnvironmentKeys = Object.freeze([
   'ASTER_PHASE2_ORACLE_WECHAT_PROVIDER_INPUT',
   'ASTER_PHASE2_CANDIDATE_WECHAT_PROVIDER_INPUT',
 ]);
+const smsProviderEnvironmentKeys = Object.freeze([
+  'ASTER_PHASE2_ORACLE_SMS_PROVIDER_INPUT',
+  'ASTER_PHASE2_CANDIDATE_SMS_PROVIDER_INPUT',
+]);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -346,11 +350,14 @@ export const inspectLaunchedPhase2HarnessSource = async (
   const hasGoogleProvider = googleProviderPaths.some((value) => value !== undefined);
   const wechatProviderPaths = wechatProviderEnvironmentKeys.map((key) => environment[key]);
   const hasWechatProvider = wechatProviderPaths.some((value) => value !== undefined);
+  const smsProviderPaths = smsProviderEnvironmentKeys.map((key) => environment[key]);
+  const hasSmsProvider = smsProviderPaths.some((value) => value !== undefined);
   const expectedKeys = [
     ...launcherEnvironmentKeys,
     ...(oracleSmtpSocket === undefined ? [] : ['ASTER_PHASE2_ORACLE_SMTP_SOCKET']),
     ...(hasGoogleProvider ? googleProviderEnvironmentKeys : []),
     ...(hasWechatProvider ? wechatProviderEnvironmentKeys : []),
+    ...(hasSmsProvider ? smsProviderEnvironmentKeys : []),
   ].toSorted();
   if (
     keys.length !== expectedKeys.length ||
@@ -370,6 +377,7 @@ export const inspectLaunchedPhase2HarnessSource = async (
   for (const [provider, paths, present] of [
     ['google', googleProviderPaths, hasGoogleProvider],
     ['wechat', wechatProviderPaths, hasWechatProvider],
+    ['sms', smsProviderPaths, hasSmsProvider],
   ] as const) {
     if (!present) {
       continue;
@@ -378,12 +386,10 @@ export const inspectLaunchedPhase2HarnessSource = async (
     await Promise.all(
       paths.map(async (value, index) => {
         const role = index === 0 ? 'oracle' : 'candidate';
-        const expected = path.join(
-          path.dirname(home),
-          `${provider}-provider`,
-          role,
-          'provider-input.json'
-        );
+        const expected =
+          provider === 'sms'
+            ? path.join(path.dirname(home), 's', role === 'oracle' ? 'o' : 'c', 'input.json')
+            : path.join(path.dirname(home), `${provider}-provider`, role, 'provider-input.json');
         if (value !== expected) {
           return fail();
         }

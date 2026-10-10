@@ -257,7 +257,7 @@ it('accepts only the canonical optional oracle SMTP socket launcher environment'
     ).rejects.toThrow('Invalid Phase 2 provenance');
   }, Promise.resolve());
 });
-it.each(['google', 'wechat'] as const)(
+it.each(['google', 'wechat', 'sms'] as const)(
   'admits only paired owned %s provider paths alongside the exact launcher environment',
   async (provider) => {
     const oracleKey = `ASTER_PHASE2_ORACLE_${provider.toUpperCase()}_PROVIDER_INPUT`;
@@ -268,11 +268,11 @@ it.each(['google', 'wechat'] as const)(
     const capability = 'd'.repeat(64);
     const oraclePath = path.join(
       browserRunDirectory,
-      `${provider}-provider/oracle/provider-input.json`
+      provider === 'sms' ? 's/o/input.json' : `${provider}-provider/oracle/provider-input.json`
     );
     const candidatePath = path.join(
       browserRunDirectory,
-      `${provider}-provider/candidate/provider-input.json`
+      provider === 'sms' ? 's/c/input.json' : `${provider}-provider/candidate/provider-input.json`
     );
     await Promise.all(
       [oraclePath, candidatePath].map(async (filePath) => {
