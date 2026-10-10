@@ -260,7 +260,7 @@ export const runCommonAccountPasswordUpdate = async (
             oldProfile.status !== 200 ||
             !oldProfile.ownerMatches ||
             refreshed.refresh === ownerTokens.refresh ||
-            oldPassword.status !== 401 ||
+            oldPassword.status !== 422 ||
             oldPassword.error !== 'session.invalid_credentials' ||
             oldPasswordSignIn.accepted ||
             newProfile.status !== 200 ||

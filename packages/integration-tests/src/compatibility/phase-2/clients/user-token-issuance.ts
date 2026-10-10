@@ -563,7 +563,7 @@ export const observePublicAccountPasswordSignIn = async (
       authorizationResources: [],
       authorizationScope: 'openid offline_access profile email',
       observePasswordResponse: async (value) => {
-        rejected = value.status === 401 && value.code === 'session.invalid_credentials';
+        rejected = value.status === 422 && value.code === 'session.invalid_credentials';
       },
     });
     return Object.freeze({ accepted: true });

@@ -492,7 +492,7 @@ describe('Phase 2 public user token issuance transport', () => {
   it('classifies only password-verification failure as a rejected Account sign-in', async () => {
     const invalidPassword = flow({
       step: 2,
-      response: response(401, { code: 'session.invalid_credentials' }),
+      response: response(422, { code: 'session.invalid_credentials' }),
     });
     await expect(
       observePublicAccountPasswordSignIn(
@@ -502,6 +502,30 @@ describe('Phase 2 public user token issuance transport', () => {
         invalidPassword.fetch
       )
     ).resolves.toEqual({ accepted: false });
+    const wrongStatus = flow({
+      step: 2,
+      response: response(401, { code: 'session.invalid_credentials' }),
+    });
+    await expect(
+      observePublicAccountPasswordSignIn(
+        target,
+        fixture,
+        { email: 'owner@example.invalid', password: 'private-old-password' },
+        wrongStatus.fetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (verification)');
+    const wrongCode = flow({
+      step: 2,
+      response: response(422, { code: 'request.invalid_input' }),
+    });
+    await expect(
+      observePublicAccountPasswordSignIn(
+        target,
+        fixture,
+        { email: 'owner@example.invalid', password: 'private-old-password' },
+        wrongCode.fetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (verification)');
     const brokenAuthorization = flow({ step: 0, response: response(500, { private: true }) });
     await expect(
       observePublicAccountPasswordSignIn(
