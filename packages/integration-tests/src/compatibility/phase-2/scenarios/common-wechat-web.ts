@@ -386,7 +386,7 @@ const failurePatterns = Object.freeze([
   /^Common WeChat Web failed: (callback-(?:callback-route|callback-facts-s(?:0|1|many)-c(?:0|1|many)-i(?:0|1|many)|cardinality|signin-(?:authority|response|client|redirect|mode|scope|resource|pkce)|callback-(?:authority|response|state|issuer|code)|exchange-(?:authority|response|correlation|client|refresh|target|scope|access)))$/u,
   /^Common Wechat existing-owner target failed: (admission|capability|cleanup|context|consent-field-invalid-(?:route|operation|status|binding|code|authorization|state|tuple)|context-adapter|context-flow|context-after-flow|context-control-(?:open|route|count|reset|click|response|owner)|context-positive-(?:admission|initialization|provider-count|provider-click|consent-route|consent-click|callback|profile|refresh|provider)|context-positive-consent-(?:response|authorization|state|route|complete)|credentials|discovery|fixture|management)$/u,
   /^Common Wechat existing-owner target failed: (fixture-(?:read-sie|get-app|patch-app|read-app|read-resource|create-role|create-connector|prepare-connector|prepare-connector-docker-environment|prepare-connector-admission|prepare-connector-configuration-file|prepare-connector-receipt-file|prepare-connector-container-admission|prepare-connector-configuration-write|prepare-connector-start|prepare-connector-health|prepare-connector-compensation|prepare-connector-unknown|patch-sie|read-sie-updated|existing-owner-create-user|existing-owner-associate|existing-owner-read-before|existing-owner-use|existing-owner-read-after|existing-owner-cleanup-user|stop-provider|stop-provider-state|stop-provider-config-identity|stop-provider-receipt-identity|restore-app|delete-role|restore-sie|delete-connector))$/u,
-  /^Common Wechat existing-owner target failed: (controls-(?:no-union-id|invalid-code|replay|malformed-provider|cross-interaction|missing-state|wrong-state|wrong-callback))$/u,
+  /^Common Wechat existing-owner target failed: (controls-(?:no-union-id|invalid-code|replay|malformed-provider|cross-interaction(?:-(?:execution|status|error|accepted))?|missing-state|wrong-state|wrong-callback))$/u,
 ]);
 
 export const describeCommonWechatWebFailure = (error: unknown): string | undefined => {
@@ -453,6 +453,31 @@ export const projectCommonWechatCrossInteraction = (
     ownerPreserved: cross.ownerPreserved,
   });
 
+const failCross = (detail: 'execution' | 'status' | 'error' | 'accepted'): never => {
+  throw new TypeError(
+    `Common Wechat existing-owner target failed: controls-cross-interaction-${detail}`
+  );
+};
+const runCrossInteractionControl = async (
+  driverInput: CommonWechatWebExistingOwnerTargetDriverInput
+) => {
+  const cross = await runCommonWechatWebCrossInteractionForTarget(driverInput).catch(() =>
+    failCross('execution')
+  );
+  const result = projectCommonWechatCrossInteraction(cross);
+  const expected = commonWechatWebExpectedProjection.crossInteraction;
+  if (result.status !== expected.status) {
+    return failCross('status');
+  }
+  if (result.error !== expected.error) {
+    return failCross('error');
+  }
+  if (result.accepted !== expected.accepted) {
+    return failCross('accepted');
+  }
+  return result;
+};
+
 export const runCommonWechatWebScenarioRow = async (
   input: Readonly<{
     target: TargetConfig;
@@ -510,14 +535,7 @@ export const runCommonWechatWebScenarioRow = async (
     async () => runCommonWechatWebProviderControlForTarget(driverInput, 'malformedProvider'),
     commonWechatWebExpectedProjection.malformedProvider
   );
-  const crossInteraction = await runControl(
-    'cross-interaction',
-    async () => {
-      const cross = await runCommonWechatWebCrossInteractionForTarget(driverInput);
-      return projectCommonWechatCrossInteraction(cross);
-    },
-    commonWechatWebExpectedProjection.crossInteraction
-  );
+  const crossInteraction = await runCrossInteractionControl(driverInput);
   const missingState = await runControl(
     'missing-state',
     async () => runCommonWechatWebStateControlForTarget(driverInput, 'missingState'),

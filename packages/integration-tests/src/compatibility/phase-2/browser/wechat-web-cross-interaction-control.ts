@@ -1,7 +1,8 @@
 /* eslint-disable complexity, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One-use route interception retains private proof material only inside the browser control. */
+import { createRequire } from 'node:module';
 import { isDeepStrictEqual } from 'node:util';
 
-import type { APIResponse } from '@playwright/test';
+import type { APIResponse, APIRequest } from '@playwright/test';
 
 import {
   invokePlaywrightExternalAuthorizationCapability,
@@ -31,6 +32,11 @@ const fail = (): never => {
   throw new TypeError('Invalid WeChat Web cross-interaction control');
 };
 const maximumBodyBytes = 65_536;
+// Runtime loading keeps Playwright external to the ESM bundle; its published type validates the port.
+// eslint-disable-next-line no-restricted-syntax
+const { request: playwrightRequest } = createRequire(import.meta.url)('@playwright/test') as {
+  request: APIRequest;
+};
 const boundedBody = async (response: APIResponse): Promise<Record<string, unknown>> => {
   const bytes = await response.body();
   if (bytes.byteLength > maximumBodyBytes) {
@@ -43,6 +49,35 @@ const boundedBody = async (response: APIResponse): Promise<Record<string, unknow
       : fail();
   } catch {
     return fail();
+  }
+};
+type ForeignInteractionRequest = (
+  input: Readonly<{
+    target: URL;
+    verifyUrl: URL;
+    headers: Readonly<Record<string, string>>;
+    postData: Uint8Array;
+  }>
+) => Promise<Readonly<{ status: number; body: Record<string, unknown> }>>;
+const requestInForeignInteraction: ForeignInteractionRequest = async (input) => {
+  const context = await playwrightRequest.newContext({
+    baseURL: input.target.origin,
+    extraHTTPHeaders: input.headers,
+  });
+  try {
+    const initialized = await context.put('/api/experience', {
+      data: { interactionEvent: 'SignIn' },
+    });
+    if (initialized.status() !== 200) {
+      return fail();
+    }
+    const response = await context.fetch(input.verifyUrl.href, {
+      method: 'POST',
+      data: input.postData,
+    });
+    return Object.freeze({ status: response.status(), body: await boundedBody(response) });
+  } finally {
+    await context.dispose();
   }
 };
 const closedError = (value: unknown): WechatWebCrossInteractionError => {
@@ -66,6 +101,7 @@ export const createWechatWebCrossInteractionTestControl = (
     authorization: PlaywrightExternalAuthorizationCapability;
     targetOrigin: string;
     connectorId: string;
+    foreignInteractionRequest?: ForeignInteractionRequest;
     ownerSnapshot(): Promise<unknown>;
   }>
 ): Readonly<{
@@ -119,17 +155,29 @@ export const createWechatWebCrossInteractionTestControl = (
         return fail();
       }
       const before = structuredClone(await input.ownerSnapshot());
-      const headers = { ...(await request.call(route).allHeaders()) };
-      headers.cookie = '__aster_cross_interaction__=foreign';
-      const second = await fetchRoute.call(route, { headers });
-      const secondBody = await boundedBody(second);
+      const originalRequest = request.call(route);
+      const headers = Object.fromEntries(
+        Object.entries(await originalRequest.allHeaders()).filter(
+          ([name]) => name !== 'cookie' && name !== 'content-length'
+        )
+      );
+      const postData = originalRequest.postDataBuffer();
+      if (!postData || postData.byteLength > maximumBodyBytes) {
+        return fail();
+      }
+      const second = await (input.foreignInteractionRequest ?? requestInForeignInteraction)({
+        target,
+        verifyUrl: url,
+        headers,
+        postData,
+      });
       const after = structuredClone(await input.ownerSnapshot());
       if (!isDeepStrictEqual(before, after)) {
         return fail();
       }
-      const secondError = closedError(secondBody.code);
+      const secondError = closedError(second.body.code);
       const secondAccepted =
-        second.status() === 200 && secondError === 'none'
+        second.status === 200 && secondError === 'none'
           ? true
           : secondError === 'none' || secondError === 'unknown'
             ? ('unknown' as const)
@@ -138,7 +186,7 @@ export const createWechatWebCrossInteractionTestControl = (
         requestCount: 1,
         firstStatus: 200,
         firstOutcome: 'verified',
-        secondStatus: second.status(),
+        secondStatus: second.status,
         secondError,
         secondAccepted,
         ownerPreserved: true,

@@ -20,10 +20,18 @@ const { chromium } = createRequire(import.meta.url)('@playwright/test') as {
 test('replays the first successful social verification and releases it for normal UI continuation', async () => {
   let verifyCount = 0;
   let identificationCount = 0;
+  let interactionCount = 0;
   const requestBodies: string[] = [];
   const clientHeaders: Array<string | undefined> = [];
   const cookieFacts: Array<
-    Readonly<{ interaction: boolean; signature: boolean; extra: boolean; repaired: boolean }>
+    Readonly<{
+      interaction: boolean;
+      signature: boolean;
+      foreignInteraction: boolean;
+      foreignSignature: boolean;
+      extra: boolean;
+      repaired: boolean;
+    }>
   > = [];
   const server = createServer((request, response) => {
     if (request.url === '/') {
@@ -55,6 +63,18 @@ test('replays the first successful social verification and releases it for norma
       body += chunk;
     });
     request.on('end', () => {
+      if (request.url === '/api/experience' && request.method === 'PUT') {
+        interactionCount += 1;
+        response.writeHead(200, {
+          'content-type': 'application/json',
+          'set-cookie': [
+            '_interaction=foreign; Path=/; HttpOnly',
+            '_interaction.sig=foreign-signature; Path=/; HttpOnly',
+          ],
+        });
+        response.end('{}');
+        return;
+      }
       if (request.url?.endsWith('/verify')) {
         verifyCount += 1;
         requestBodies.push(body);
@@ -64,6 +84,8 @@ test('replays the first successful social verification and releases it for norma
         cookieFacts.push({
           interaction: cookie.includes('_interaction=existing'),
           signature: cookie.includes('_interaction.sig=existing-signature'),
+          foreignInteraction: cookie.includes('_interaction=foreign'),
+          foreignSignature: cookie.includes('_interaction.sig=foreign-signature'),
           extra: cookie.includes('extra=preserved'),
           repaired: cookie.includes('proof=merged'),
         });
@@ -100,18 +122,23 @@ test('replays the first successful social verification and releases it for norma
     ownerSnapshot: async () => ({ id: 'owner', stable: true, read: ++ownerReads > 0 }),
   });
   const target: TargetConfig = { label: 'oracle', coreUrl: `${origin}/`, adminUrl: `${origin}/` };
+  let runError: unknown;
   try {
-    await createPlaywrightBrowserGroupObserver(chromium, control.capability).runInFreshContext(
-      'experience',
-      new AbortController().signal,
-      target,
-      async (session) => {
-        await session.navigate('open', 'core', '/');
-        await session.click('go', '#go');
-        await session.waitForRoute('complete-route', 'core', ['/complete']);
-        await session.expectText('continued', '#done', 'continued');
-      }
-    );
+    try {
+      await createPlaywrightBrowserGroupObserver(chromium, control.capability).runInFreshContext(
+        'experience',
+        new AbortController().signal,
+        target,
+        async (session) => {
+          await session.navigate('open', 'core', '/');
+          await session.click('go', '#go');
+          await session.waitForRoute('complete-route', 'core', ['/complete']);
+          await session.expectText('continued', '#done', 'continued');
+        }
+      );
+    } catch (error: unknown) {
+      runError = error;
+    }
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -127,9 +154,25 @@ test('replays the first successful social verification and releases it for norma
   expect(requestBodies[0]).toBe(requestBodies[1]);
   expect(clientHeaders).toEqual(['browser', 'browser']);
   expect(cookieFacts).toEqual([
-    { interaction: true, signature: true, extra: true, repaired: false },
-    { interaction: false, signature: false, extra: false, repaired: false },
+    {
+      interaction: true,
+      signature: true,
+      foreignInteraction: false,
+      foreignSignature: false,
+      extra: true,
+      repaired: false,
+    },
+    {
+      interaction: false,
+      signature: false,
+      foreignInteraction: true,
+      foreignSignature: true,
+      extra: false,
+      repaired: false,
+    },
   ]);
+  expect(interactionCount).toBe(1);
+  expect(runError).toBeUndefined();
   expect(identificationCount).toBe(1);
   expect(control.observation()).toEqual({
     requestCount: 1,
@@ -157,6 +200,7 @@ test('keeps a missing replay error code observationally unknown', async () => {
     targetOrigin: 'https://core.example',
     connectorId: 'wechat-web-main',
     ownerSnapshot: async () => ({ owner: true }),
+    foreignInteractionRequest: async () => Object.freeze({ status: 409, body: {} }),
   });
   await expect(
     invokePlaywrightExternalAuthorizationCapability(
@@ -166,12 +210,14 @@ test('keeps a missing replay error code observationally unknown', async () => {
       {
         abort: async () => {},
         fulfill: async () => {},
-        request: () => ({ allHeaders: async () => ({ cookie: '_interaction=private' }) }) as never,
+        request: () =>
+          ({
+            allHeaders: async () => ({ cookie: '_interaction=private' }),
+            postDataBuffer: () => Buffer.from('{}'),
+          }) as never,
         fetch: async () => {
           fetches += 1;
-          const body = Buffer.from(
-            JSON.stringify(fetches === 1 ? { verificationId: 'private-proof' } : {})
-          );
+          const body = Buffer.from(JSON.stringify({ verificationId: 'private-proof' }));
           const response: Awaited<
             ReturnType<
               NonNullable<
@@ -179,7 +225,7 @@ test('keeps a missing replay error code observationally unknown', async () => {
               >
             >
           > = {
-            status: () => (fetches === 1 ? 200 : 409),
+            status: () => 200,
             body: async () => body,
             headersArray: () => [],
           } as never;
