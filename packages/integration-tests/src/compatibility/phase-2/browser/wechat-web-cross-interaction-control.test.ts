@@ -21,6 +21,7 @@ test('replays the first successful social verification and releases it for norma
   let verifyCount = 0;
   let identificationCount = 0;
   let interactionCount = 0;
+  let authorizationCount = 0;
   const requestBodies: string[] = [];
   const clientHeaders: Array<string | undefined> = [];
   const cookieFacts: Array<
@@ -34,6 +35,18 @@ test('replays the first successful social verification and releases it for norma
     }>
   > = [];
   const server = createServer((request, response) => {
+    if (request.url?.startsWith('/oidc/auth?')) {
+      authorizationCount += 1;
+      response.writeHead(303, {
+        location: '/sign-in',
+        'set-cookie': [
+          '_interaction=foreign; Path=/; HttpOnly',
+          '_interaction.sig=foreign-signature; Path=/; HttpOnly',
+        ],
+      });
+      response.end();
+      return;
+    }
     if (request.url === '/') {
       response.writeHead(200, { 'content-type': 'text/html' });
       response.end(`<button id="go">go</button><div id="done"></div><script>
@@ -65,12 +78,7 @@ test('replays the first successful social verification and releases it for norma
     request.on('end', () => {
       if (request.url === '/api/experience' && request.method === 'PUT') {
         interactionCount += 1;
-        response.writeHead(204, {
-          'set-cookie': [
-            '_interaction=foreign; Path=/; HttpOnly',
-            '_interaction.sig=foreign-signature; Path=/; HttpOnly',
-          ],
-        });
+        response.writeHead(204);
         response.end();
         return;
       }
@@ -116,9 +124,13 @@ test('replays the first successful social verification and releases it for norma
   let ownerReads = 0;
   const control = createWechatWebCrossInteractionTestControl({
     authorization: registerPlaywrightExternalAuthorizationCapability(async () => false),
+    clientId: 'browser-client',
     targetOrigin: origin,
     connectorId: 'wechat-web-main',
     ownerSnapshot: async () => ({ id: 'owner', stable: true, read: ++ownerReads > 0 }),
+    redirectUri: `${origin}/demo-app`,
+    resource: `${origin}/api`,
+    scope: 'openid offline_access profile email read:resource',
   });
   const target: TargetConfig = { label: 'oracle', coreUrl: `${origin}/`, adminUrl: `${origin}/` };
   let runError: unknown;
@@ -173,6 +185,7 @@ test('replays the first successful social verification and releases it for norma
     },
   ]);
   expect(interactionCount).toBe(1);
+  expect(authorizationCount).toBe(1);
   expect(identificationCount).toBe(1);
   expect(control.observation()).toEqual({
     requestCount: 1,
@@ -200,9 +213,13 @@ test('keeps a missing replay error code observationally unknown', async () => {
   let fetches = 0;
   const control = createWechatWebCrossInteractionTestControl({
     authorization: registerPlaywrightExternalAuthorizationCapability(async () => false),
+    clientId: 'browser-client',
     targetOrigin: 'https://core.example',
     connectorId: 'wechat-web-main',
     ownerSnapshot: async () => ({ owner: true }),
+    redirectUri: 'https://core.example/demo-app',
+    resource: 'https://core.example/api',
+    scope: 'openid profile',
     foreignInteractionRequest: async () => Object.freeze({ status: 409, body: {} }),
   });
   await expect(

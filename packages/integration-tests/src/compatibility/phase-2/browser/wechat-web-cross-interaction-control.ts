@@ -1,4 +1,5 @@
-/* eslint-disable complexity, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One-use route interception retains private proof material only inside the browser control. */
+/* eslint-disable complexity, max-lines, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One-use route interception retains private proof material only inside the browser control. */
+import { createHash, randomBytes } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 import type { APIResponse, Request } from '@playwright/test';
@@ -51,6 +52,10 @@ type ForeignInteractionRequest = (
     target: URL;
     verifyUrl: URL;
     headers: Readonly<Record<string, string>>;
+    clientId: string;
+    redirectUri: string;
+    resource: string;
+    scope: string;
     postData: Uint8Array;
     request: Request;
     registerCleanup(cleanup: () => Promise<void>): void;
@@ -95,6 +100,30 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
     .catch(() => failForeign('context'));
   input.registerCleanup(async () => context.close());
   input.reportStage('init-request');
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  if (verifier.length !== 43 || challenge.length !== 43) {
+    return failForeign('init-request');
+  }
+  const authorization = new URL('/oidc/auth', input.target);
+  authorization.search = new URLSearchParams({
+    client_id: input.clientId,
+    redirect_uri: input.redirectUri,
+    response_type: 'code',
+    scope: input.scope,
+    resource: input.resource,
+    prompt: 'consent',
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+  }).toString();
+  const admitted = await context.request
+    .get(authorization.href, { maxRedirects: 0 })
+    .catch(() => failForeign('init-request'));
+  const admittedStatus = admitted.status();
+  await admitted.dispose().catch(() => failForeign('cleanup'));
+  if (admittedStatus !== 303) {
+    return failForeign('init-status');
+  }
   const initialized = await context.request
     .put(new URL('/api/experience', input.target).href, {
       data: { interactionEvent: 'SignIn' },
@@ -142,9 +171,13 @@ const closedError = (value: unknown): WechatWebCrossInteractionError => {
 export const createWechatWebCrossInteractionTestControl = (
   input: Readonly<{
     authorization: PlaywrightExternalAuthorizationCapability;
+    clientId: string;
     targetOrigin: string;
     connectorId: string;
     foreignInteractionRequest?: ForeignInteractionRequest;
+    redirectUri: string;
+    resource: string;
+    scope: string;
     ownerSnapshot(): Promise<unknown>;
   }>
 ): Readonly<{
@@ -213,6 +246,10 @@ export const createWechatWebCrossInteractionTestControl = (
       target,
       verifyUrl: url,
       headers,
+      clientId: input.clientId,
+      redirectUri: input.redirectUri,
+      resource: input.resource,
+      scope: input.scope,
       postData,
       request: originalRequest,
       registerCleanup: (cleanup) => {
@@ -272,4 +309,4 @@ export const createWechatWebCrossInteractionTestControl = (
     observation: () => observation,
   });
 };
-/* eslint-enable complexity, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable complexity, max-lines, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

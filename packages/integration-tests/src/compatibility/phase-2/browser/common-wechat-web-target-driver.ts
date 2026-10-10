@@ -597,9 +597,13 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                 providerCase === 'crossInteraction'
                   ? createWechatWebCrossInteractionTestControl({
                       authorization: value.capability,
+                      clientId: input.browser.demo.appId,
                       targetOrigin: target.coreUrl,
                       connectorId: value.connectorId,
                       ownerSnapshot: value.ownerSnapshot,
+                      redirectUri: input.browser.redirectUri,
+                      resource: input.browser.demo.resource,
+                      scope: input.browser.demo.scope,
                     })
                   : undefined;
               readCrossFailure = crossControl?.failureStage;
