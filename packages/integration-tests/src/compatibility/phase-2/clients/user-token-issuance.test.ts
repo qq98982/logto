@@ -474,7 +474,7 @@ describe('Phase 2 public user token issuance transport', () => {
     const authorization = transport.requests[0]?.url;
     expect(authorization?.searchParams.getAll('resource')).toEqual([]);
     expect(authorization?.searchParams.get('scope')).toBe(
-      'openid offline_access profile email phone identities custom_data all'
+      'openid offline_access profile email phone identities custom_data'
     );
     expect(JSON.parse(String(transport.requests[2]?.init.body))).toMatchObject({
       identifier: { type: 'email', value: 'account-owner@example.invalid' },
