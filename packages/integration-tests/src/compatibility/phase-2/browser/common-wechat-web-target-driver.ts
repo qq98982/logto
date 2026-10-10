@@ -785,10 +785,24 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
                       });
                       contextProgress = 'after-flow';
                       if (providerCase === 'crossInteraction') {
+                        const crossFailure = crossControl?.failureStage();
+                        if (crossFailure) {
+                          throw new TypeError(
+                            `Invalid WeChat Web cross-interaction ${crossFailure}`
+                          );
+                        }
                         return crossControl?.observation() ?? fail();
                       }
                       return positive;
                     } catch (error: unknown) {
+                      if (providerCase === 'crossInteraction') {
+                        const crossFailure = crossControl?.failureStage();
+                        if (crossFailure) {
+                          throw new TypeError(
+                            `Invalid WeChat Web cross-interaction ${crossFailure}`
+                          );
+                        }
+                      }
                       if (
                         ['missingState', 'wrongState', 'wrongCallback'].includes(providerCase) &&
                         admitsWechatWebStateControlFailure({

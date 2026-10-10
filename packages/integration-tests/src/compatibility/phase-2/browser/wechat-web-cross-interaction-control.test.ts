@@ -189,7 +189,10 @@ test('replays the first successful social verification and releases it for norma
       new URL('/api/experience/verification/social/wechat-web-main/verify', origin),
       { abort: async () => {}, fulfill: async () => {} }
     )
-  ).rejects.toThrow('Invalid WeChat Web cross-interaction control');
+  ).resolves.toBe(true);
+  expect(control.failureStage()).toBe('request');
+  expect(requestBodies).toHaveLength(2);
+  expect(interactionCount).toBe(1);
 });
 
 test('keeps a missing replay error code observationally unknown', async () => {

@@ -1317,7 +1317,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     expect(source).toContain('^Phase 2 client credentials command failed ');
     expect(source).toContain('^Phase 2 client credentials launcher child failed ');
     expect(source).toContain(
-      'controls-cross-interaction(-(execution(-(browser|context|init-request|init-status|replay-request|replay-body|cleanup))?|status|error|accepted))?'
+      'controls-cross-interaction(-(execution(-(browser|context|init-request|init-status|replay-request|replay-body|cleanup|first-response|owner-before|request|owner-after|fulfill))?|status|error|accepted))?'
     );
     expect(source).toContain('^Phase 2 client credentials batch failed ');
     expect(source).toContain('^Phase 2 evidence sequence failed ');

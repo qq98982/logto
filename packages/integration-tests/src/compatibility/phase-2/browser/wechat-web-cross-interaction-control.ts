@@ -7,6 +7,7 @@ import {
   invokePlaywrightExternalAuthorizationCapability,
   registerPlaywrightExternalAuthorizationCapability,
   type PlaywrightExternalAuthorizationCapability,
+  type PlaywrightExternalAuthorizationRoute,
 } from '../../phase-1/browser/playwright-session.js';
 
 export type WechatWebCrossInteractionError =
@@ -52,6 +53,7 @@ type ForeignInteractionRequest = (
     headers: Readonly<Record<string, string>>;
     postData: Uint8Array;
     request: Request;
+    reportStage(stage: ForeignInteractionStage): void;
   }>
 ) => Promise<Readonly<{ status: number; body: Record<string, unknown> }>>;
 type ForeignInteractionStage =
@@ -62,10 +64,18 @@ type ForeignInteractionStage =
   | 'replay-request'
   | 'replay-body'
   | 'cleanup';
+export type WechatWebCrossInteractionFailureStage =
+  | ForeignInteractionStage
+  | 'first-response'
+  | 'owner-before'
+  | 'request'
+  | 'owner-after'
+  | 'fulfill';
 const failForeign = (stage: ForeignInteractionStage): never => {
   throw new TypeError(`Invalid WeChat Web cross-interaction ${stage}`);
 };
 const requestInForeignInteraction: ForeignInteractionRequest = async (input) => {
+  input.reportStage('browser');
   const browser = (() => {
     try {
       return input.request.frame().page().context().browser();
@@ -76,6 +86,7 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
   if (!browser) {
     return failForeign('browser');
   }
+  input.reportStage('context');
   const context = await browser
     .newContext({ acceptDownloads: false, locale: 'en', serviceWorkers: 'block' })
     .catch(() => failForeign('context'));
@@ -83,6 +94,7 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
   let primaryError: unknown;
   let cleanupFailed = false;
   try {
+    input.reportStage('init-request');
     const initialized = await context.request
       .put(new URL('/api/experience', input.target).href, {
         data: { interactionEvent: 'SignIn' },
@@ -91,8 +103,10 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
       })
       .catch(() => failForeign('init-request'));
     if (initialized.status() !== 204) {
+      input.reportStage('init-status');
       return failForeign('init-status');
     }
+    input.reportStage('replay-request');
     const response = await context.request
       .fetch(input.verifyUrl.href, {
         method: 'POST',
@@ -101,11 +115,13 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
         maxRedirects: 0,
       })
       .catch(() => failForeign('replay-request'));
+    input.reportStage('replay-body');
     const body = await boundedBody(response).catch(() => failForeign('replay-body'));
     result = Object.freeze({ status: response.status(), body });
   } catch (error: unknown) {
     primaryError = error;
   } finally {
+    input.reportStage('cleanup');
     try {
       await context.close();
     } catch {
@@ -151,96 +167,115 @@ export const createWechatWebCrossInteractionTestControl = (
   }>
 ): Readonly<{
   capability: PlaywrightExternalAuthorizationCapability;
+  failureStage(): WechatWebCrossInteractionFailureStage | undefined;
   observation(): WechatWebCrossInteractionObservation | undefined;
 }> => {
   const target = new URL(input.targetOrigin);
   const expectedPath = `/api/experience/verification/social/${encodeURIComponent(input.connectorId)}/verify`;
   let intercepted = false;
+  let failureStage: WechatWebCrossInteractionFailureStage | undefined;
   let observation: WechatWebCrossInteractionObservation | undefined;
-  const capability = registerPlaywrightExternalAuthorizationCapability(
-    async (method, url, route) => {
-      if (
-        await invokePlaywrightExternalAuthorizationCapability(
-          input.authorization,
-          method,
-          url,
-          route
-        )
-      ) {
-        return true;
-      }
-      if (url.origin !== target.origin || url.pathname !== expectedPath) {
-        return false;
-      }
-      if (intercepted) {
-        return fail();
-      }
-      if (
-        method !== 'POST' ||
-        url.search ||
-        url.hash ||
-        typeof route.fetch !== 'function' ||
-        typeof route.request !== 'function'
-      ) {
-        return false;
-      }
-      intercepted = true;
-      const fetchRoute = route.fetch;
-      const { request } = route;
-      const first = await fetchRoute.call(route);
-      const firstBody = await boundedBody(first);
-      const { verificationId } = firstBody;
-      if (
-        first.status() !== 200 ||
-        typeof verificationId !== 'string' ||
-        verificationId.length === 0 ||
-        Buffer.byteLength(verificationId) > 4096 ||
-        /[\u0000-\u001F\u007F]/u.test(verificationId)
-      ) {
-        return fail();
-      }
-      const before = structuredClone(await input.ownerSnapshot());
-      const originalRequest = request.call(route);
-      const headers = Object.fromEntries(
-        Object.entries(await originalRequest.allHeaders()).filter(
-          ([name]) => name !== 'cookie' && name !== 'content-length'
-        )
-      );
-      const postData = originalRequest.postDataBuffer();
-      if (!postData || postData.byteLength > maximumBodyBytes) {
-        return fail();
-      }
-      const second = await (input.foreignInteractionRequest ?? requestInForeignInteraction)({
-        target,
-        verifyUrl: url,
-        headers,
-        postData,
-        request: originalRequest,
-      });
-      const after = structuredClone(await input.ownerSnapshot());
-      if (!isDeepStrictEqual(before, after)) {
-        return fail();
-      }
-      const secondError = closedError(second.body.code);
-      const secondAccepted =
-        second.status === 200 && secondError === 'none'
-          ? true
-          : secondError === 'none' || secondError === 'unknown'
-            ? ('unknown' as const)
-            : false;
-      observation = Object.freeze({
-        requestCount: 1,
-        firstStatus: 200,
-        firstOutcome: 'verified',
-        secondStatus: second.status,
-        secondError,
-        secondAccepted,
-        ownerPreserved: true,
-      });
-      await route.fulfill({ response: first });
+  const handler = async (method: string, url: URL, route: PlaywrightExternalAuthorizationRoute) => {
+    if (
+      await invokePlaywrightExternalAuthorizationCapability(input.authorization, method, url, route)
+    ) {
       return true;
     }
+    if (url.origin !== target.origin || url.pathname !== expectedPath) {
+      return false;
+    }
+    if (intercepted) {
+      failureStage = 'request';
+      return fail();
+    }
+    if (
+      method !== 'POST' ||
+      url.search ||
+      url.hash ||
+      typeof route.fetch !== 'function' ||
+      typeof route.request !== 'function'
+    ) {
+      return false;
+    }
+    intercepted = true;
+    failureStage = 'first-response';
+    const fetchRoute = route.fetch;
+    const { request } = route;
+    const first = await fetchRoute.call(route);
+    const firstBody = await boundedBody(first);
+    const { verificationId } = firstBody;
+    if (
+      first.status() !== 200 ||
+      typeof verificationId !== 'string' ||
+      verificationId.length === 0 ||
+      Buffer.byteLength(verificationId) > 4096 ||
+      /[\u0000-\u001F\u007F]/u.test(verificationId)
+    ) {
+      return fail();
+    }
+    failureStage = 'owner-before';
+    const before = structuredClone(await input.ownerSnapshot());
+    failureStage = 'request';
+    const originalRequest = request.call(route);
+    const headers = Object.fromEntries(
+      Object.entries(await originalRequest.allHeaders()).filter(
+        ([name]) => name !== 'cookie' && name !== 'content-length'
+      )
+    );
+    const postData = originalRequest.postDataBuffer();
+    if (!postData || postData.byteLength > maximumBodyBytes) {
+      return fail();
+    }
+    const second = await (input.foreignInteractionRequest ?? requestInForeignInteraction)({
+      target,
+      verifyUrl: url,
+      headers,
+      postData,
+      request: originalRequest,
+      reportStage: (stage) => {
+        failureStage = stage;
+      },
+    });
+    failureStage = 'owner-after';
+    const after = structuredClone(await input.ownerSnapshot());
+    if (!isDeepStrictEqual(before, after)) {
+      return fail();
+    }
+    const secondError = closedError(second.body.code);
+    const secondAccepted =
+      second.status === 200 && secondError === 'none'
+        ? true
+        : secondError === 'none' || secondError === 'unknown'
+          ? ('unknown' as const)
+          : false;
+    observation = Object.freeze({
+      requestCount: 1,
+      firstStatus: 200,
+      firstOutcome: 'verified',
+      secondStatus: second.status,
+      secondError,
+      secondAccepted,
+      ownerPreserved: true,
+    });
+    failureStage = 'fulfill';
+    await route.fulfill({ response: first });
+    failureStage = undefined;
+    return true;
+  };
+  const capability = registerPlaywrightExternalAuthorizationCapability(
+    async (method, url, route) => {
+      try {
+        return await handler(method, url, route);
+      } catch {
+        await route.abort().catch(() => false);
+        return true;
+      }
+    }
   );
-  return Object.freeze({ capability, observation: () => observation });
+  return Object.freeze({
+    capability,
+    failureStage: () => failureStage,
+    observation: () => observation,
+  });
 };
 /* eslint-enable complexity, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
