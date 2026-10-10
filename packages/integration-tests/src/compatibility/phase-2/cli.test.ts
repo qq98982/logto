@@ -1890,6 +1890,12 @@ describe('Phase 2 CLI', () => {
     [
       'common.wechat.web',
       'wechat-web',
+      'Common Wechat existing-owner target failed: controls-cross-interaction-execution-init-status',
+      'controls-cross-interaction-execution-init-status',
+    ],
+    [
+      'common.wechat.web',
+      'wechat-web',
       'Common Wechat existing-owner target failed: controls-cross-interaction-error',
       'controls-cross-interaction-error',
     ],

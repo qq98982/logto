@@ -54,35 +54,76 @@ type ForeignInteractionRequest = (
     request: Request;
   }>
 ) => Promise<Readonly<{ status: number; body: Record<string, unknown> }>>;
+type ForeignInteractionStage =
+  | 'browser'
+  | 'context'
+  | 'init-request'
+  | 'init-status'
+  | 'replay-request'
+  | 'replay-body'
+  | 'cleanup';
+const failForeign = (stage: ForeignInteractionStage): never => {
+  throw new TypeError(`Invalid WeChat Web cross-interaction ${stage}`);
+};
 const requestInForeignInteraction: ForeignInteractionRequest = async (input) => {
-  const browser = input.request.frame().page().context().browser();
+  const browser = (() => {
+    try {
+      return input.request.frame().page().context().browser();
+    } catch {
+      return failForeign('browser');
+    }
+  })();
   if (!browser) {
+    return failForeign('browser');
+  }
+  const context = await browser
+    .newContext({ acceptDownloads: false, locale: 'en', serviceWorkers: 'block' })
+    .catch(() => failForeign('context'));
+  let result: Readonly<{ status: number; body: Record<string, unknown> }> | undefined;
+  let primaryError: unknown;
+  let cleanupFailed = false;
+  try {
+    const initialized = await context.request
+      .put(new URL('/api/experience', input.target).href, {
+        data: { interactionEvent: 'SignIn' },
+        headers: input.headers,
+        maxRedirects: 0,
+      })
+      .catch(() => failForeign('init-request'));
+    if (initialized.status() !== 204) {
+      return failForeign('init-status');
+    }
+    const response = await context.request
+      .fetch(input.verifyUrl.href, {
+        method: 'POST',
+        data: input.postData,
+        headers: input.headers,
+        maxRedirects: 0,
+      })
+      .catch(() => failForeign('replay-request'));
+    const body = await boundedBody(response).catch(() => failForeign('replay-body'));
+    result = Object.freeze({ status: response.status(), body });
+  } catch (error: unknown) {
+    primaryError = error;
+  } finally {
+    try {
+      await context.close();
+    } catch {
+      if (!primaryError) {
+        cleanupFailed = true;
+      }
+    }
+  }
+  if (primaryError instanceof Error) {
+    throw primaryError;
+  }
+  if (primaryError !== undefined) {
     return fail();
   }
-  const context = await browser.newContext({
-    acceptDownloads: false,
-    locale: 'en',
-    serviceWorkers: 'block',
-  });
-  try {
-    const initialized = await context.request.put(new URL('/api/experience', input.target).href, {
-      data: { interactionEvent: 'SignIn' },
-      headers: input.headers,
-      maxRedirects: 0,
-    });
-    if (initialized.status() !== 204) {
-      return fail();
-    }
-    const response = await context.request.fetch(input.verifyUrl.href, {
-      method: 'POST',
-      data: input.postData,
-      headers: input.headers,
-      maxRedirects: 0,
-    });
-    return Object.freeze({ status: response.status(), body: await boundedBody(response) });
-  } finally {
-    await context.close();
+  if (cleanupFailed) {
+    return failForeign('cleanup');
   }
+  return result ?? fail();
 };
 const closedError = (value: unknown): WechatWebCrossInteractionError => {
   switch (value) {
