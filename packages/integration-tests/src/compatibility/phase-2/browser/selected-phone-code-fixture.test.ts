@@ -40,6 +40,9 @@ test('copies the private connector configuration into Management and compensates
     if (input.method === 'GET' && input.path === 'users') {
       return registrationOwners.map((id) => ({ id, primaryPhone: registrationPhone }));
     }
+    if (input.method === 'GET' && input.path === 'users/owner/roles') {
+      return [{ id: 'role', type: 'User', isDefault: true }];
+    }
     if (input.method === 'PATCH' && input.path === 'applications/client') {
       return { oidcClientMetadata: (input.body as Record<string, unknown>).oidcClientMetadata };
     }
@@ -123,6 +126,13 @@ test('copies the private connector configuration into Management and compensates
     expectedStatuses: [200],
     responseKind: 'object',
   });
+  expect(calls).toContainEqual({
+    method: 'GET',
+    path: 'users/owner/roles',
+    query: { page: '1', page_size: '100' },
+    expectedStatuses: [200],
+    responseKind: 'array',
+  });
   expect(calls).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ method: 'DELETE', path: 'connectors/connector' }),
@@ -132,14 +142,16 @@ test('copies the private connector configuration into Management and compensates
 });
 
 test.each([
-  { name: 'one exact owner', owners: ['registered'], deleted: true, error: 'use' },
+  { name: 'one exact owner', owners: ['registered'], deleted: true, error: 'use', role: true },
   {
     name: 'ambiguous owners',
     owners: ['registered-a', 'registered-b'],
     deleted: false,
     error: 'cleanup-discover-registered-ambiguous+registered-owner-remains',
+    role: true,
   },
-])('handles an uncaptured registration with $name', async ({ owners, deleted, error }) => {
+  { name: 'missing default role', owners: [], deleted: false, error: 'assign-role', role: false },
+])('handles an uncaptured registration with $name', async ({ owners, deleted, error, role }) => {
   const calls: Phase2AdminRequest[] = [];
   let userCounter = 0;
   let useStarted = false;
@@ -165,6 +177,9 @@ test.each([
     }
     if (input.method === 'GET' && input.path === 'users') {
       return useStarted ? currentOwners.map((id) => ({ id, primaryPhone: registrationPhone })) : [];
+    }
+    if (input.method === 'GET' && input.path === 'users/fixture-1/roles') {
+      return role ? [{ id: 'role', type: 'User', isDefault: true }] : [];
     }
     if (input.method === 'PATCH' && input.path === 'applications/client') {
       return { oidcClientMetadata: (input.body as Record<string, unknown>).oidcClientMetadata };

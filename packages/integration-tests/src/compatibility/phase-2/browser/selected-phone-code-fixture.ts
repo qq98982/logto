@@ -338,13 +338,26 @@ export const withSelectedPhoneCodeFixture = async <Result>(
       return fail();
     }
     stage = 'assign-role';
-    await input.request({
-      method: 'POST',
+    const ownerRoles = await input.request({
+      method: 'GET',
       path: `users/${encodeURIComponent(ownerId)}/roles`,
-      body: { roleIds: [roleId] },
-      expectedStatuses: [200, 201, 204],
-      responseKind: 'status',
+      query: { page: '1', page_size: '100' },
+      expectedStatuses: [200],
+      responseKind: 'array',
     });
+    const selectedOwnerRoles = Array.isArray(ownerRoles)
+      ? Array.from<unknown>(ownerRoles).filter(
+          (entry) =>
+            typeof entry === 'object' &&
+            entry !== null &&
+            Reflect.get(entry, 'id') === roleId &&
+            Reflect.get(entry, 'type') === 'User' &&
+            Reflect.get(entry, 'isDefault') === true
+        )
+      : [];
+    if (!Array.isArray(ownerRoles) || ownerRoles.length >= 100 || selectedOwnerRoles.length !== 1) {
+      return fail();
+    }
     stage = 'registration-owner-before';
     const registrationOwnersBefore = await findRegistrationOwners();
     if (registrationOwnersBefore.length > 0) {
