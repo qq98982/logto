@@ -911,8 +911,9 @@ const executeCommonWechatWebExistingOwnerForTarget = async (
     });
   } catch {
     if (providerCase === 'crossInteraction') {
-      if (readCrossObservation?.()) {
-        throw new TypeError('Invalid WeChat Web cross-interaction after-control');
+      const crossObservation = readCrossObservation?.();
+      if (crossObservation) {
+        return crossObservation;
       }
       const crossFailure = readCrossFailure?.();
       if (crossFailure) {
