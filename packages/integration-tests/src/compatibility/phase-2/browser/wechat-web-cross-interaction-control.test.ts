@@ -149,6 +149,8 @@ test('replays the first successful social verification and releases it for norma
       });
     });
   }
+  expect(runError).toBeUndefined();
+  expect(control.failureStage()).toBeUndefined();
   expect(requestBodies).toHaveLength(2);
   expect(requestBodies[0]).toBe(requestBodies[1]);
   expect(clientHeaders).toEqual(['browser', 'browser']);
@@ -171,7 +173,6 @@ test('replays the first successful social verification and releases it for norma
     },
   ]);
   expect(interactionCount).toBe(1);
-  expect(runError).toBeUndefined();
   expect(identificationCount).toBe(1);
   expect(control.observation()).toEqual({
     requestCount: 1,
