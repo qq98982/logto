@@ -104,7 +104,9 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
         maxRedirects: 0,
       })
       .catch(() => failForeign('init-request'));
-    if (initialized.status() !== 204) {
+    const initializedStatus = initialized.status();
+    await initialized.dispose().catch(() => failForeign('cleanup'));
+    if (initializedStatus !== 204) {
       input.reportStage('init-status');
       return failForeign('init-status');
     }
@@ -119,7 +121,9 @@ const requestInForeignInteraction: ForeignInteractionRequest = async (input) => 
       .catch(() => failForeign('replay-request'));
     input.reportStage('replay-body');
     const body = await boundedBody(response).catch(() => failForeign('replay-body'));
-    result = Object.freeze({ status: response.status(), body });
+    const responseStatus = response.status();
+    await response.dispose().catch(() => failForeign('cleanup'));
+    result = Object.freeze({ status: responseStatus, body });
   } catch (error: unknown) {
     primaryError = error;
   } finally {
