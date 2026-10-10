@@ -25,6 +25,7 @@ const projection = () =>
     oldRefreshRotated: true as const,
     oldPasswordLoginRejected: true as const,
     newPasswordAccepted: true as const,
+    newRefreshRotated: true as const,
     ownerPreserved: true as const,
   });
 
@@ -34,6 +35,12 @@ test('uses the canonical password-update id and compares every public control ex
   expect(assertCommonAccountPasswordUpdateProjection(projection())).toEqual(
     commonAccountPasswordUpdateExpectedProjection
   );
+  expect(
+    assertCommonAccountPasswordUpdateProjection({
+      ...projection(),
+      mutation: { error: 'none', status: 204 },
+    })
+  ).toEqual(commonAccountPasswordUpdateExpectedProjection);
   expect(
     compareCommonAccountPasswordUpdateProjections(projection(), {
       ...projection(),

@@ -1,4 +1,6 @@
+/* eslint-disable max-lines -- The password update flow and its closed public projection stay in one auditable module. */
 import { randomBytes } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import type { TargetConfig } from '../../model.js';
 import {
@@ -31,6 +33,7 @@ export type CommonAccountPasswordUpdateProjection = Readonly<{
   oldRefreshRotated: true;
   oldPasswordLoginRejected: true;
   newPasswordAccepted: true;
+  newRefreshRotated: true;
   ownerPreserved: true;
 }>;
 
@@ -57,6 +60,7 @@ export const commonAccountPasswordUpdateExpectedProjection = Object.freeze({
   oldRefreshRotated: true as const,
   oldPasswordLoginRejected: true as const,
   newPasswordAccepted: true as const,
+  newRefreshRotated: true as const,
   ownerPreserved: true as const,
 });
 
@@ -66,9 +70,7 @@ const fail = (): never => {
 export const assertCommonAccountPasswordUpdateProjection = (
   value: CommonAccountPasswordUpdateProjection
 ): CommonAccountPasswordUpdateProjection =>
-  JSON.stringify(value) === JSON.stringify(commonAccountPasswordUpdateExpectedProjection)
-    ? value
-    : fail();
+  isDeepStrictEqual(value, commonAccountPasswordUpdateExpectedProjection) ? value : fail();
 
 export const runCommonAccountPasswordUpdate = async (
   input: Readonly<{
@@ -248,6 +250,21 @@ export const runCommonAccountPasswordUpdate = async (
             },
             requestFetch
           );
+          const newRefreshed = await exchangePublicRefresh(
+            input.target,
+            input.fixture,
+            newTokens.refresh,
+            { resource: false, fetch: requestFetch }
+          );
+          const refreshedNewProfile = await readAccountProfile(
+            {
+              target: input.target,
+              bearer: newRefreshed.access,
+              expectedOwnerId: identity.id,
+              expectedEmail: identity.primaryEmail,
+            },
+            requestFetch
+          );
           if (
             input.signal.aborted ||
             currentProofAfterDenials.status !== 201 ||
@@ -264,7 +281,11 @@ export const runCommonAccountPasswordUpdate = async (
             oldPassword.error !== 'session.invalid_credentials' ||
             oldPasswordSignIn.accepted ||
             newProfile.status !== 200 ||
-            !newProfile.ownerMatches
+            !newProfile.ownerMatches ||
+            newRefreshed.refresh === newTokens.refresh ||
+            refreshedNewProfile.status !== 200 ||
+            !refreshedNewProfile.ownerMatches ||
+            !refreshedNewProfile.emailMatches
           ) {
             return fail();
           }
@@ -283,6 +304,7 @@ export const runCommonAccountPasswordUpdate = async (
               oldRefreshRotated: true,
               oldPasswordLoginRejected: true,
               newPasswordAccepted: true,
+              newRefreshRotated: true,
               ownerPreserved: true,
             })
           );
@@ -292,3 +314,4 @@ export const runCommonAccountPasswordUpdate = async (
     },
   });
 };
+/* eslint-enable max-lines */
