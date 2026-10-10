@@ -1,0 +1,121 @@
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Request capture verifies exact private header/body placement. */
+import type { TargetConfig } from '../../model.js';
+
+import {
+  createAccountPasswordProof,
+  observeAccountPasswordProof,
+  updateAccountEmail,
+  updateAccountPassword,
+} from './account-settings.js';
+
+const target = (label: 'oracle' | 'candidate'): TargetConfig => ({
+  label,
+  coreUrl: `https://${label}.example/`,
+  adminUrl: `https://${label}-admin.example/`,
+});
+
+const response = (status: number, body?: unknown): Response =>
+  new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' } }),
+  });
+
+test.each([
+  ['oracle', 'logto-verification-id'],
+  ['candidate', 'aster-verification-id'],
+] as const)(
+  'keeps the %s current proof private and sends its exact header',
+  async (label, header) => {
+    const requests: Array<Readonly<{ url: URL; init: RequestInit }>> = [];
+    const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      requests.push({ url: new URL(String(input)), init: init ?? {} });
+      return requests.length === 1
+        ? response(201, { verificationRecordId: 'private-current-proof' })
+        : response(204);
+    }) as typeof fetch;
+    const result = await createAccountPasswordProof(
+      { target: target(label), bearer: 'private-bearer', password: 'private-password' },
+      async (lease) => {
+        expect(() => JSON.stringify(lease)).toThrow('Invalid Common Account settings transport');
+        return updateAccountPassword(
+          {
+            target: target(label),
+            bearer: 'private-bearer',
+            password: 'private-new-password',
+            verificationRecordId: lease.getVerificationRecordId(),
+          },
+          requestFetch
+        );
+      },
+      requestFetch
+    );
+    expect(result).toEqual({ status: 204, error: 'none' });
+    expect(requests.map(({ url }) => url.pathname)).toEqual([
+      '/api/verifications/password',
+      '/api/my-account/password',
+    ]);
+    expect(new Headers(requests[1]?.init.headers).get(header)).toBe('private-current-proof');
+    expect(new Headers(requests[1]?.init.headers).get('authorization')).toBe(
+      'Bearer private-bearer'
+    );
+  }
+);
+
+test('sends separate current and destination proofs for email change', async () => {
+  let request: Readonly<{ url: URL; init: RequestInit }> | undefined;
+  const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    request = { url: new URL(String(input)), init: init ?? {} };
+    return response(422, { code: 'user.email_already_in_use' });
+  }) as typeof fetch;
+  const result = await updateAccountEmail(
+    {
+      target: target('candidate'),
+      bearer: 'private-bearer',
+      email: 'new@example.invalid',
+      currentVerificationRecordId: 'private-current-proof',
+      destinationVerificationRecordId: 'private-destination-proof',
+    },
+    requestFetch
+  );
+  expect(result).toEqual({ status: 422, error: 'user.email_already_in_use' });
+  expect(request?.url.pathname).toBe('/api/my-account/primary-email');
+  expect(new Headers(request?.init.headers).get('aster-verification-id')).toBe(
+    'private-current-proof'
+  );
+  expect(JSON.parse(String(request?.init.body))).toEqual({
+    email: 'new@example.invalid',
+    newIdentifierVerificationRecordId: 'private-destination-proof',
+  });
+});
+
+test('maps only closed public Account errors', async () => {
+  const requestFetch = (async () =>
+    response(500, { code: 'private.secret.detail' })) as typeof fetch;
+  await expect(
+    updateAccountPassword(
+      { target: target('oracle'), bearer: 'private-bearer', password: 'private-password' },
+      requestFetch
+    )
+  ).resolves.toEqual({ status: 500, error: 'unknown' });
+});
+
+test('observes old-password invalid credentials without treating transport failures as rejection', async () => {
+  const rejected = (async () =>
+    response(401, { code: 'session.invalid_credentials' })) as typeof fetch;
+  await expect(
+    observeAccountPasswordProof(
+      { target: target('oracle'), bearer: 'private-bearer', password: 'private-old-password' },
+      rejected
+    )
+  ).resolves.toEqual({ status: 401, error: 'session.invalid_credentials' });
+  const unavailable = (async () => {
+    throw new Error('private network detail');
+  }) as typeof fetch;
+  await expect(
+    observeAccountPasswordProof(
+      { target: target('oracle'), bearer: 'private-bearer', password: 'private-old-password' },
+      unavailable
+    )
+  ).rejects.toThrow('private network detail');
+});
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
