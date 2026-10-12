@@ -15,8 +15,12 @@ import {
 
 test('projects credential-free Management users and exact default role membership', async () => {
   let callCount = 0;
+  let createBody: unknown;
   const request: Phase2AdminRequestFunction = async (input) => {
     callCount += 1;
+    if (input.method === 'POST' && input.path === 'users') {
+      createBody = input.body;
+    }
     if (input.path.endsWith('/roles')) {
       return [{ id: 'default', isDefault: true }];
     }
@@ -37,17 +41,20 @@ test('projects credential-free Management users and exact default role membershi
   const created = await createManagementUser(request, {
     email: 'new@example.invalid',
     password: 'private',
-    name: 'Owner',
   });
   expect(created).toEqual({
     id: 'owner',
-    name: 'Owner',
+    name: undefined,
     primaryEmail: 'new@example.invalid',
     primaryPhone: undefined,
     hasPassword: true,
     updatedAt: 2,
   });
   expect(created).not.toHaveProperty('password');
+  expect(createBody).toEqual({
+    primaryEmail: 'new@example.invalid',
+    password: 'private',
+  });
   expect(await readManagementUserRoles(request, created.id)).toEqual([
     { id: 'default', isDefault: true },
   ]);

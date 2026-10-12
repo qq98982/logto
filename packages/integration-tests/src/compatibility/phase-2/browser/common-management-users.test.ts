@@ -1,12 +1,13 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods -- The fake records cleanup attempts in order. */
 import { createManagementUser } from '../clients/management-users.js';
-import type { Phase2AdminRequestFunction } from '../fixtures.js';
+import type { Phase2AdminRequest, Phase2AdminRequestFunction } from '../fixtures.js';
 
 import {
   assertManagementMutation,
   assertManagementUserContactReads,
   assertManagementUserCreateReads,
   deleteOwnedManagementUsers,
+  initializeManagementUserContact,
 } from './common-management-users.js';
 
 const profile = {
@@ -42,6 +43,38 @@ test('reports a closed mutation predicate stage without response details', () =>
       'collision'
     );
   }).toThrow('Invalid Common Management user flow (collision-s409-user-email_already_in_use)');
+});
+
+test('initializes and reads back contact state after email-password-only creation', async () => {
+  const calls: Phase2AdminRequest[] = [];
+  const expected = {
+    id: 'owner',
+    name: 'Before',
+    primaryEmail: 'old@example.invalid',
+    primaryPhone: '8613000000000',
+    hasPassword: true,
+    updatedAt: 2,
+  };
+  const request: Phase2AdminRequestFunction = async (input) => {
+    calls.push(input);
+    return expected;
+  };
+
+  await expect(
+    initializeManagementUserContact(request, {
+      id: 'owner',
+      email: 'old@example.invalid',
+      phone: '8613000000000',
+    })
+  ).resolves.toEqual(expected);
+  expect(calls).toEqual([
+    expect.objectContaining({
+      method: 'PATCH',
+      path: 'users/owner',
+      body: { name: 'Before', primaryPhone: '8613000000000' },
+    }),
+    expect.objectContaining({ method: 'GET', path: 'users/owner' }),
+  ]);
 });
 
 test('attempts every owned Management user cleanup when one deletion fails', async () => {

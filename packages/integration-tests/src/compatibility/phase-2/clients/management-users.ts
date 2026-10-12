@@ -90,7 +90,7 @@ const snapshot = (value: unknown): ManagementUserSnapshot => {
 
 export const createManagementUser = async (
   request: Phase2AdminRequestFunction,
-  input: Readonly<{ email: string; password: string; name?: string; phone?: string }>,
+  input: Readonly<{ email: string; password: string }>,
   captureOwnedId?: (id: string) => void
 ): Promise<ManagementUserSnapshot> => {
   const value = await request({
@@ -99,8 +99,6 @@ export const createManagementUser = async (
     body: {
       primaryEmail: bounded(input.email, 320),
       password: bounded(input.password, 256),
-      ...(input.name ? { name: bounded(input.name, 256) } : {}),
-      ...(input.phone ? { primaryPhone: bounded(input.phone, 32) } : {}),
     },
     expectedStatuses: [200, 201],
     responseKind: 'object',

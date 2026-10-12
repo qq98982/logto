@@ -20,6 +20,7 @@ import {
   updateManagementUser,
   verifyManagementResourceAccess,
   type ManagementUserMutationObserver,
+  type ManagementUserSnapshot,
 } from '../clients/management-users.js';
 import {
   exchangePublicRefresh,
@@ -139,6 +140,28 @@ export const assertManagementUserContactReads = (
   ) {
     return fail('contact-account-reads');
   }
+};
+
+export const initializeManagementUserContact = async (
+  request: Phase2AdminRequestFunction,
+  input: Readonly<{ id: string; email: string; phone: string }>
+): Promise<ManagementUserSnapshot> => {
+  const baseline = await updateManagementUser(request, {
+    id: input.id,
+    name: 'Before',
+    phone: input.phone,
+  });
+  const readback = await readManagementUser(request, input.id);
+  if (
+    baseline.id !== input.id ||
+    baseline.name !== 'Before' ||
+    baseline.primaryEmail !== input.email ||
+    baseline.primaryPhone !== input.phone ||
+    !isDeepStrictEqual(readback, baseline)
+  ) {
+    return fail('contact-predicates');
+  }
+  return baseline;
 };
 
 export const deleteOwnedManagementUsers = async (
@@ -313,18 +336,18 @@ export const runCommonManagementUserContactUpdate = async (
   let ownerId: string | undefined;
   let collisionId: string | undefined;
   try {
-    const owner = await createManagementUser(
+    const createdOwner = await createManagementUser(
       input.request,
-      {
-        email: oldEmail,
-        password: input.password,
-        name: 'Before',
-        phone: `8613${Date.now().toString().slice(-9)}`,
-      },
+      { email: oldEmail, password: input.password },
       (id) => {
         ownerId = id;
       }
     );
+    const owner = await initializeManagementUserContact(input.request, {
+      id: createdOwner.id,
+      email: oldEmail,
+      phone: `8613${Date.now().toString().slice(-9)}`,
+    });
     const rolesBefore = await readManagementUserRoles(input.request, owner.id);
     const prior = await issuePublicAccountTokensForSubject(
       input.target,
