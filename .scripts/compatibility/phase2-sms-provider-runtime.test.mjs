@@ -8,12 +8,16 @@ const owned = async (use) => {
   const parent = await mkdtemp('/var/tmp/henry-build/sms-runtime-'); await chmod(parent, 0o700);
   try { await use(path.join(parent, 's')); } finally { await rm(parent, { recursive: true, force: true }); }
 };
-test('creates separate private per-target credentials and clears only stopped fixture material', async () => {
+test('creates private SMS credentials admitted by the pinned provisioner and clears stopped material', async () => {
   await owned(async (root) => {
     const roles = await createSmsProviderRuntime(root);
     const configurations = [];
     for (const role of ['oracle', 'candidate']) {
       const data = JSON.parse(await readFile(roles[role].configurationFile, 'utf8')); configurations.push(data);
+      assert.match(data.accessKeyId, /^[0-9A-Za-z]{16,64}$/u);
+      assert.match(data.accessKeySecret, /^[0-9A-Za-z]{16,64}$/u);
+      assert.deepEqual(Object.keys(data.templates).sort(), ['ForgotPassword', 'Generic', 'Register', 'SignIn']);
+      for (const template of Object.values(data.templates)) assert.match(template, /^SMS_\d{6,20}$/u);
       assert.equal((await lstat(roles[role].configurationFile)).mode & 0o777, 0o600);
       assert.deepEqual(JSON.parse(await readFile(roles[role].inputFile, 'utf8')),
         { schemaVersion: 1, configurationFile: roles[role].configurationFile, controlSocket: roles[role].controlSocket });

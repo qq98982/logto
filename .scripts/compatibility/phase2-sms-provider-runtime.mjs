@@ -27,10 +27,9 @@ export const createSmsProviderRuntime = async (root) => {
       const receiptFile = path.join(directory, names[1]);
       const inputFile = path.join(directory, names[2]);
       const controlSocket = path.join(directory, 's.sock');
-      const suffix = randomBytes(16).toString('hex');
       const templates = Object.fromEntries(['SignIn', 'Register', 'ForgotPassword', 'Generic']
-        .map((purpose) => [purpose, `aster-${purpose}-${suffix}`]));
-      await writeNew(configurationFile, { schemaVersion: 1, accessKeyId: `aster-${role}-${suffix}`,
+        .map((purpose) => [purpose, `SMS_${randomBytes(8).readBigUInt64BE().toString().padStart(20, '0')}`]));
+      await writeNew(configurationFile, { schemaVersion: 1, accessKeyId: randomBytes(16).toString('hex'),
         accessKeySecret: randomBytes(32).toString('hex'), signName: `aster-${role}`, templates,
         controlCapability: randomBytes(32).toString('hex') });
       await writeNew(receiptFile);
