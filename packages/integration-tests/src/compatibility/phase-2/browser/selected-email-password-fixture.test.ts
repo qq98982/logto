@@ -23,7 +23,12 @@ const withRoleContract =
       return [{ id: 'resource', scopes: [{ id: 'scope', name: 'read:profile' }] }];
     }
     if (input.path === 'roles' && input.method === 'POST') {
-      return { id: 'email-role', name: 'common-email-allocation', type: 'User', isDefault: false };
+      return {
+        id: 'email-role',
+        name: 'common-email-allocation',
+        type: 'User',
+        isDefault: Reflect.get(input.body as Record<string, unknown>, 'isDefault'),
+      };
     }
     if (input.path === 'roles/email-role/scopes') {
       return [{ id: 'scope', name: 'read:profile', resourceId: 'resource' }];
@@ -40,155 +45,161 @@ const withRoleContract =
     return request(input);
   };
 
-test('creates an independent email user and restores username methods', async () => {
-  const calls: Phase2AdminRequest[] = [];
-  const roleCalls: Phase2AdminRequest[] = [];
-  let methods: unknown = [
-    { identifier: 'username', password: true, verificationCode: false, isPasswordPrimary: true },
-  ];
-  const previousBranding = {
-    darkLogoUrl: 'https://logto.io/logo-dark.svg',
-    logoUrl: 'https://logto.io/logo.svg',
-  };
-  let branding: unknown = previousBranding;
-  let applicationMetadata = {
-    redirectUris: ['http://localhost:3001/demo-app'],
-    postLogoutRedirectUris: [] as string[],
-  };
-  const request = async (request: Phase2AdminRequest) => {
-    calls.push(request);
-    if (request.path === 'applications/browser-client' && request.method === 'GET') {
-      return {
-        id: 'browser-client',
-        type: 'SPA',
-        oidcClientMetadata: {
-          postLogoutRedirectUris: applicationMetadata.postLogoutRedirectUris,
-          redirectUris: applicationMetadata.redirectUris,
-        },
-      };
-    }
-    if (request.path === 'applications/browser-client') {
-      applicationMetadata = (request.body as { oidcClientMetadata: typeof applicationMetadata })
-        .oidcClientMetadata;
-      return {
-        id: 'browser-client',
-        type: 'SPA',
-        oidcClientMetadata: {
-          postLogoutRedirectUris: applicationMetadata.postLogoutRedirectUris,
-          redirectUris: applicationMetadata.redirectUris,
-        },
-      };
-    }
-    if (request.method === 'GET' && calls.length === 1) {
-      return { signIn: { methods }, branding };
-    }
-    if (request.method === 'GET') {
-      return { signIn: { methods }, branding };
-    }
-    if (request.path === 'sign-in-exp') {
-      methods = (request.body as { signIn: { methods: unknown } }).signIn.methods;
-      branding = (request.body as { branding: unknown }).branding;
-      return { signIn: { methods }, branding };
-    }
-    if (request.method === 'POST') {
-      return {
-        id: 'email-user',
-        primaryEmail: 'common-email-allocation@example.invalid',
-        hasPassword: true,
-        isSuspended: false,
-      };
-    }
-    return 204;
-  };
-  const result = await withSelectedEmailPasswordFixture({
-    fixture,
-    request: withRoleContract(request, (call) => roleCalls.push(call)),
-    getPassword: () => 'private-independent',
-    browser: {
-      clientId: 'browser-client',
-      redirectUri: 'http://localhost:3311/demo-app',
-      additionalRedirectUris: ['http://localhost:3001/callback'],
-    },
-    use: async (identity) => identity,
-  });
-  expect(result).toEqual({
-    id: 'email-user',
-    primaryEmail: 'common-email-allocation@example.invalid',
-    isSuspended: false,
-    browser: {
-      clientId: 'browser-client',
-      redirectUri: 'http://localhost:3311/demo-app',
-    },
-  });
-  expect(calls).toContainEqual(
-    expect.objectContaining({
-      method: 'POST',
-      path: 'users',
-      body: {
-        primaryEmail: 'common-email-allocation@example.invalid',
-        password: 'private-independent',
+test.each([false, true])(
+  'creates an independent email user with resource default %s and restores username methods',
+  async (resourceRoleIsDefault) => {
+    const calls: Phase2AdminRequest[] = [];
+    const roleCalls: Phase2AdminRequest[] = [];
+    let methods: unknown = [
+      { identifier: 'username', password: true, verificationCode: false, isPasswordPrimary: true },
+    ];
+    const previousBranding = {
+      darkLogoUrl: 'https://logto.io/logo-dark.svg',
+      logoUrl: 'https://logto.io/logo.svg',
+    };
+    let branding: unknown = previousBranding;
+    let applicationMetadata = {
+      redirectUris: ['http://localhost:3001/demo-app'],
+      postLogoutRedirectUris: [] as string[],
+    };
+    const request = async (request: Phase2AdminRequest) => {
+      calls.push(request);
+      if (request.path === 'applications/browser-client' && request.method === 'GET') {
+        return {
+          id: 'browser-client',
+          type: 'SPA',
+          oidcClientMetadata: {
+            postLogoutRedirectUris: applicationMetadata.postLogoutRedirectUris,
+            redirectUris: applicationMetadata.redirectUris,
+          },
+        };
+      }
+      if (request.path === 'applications/browser-client') {
+        applicationMetadata = (request.body as { oidcClientMetadata: typeof applicationMetadata })
+          .oidcClientMetadata;
+        return {
+          id: 'browser-client',
+          type: 'SPA',
+          oidcClientMetadata: {
+            postLogoutRedirectUris: applicationMetadata.postLogoutRedirectUris,
+            redirectUris: applicationMetadata.redirectUris,
+          },
+        };
+      }
+      if (request.method === 'GET' && calls.length === 1) {
+        return { signIn: { methods }, branding };
+      }
+      if (request.method === 'GET') {
+        return { signIn: { methods }, branding };
+      }
+      if (request.path === 'sign-in-exp') {
+        methods = (request.body as { signIn: { methods: unknown } }).signIn.methods;
+        branding = (request.body as { branding: unknown }).branding;
+        return { signIn: { methods }, branding };
+      }
+      if (request.method === 'POST') {
+        return {
+          id: 'email-user',
+          primaryEmail: 'common-email-allocation@example.invalid',
+          hasPassword: true,
+          isSuspended: false,
+        };
+      }
+      return 204;
+    };
+    const result = await withSelectedEmailPasswordFixture({
+      fixture,
+      request: withRoleContract(request, (call) => roleCalls.push(call)),
+      getPassword: () => 'private-independent',
+      browser: {
+        clientId: 'browser-client',
+        redirectUri: 'http://localhost:3311/demo-app',
+        additionalRedirectUris: ['http://localhost:3001/callback'],
       },
-    })
-  );
-  expect(calls).toContainEqual(
-    expect.objectContaining({
-      method: 'PATCH',
-      path: 'sign-in-exp',
-      body: {
-        signIn: {
-          methods: [
-            {
-              identifier: 'username',
-              password: true,
-              verificationCode: false,
-              isPasswordPrimary: true,
-            },
-          ],
-        },
-        branding: previousBranding,
+      resourceRoleIsDefault,
+      use: async (identity) => identity,
+    });
+    expect(result).toEqual({
+      id: 'email-user',
+      primaryEmail: 'common-email-allocation@example.invalid',
+      isSuspended: false,
+      browser: {
+        clientId: 'browser-client',
+        redirectUri: 'http://localhost:3311/demo-app',
       },
-    })
-  );
-  expect(calls).toContainEqual(
-    expect.objectContaining({ method: 'DELETE', path: 'users/email-user' })
-  );
-  expect(calls).toContainEqual(
-    expect.objectContaining({
-      method: 'PATCH',
-      path: 'applications/browser-client',
-      body: {
-        oidcClientMetadata: {
-          redirectUris: ['http://localhost:3311/demo-app', 'http://localhost:3001/callback'],
-          postLogoutRedirectUris: [],
-        },
-      },
-    })
-  );
-  expect(applicationMetadata.redirectUris).toEqual(['http://localhost:3001/demo-app']);
-  expect(branding).toEqual(previousBranding);
-  expect(roleCalls).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        method: 'GET',
-        path: 'resources',
-        query: { includeScopes: 'true' },
-      }),
+    });
+    expect(calls).toContainEqual(
       expect.objectContaining({
         method: 'POST',
-        path: 'roles',
-        body: expect.objectContaining({ type: 'User', isDefault: false, scopeIds: ['scope'] }),
-      }),
-      expect.objectContaining({ method: 'GET', path: 'roles/email-role/scopes' }),
+        path: 'users',
+        body: {
+          primaryEmail: 'common-email-allocation@example.invalid',
+          password: 'private-independent',
+        },
+      })
+    );
+    expect(calls).toContainEqual(
       expect.objectContaining({
-        method: 'POST',
-        path: 'roles/email-role/users',
-        body: { userIds: ['email-user'] },
-      }),
-      expect.objectContaining({ method: 'GET', path: 'users/email-user/roles' }),
-      expect.objectContaining({ method: 'DELETE', path: 'roles/email-role' }),
-    ])
-  );
-});
+        method: 'PATCH',
+        path: 'sign-in-exp',
+        body: {
+          signIn: {
+            methods: [
+              {
+                identifier: 'username',
+                password: true,
+                verificationCode: false,
+                isPasswordPrimary: true,
+              },
+            ],
+          },
+          branding: previousBranding,
+        },
+      })
+    );
+    expect(calls).toContainEqual(
+      expect.objectContaining({ method: 'DELETE', path: 'users/email-user' })
+    );
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        method: 'PATCH',
+        path: 'applications/browser-client',
+        body: {
+          oidcClientMetadata: {
+            redirectUris: ['http://localhost:3311/demo-app', 'http://localhost:3001/callback'],
+            postLogoutRedirectUris: [],
+          },
+        },
+      })
+    );
+    expect(applicationMetadata.redirectUris).toEqual(['http://localhost:3001/demo-app']);
+    expect(branding).toEqual(previousBranding);
+    expect(roleCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: 'GET',
+          path: 'resources',
+          query: { includeScopes: 'true' },
+        }),
+        expect.objectContaining({
+          method: 'POST',
+          path: 'roles',
+          body: expect.objectContaining({
+            type: 'User',
+            isDefault: resourceRoleIsDefault,
+            scopeIds: ['scope'],
+          }),
+        }),
+        expect.objectContaining({ method: 'GET', path: 'roles/email-role/scopes' }),
+        expect.objectContaining({ method: 'GET', path: 'users/email-user/roles' }),
+        expect.objectContaining({ method: 'DELETE', path: 'roles/email-role' }),
+      ])
+    );
+    expect(
+      roleCalls.some((call) => call.method === 'POST' && call.path === 'roles/email-role/users')
+    ).toBe(!resourceRoleIsDefault);
+  }
+);
 
 test('keeps the existing single browser callback contract unchanged', () => {
   expect(selectBrowserRedirectUris('http://localhost:3311/demo-app')).toEqual([

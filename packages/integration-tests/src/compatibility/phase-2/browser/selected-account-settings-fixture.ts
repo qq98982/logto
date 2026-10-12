@@ -127,6 +127,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     field: AccountField;
     additionalReadOnlyFields?: readonly AccountField[];
     phoneProvider?: CommonPhoneCodeProviderLease;
+    resourceRoleIsDefault?: boolean;
     getPassword(): string;
     use(value: SelectedAccountSettingsFixture): Promise<Result>;
   }>
@@ -258,6 +259,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
       fixture: input.fixture,
       request: input.request,
       browser: input.browser,
+      resourceRoleIsDefault: input.resourceRoleIsDefault,
       getPassword: input.getPassword,
       use: async (identity) => {
         const suffix = [...input.fixture.public.allocationId]

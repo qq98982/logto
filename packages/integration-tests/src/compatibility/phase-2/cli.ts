@@ -641,9 +641,24 @@ const commonReadyStageFailurePattern =
 const accountReadyStageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(common-ready-account-(?:(?:password|email)-other|phone-(?:admission|discovery|account-transport|fixture|token-issuance|browser-login|provider-lease|flow)))$/u;
 const commonManagementReadyStageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(common-ready-management-(?:user-create|user-contact-update)-(?:default-role-membership|resource-token|refreshed-resource-token|duplicate-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|create-account-reads|create-predicates|retained-resource-token|collision-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|malformed-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|auth-first-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|contact-account-reads|contact-predicates|contract|user-create-flow|user-contact-update-flow))$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(common-ready-management-(?:user-create|user-contact-update)-(?:admission|client|redirect|password|default-role|default-role-membership|resource-token|refreshed-resource-token|duplicate-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|create-account-reads|create-predicates|retained-resource-token|collision-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|malformed-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|auth-first-s(?:200|201|400|401|409|422)-(?:none|guard-invalid_input|user-email_already_in_use|user-phone_already_in_use|auth-unauthorized|unknown)|contact-account-reads|contact-predicates|contract|user-create-flow|user-contact-update-flow))$/u;
 const commonManagementTargetStagePattern =
-  /^Invalid Common Management user target \(([a-z0-9-]+)\)$/u;
+  /^Invalid Common Management user target \(([a-z0-9_-]+)\)$/u;
+export const closedCommonManagementTargetStage = (error: unknown): string | undefined =>
+  error instanceof Error ? commonManagementTargetStagePattern.exec(error.message)?.[1] : undefined;
+export const commonManagementScenarioFailure = (
+  kind: 'oracle' | 'candidate',
+  id: CommonManagementUserScenarioResult['id'],
+  error: unknown
+): never => {
+  const stage = closedCommonManagementTargetStage(error);
+  const scenario = id.endsWith('user-create') ? 'user-create' : 'user-contact-update';
+  const message = `Phase 2 stage failed: ${kind}-common-ready-management-${scenario}-${stage ?? 'contract'}`;
+  if (!commonManagementReadyStageFailurePattern.test(message)) {
+    throw new Error(`Phase 2 stage failed: ${kind}-common-ready-management-${scenario}-contract`);
+  }
+  throw new Error(message);
+};
 const commonPhoneStageFailurePattern =
   /^Phase 2 stage failed: (oracle|candidate)-(phone-(?:registration|sign-in)-(?:admission|capability|discovery|subject|sms-lease|controls|fixture|fixture-cleanup|other|(?:registration|sign-in)-(?:input|initialization|identifier|delivery|code-format|code-fill|consent|callback|profile|refresh|subject)))$/u;
 const commonPhoneTargetFailurePattern =
@@ -2177,13 +2192,7 @@ const runTargetScenarios = async (
           })
         );
       } catch (error: unknown) {
-        const stage =
-          error instanceof Error
-            ? commonManagementTargetStagePattern.exec(error.message)?.[1]
-            : undefined;
-        throw new Error(
-          `Phase 2 stage failed: ${descriptor.kind}-common-ready-management-${id.endsWith('user-create') ? 'user-create' : 'user-contact-update'}-${stage ?? 'contract'}`
-        );
+        commonManagementScenarioFailure(descriptor.kind, id, error);
       }
     }
     const deviceScenarios: DeviceAuthorizationScenarioResult[] = [];

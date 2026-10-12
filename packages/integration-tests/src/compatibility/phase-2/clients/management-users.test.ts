@@ -60,6 +60,7 @@ test('projects credential-free Management users and exact default role membershi
 test.each(['passwordEncrypted', 'passwordHash', 'mfaVerifications'] as const)(
   'rejects credential-bearing Management user response field %s',
   async (field) => {
+    let capturedOwnedId: string | undefined;
     await expect(
       createManagementUser(
         async () => ({
@@ -71,9 +72,13 @@ test.each(['passwordEncrypted', 'passwordHash', 'mfaVerifications'] as const)(
           [field]: field === 'mfaVerifications' ? [] : 'private',
           updatedAt: 2,
         }),
-        { email: 'new@example.invalid', password: 'private' }
+        { email: 'new@example.invalid', password: 'private' },
+        (id) => {
+          capturedOwnedId = id;
+        }
       )
     ).rejects.toThrow('Invalid Common Management user transport');
+    expect(capturedOwnedId).toBe('owner');
   }
 );
 

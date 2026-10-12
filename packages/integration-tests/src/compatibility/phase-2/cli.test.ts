@@ -51,6 +51,7 @@ import {
   commonGoogleProjectionScenarioFailure,
   commonAdditionProjectionScenarioFailure,
   commonEmailPasswordScenarioFailure,
+  commonManagementScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
   deviceProjectionDifferenceField,
   deviceScenarioProjectionFailure,
@@ -74,6 +75,47 @@ import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
 import { commonGoogleRegistrationTestProjection } from './testing/common-google-registration-projection.js';
+
+describe('Common Management scenario failure diagnostics', () => {
+  it('preserves the exact mutation status and error through the target and CLI path', () => {
+    expect(() =>
+      commonManagementScenarioFailure(
+        'oracle',
+        'common.management.user-create',
+        new TypeError(
+          'Invalid Common Management user target (duplicate-s409-user-email_already_in_use)'
+        )
+      )
+    ).toThrow(
+      'Phase 2 stage failed: oracle-common-ready-management-user-create-duplicate-s409-user-email_already_in_use'
+    );
+  });
+
+  it.each(['admission', 'client', 'redirect', 'password', 'default-role'] as const)(
+    'admits the closed target setup stage %s',
+    (stage) => {
+      expect(() =>
+        commonManagementScenarioFailure(
+          'candidate',
+          'common.management.user-contact-update',
+          new TypeError(`Invalid Common Management user target (${stage})`)
+        )
+      ).toThrow(
+        `Phase 2 stage failed: candidate-common-ready-management-user-contact-update-${stage}`
+      );
+    }
+  );
+
+  it('collapses an unbounded target message to the closed contract stage', () => {
+    expect(() =>
+      commonManagementScenarioFailure(
+        'candidate',
+        'common.management.user-create',
+        new TypeError('Invalid Common Management user target (private.detail)')
+      )
+    ).toThrow('Phase 2 stage failed: candidate-common-ready-management-user-create-contract');
+  });
+});
 
 describe('Common phone scenario failure diagnostics', () => {
   it.each([

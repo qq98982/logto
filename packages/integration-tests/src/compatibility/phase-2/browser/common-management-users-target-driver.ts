@@ -20,8 +20,49 @@ import { withSelectedAccountSettingsFixture } from './selected-account-settings-
 const fail = (stage: string): never => {
   throw new TypeError(`Invalid Common Management user target (${stage})`);
 };
-const flowStagePattern = /^Invalid Common Management user flow \(([a-z0-9-]+)\)$/u;
+const flowStagePattern = /^Invalid Common Management user flow \(([a-z0-9_-]+)\)$/u;
+export const closedCommonManagementUserFlowStage = (error: unknown): string | undefined =>
+  error instanceof Error ? flowStagePattern.exec(error.message)?.[1] : undefined;
 export type CommonManagementUserKind = 'user-create' | 'user-contact-update';
+export const withAdditionalDefaultManagementRole = async <Result>(
+  request: ReturnType<typeof createReferencePhase2AdminRequest>,
+  allocationId: string,
+  use: () => Promise<Result>
+): Promise<Result> => {
+  const role: unknown = await request({
+    method: 'POST',
+    path: 'roles',
+    body: {
+      name: `common-management-default-${allocationId}`,
+      description: 'Common Management default user membership',
+      type: 'User',
+      isDefault: true,
+    },
+    expectedStatuses: [200],
+    responseKind: 'object',
+  });
+  if (typeof role !== 'object' || role === null || Array.isArray(role)) {
+    return fail('default-role');
+  }
+  const id: unknown = Reflect.get(role, 'id');
+  const roleId = typeof id === 'string' && id.length > 0 ? id : fail('default-role');
+  if (Reflect.get(role, 'name') !== `common-management-default-${allocationId}`) {
+    return fail('default-role');
+  }
+  try {
+    if (Reflect.get(role, 'type') !== 'User' || Reflect.get(role, 'isDefault') !== true) {
+      return fail('default-role');
+    }
+    return await use();
+  } finally {
+    await request({
+      method: 'DELETE',
+      path: `roles/${encodeURIComponent(roleId)}`,
+      expectedStatuses: [204, 404],
+      responseKind: 'status',
+    });
+  }
+};
 export const runCommonManagementUserForTarget = async (
   input: Readonly<{
     kind: CommonManagementUserKind;
@@ -41,59 +82,61 @@ export const runCommonManagementUserForTarget = async (
     createHeaders: () => Headers,
     password: string
   ) =>
-    withSelectedAccountSettingsFixture({
-      fixture: input.fixture,
-      request,
-      browser: {
-        clientId: input.fixture.status?.client.id ?? fail('client'),
-        redirectUri: input.fixture.status?.client.redirectUri ?? fail('redirect'),
-      },
-      field: 'email',
-      additionalReadOnlyFields: ['phone'],
-      getPassword: () => password,
-      use: async () => {
-        const observeMutation = createManagementUserMutationObserver(
-          input.target,
-          createHeaders,
-          requestFetch
-        );
-        const observeUnauthorizedMutation = createManagementUserMutationObserver(
-          input.target,
-          () => new Headers({ authorization: 'Bearer invalid.phase2.management.bearer' }),
-          requestFetch
-        );
-        try {
-          return input.kind === 'user-create'
-            ? await runCommonManagementUserCreate({
-                target: input.target,
-                fixture: input.fixture,
-                request,
-                observeMutation,
-                observeUnauthorizedMutation,
-                password,
-                jwks: input.jwks,
-                fetch: requestFetch,
-              })
-            : await runCommonManagementUserContactUpdate({
-                target: input.target,
-                fixture: input.fixture,
-                request,
-                observeMutation,
-                observeUnauthorizedMutation,
-                password,
-                jwks: input.jwks,
-                fetch: requestFetch,
-              });
-        } catch (error: unknown) {
-          const stage =
-            error instanceof Error ? flowStagePattern.exec(error.message)?.[1] : undefined;
-          return fail(
-            stage ??
-              (input.kind === 'user-create' ? 'user-create-flow' : 'user-contact-update-flow')
+    withAdditionalDefaultManagementRole(request, input.fixture.public.allocationId, async () =>
+      withSelectedAccountSettingsFixture({
+        fixture: input.fixture,
+        request,
+        browser: {
+          clientId: input.fixture.status?.client.id ?? fail('client'),
+          redirectUri: input.fixture.status?.client.redirectUri ?? fail('redirect'),
+        },
+        field: 'email',
+        additionalReadOnlyFields: ['phone'],
+        resourceRoleIsDefault: true,
+        getPassword: () => password,
+        use: async () => {
+          const observeMutation = createManagementUserMutationObserver(
+            input.target,
+            createHeaders,
+            requestFetch
           );
-        }
-      },
-    });
+          const observeUnauthorizedMutation = createManagementUserMutationObserver(
+            input.target,
+            () => new Headers({ authorization: 'Bearer invalid.phase2.management.bearer' }),
+            requestFetch
+          );
+          try {
+            return input.kind === 'user-create'
+              ? await runCommonManagementUserCreate({
+                  target: input.target,
+                  fixture: input.fixture,
+                  request,
+                  observeMutation,
+                  observeUnauthorizedMutation,
+                  password,
+                  jwks: input.jwks,
+                  fetch: requestFetch,
+                })
+              : await runCommonManagementUserContactUpdate({
+                  target: input.target,
+                  fixture: input.fixture,
+                  request,
+                  observeMutation,
+                  observeUnauthorizedMutation,
+                  password,
+                  jwks: input.jwks,
+                  fetch: requestFetch,
+                });
+          } catch (error: unknown) {
+            const stage = closedCommonManagementUserFlowStage(error);
+            return fail(
+              stage ??
+                (input.kind === 'user-create' ? 'user-create-flow' : 'user-contact-update-flow')
+            );
+          }
+        },
+      })
+    );
   if (input.target.label === 'candidate') {
     return withPhase2AdminManagementBearer(
       input.target,

@@ -1,4 +1,5 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods -- The fake records cleanup attempts in order. */
+import { createManagementUser } from '../clients/management-users.js';
 import type { Phase2AdminRequestFunction } from '../fixtures.js';
 
 import {
@@ -57,5 +58,29 @@ test('attempts every owned Management user cleanup when one deletion fails', asy
     'Common Management user cleanup failed'
   );
   expect(paths).toEqual(['users/collision', 'users/owner']);
+});
+
+test('cleans up a created user when credential projection validation rejects its response', async () => {
+  const paths: string[] = [];
+  const request: Phase2AdminRequestFunction = async (input) => {
+    paths.push(input.path);
+    return input.method === 'POST'
+      ? {
+          id: 'owner',
+          primaryEmail: 'new@example.invalid',
+          passwordHash: 'private',
+          updatedAt: 2,
+        }
+      : 204;
+  };
+  const ownedIds: string[] = [];
+
+  await expect(
+    createManagementUser(request, { email: 'new@example.invalid', password: 'private' }, (id) =>
+      ownedIds.push(id)
+    )
+  ).rejects.toThrow('Invalid Common Management user transport');
+  await expect(deleteOwnedManagementUsers(request, ownedIds)).resolves.toBeUndefined();
+  expect(paths).toEqual(['users', 'users/owner']);
 });
 /* eslint-enable @silverhand/fp/no-mutating-methods */

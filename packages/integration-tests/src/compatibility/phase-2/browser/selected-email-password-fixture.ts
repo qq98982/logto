@@ -69,6 +69,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       redirectUri: string;
       additionalRedirectUris?: readonly string[];
     }>;
+    resourceRoleIsDefault?: boolean;
     getPassword(): string;
     use(identity: SelectedEmailPasswordIdentity): Promise<Result>;
   }>
@@ -249,7 +250,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         name: `common-email-${input.fixture.public.allocationId}`,
         description: 'Common email password resource authority',
         type: 'User',
-        isDefault: false,
+        isDefault: input.resourceRoleIsDefault ?? false,
         scopeIds: [scopeId],
       },
       expectedStatuses: [200],
@@ -262,7 +263,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       !roleId ||
       role.name !== `common-email-${input.fixture.public.allocationId}` ||
       role.type !== 'User' ||
-      role.isDefault !== false
+      role.isDefault !== (input.resourceRoleIsDefault ?? false)
     ) {
       return fail();
     }
@@ -308,14 +309,16 @@ export const withSelectedEmailPasswordFixture = async <Result>(
     ) {
       return fail();
     }
-    primaryStage = 'assign-resource-role';
-    await input.request({
-      method: 'POST',
-      path: `roles/${encodeURIComponent(roleId)}/users`,
-      body: { userIds: [userId] },
-      expectedStatuses: [201],
-      responseKind: 'status',
-    });
+    if (!input.resourceRoleIsDefault) {
+      primaryStage = 'assign-resource-role';
+      await input.request({
+        method: 'POST',
+        path: `roles/${encodeURIComponent(roleId)}/users`,
+        body: { userIds: [userId] },
+        expectedStatuses: [201],
+        responseKind: 'status',
+      });
+    }
     primaryStage = 'read-user-roles';
     const userRoles = (await input.request({
       method: 'GET',

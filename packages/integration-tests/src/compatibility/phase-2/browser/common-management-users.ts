@@ -179,8 +179,13 @@ export const runCommonManagementUserCreate = async (
   let ownerId: string | undefined;
   try {
     const defaultIds = await readDefaultManagementUserRoleIds(input.request);
-    const owner = await createManagementUser(input.request, { email, password: input.password });
-    ownerId = owner.id;
+    const owner = await createManagementUser(
+      input.request,
+      { email, password: input.password },
+      (id) => {
+        ownerId = id;
+      }
+    );
     const roles = await readManagementUserRoles(input.request, owner.id);
     if (
       !isDeepStrictEqual(
@@ -197,7 +202,7 @@ export const runCommonManagementUserCreate = async (
     const duplicate = await input.observeMutation({
       method: 'POST',
       path: 'users',
-      body: { primaryEmail: email.toUpperCase(), password: input.password },
+      body: { primaryEmail: email, password: input.password },
     });
     const afterDuplicate = await readManagementUser(input.request, owner.id);
     const rolesAfterDuplicate = await readManagementUserRoles(input.request, owner.id);
@@ -308,13 +313,18 @@ export const runCommonManagementUserContactUpdate = async (
   let ownerId: string | undefined;
   let collisionId: string | undefined;
   try {
-    const owner = await createManagementUser(input.request, {
-      email: oldEmail,
-      password: input.password,
-      name: 'Before',
-      phone: `8613${Date.now().toString().slice(-9)}`,
-    });
-    ownerId = owner.id;
+    const owner = await createManagementUser(
+      input.request,
+      {
+        email: oldEmail,
+        password: input.password,
+        name: 'Before',
+        phone: `8613${Date.now().toString().slice(-9)}`,
+      },
+      (id) => {
+        ownerId = id;
+      }
+    );
     const rolesBefore = await readManagementUserRoles(input.request, owner.id);
     const prior = await issuePublicAccountTokensForSubject(
       input.target,
@@ -336,11 +346,13 @@ export const runCommonManagementUserContactUpdate = async (
       phone: updatedPhone,
     });
     const readback = await readManagementUser(input.request, owner.id);
-    const collision = await createManagementUser(input.request, {
-      email: collisionEmail,
-      password: input.password,
-    });
-    collisionId = collision.id;
+    const collision = await createManagementUser(
+      input.request,
+      { email: collisionEmail, password: input.password },
+      (id) => {
+        collisionId = id;
+      }
+    );
     const foreignBefore = await readManagementUser(input.request, collision.id);
     const beforeCollision = await readManagementUser(input.request, owner.id);
     const collisionAttempt = await input.observeMutation({
