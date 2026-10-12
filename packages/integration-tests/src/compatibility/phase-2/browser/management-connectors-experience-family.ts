@@ -228,7 +228,7 @@ export const runManagementConnectorsExperienceFamily = async (
         'signUp',
         'socialSignIn',
         'socialSignInConnectorTargets',
-      ].every((key) => isDeepStrictEqual(publicBootstrap[key], record(readback)[key])) ||
+      ].every((key) => isDeepStrictEqual(publicBootstrap[key], record(omitted)[key])) ||
       Object.hasOwn(publicBootstrap, 'forgotPasswordMethods') ||
       invalidIdentifier.status !== 400 ||
       invalidIdentifier.code !== 'guard.invalid_input' ||
