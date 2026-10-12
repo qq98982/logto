@@ -146,7 +146,7 @@ export const runManagementApplicationsSecretsFamily = async (
     malformed.status !== 400 ||
     malformed.code !== 'guard.invalid_input' ||
     foreign?.status !== 404 ||
-    foreign.code !== 'entity.not_found' ||
+    foreign.code !== 'entity.not_exists_with_id' ||
     !foreignPreserved ||
     authFirst.status !== 401 ||
     !finalCatalog.some(({ name }) => name === added.metadata.name) ||

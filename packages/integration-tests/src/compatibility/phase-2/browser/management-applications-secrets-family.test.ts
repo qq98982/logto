@@ -92,7 +92,7 @@ test('repeats application metadata provisioning and publishes no secret value', 
         ? { status: 401, code: 'unauthorized' }
         : path === 'applications'
           ? { status: 400, code: 'guard.invalid_input' }
-          : { status: 404, code: 'entity.not_found' },
+          : { status: 404, code: 'entity.not_exists_with_id' },
     fetch: async (_url, init) => {
       const authorization = new Headers(init?.headers).get('authorization') ?? '';
       const credential = Buffer.from(authorization.slice('Basic '.length), 'base64').toString();
