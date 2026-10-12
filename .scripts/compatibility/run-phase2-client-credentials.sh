@@ -79,7 +79,7 @@ forward_closed_common_row_failures() {
   /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/(common\.password\.policy|common\.google\.configured-collision|common\.account\.google-link|common\.wechat\.h5|common\.wechat\.mini|common\.wechat\.mini-phone-registration|common\.wechat\.native|common\.account\.wechat-link|common\.management\.applications-secrets|common\.management\.native-resource-role|common\.management\.connectors-experience|common\.management\.user-suspend-delete|common\.management\.provisioning-convergence|common\.session\.logout-preservation)\)\.$' \
     "$file" >&2 || true
   /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-fixture\)\.$' \
-    "$file" >&2
+    "$file" >&2 || true
 }
 
 trusted_binary() {

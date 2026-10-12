@@ -31,6 +31,12 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     assert.equal(candidate.h5.listenUrl, 'https://localhost:3352');
     assert.equal(oracle.wechat.service, 'oracle-wechat-multichannel-provider');
     assert.equal(candidate.wechat.service, 'candidate-wechat-multichannel-provider');
+    assert.match(oracle.wechat.clientId, /^wx[0-9a-f]{16}$/u);
+    assert.match(candidate.wechat.clientId, /^wx[0-9a-f]{16}$/u);
+    assert.match(oracle.wechat.clientSecret, /^[0-9A-Za-z]{16,128}$/u);
+    assert.match(candidate.wechat.clientSecret, /^[0-9A-Za-z]{16,128}$/u);
+    assert.notEqual(oracle.wechat.clientId, candidate.wechat.clientId);
+    assert.notEqual(oracle.wechat.clientSecret, candidate.wechat.clientSecret);
     assert.match(oracle.wechat.phone, /^\d+$/u);
     assert.match(candidate.wechat.phone, /^\d+$/u);
     assert.notEqual(oracle.wechat.phone, candidate.wechat.phone);

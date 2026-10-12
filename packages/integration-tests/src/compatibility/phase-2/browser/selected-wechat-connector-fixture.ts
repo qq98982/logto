@@ -296,7 +296,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
         method: 'POST',
         path: 'connectors',
         body: {
-          connectorId: 'aliyun-sms',
+          connectorId: 'aliyun-short-message-service',
           config: {
             accessKeyId: 'aster-wechat-h5-fixture',
             accessKeySecret: input.smsAccessSecret,
@@ -313,7 +313,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
         responseKind: 'object',
       })) as { id?: unknown; connectorId?: unknown };
       if (typeof sms.id === 'string' && sms.id.length > 0) smsConnectorId = sms.id;
-      if (!smsConnectorId || sms.connectorId !== 'aliyun-sms') return fail();
+      if (!smsConnectorId || sms.connectorId !== 'aliyun-short-message-service') return fail();
     }
     primaryStage = 'prepare-connector';
     const prepared = await input.prepareConnector(activeConnectorId);

@@ -283,7 +283,7 @@ export const writeGoogleProviderRuntimeInputs = async (rawInput) => {
       receiptFile: privateFile(root, role, 'receipt'),
       healthDiagnosticFile: privateFile(root, role, 'diagnostic'),
       expectedUserinfoMethod: role === 'oracle' ? 'POST' : 'GET',
-      clientId: `google-${role}-${randomBytes(16).toString('hex')}`,
+      clientId: `123456789-${randomBytes(16).toString('hex')}.apps.googleusercontent.com`,
       clientSecret: randomBytes(32).toString('hex'),
     });
   });

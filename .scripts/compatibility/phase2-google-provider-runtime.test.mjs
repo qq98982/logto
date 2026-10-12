@@ -49,7 +49,7 @@ const targetInput = (root, home) => ({
   apiVersion: '5.5.2',
 });
 
-test('prepares isolated private files and exact target-specific provider inputs', async () => {
+test('prepares isolated provider inputs accepted by the pinned Google provisioner', async () => {
   const fixture = await createRoot();
   try {
     const prepared = await prepareGoogleProviderRuntimeFiles(fixture.root);
@@ -71,6 +71,10 @@ test('prepares isolated private files and exact target-specific provider inputs'
     assert.equal(oracle.changedProviderEmail, candidate.changedProviderEmail);
     assert.notEqual(oracle.clientId, candidate.clientId);
     assert.notEqual(oracle.clientSecret, candidate.clientSecret);
+    for (const input of [oracle, candidate]) {
+      assert.match(input.clientId, /^[0-9]+-[0-9a-z]+\.apps\.googleusercontent\.com$/u);
+      assert.match(input.clientSecret, /^[!-~]{8,100}$/u);
+    }
     for (const file of [
       paths.oracleInputFile,
       paths.candidateInputFile,
@@ -117,7 +121,7 @@ test('rejects reused targets, malformed API versions, and repeated preparation',
   }
 });
 
-test('runner forwards only the three exact new Common row failures', async () => {
+test('runner forwards exact Common failures and ignores other diagnostic text', async () => {
   const fixture = await createRoot();
   try {
     const stderrFile = `${fixture.parent}/rows.stderr`;
@@ -125,11 +129,13 @@ test('runner forwards only the three exact new Common row failures', async () =>
       'common.email.password-registration',
       'common.password.recovery',
       'common.google.existing-owner',
+      'common.wechat.h5',
     ].flatMap((id) =>
       ['oracle', 'candidate'].map(
         (target) => `Phase 2 client credentials command failed (${target}/${id}).`
       )
     );
+    accepted.push('Phase 2 client credentials command failed (candidate-completion-fixture).');
     await writeFile(
       stderrFile,
       `${[
@@ -150,6 +156,15 @@ test('runner forwards only the three exact new Common row failures', async () =>
     assert.deepEqual(stderr.trim().split('\n'), accepted);
     assert.equal(stderr.includes('unknown'), false);
     assert.equal(stderr.includes('private-secret'), false);
+    await writeFile(stderrFile, 'unrecognized diagnostic\n', { mode: 0o600 });
+    const empty = await execute('/usr/bin/bash', [
+      '-c',
+      'source "$1"; forward_closed_common_row_failures "$2"',
+      'phase2-google-provider-runtime-test',
+      runner,
+      stderrFile,
+    ]);
+    assert.equal(empty.stderr, '');
   } finally {
     await rm(fixture.parent, { recursive: true, force: true });
   }
