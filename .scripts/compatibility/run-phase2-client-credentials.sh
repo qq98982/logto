@@ -1359,6 +1359,7 @@ assert_runtime_identity_unchanged() {
   [[ "$(artifact_identity "$CANDIDATE_COMPLETION_INPUT")" == "$CANDIDATE_COMPLETION_INPUT_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_IDENTITY_CONFIG")" == "$CANDIDATE_IDENTITY_CONFIG_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$IDENTITY_CA")" == "$IDENTITY_CA_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$IDENTITY_CA_BUNDLE")" == "$IDENTITY_CA_BUNDLE_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$IDENTITY_SERVER_CERT")" == "$IDENTITY_SERVER_CERT_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$IDENTITY_SERVER_KEY")" == "$IDENTITY_SERVER_KEY_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$H5_CA")" == "$H5_CA_IDENTITY" ]] || return 1
@@ -1796,6 +1797,7 @@ main() {
   CANDIDATE_COMPLETION_INPUT="$COMPLETION_ROOT/runtime-common/candidate-descriptor.json"
   CANDIDATE_IDENTITY_CONFIG="$IDENTITY_TLS_ROOT/candidate-identity-transports.json"
   IDENTITY_CA="$IDENTITY_TLS_ROOT/identity-ca.pem"
+  IDENTITY_CA_BUNDLE="$IDENTITY_TLS_ROOT/core-extra-ca-bundle.pem"
   IDENTITY_SERVER_CERT="$IDENTITY_TLS_ROOT/identity-server.pem"
   IDENTITY_SERVER_KEY="$IDENTITY_TLS_ROOT/identity-server.key"
   H5_CA="$H5_RUNTIME_ROOT/h5-loopback-ca.pem"
@@ -1807,7 +1809,7 @@ main() {
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
   readonly COMPLETION_ROOT IDENTITY_TLS_ROOT H5_RUNTIME_ROOT ORACLE_COMPLETION_INPUT CANDIDATE_COMPLETION_INPUT
-  readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG
+  readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_CA_BUNDLE IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
   [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
@@ -1817,8 +1819,11 @@ main() {
   [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
   generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
   "$IDENTITY_PKI_SCRIPT" "$IDENTITY_TLS_ROOT" || { failure_stage='identity-fixture-pki'; fail; return 1; }
+  /usr/bin/cat -- "$FETCH_OBSERVER_CA" "$IDENTITY_CA" >"$IDENTITY_CA_BUNDLE" \
+    || { failure_stage='identity-fixture-ca-bundle'; fail; return 1; }
+  /usr/bin/chmod 0400 "$IDENTITY_CA_BUNDLE"
   "$H5_PKI_SCRIPT" generate "$H5_RUNTIME_ROOT" >/dev/null || { failure_stage='h5-loopback-pki'; fail; return 1; }
-  "$JQ_BIN" -cn '{schemaVersion:1,passwordCompromise:{peer:"172.30.241.54:443",caFile:"/run/aster/identity-fixture-ca.pem"},backchannel:{origin:"https://backchannel.aster.test:8443",peer:"172.30.241.55:8443",caFile:"/run/aster/identity-fixture-ca.pem"}}' >"$CANDIDATE_IDENTITY_CONFIG"
+  "$JQ_BIN" -cn '{schemaVersion:1,passwordCompromise:{peer:"172.30.241.56:443",caFile:"/run/aster/identity-fixture-ca.pem"},backchannel:{origin:"https://backchannel.aster.test:8443",peer:"172.30.241.55:8443",caFile:"/run/aster/identity-fixture-ca.pem"}}' >"$CANDIDATE_IDENTITY_CONFIG"
   /usr/bin/chmod 0400 "$CANDIDATE_IDENTITY_CONFIG"
   assert_private_runtime_material || { failure_stage='private-runtime-material'; fail; return 1; }
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
@@ -2273,7 +2278,7 @@ SMS_TOPOLOGY
     "$ORACLE_COMPLETION_INPUT" "$CANDIDATE_COMPLETION_INPUT" "$OWNED_ATTEMPT_TOPOLOGY" \
     "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" \
     "$PWNED_PROVIDER_SCRIPT" "$BACKCHANNEL_RECEIVER_SCRIPT" "$WECHAT_PROVIDER_SCRIPT" \
-    "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA" "$IDENTITY_SERVER_CERT" \
+    "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA_BUNDLE" "$IDENTITY_SERVER_CERT" \
     "$IDENTITY_SERVER_KEY" "$CANDIDATE_IDENTITY_CONFIG" "$H5_CANDIDATE_CONFIG" <<'COMPLETION_TOPOLOGY' \
     || { failure_stage='completion-topology'; fail; return 1; }
 import { open, readFile, rename } from 'node:fs/promises';
@@ -2478,6 +2483,7 @@ COMPLETION_TOPOLOGY
   CANDIDATE_COMPLETION_INPUT_IDENTITY="$(artifact_identity "$CANDIDATE_COMPLETION_INPUT")"
   CANDIDATE_IDENTITY_CONFIG_IDENTITY="$(artifact_identity "$CANDIDATE_IDENTITY_CONFIG")"
   IDENTITY_CA_IDENTITY="$(artifact_identity "$IDENTITY_CA")"
+  IDENTITY_CA_BUNDLE_IDENTITY="$(artifact_identity "$IDENTITY_CA_BUNDLE")"
   IDENTITY_SERVER_CERT_IDENTITY="$(artifact_identity "$IDENTITY_SERVER_CERT")"
   IDENTITY_SERVER_KEY_IDENTITY="$(artifact_identity "$IDENTITY_SERVER_KEY")"
   H5_CA_IDENTITY="$(artifact_identity "$H5_CA")"
@@ -2490,7 +2496,7 @@ COMPLETION_TOPOLOGY
   readonly ORACLE_H5_CORE_IDENTITY CANDIDATE_H5_CORE_IDENTITY
   readonly ORACLE_STATE_DRIVER_IDENTITY CANDIDATE_STATE_DRIVER_IDENTITY CANDIDATE_INVARIANT_DRIVER_IDENTITY ASTER_ADMIN_IDENTITY FIXTURE_SOCKET_IDENTITY TOPOLOGY_IDENTITY
   readonly ORACLE_COMPLETION_INPUT_IDENTITY CANDIDATE_COMPLETION_INPUT_IDENTITY CANDIDATE_IDENTITY_CONFIG_IDENTITY
-  readonly IDENTITY_CA_IDENTITY IDENTITY_SERVER_CERT_IDENTITY IDENTITY_SERVER_KEY_IDENTITY
+  readonly IDENTITY_CA_IDENTITY IDENTITY_CA_BUNDLE_IDENTITY IDENTITY_SERVER_CERT_IDENTITY IDENTITY_SERVER_KEY_IDENTITY
   readonly H5_CA_IDENTITY H5_SERVER_CERT_IDENTITY H5_SERVER_KEY_IDENTITY H5_SPKI_IDENTITY
   readonly H5_CANDIDATE_CONFIG_IDENTITY
   assert_source_identity_unchanged || { failure_stage='source-fence-before'; fail; return 1; }

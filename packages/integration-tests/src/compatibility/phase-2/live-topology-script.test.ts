@@ -921,6 +921,16 @@ wait_for_script_host_serving
     expect(source).toContain('io.aster.source.tree');
     expect(source).toContain('assert_private_runtime_material');
     expect(source).toContain('assert_runtime_identity_unchanged');
+    expect(source).toContain(
+      '/usr/bin/cat -- "$FETCH_OBSERVER_CA" "$IDENTITY_CA" >"$IDENTITY_CA_BUNDLE"'
+    );
+    expect(source).toContain('passwordCompromise:{peer:"172.30.241.56:443"');
+    expect(source).toContain(
+      'IDENTITY_CA_BUNDLE_IDENTITY="$(artifact_identity "$IDENTITY_CA_BUNDLE")"'
+    );
+    expect(source).toContain(
+      '[[ "$(artifact_identity "$IDENTITY_CA_BUNDLE")" == "$IDENTITY_CA_BUNDLE_IDENTITY" ]]'
+    );
     expect(source).toContain('PROBE_CONTAINER_ID');
     expect(source).toContain('/usr/bin/chmod 0600 "$SCRIPT_HOST_SERVER_KEY"');
     expect(source).toContain(

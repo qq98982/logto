@@ -92,7 +92,7 @@ export const extendH5WechatTopology = (raw, options) => {
       `${descriptor.configFile}:/run/fixture/configuration.json:rw`,
       `${descriptor.receiptFile}:/run/fixture/receipt.json:rw`,
     ],
-    mac_address: options.role === 'oracle' ? '02:42:ac:1e:e7:36' : '02:42:ac:1e:f1:36',
+    mac_address: options.role === 'oracle' ? '02:42:ac:1e:e7:3a' : '02:42:ac:1e:f1:3a',
     user: `${process.getuid()}:${process.getgid()}`,
     userns_mode: 'keep-id',
     pids_limit: 32,

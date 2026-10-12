@@ -30,6 +30,7 @@ test('adds one stopped legacy H5 service at the shared provider address', () => 
   assert.deepEqual(result.services['oracle-h5-wechat-provider'].networks, {
     'oracle-primary': { ipv4_address: '172.30.231.53' },
   });
+  assert.equal(result.services['oracle-h5-wechat-provider'].mac_address, '02:42:ac:1e:e7:3a');
   assert.equal(result.services['oracle-h5-wechat-provider'].restart, 'no');
 });
 
