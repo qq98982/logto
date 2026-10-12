@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -33,7 +33,8 @@ const topology = () => ({
   services: {
     'oracle-primary-core': {
       environment: { NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem' },
-      extra_hosts: ['dysmsapi.aliyuncs.com:172.30.231.54'], volumes: [],
+      extra_hosts: ['dysmsapi.aliyuncs.com:172.30.231.54'],
+      volumes: ['/private/fetch-ca.pem:/run/aster/fetch-observer-ca.pem:ro'],
     },
     'oracle-sms-provider': {
       networks: { 'oracle-primary': { ipv4_address: '172.30.231.54', aliases: ['dysmsapi.aliyuncs.com'] } },
@@ -42,22 +43,35 @@ const topology = () => ({
   networks: { 'oracle-primary': { internal: true } },
 });
 
-test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer separately', async () => {
+test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer separately', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'aster-owned-attempt-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
   const descriptorFile = `${root}/descriptor.json`;
   await writeFile(descriptorFile, JSON.stringify(descriptorFor(root)));
   const result = await extendOwnedAttemptServices(topology(), optionsFor(root, descriptorFile));
   assert.equal(result.services['oracle-sms-provider'].networks['oracle-primary'].ipv4_address, '172.30.231.54');
   assert.ok(result.services['oracle-primary-core'].extra_hosts.includes('dysmsapi.aliyuncs.com:172.30.231.54'));
   assert.ok(result.services['oracle-primary-core'].extra_hosts.includes('api.pwnedpasswords.com:172.30.231.56'));
-  assert.equal(result.services['oracle-primary-core'].environment.NODE_EXTRA_CA_CERTS, '/run/aster/core-extra-ca-bundle.pem');
-  assert.equal(result.services['oracle-primary-core'].environment.SSL_CERT_FILE, '/run/aster/core-extra-ca-bundle.pem');
-  assert.ok(result.services['oracle-primary-core'].volumes.includes(`${root}/ca-bundle.pem:/run/aster/core-extra-ca-bundle.pem:ro`));
+  assert.equal(result.services['oracle-primary-core'].environment.NODE_EXTRA_CA_CERTS, '/run/aster/fetch-observer-ca.pem');
+  assert.equal(result.services['oracle-primary-core'].environment.SSL_CERT_FILE, '/run/aster/fetch-observer-ca.pem');
+  assert.deepEqual(result.services['oracle-primary-core'].volumes,
+    [`${root}/ca-bundle.pem:/run/aster/fetch-observer-ca.pem:ro`]);
   assert.equal(result.services['oracle-pwned-clear'].networks['oracle-primary'].ipv4_address, '172.30.231.56');
 });
 
-test('accepts the topology independently of the existing SMS fixture details', async () => {
+test('rejects a core whose existing trust mount cannot be replaced exactly', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'aster-owned-attempt-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const descriptorFile = `${root}/descriptor.json`;
+  await writeFile(descriptorFile, JSON.stringify(descriptorFor(root)));
+  const input = topology();
+  input.services['oracle-primary-core'].volumes = [];
+  await assert.rejects(extendOwnedAttemptServices(input, optionsFor(root, descriptorFile)), TypeError);
+});
+
+test('accepts the topology independently of the existing SMS fixture details', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'aster-owned-attempt-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
   const descriptorFile = `${root}/descriptor.json`;
   await writeFile(descriptorFile, JSON.stringify(descriptorFor(root)));
   const input = topology();

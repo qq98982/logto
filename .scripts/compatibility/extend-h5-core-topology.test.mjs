@@ -9,8 +9,8 @@ const base = (role) => ({
       depends_on: { db: { condition: 'service_healthy' } },
       environment: role === 'oracle'
         ? { ENDPOINT: 'http://localhost:3311' }
-        : { ASTER_PHASE1_PRIMARY_CONFIG_FILE: '/private/original.conf', ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3321/oidc', NODE_EXTRA_CA_CERTS: '/run/aster/core-extra-ca-bundle.pem', SSL_CERT_FILE: '/run/aster/core-extra-ca-bundle.pem' },
-      volumes: role === 'candidate' ? ['/private/original.conf:/private/original.conf:ro', 'keys:/keys:ro', '/private/bundle.pem:/run/aster/core-extra-ca-bundle.pem:ro'] : [],
+        : { ASTER_PHASE1_PRIMARY_CONFIG_FILE: '/private/original.conf', ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3321/oidc', NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem', SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem' },
+      volumes: role === 'candidate' ? ['/private/original.conf:/private/original.conf:ro', 'keys:/keys:ro', '/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro'] : [],
       networks: { [`${role}-primary`]: { ipv4_address: 'old' } },
     },
     ...(role === 'candidate'
@@ -33,9 +33,9 @@ test('clones candidate authority with the H5 config and issuer while retaining k
   const service=output.services['candidate-h5-core'];
   assert.equal(service.environment.ASTER_PHASE1_DATA_ISSUER,'https://localhost:3352/oidc');
   assert.equal(service.environment.ASTER_PHASE1_PRIMARY_CONFIG_FILE,'/private/h5.conf');
-  assert.deepEqual(service.volumes,['/private/h5.conf:/private/h5.conf:ro','keys:/keys:ro','/private/bundle.pem:/run/aster/core-extra-ca-bundle.pem:ro']);
-  assert.equal(service.environment.NODE_EXTRA_CA_CERTS,'/run/aster/core-extra-ca-bundle.pem');
-  assert.equal(service.environment.SSL_CERT_FILE,'/run/aster/core-extra-ca-bundle.pem');
+  assert.deepEqual(service.volumes,['/private/h5.conf:/private/h5.conf:ro','keys:/keys:ro','/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro']);
+  assert.equal(service.environment.NODE_EXTRA_CA_CERTS,'/run/aster/fetch-observer-ca.pem');
+  assert.equal(service.environment.SSL_CERT_FILE,'/run/aster/fetch-observer-ca.pem');
   assert.equal(output.services['candidate-primary-postgres'].environment.ASTER_PHASE1_H5_CORE_CIDR,'172.30.241.14/32');
   assert.equal(output.services['candidate-primary-core'].environment.ASTER_PHASE1_DATA_ISSUER,'http://localhost:3321/oidc');
 });
