@@ -103,6 +103,13 @@ export type SelectedWechatProviderLease = Readonly<{
   stop(): Promise<void>;
 }>;
 
+export type SelectedWechatSmsConfiguration = Readonly<{
+  accessKeyId: string;
+  accessKeySecret: string;
+  signName: string;
+  templates: Readonly<Record<'Register' | 'SignIn' | 'ForgotPassword' | 'Generic', string>>;
+}>;
+
 export type SelectedWechatConnectorFixtureInput<Result> = Readonly<{
   fixture: ProvisionedPhase2Fixture;
   request: Phase2AdminRequestFunction;
@@ -114,7 +121,7 @@ export type SelectedWechatConnectorFixtureInput<Result> = Readonly<{
   wechatSubject: string;
   ownerEmail?: string;
   registrationPhone?: string;
-  smsAccessSecret?: string;
+  smsConfiguration?: SelectedWechatSmsConfiguration;
   ownerMode?: 'existing' | 'registration';
   prepareConnector(connectorId: string): Promise<SelectedWechatProviderLease>;
   takeBrowserCode?(): Promise<string>;
@@ -292,20 +299,24 @@ export const withSelectedWechatConnectorFixture = async <Result>(
     const activeConnectorId = connectorId;
     if (input.ownerMode === 'registration') {
       primaryStage = 'create-sms-connector';
+      const smsConfiguration = input.smsConfiguration ?? fail();
       const sms = (await input.request({
         method: 'POST',
         path: 'connectors',
         body: {
           connectorId: 'aliyun-short-message-service',
           config: {
-            accessKeyId: 'aster-wechat-h5-fixture',
-            accessKeySecret: input.smsAccessSecret,
-            signName: 'Aster',
+            accessKeyId: smsConfiguration.accessKeyId,
+            accessKeySecret: smsConfiguration.accessKeySecret,
+            signName: smsConfiguration.signName,
             templates: [
-              { usageType: 'Register', templateCode: 'SMS_000001' },
-              { usageType: 'SignIn', templateCode: 'SMS_000001' },
-              { usageType: 'ForgotPassword', templateCode: 'SMS_000001' },
-              { usageType: 'Generic', templateCode: 'SMS_000001' },
+              { usageType: 'Register', templateCode: smsConfiguration.templates.Register },
+              { usageType: 'SignIn', templateCode: smsConfiguration.templates.SignIn },
+              {
+                usageType: 'ForgotPassword',
+                templateCode: smsConfiguration.templates.ForgotPassword,
+              },
+              { usageType: 'Generic', templateCode: smsConfiguration.templates.Generic },
             ],
           },
         },

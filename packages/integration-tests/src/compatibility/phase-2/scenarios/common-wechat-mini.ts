@@ -4,6 +4,7 @@ import type { TargetConfig } from '../../model.js';
 import {
   withSelectedWechatConnectorFixture,
   type SelectedWechatProviderLease,
+  type SelectedWechatSmsConfiguration,
 } from '../browser/selected-wechat-connector-fixture.js';
 import { createCommonExperienceSession } from '../clients/common-experience.js';
 import {
@@ -54,7 +55,7 @@ type Input = Readonly<{
   wechatSubject: string;
   ownerEmail: string;
   phone: string;
-  smsAccessSecret: string;
+  smsConfiguration: SelectedWechatSmsConfiguration;
   fetch?: typeof fetch;
   prepareProvider(
     connectorId: string
@@ -77,7 +78,7 @@ const run = async (input: Input, registration: boolean) => {
       ? {
           ownerMode: 'registration' as const,
           registrationPhone: input.phone,
-          smsAccessSecret: input.smsAccessSecret,
+          smsConfiguration: input.smsConfiguration,
         }
       : { ownerMode: 'existing' as const }),
     prepareConnector: input.prepareProvider,

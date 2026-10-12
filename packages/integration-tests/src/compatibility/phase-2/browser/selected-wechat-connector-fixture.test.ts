@@ -13,7 +13,7 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
   };
   let currentMetadata: unknown = originalMetadata;
   let currentSie: typeof originalSie | Record<string, unknown> = originalSie;
-  let smsFactory: unknown;
+  let smsBody: unknown;
   const request: Phase2AdminRequestFunction = async (input) => {
     if (input.method === 'GET' && input.path === 'sign-in-exp') {
       return currentSie;
@@ -37,7 +37,7 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
     if (input.method === 'POST' && input.path === 'connectors') {
       const connectorId = Reflect.get(input.body ?? {}, 'connectorId');
       if (connectorId !== 'wechat-h5') {
-        smsFactory = connectorId;
+        smsBody = input.body;
       }
       return { id: connectorId === 'wechat-h5' ? 'wechat' : 'sms', connectorId };
     }
@@ -69,7 +69,17 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
       channel: 'h5',
       wechatSubject: 'subject',
       registrationPhone: '15555550101',
-      smsAccessSecret: 'controlled-secret',
+      smsConfiguration: {
+        accessKeyId: 'controlled-id',
+        accessKeySecret: 'controlled-secret',
+        signName: 'Controlled Sign',
+        templates: {
+          Register: 'controlled-register',
+          SignIn: 'controlled-sign-in',
+          ForgotPassword: 'controlled-forgot',
+          Generic: 'controlled-generic',
+        },
+      },
       ownerMode: 'registration',
       prepareConnector: async () => {
         throw new TypeError('Controlled stop after connector creation');
@@ -77,7 +87,20 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
       use: async () => {},
     })
   ).rejects.toThrow('Selected Wechat connector fixture failed: prepare-connector');
-  expect(smsFactory).toBe('aliyun-short-message-service');
+  expect(smsBody).toEqual({
+    connectorId: 'aliyun-short-message-service',
+    config: {
+      accessKeyId: 'controlled-id',
+      accessKeySecret: 'controlled-secret',
+      signName: 'Controlled Sign',
+      templates: [
+        { usageType: 'Register', templateCode: 'controlled-register' },
+        { usageType: 'SignIn', templateCode: 'controlled-sign-in' },
+        { usageType: 'ForgotPassword', templateCode: 'controlled-forgot' },
+        { usageType: 'Generic', templateCode: 'controlled-generic' },
+      ],
+    },
+  });
   expect(currentMetadata).toEqual(originalMetadata);
   expect(currentSie).toMatchObject({
     socialSignInConnectorTargets: originalSie.socialSignInConnectorTargets,

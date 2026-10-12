@@ -49,7 +49,12 @@ const base = {
     smsAccessKeyId: 'sms-id',
     smsAccessSecret: 'sms-secret',
     smsSignName: 'Aster Test',
-    smsTemplateCode: 'SMS_REGISTER',
+    smsTemplates: {
+      Register: 'SMS_REGISTER',
+      SignIn: 'SMS_SIGN_IN',
+      ForgotPassword: 'SMS_FORGOT_PASSWORD',
+      Generic: 'SMS_GENERIC',
+    },
     universalLink: 'https://native.example.invalid/',
   },
   pwned: { clear: {}, compromised: {}, unavailable: {} },
@@ -79,7 +84,12 @@ const withControlledEmittedDescriptor = async (
     accessKeyId: 'controlled-sms-id',
     accessKeySecret: 'controlled-sms-secret',
     signName: 'Controlled Sign',
-    templateCode: 'CONTROLLED_REGISTER_TEMPLATE',
+    templates: {
+      Register: 'CONTROLLED_REGISTER_TEMPLATE',
+      SignIn: 'CONTROLLED_SIGN_IN_TEMPLATE',
+      ForgotPassword: 'CONTROLLED_FORGOT_TEMPLATE',
+      Generic: 'CONTROLLED_GENERIC_TEMPLATE',
+    },
   })
 ) => {
   const emitted = JSON.parse(
@@ -100,7 +110,7 @@ const withControlledEmittedDescriptor = async (
         smsAccessKeyId: sms.accessKeyId,
         smsAccessSecret: sms.accessKeySecret,
         smsSignName: sms.signName,
-        smsTemplateCode: sms.templateCode,
+        smsTemplates: sms.templates,
       },
     },
     use
@@ -133,8 +143,29 @@ test('constructs capabilities from the emitted private descriptor without contai
     expect(runtime.wechat.mini.wechatSubject).toBe(runtime.wechat.native.wechatSubject);
     await runtime.wechat.h5.withProviderCredentialLease(async (lease) => {
       expect(lease.getClientId()).toBe('controlled-wechat-client');
-      expect(lease.getSmsAccessSecret?.()).toBe('controlled-sms-secret');
+      expect(lease.getSmsConfiguration?.()).toEqual({
+        accessKeyId: 'controlled-sms-id',
+        accessKeySecret: 'controlled-sms-secret',
+        signName: 'Controlled Sign',
+        templates: {
+          Register: 'CONTROLLED_REGISTER_TEMPLATE',
+          SignIn: 'CONTROLLED_SIGN_IN_TEMPLATE',
+          ForgotPassword: 'CONTROLLED_FORGOT_TEMPLATE',
+          Generic: 'CONTROLLED_GENERIC_TEMPLATE',
+        },
+      });
       expect(() => lease.toJSON()).toThrow('Invalid Common completion fixture runtime');
+    });
+    expect(runtime.wechat.mini.smsConfiguration).toEqual({
+      accessKeyId: 'controlled-sms-id',
+      accessKeySecret: 'controlled-sms-secret',
+      signName: 'Controlled Sign',
+      templates: {
+        Register: 'CONTROLLED_REGISTER_TEMPLATE',
+        SignIn: 'CONTROLLED_SIGN_IN_TEMPLATE',
+        ForgotPassword: 'CONTROLLED_FORGOT_TEMPLATE',
+        Generic: 'CONTROLLED_GENERIC_TEMPLATE',
+      },
     });
   });
 });
@@ -144,7 +175,12 @@ test('leases the complete owned SMS transport configuration to both provisioning
     accessKeyId: 'controlled-sms-id',
     accessKeySecret: 'controlled-sms-secret',
     signName: 'Controlled Sign',
-    templateCode: 'CONTROLLED_REGISTER_TEMPLATE',
+    templates: {
+      Register: 'CONTROLLED_REGISTER_TEMPLATE',
+      SignIn: 'CONTROLLED_SIGN_IN_TEMPLATE',
+      ForgotPassword: 'CONTROLLED_FORGOT_TEMPLATE',
+      Generic: 'CONTROLLED_GENERIC_TEMPLATE',
+    },
   });
   await withControlledEmittedDescriptor(async (filePath) => {
     const runtime = await read(filePath);
@@ -155,7 +191,7 @@ test('leases the complete owned SMS transport configuration to both provisioning
           expect(environment.BOX_AI_SMS_ACCESS_KEY_ID).toBe(sms.accessKeyId);
           expect(environment.BOX_AI_SMS_ACCESS_KEY_SECRET).toBe(sms.accessKeySecret);
           expect(environment.BOX_AI_SMS_SIGN_NAME_BASE64).toBe(signName);
-          expect(environment.BOX_AI_SMS_TEMPLATE_CODE).toBe(sms.templateCode);
+          expect(environment.BOX_AI_SMS_TEMPLATE_CODE).toBe(sms.templates.Register);
         }
         expect(globalEnvironment.BOX_AI_SMS_CONNECTOR_FACTORY_ID).toBe(
           'aliyun-short-message-service'

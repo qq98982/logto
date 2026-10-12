@@ -21,6 +21,7 @@ import type { CommonEmailPasswordBrowserConfiguration } from './fresh-context-pa
 import { adaptPhase1SessionForEmailPassword } from './phase1-session-adapter.js';
 import {
   type SelectedWechatProviderLease,
+  type SelectedWechatSmsConfiguration,
   wechatH5SignInButtonSelectorCandidate,
   withSelectedWechatConnectorFixture,
 } from './selected-wechat-connector-fixture.js';
@@ -254,7 +255,7 @@ const discoverIssuer = async (
 export type WechatProviderCredentialLease = Readonly<{
   getClientId(): string;
   getClientSecret(): string;
-  getSmsAccessSecret?(): string;
+  getSmsConfiguration?(): SelectedWechatSmsConfiguration;
   toJSON(): never;
 }>;
 
@@ -352,7 +353,7 @@ const executeCommonWechatH5RegistrationForTarget = async (
       }
       const clientId = bounded(credentials.getClientId());
       const clientSecret = bounded(credentials.getClientSecret());
-      const smsAccessSecret = bounded(credentials.getSmsAccessSecret?.() ?? fail());
+      const smsConfiguration = credentials.getSmsConfiguration?.() ?? fail();
       const executeFixture = async (request: Phase2AdminRequestFunction) => {
         stage = 'fixture';
         let providerLease:
@@ -373,7 +374,7 @@ const executeCommonWechatH5RegistrationForTarget = async (
             channel: 'h5',
             wechatSubject: input.provider.wechatSubject,
             registrationPhone: input.provider.registrationPhone,
-            smsAccessSecret,
+            smsConfiguration,
             prepareConnector: async (connectorId) => {
               const prepared = await input.prepareProvider({
                 role: target.label,

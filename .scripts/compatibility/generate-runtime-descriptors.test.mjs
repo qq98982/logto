@@ -16,7 +16,8 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
         accessKeyId: `${role}-id`,
         accessKeySecret: `${role}-private`,
         signName: `${role}-sign`,
-        templates: { Register: `${role}-register-template` },
+        templates: Object.fromEntries(['Register', 'SignIn', 'ForgotPassword', 'Generic']
+          .map((purpose) => [purpose, `${role}-${purpose}-template`])),
       }), { mode: 0o600 });
     }));
     const script = new URL('./generate-runtime-descriptors.mjs', import.meta.url).pathname;
@@ -42,8 +43,11 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     assert.notEqual(oracle.wechat.phone, candidate.wechat.phone);
     assert.deepEqual(
       [oracle.wechat.smsAccessKeyId, oracle.wechat.smsAccessSecret, oracle.wechat.smsSignName,
-        oracle.wechat.smsTemplateCode],
-      ['o-id', 'o-private', 'o-sign', 'o-register-template']
+        oracle.wechat.smsTemplates],
+      ['o-id', 'o-private', 'o-sign', {
+        Register: 'o-Register-template', SignIn: 'o-SignIn-template',
+        ForgotPassword: 'o-ForgotPassword-template', Generic: 'o-Generic-template',
+      }]
     );
     assert.equal(oracle.wechat.dockerHome, candidate.wechat.dockerHome);
     const dockerHome = await stat(oracle.wechat.dockerHome);

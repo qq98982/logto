@@ -8,6 +8,7 @@ import {
   runCommonWechatH5RegistrationForTarget,
   type CommonWechatH5RegistrationTargetDriverInput,
 } from '../browser/common-wechat-h5-target-driver.js';
+import type { SelectedWechatSmsConfiguration } from '../browser/selected-wechat-connector-fixture.js';
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 import {
@@ -37,7 +38,7 @@ type MiniRuntime = Readonly<{
   wechatSubject: string;
   ownerEmail: string;
   phone: string;
-  smsAccessSecret: string;
+  smsConfiguration: SelectedWechatSmsConfiguration;
   prepareProvider: Parameters<typeof runCommonWechatMiniScenarioRow>[0]['prepareProvider'];
 }>;
 type NativeRuntime = Readonly<{

@@ -76,7 +76,7 @@ const wechatKeys = [
   'smsAccessKeyId',
   'smsAccessSecret',
   'smsSignName',
-  'smsTemplateCode',
+  'smsTemplates',
   'smsCodeSocket',
   'universalLink',
 ].toSorted();
@@ -344,7 +344,24 @@ export const readCommonCompletionFixtureRuntime = async (
   const smsAccessKeyId = bounded(wechat.smsAccessKeyId);
   const smsAccessSecret = bounded(wechat.smsAccessSecret);
   const smsSignNameBase64 = Buffer.from(bounded(wechat.smsSignName), 'utf8').toString('base64');
-  const smsTemplateCode = bounded(wechat.smsTemplateCode);
+  const smsTemplatesRow = exact(wechat.smsTemplates, [
+    'Register',
+    'SignIn',
+    'ForgotPassword',
+    'Generic',
+  ]);
+  const smsConfiguration = Object.freeze({
+    accessKeyId: smsAccessKeyId,
+    accessKeySecret: smsAccessSecret,
+    signName: bounded(wechat.smsSignName),
+    templates: Object.freeze({
+      Register: bounded(smsTemplatesRow.Register),
+      SignIn: bounded(smsTemplatesRow.SignIn),
+      ForgotPassword: bounded(smsTemplatesRow.ForgotPassword),
+      Generic: bounded(smsTemplatesRow.Generic),
+    }),
+  });
+  const smsTemplateCode = smsConfiguration.templates.Register;
   const apiVersion = bounded(wechat.apiVersion, 32);
   const providerControl = createDockerWechatBrowserProviderControl({
     socket: absolute(input.controlSocket),
@@ -396,7 +413,7 @@ export const readCommonCompletionFixtureRuntime = async (
       lease: Readonly<{
         getClientId(): string;
         getClientSecret(): string;
-        getSmsAccessSecret(): string;
+        getSmsConfiguration(): typeof smsConfiguration;
         toJSON(): never;
       }>
     ) => Promise<Result>
@@ -417,9 +434,9 @@ export const readCommonCompletionFixtureRuntime = async (
             available();
             return bounded(wechat.clientSecret);
           },
-          getSmsAccessSecret: () => {
+          getSmsConfiguration: () => {
             available();
-            return bounded(wechat.smsAccessSecret);
+            return smsConfiguration;
           },
           toJSON: (): never => fail(),
         })
@@ -456,7 +473,7 @@ export const readCommonCompletionFixtureRuntime = async (
         healthDiagnosticFile: absolute(h5Wechat.healthDiagnosticFile),
         role: input.target.label,
         channel: 'h5',
-        smsAccessSecret: bounded(wechat.smsAccessSecret),
+        smsAccessSecret,
       }),
   };
   const receiver: CommonCompletionFixtureRuntime['logout']['withReceiver'] = async (
@@ -530,7 +547,7 @@ export const readCommonCompletionFixtureRuntime = async (
         wechatSubject: native.wechatSubject,
         ownerEmail: bounded(wechat.ownerEmail),
         phone: providerBase.phone,
-        smsAccessSecret: bounded(wechat.smsAccessSecret),
+        smsConfiguration,
         prepareProvider: async () => prepareOwnedWechatMiniProvider(providerBase),
       },
       native,
