@@ -199,6 +199,7 @@ export const runCommonWechatH5Registration = async (
     session: CommonWechatBrowserSession;
     selector: string;
     phone: string;
+    armPasscode(recipient: string): Promise<void>;
     takePasscode(recipient: string): Promise<string>;
     providerObservation(): WechatProviderObservation;
   }>
@@ -227,6 +228,7 @@ export const runCommonWechatH5Registration = async (
   );
   await h5Stage('phone-submit', async () => {
     await input.session.fill('wechat-h5-phone-input', 'input[type="tel"]', input.phone);
+    await input.armPasscode(input.phone);
     await input.session.click('wechat-h5-phone-continue', 'role=button[name="Continue"]');
   });
   await h5Stage('passcode-route', async () =>

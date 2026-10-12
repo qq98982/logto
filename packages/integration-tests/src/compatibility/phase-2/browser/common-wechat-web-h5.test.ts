@@ -54,11 +54,15 @@ test('H5 follows the pinned mobile phone completion route and six-input auto-sub
     session: session(actions, { sub: 'h5-owner', phone: '13800138019', phoneVerified: true }),
     selector: 'role=button[name="Continue with WeChat"]',
     phone: '13800138019',
+    armPasscode: async () => void actions.push('sms-arm:Register'),
     takePasscode: async () => '012345',
     providerObservation: () => observation(0),
   });
   expect(actions.filter((entry) => entry.includes('passcode_'))).toHaveLength(6);
   expect(actions).toContain('wechat-h5-phone:/continue/phone');
+  expect(actions.indexOf('sms-arm:Register')).toBeLessThan(
+    actions.indexOf('wechat-h5-phone-continue:role=button[name="Continue"]')
+  );
   expect(result).toMatchObject({ channel: 'h5', verifiedPhone: true, phoneOnlyFulfillment: true });
   expect(() => {
     assertEvidenceIsSanitized(result);
@@ -84,6 +88,9 @@ test.each([
         session: session([], { sub: 'h5-owner', phone: '13800138019', phoneVerified: true }),
         selector: 'wechat',
         phone: '13800138019',
+        armPasscode: async () => {
+          await Promise.resolve();
+        },
         takePasscode: async () => '123456',
         providerObservation: () => observation(1),
       }),
@@ -99,6 +106,9 @@ test('H5 rejects malformed delivery before touching consent', async () => {
       session: session(actions, { sub: 'h5-owner', phone: '13800138019', phoneVerified: true }),
       selector: 'wechat',
       phone: '13800138019',
+      armPasscode: async () => {
+        await Promise.resolve();
+      },
       takePasscode: async () => '12345',
       providerObservation: () => observation(0),
     })

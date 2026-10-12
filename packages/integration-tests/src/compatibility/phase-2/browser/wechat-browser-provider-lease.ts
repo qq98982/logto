@@ -597,7 +597,7 @@ export const prepareWechatBrowserProviderLease = async (
     image: string;
     configFile: string;
     receiptFile: string;
-    codeSocket: string;
+    codeSocket?: string;
     healthDiagnosticFile: string;
     role: 'oracle' | 'candidate';
     targetOrigin: string;
@@ -727,8 +727,9 @@ export const prepareWechatBrowserProviderLease = async (
         return browserCode;
       },
       takePhoneCode:
-        input.channel === 'h5'
-          ? async (recipient: string) => takeWechatRecipientCode(input.codeSocket, recipient)
+        input.channel === 'h5' && input.codeSocket
+          ? async (recipient: string) =>
+              takeWechatRecipientCode(input.codeSocket ?? fail(), recipient)
           : undefined,
       observation: () => readProviderObservation(input.receiptFile, input.channel, receiptIdentity),
       stop: async () => {

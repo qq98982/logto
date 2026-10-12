@@ -9,6 +9,7 @@ import {
   type CommonWechatH5RegistrationTargetDriverInput,
 } from '../browser/common-wechat-h5-target-driver.js';
 import type { SelectedWechatSmsConfiguration } from '../browser/selected-wechat-connector-fixture.js';
+import type { SmsProviderLease } from '../browser/sms-provider-lease.js';
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 import {
@@ -40,6 +41,9 @@ type MiniRuntime = Readonly<{
   phone: string;
   smsConfiguration: SelectedWechatSmsConfiguration;
   prepareProvider: Parameters<typeof runCommonWechatMiniScenarioRow>[0]['prepareProvider'];
+  withSmsProviderLease: <Result>(
+    use: (lease: SmsProviderLease) => Promise<Result>
+  ) => Promise<Result>;
 }>;
 type NativeRuntime = Readonly<{
   managementRequest: Phase2AdminRequestFunction;
@@ -257,12 +261,16 @@ export const runCommonWechatFamilyScenarioRow = async (
     ...(input.fetch && { fetch: input.fetch }),
   };
   if (input.id === 'common.wechat.mini') {
-    const result = await runCommonWechatMiniScenarioRow(miniInput);
+    const result = await input.runtime.mini.withSmsProviderLease(async (smsLease) =>
+      runCommonWechatMiniScenarioRow({ ...miniInput, smsLease })
+    );
     assertCommonWechatFamilyProjection(input.id, result.projection);
     return result;
   }
   if (input.id === 'common.wechat.mini-phone-registration') {
-    const result = await runCommonWechatMiniPhoneRegistrationScenarioRow(miniInput);
+    const result = await input.runtime.mini.withSmsProviderLease(async (smsLease) =>
+      runCommonWechatMiniPhoneRegistrationScenarioRow({ ...miniInput, smsLease })
+    );
     assertCommonWechatFamilyProjection(input.id, result.projection);
     return result;
   }

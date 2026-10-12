@@ -19,6 +19,7 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
         templates: Object.fromEntries(['Register', 'SignIn', 'ForgotPassword', 'Generic']
           .map((purpose) => [purpose, `${role}-${purpose}-template`])),
       }), { mode: 0o600 });
+      await writeFile(`${sms}/${role}/input.json`, '{}\n', { mode: 0o600 });
     }));
     const script = new URL('./generate-runtime-descriptors.mjs', import.meta.url).pathname;
     await execute(process.execPath, [script, root, `sha256:${'a'.repeat(64)}`, 'oracle-project',
@@ -41,6 +42,8 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     assert.match(oracle.wechat.phone, /^\d+$/u);
     assert.match(candidate.wechat.phone, /^\d+$/u);
     assert.notEqual(oracle.wechat.phone, candidate.wechat.phone);
+    assert.equal(oracle.wechat.smsProviderInput, `${sms}/o/input.json`);
+    assert.equal(candidate.wechat.smsProviderInput, `${sms}/c/input.json`);
     assert.deepEqual(
       [oracle.wechat.smsAccessKeyId, oracle.wechat.smsAccessSecret, oracle.wechat.smsSignName,
         oracle.wechat.smsTemplates],

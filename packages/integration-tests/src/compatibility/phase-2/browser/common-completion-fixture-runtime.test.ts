@@ -1,5 +1,6 @@
-/* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- The launch fake captures the exact pinned browser options. */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- The launch fake and owned SMS socket capture ordered runtime behavior. */
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import path from 'node:path';
 
 import type { TargetConfig } from '../../model.js';
@@ -92,17 +93,75 @@ const withControlledEmittedDescriptor = async (
     },
   })
 ) => {
+  const smsRoot = await mkdtemp('/var/tmp/henry-build/common-completion-sms-');
+  const smsConfigurationFile = path.join(smsRoot, 'configuration.json');
+  const smsProviderInput = path.join(smsRoot, 'input.json');
+  const smsSocket = path.join(smsRoot, 'sms.sock');
+  const controlCapability = 'controlled-sms-capability';
+  await writeFile(
+    smsConfigurationFile,
+    JSON.stringify({
+      schemaVersion: 1,
+      accessKeyId: sms.accessKeyId,
+      accessKeySecret: sms.accessKeySecret,
+      signName: sms.signName,
+      templates: sms.templates,
+      controlCapability,
+    }),
+    { mode: 0o600 }
+  );
+  await writeFile(
+    smsProviderInput,
+    JSON.stringify({
+      schemaVersion: 1,
+      configurationFile: smsConfigurationFile,
+      controlSocket: smsSocket,
+    }),
+    { mode: 0o600 }
+  );
+  let armed = false;
+  const server = createServer({ allowHalfOpen: true }, (connection) => {
+    let body = '';
+    connection.on('data', (chunk: Uint8Array) => {
+      body += Buffer.from(chunk).toString('utf8');
+    });
+    connection.on('end', () => {
+      const command = JSON.parse(body) as Record<string, string>;
+      const exact =
+        command.capability === controlCapability &&
+        command.recipient === '15555550101' &&
+        command.purpose === 'Register';
+      if (exact && command.operation === 'arm' && !armed) {
+        armed = true;
+        connection.end('{"ok":true}\n');
+      } else if (exact && command.operation === 'take' && armed) {
+        armed = false;
+        connection.end('{"ok":true,"code":"123456"}\n');
+      } else {
+        connection.end('{"ok":false}\n');
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(smsSocket, resolve);
+  });
+  await chmod(smsSocket, 0o600);
   const emitted = JSON.parse(
     await readFile(
       '/var/tmp/henry-build/aster-common206-completion/runtime-common/oracle-descriptor.json',
       'utf8'
     )
   ) as typeof base;
+  const { smsCodeSocket: _legacySmsCodeSocket, ...emittedWechat } =
+    emitted.wechat as typeof emitted.wechat & {
+      smsCodeSocket?: string;
+    };
   await withDescriptor(
     {
       ...emitted,
       wechat: {
-        ...emitted.wechat,
+        ...emittedWechat,
         clientId: 'controlled-wechat-client',
         clientSecret: 'controlled-wechat-secret',
         unionId: 'controlled-wechat-subject',
@@ -111,10 +170,18 @@ const withControlledEmittedDescriptor = async (
         smsAccessSecret: sms.accessKeySecret,
         smsSignName: sms.signName,
         smsTemplates: sms.templates,
+        smsProviderInput,
       },
     },
     use
-  );
+  ).finally(async () => {
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    await rm(smsRoot, { recursive: true, force: true });
+  });
 };
 
 test('rejects a descriptor missing the required real SMS code socket before container I/O', async () => {
@@ -154,6 +221,8 @@ test('constructs capabilities from the emitted private descriptor without contai
           Generic: 'CONTROLLED_GENERIC_TEMPLATE',
         },
       });
+      await lease.armSmsRegistration?.('15555550101');
+      await expect(lease.takeSmsRegistrationCode?.('15555550101')).resolves.toBe('123456');
       expect(() => lease.toJSON()).toThrow('Invalid Common completion fixture runtime');
     });
     expect(runtime.wechat.mini.smsConfiguration).toEqual({
@@ -166,6 +235,10 @@ test('constructs capabilities from the emitted private descriptor without contai
         ForgotPassword: 'CONTROLLED_FORGOT_TEMPLATE',
         Generic: 'CONTROLLED_GENERIC_TEMPLATE',
       },
+    });
+    await runtime.wechat.mini.withSmsProviderLease(async (lease) => {
+      await lease.arm('15555550101', 'Register');
+      await expect(lease.takeCode('15555550101', 'Register')).resolves.toBe('123456');
     });
   });
 });
@@ -230,4 +303,5 @@ test('admits one pinned SPKI and CA without enabling global insecure TLS', async
     env: { NODE_EXTRA_CA_CERTS: caFile },
   });
 });
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */
 /* eslint-enable @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */

@@ -6,6 +6,7 @@ import {
   type SelectedWechatProviderLease,
   type SelectedWechatSmsConfiguration,
 } from '../browser/selected-wechat-connector-fixture.js';
+import type { SmsProviderLease } from '../browser/sms-provider-lease.js';
 import { createCommonExperienceSession } from '../clients/common-experience.js';
 import {
   assertWechatMiniPhoneCollision,
@@ -57,9 +58,10 @@ type Input = Readonly<{
   phone: string;
   smsConfiguration: SelectedWechatSmsConfiguration;
   fetch?: typeof fetch;
-  prepareProvider(
+  prepareProvider: (
     connectorId: string
-  ): Promise<SelectedWechatProviderLease & Readonly<{ takeCode(): Promise<string> }>>;
+  ) => Promise<SelectedWechatProviderLease & Readonly<{ takeCode(): Promise<string> }>>;
+  smsLease: SmsProviderLease;
 }>;
 
 const run = async (input: Input, registration: boolean) => {
@@ -82,7 +84,7 @@ const run = async (input: Input, registration: boolean) => {
         }
       : { ownerMode: 'existing' as const }),
     prepareConnector: input.prepareProvider,
-    use: async ({ connectorId, provider, takePhoneCode }) => {
+    use: async ({ connectorId, provider }) => {
       const session = createCommonExperienceSession({
         target: input.target,
         clientId: status.client.id,
@@ -106,9 +108,8 @@ const run = async (input: Input, registration: boolean) => {
           ? await runWechatMiniPhoneRegistration({
               ...common,
               phone: input.phone,
-              getPhoneCode: async () =>
-                takePhoneCode?.(input.phone) ??
-                Promise.reject(new TypeError('Missing Mini SMS code lease')),
+              armPhoneCode: async () => input.smsLease.arm(input.phone, 'Register'),
+              getPhoneCode: async () => input.smsLease.takeCode(input.phone, 'Register'),
               callbackScheme: 'box-ai-wechat-mini:',
             })
           : await runWechatMiniExistingOwner(common);
@@ -153,9 +154,8 @@ const run = async (input: Input, registration: boolean) => {
                   providerCode: await (provider.takeCollisionCode?.() ??
                     Promise.reject(new TypeError('Missing Mini collision provider code lease'))),
                   phone: input.phone,
-                  getPhoneCode: async () =>
-                    takePhoneCode?.(input.phone) ??
-                    Promise.reject(new TypeError('Missing Mini collision SMS code lease')),
+                  armPhoneCode: async () => input.smsLease.arm(input.phone, 'Register'),
+                  getPhoneCode: async () => input.smsLease.takeCode(input.phone, 'Register'),
                   authorizationPath: authorizationPath({
                     clientId: status.client.id,
                     resource: status.resource.indicator,

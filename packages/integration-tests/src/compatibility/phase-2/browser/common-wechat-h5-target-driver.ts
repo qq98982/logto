@@ -256,6 +256,8 @@ export type WechatProviderCredentialLease = Readonly<{
   getClientId(): string;
   getClientSecret(): string;
   getSmsConfiguration?(): SelectedWechatSmsConfiguration;
+  armSmsRegistration?(recipient: string): Promise<void>;
+  takeSmsRegistrationCode?(recipient: string): Promise<string>;
   toJSON(): never;
 }>;
 
@@ -354,6 +356,8 @@ const executeCommonWechatH5RegistrationForTarget = async (
       const clientId = bounded(credentials.getClientId());
       const clientSecret = bounded(credentials.getClientSecret());
       const smsConfiguration = credentials.getSmsConfiguration?.() ?? fail();
+      const armSmsRegistration = credentials.armSmsRegistration ?? fail();
+      const takeSmsRegistrationCode = credentials.takeSmsRegistrationCode ?? fail();
       const executeFixture = async (request: Phase2AdminRequestFunction) => {
         stage = 'fixture';
         let providerLease:
@@ -474,8 +478,8 @@ const executeCommonWechatH5RegistrationForTarget = async (
                         },
                         selector: wechatH5SignInButtonSelectorCandidate,
                         phone: input.provider.registrationPhone,
-                        takePasscode: async (recipient) =>
-                          value.takePhoneCode?.(recipient) ?? fail(),
+                        armPasscode: armSmsRegistration,
+                        takePasscode: async (recipient) => takeSmsRegistrationCode(recipient),
                         providerObservation: () => {
                           const authorization = value.observation();
                           const provider = providerLease?.observation();

@@ -58,6 +58,7 @@ export const runWechatMiniPhoneRegistration = async (
     providerCode: string;
     phone: string;
     callbackScheme: 'box-ai-wechat-mini:';
+    armPhoneCode(): Promise<void>;
     getPhoneCode(): Promise<string>;
   }>
 ) => {
@@ -84,6 +85,7 @@ export const runWechatMiniPhoneRegistration = async (
     type: 'social',
     verificationId: socialId,
   });
+  await input.armPhoneCode();
   const phoneRequest = await status(
     input.session,
     '/api/experience/verification/verification-code',
@@ -311,6 +313,7 @@ export const prepareWechatMiniPhoneCollision = async (
     providerState: string;
     providerCode: string;
     phone: string;
+    armPhoneCode(): Promise<void>;
     getPhoneCode(): Promise<string>;
   }>
 ) => {
@@ -337,6 +340,7 @@ export const prepareWechatMiniPhoneCollision = async (
     type: 'social',
     verificationId: socialId,
   });
+  await input.armPhoneCode();
   const phoneRequest = await status(
     input.session,
     '/api/experience/verification/verification-code',

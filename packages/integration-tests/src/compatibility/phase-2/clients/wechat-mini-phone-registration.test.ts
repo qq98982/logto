@@ -10,6 +10,7 @@ import {
 test('executes the observed 13-call Mini phone registration contract', async () => {
   const statuses = [303, 204, 200, 200, 404, 204, 204, 200, 200, 204, 201, 200, 303];
   const calls: Array<{ path: string; body: unknown }> = [];
+  const smsActions: string[] = [];
   let index = 0;
   const records: Record<number, Record<string, unknown>> = {
     2: {
@@ -49,6 +50,9 @@ test('executes the observed 13-call Mini phone registration contract', async () 
       providerState: 'state',
       providerCode: 'code',
       phone: '15555550123',
+      armPhoneCode: async () => {
+        smsActions.push(`arm:${calls.length}`);
+      },
       getPhoneCode: async () => '123456',
       callbackScheme: 'box-ai-wechat-mini:',
     })
@@ -59,6 +63,7 @@ test('executes the observed 13-call Mini phone registration contract', async () 
     callbackScheme: 'box-ai-wechat-mini:',
   });
   expect(calls).toHaveLength(13);
+  expect(smsActions).toEqual(['arm:7']);
   expect(calls[3]?.body).toEqual({ verificationId: 'social-id', connectorData: { code: 'code' } });
   expect(calls.map(({ path }) => path)).toEqual([
     '/oidc/auth',

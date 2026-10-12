@@ -53,7 +53,7 @@ type Input = Readonly<{
   collisionWechatSubject: string;
   phone: string;
   healthTiming?: WechatBrowserProviderHealthTiming;
-  takePhoneCode(recipient: string): Promise<string>;
+  takePhoneCode?(recipient: string): Promise<string>;
 }>;
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -371,13 +371,15 @@ export const prepareOwnedWechatMiniProvider = async (
           ? fail()
           : (lease.codes[lease.replay] ?? fail())
         : lease.takeOnce(`mini${kind[0]?.toUpperCase() ?? ''}${kind.slice(1)}`),
-    takePhoneCode: async (recipient: string) => {
-      if (lease.stopped() || recipient !== input.phone) {
-        return fail();
-      }
-      const value = await input.takePhoneCode(recipient);
-      return /^\d{6}$/u.test(value) ? value : fail();
-    },
+    ...(input.takePhoneCode && {
+      takePhoneCode: async (recipient: string) => {
+        if (lease.stopped() || recipient !== input.phone) {
+          return fail();
+        }
+        const value = await input.takePhoneCode?.(recipient);
+        return typeof value === 'string' && /^\d{6}$/u.test(value) ? value : fail();
+      },
+    }),
     observation: () => assertMiniReceipts(input.receiptFile),
     stop: lease.finish,
   });

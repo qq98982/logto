@@ -3,6 +3,7 @@ import { X509Certificate } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import type { Browser, BrowserType } from '@playwright/test';
 
@@ -24,10 +25,10 @@ import {
   prepareOwnedWechatMiniProvider,
   prepareOwnedWechatNativeProvider,
 } from './owned-wechat-code-provider.js';
+import { withSmsProviderLease, type SmsProviderLease } from './sms-provider-lease.js';
 import {
   createDockerWechatBrowserProviderControl,
   prepareWechatBrowserProviderLease,
-  takeWechatRecipientCode,
 } from './wechat-browser-provider-lease.js';
 
 const fail = (): never => {
@@ -77,7 +78,7 @@ const wechatKeys = [
   'smsAccessSecret',
   'smsSignName',
   'smsTemplates',
-  'smsCodeSocket',
+  'smsProviderInput',
   'universalLink',
 ].toSorted();
 const serviceKeys = [
@@ -340,7 +341,7 @@ export const readCommonCompletionFixtureRuntime = async (
     (await createCommonH5BrowserObserver(input.h5BrowserType ?? fail(), { caFile, spkiFile }));
   const wechat = exact(row.wechat, wechatKeys);
   const h5Wechat = exact(row.h5Wechat, h5WechatKeys);
-  const smsCodeSocket = absolute(wechat.smsCodeSocket);
+  const smsProviderInput = absolute(wechat.smsProviderInput);
   const smsAccessKeyId = bounded(wechat.smsAccessKeyId);
   const smsAccessSecret = bounded(wechat.smsAccessSecret);
   const smsSignNameBase64 = Buffer.from(bounded(wechat.smsSignName), 'utf8').toString('base64');
@@ -387,7 +388,6 @@ export const readCommonCompletionFixtureRuntime = async (
     wechatSubject: bounded(wechat.unionId),
     collisionWechatSubject: bounded(wechat.collisionUnionId),
     phone: bounded(wechat.phone),
-    takePhoneCode: async (recipient: string) => takeWechatRecipientCode(smsCodeSocket, recipient),
   });
   const [google, web] = await Promise.all([
     readCommonGoogleExistingOwnerFixtureRuntime(
@@ -414,6 +414,8 @@ export const readCommonCompletionFixtureRuntime = async (
         getClientId(): string;
         getClientSecret(): string;
         getSmsConfiguration(): typeof smsConfiguration;
+        armSmsRegistration(recipient: string): Promise<void>;
+        takeSmsRegistrationCode(recipient: string): Promise<string>;
         toJSON(): never;
       }>
     ) => Promise<Result>
@@ -424,23 +426,44 @@ export const readCommonCompletionFixtureRuntime = async (
     credentialActive = true;
     const available = () => (credentialActive ? true : fail());
     try {
-      return await use(
-        Object.freeze({
-          getClientId: () => {
-            available();
-            return bounded(wechat.clientId);
-          },
-          getClientSecret: () => {
-            available();
-            return bounded(wechat.clientSecret);
-          },
-          getSmsConfiguration: () => {
-            available();
-            return smsConfiguration;
-          },
-          toJSON: (): never => fail(),
-        })
-      );
+      return await withSmsProviderLease(smsProviderInput, async (smsLease) => {
+        const leasedConfiguration = Object.freeze({
+          accessKeyId: smsLease.configuration.accessKeyId,
+          accessKeySecret: smsLease.configuration.accessKeySecret,
+          signName: smsLease.configuration.signName,
+          templates: Object.freeze(
+            Object.fromEntries(
+              smsLease.configuration.templates.map(({ usageType, templateCode }) => [
+                usageType,
+                templateCode,
+              ])
+            )
+          ),
+        });
+        if (!isDeepStrictEqual(leasedConfiguration, smsConfiguration)) {
+          return fail();
+        }
+        return use(
+          Object.freeze({
+            getClientId: () => {
+              available();
+              return bounded(wechat.clientId);
+            },
+            getClientSecret: () => {
+              available();
+              return bounded(wechat.clientSecret);
+            },
+            getSmsConfiguration: () => {
+              available();
+              return smsConfiguration;
+            },
+            armSmsRegistration: async (recipient: string) => smsLease.arm(recipient, 'Register'),
+            takeSmsRegistrationCode: async (recipient: string) =>
+              smsLease.takeCode(recipient, 'Register'),
+            toJSON: (): never => fail(),
+          })
+        );
+      });
     } finally {
       credentialActive = false;
     }
@@ -469,7 +492,6 @@ export const readCommonCompletionFixtureRuntime = async (
         image: bounded(h5Wechat.image),
         configFile: absolute(h5Wechat.configFile),
         receiptFile: absolute(h5Wechat.receiptFile),
-        codeSocket: smsCodeSocket,
         healthDiagnosticFile: absolute(h5Wechat.healthDiagnosticFile),
         role: input.target.label,
         channel: 'h5',
@@ -548,6 +570,8 @@ export const readCommonCompletionFixtureRuntime = async (
         ownerEmail: bounded(wechat.ownerEmail),
         phone: providerBase.phone,
         smsConfiguration,
+        withSmsProviderLease: async <Result>(use: (lease: SmsProviderLease) => Promise<Result>) =>
+          withSmsProviderLease(smsProviderInput, use),
         prepareProvider: async () => prepareOwnedWechatMiniProvider(providerBase),
       },
       native,
