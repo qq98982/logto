@@ -5,8 +5,10 @@ import {
   createAccountPasswordProof,
   observeAccountPasswordProof,
   updateAccountEmail,
+  updateAccountPhone,
   updateAccountPassword,
   verifyAccountEmailProof,
+  verifyAccountPhoneProof,
 } from './account-settings.js';
 
 const target = (label: 'oracle' | 'candidate'): TargetConfig => ({
@@ -114,6 +116,57 @@ test('uses the public verificationId wire field for destination email proof', as
     code: 'private-code',
   });
   expect(body).not.toHaveProperty('verificationRecordId');
+});
+
+test('uses phone destination proof and mutation wire contracts', async () => {
+  const requests: Array<Readonly<{ url: URL; init: RequestInit }>> = [];
+  const requestFetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requests.push({ url: new URL(String(input)), init: init ?? {} });
+    return response(requests.length === 1 ? 200 : 422, {
+      ...(requests.length === 1 ? {} : { code: 'user.phone_already_in_use' }),
+    });
+  }) as typeof fetch;
+
+  await expect(
+    verifyAccountPhoneProof(
+      {
+        target: target('candidate'),
+        bearer: 'private-bearer',
+        phone: '8613000000000',
+        code: 'private-code',
+        verificationRecordId: 'private-destination-proof',
+      },
+      requestFetch
+    )
+  ).resolves.toEqual({ status: 200, error: 'none' });
+  await expect(
+    updateAccountPhone(
+      {
+        target: target('candidate'),
+        bearer: 'private-bearer',
+        phone: '8613000000000',
+        currentVerificationRecordId: 'private-current-proof',
+        destinationVerificationRecordId: 'private-destination-proof',
+      },
+      requestFetch
+    )
+  ).resolves.toEqual({ status: 422, error: 'user.phone_already_in_use' });
+  expect(requests.map(({ url }) => url.pathname)).toEqual([
+    '/api/verifications/verification-code/verify',
+    '/api/my-account/primary-phone',
+  ]);
+  expect(JSON.parse(String(requests[0]?.init.body))).toEqual({
+    identifier: { type: 'phone', value: '8613000000000' },
+    verificationId: 'private-destination-proof',
+    code: 'private-code',
+  });
+  expect(JSON.parse(String(requests[1]?.init.body))).toEqual({
+    phone: '8613000000000',
+    newIdentifierVerificationRecordId: 'private-destination-proof',
+  });
+  expect(new Headers(requests[1]?.init.headers).get('aster-verification-id')).toBe(
+    'private-current-proof'
+  );
 });
 
 test('maps only closed public Account errors', async () => {

@@ -537,7 +537,8 @@ export const issuePublicAccountTokensForSubject = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   subject: Readonly<{ username: string; password: string } | { email: string; password: string }>,
-  requestFetch: typeof fetch = fetch
+  requestFetch: typeof fetch = fetch,
+  options: Readonly<{ includePhone?: boolean }> = {}
 ): Promise<IssuedPublicUserTokens> =>
   issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
     subjectPassword: subject.password,
@@ -546,7 +547,7 @@ export const issuePublicAccountTokensForSubject = async (
         ? { type: 'email', value: subject.email }
         : { type: 'username', value: subject.username },
     authorizationResources: [],
-    authorizationScope: 'openid offline_access profile email',
+    authorizationScope: `openid offline_access profile email${options.includePhone ? ' phone' : ''}`,
   }) as Promise<IssuedPublicUserTokens>;
 
 export const observePublicAccountPasswordSignIn = async (

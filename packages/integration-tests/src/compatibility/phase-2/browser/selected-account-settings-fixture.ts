@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The wrapper preserves primary and cleanup failures across compensated fixture mutation. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The wrapper preserves primary and cleanup failures across compensated fixture mutation. */
 import { isDeepStrictEqual } from 'node:util';
 
 import { passwordPolicyGuard } from '@logto/core-kit';
@@ -9,15 +9,18 @@ import {
   type SelectedEmailPasswordIdentity,
   withSelectedEmailPasswordFixture,
 } from './selected-email-password-fixture.js';
+import type { CommonPhoneCodeProviderLease } from './selected-phone-code-fixture.js';
 
-type AccountField = 'password' | 'email';
+type AccountField = 'password' | 'email' | 'phone';
 type AccountCenterRecord = Readonly<{
   enabled: boolean;
   fields: Readonly<Record<string, unknown>>;
 }>;
 export type SelectedAccountSettingsFixture = Readonly<{
   identity: SelectedEmailPasswordIdentity;
+  initialPhone?: string;
   setControl(value: Readonly<{ enabled: boolean; field: 'Edit' | 'ReadOnly' }>): Promise<void>;
+  setPhoneSignIn(): Promise<void>;
 }>;
 
 const fail = (): never => {
@@ -85,6 +88,30 @@ const accountCenter = (value: unknown): AccountCenterRecord => {
   return Object.freeze({ enabled, fields: Object.freeze({ ...fields }) });
 };
 
+export const runIndependentAccountSettingsCleanup = async (
+  input: Readonly<{
+    connector(): Promise<void>;
+    policy(): Promise<void>;
+    accountCenter(): Promise<void>;
+  }>
+): Promise<void> => {
+  const results = await Promise.allSettled([
+    input.connector(),
+    input.policy(),
+    input.accountCenter(),
+  ]);
+  const failureCount = results.filter((result) => result.status === 'rejected').length;
+  if (failureCount > 0) {
+    throw new AggregateError(
+      Array.from(
+        { length: failureCount },
+        () => new TypeError('Invalid selected Account settings fixture cleanup')
+      ),
+      'Selected Account fixture cleanup failed'
+    );
+  }
+};
+
 // eslint-disable-next-line complexity -- Setup, owned use and exact two-surface compensation share one boundary.
 export const withSelectedAccountSettingsFixture = async <Result>(
   input: Readonly<{
@@ -92,6 +119,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     request: Phase2AdminRequestFunction;
     browser: Readonly<{ clientId: string; redirectUri: string }>;
     field: AccountField;
+    phoneProvider?: CommonPhoneCodeProviderLease;
     getPassword(): string;
     use(value: SelectedAccountSettingsFixture): Promise<Result>;
   }>
@@ -115,6 +143,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     enabled: true,
     fields: selectAccountSettingsFields(previous.fields, input.field, 'Edit'),
   });
+  let connectorId: string | undefined;
   const patchControl = async (
     value: Readonly<{ enabled: boolean; field: 'Edit' | 'ReadOnly' }>
   ) => {
@@ -138,6 +167,12 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   let result: Result | undefined;
   let primaryError: unknown;
   let cleanupError: unknown;
+  const captureCleanup = (error: unknown) => {
+    cleanupError =
+      cleanupError === undefined
+        ? error
+        : new AggregateError([cleanupError, error], 'Selected Account fixture cleanup failed');
+  };
   try {
     if (passwordPolicy.isolated !== undefined) {
       await input.request({
@@ -158,55 +193,161 @@ export const withSelectedAccountSettingsFixture = async <Result>(
       }
     }
     await patchControl({ enabled: selected.enabled, field: 'Edit' });
+    if (input.field === 'phone') {
+      const configuration = input.phoneProvider?.configuration ?? fail();
+      const usages = configuration.templates.map(({ usageType }) => usageType);
+      const requiredUsages: ReadonlyArray<(typeof usages)[number]> = [
+        'SignIn',
+        'Register',
+        'ForgotPassword',
+        'Generic',
+      ];
+      if (
+        !configuration.accessKeyId ||
+        !configuration.accessKeySecret ||
+        !configuration.signName ||
+        configuration.templates.length !== 4 ||
+        new Set(usages).size !== 4 ||
+        !requiredUsages.every((usage) => usages.includes(usage))
+      ) {
+        return fail();
+      }
+      const connector = record(
+        await input.request({
+          method: 'POST',
+          path: 'connectors',
+          body: {
+            connectorId: 'aliyun-short-message-service',
+            config: {
+              accessKeyId: configuration.accessKeyId,
+              accessKeySecret: configuration.accessKeySecret,
+              signName: configuration.signName,
+              templates: configuration.templates.map(({ usageType, templateCode }) => ({
+                usageType,
+                templateCode,
+              })),
+            },
+          },
+          expectedStatuses: [200, 201],
+          responseKind: 'object',
+        })
+      );
+      connectorId = typeof connector.id === 'string' ? connector.id : undefined;
+      if (!connectorId || connector.connectorId !== 'aliyun-short-message-service') {
+        return fail();
+      }
+    }
     result = await withSelectedEmailPasswordFixture({
       fixture: input.fixture,
       request: input.request,
       browser: input.browser,
       getPassword: input.getPassword,
-      use: async (identity) =>
-        input.use(
+      use: async (identity) => {
+        const suffix = [...input.fixture.public.allocationId]
+          .map((value) => String(value.codePointAt(0) ?? 0))
+          .join('')
+          .padEnd(9, '0')
+          .slice(0, 9);
+        const initialPhone = input.field === 'phone' ? `8612${suffix}` : undefined;
+        if (initialPhone) {
+          const patchedUser = record(
+            await input.request({
+              method: 'PATCH',
+              path: `users/${encodeURIComponent(identity.id)}`,
+              body: { primaryPhone: initialPhone },
+              expectedStatuses: [200],
+              responseKind: 'object',
+            })
+          );
+          if (patchedUser.id !== identity.id || patchedUser.primaryPhone !== initialPhone) {
+            return fail();
+          }
+        }
+        return input.use(
           Object.freeze({
             identity,
+            ...(initialPhone ? { initialPhone } : {}),
             setControl: patchControl,
+            setPhoneSignIn: async () => {
+              const methods = [
+                {
+                  identifier: 'phone',
+                  password: false,
+                  verificationCode: true,
+                  isPasswordPrimary: false,
+                },
+              ];
+              const patched = record(
+                await input.request({
+                  method: 'PATCH',
+                  path: 'sign-in-exp',
+                  body: { signIn: { methods }, branding: {} },
+                  expectedStatuses: [200],
+                  responseKind: 'object',
+                })
+              );
+              if (!isDeepStrictEqual(record(patched.signIn).methods, methods)) {
+                return fail();
+              }
+            },
           })
-        ),
+        );
+      },
     });
   } catch (error: unknown) {
     primaryError = error;
   } finally {
     try {
-      if (passwordPolicy.previous !== undefined) {
-        await input.request({
-          method: 'PATCH',
-          path: 'sign-in-exp',
-          body: { passwordPolicy: passwordPolicy.previous },
-          expectedStatuses: [200],
-          responseKind: 'object',
-        });
-        const restoredExperience: unknown = await input.request({
-          method: 'GET',
-          path: 'sign-in-exp',
-          expectedStatuses: [200],
-          responseKind: 'object',
-        });
-        if (!accountPasswordPolicyMatches(restoredExperience, passwordPolicy.previous)) {
-          cleanupError = new TypeError('Invalid selected Account settings fixture cleanup');
-        }
-      }
-      const restored = accountCenter(
-        await input.request({
-          method: 'PATCH',
-          path: 'account-center',
-          body: previous,
-          expectedStatuses: [200],
-          responseKind: 'object',
-        })
-      );
-      if (!isDeepStrictEqual(restored, previous)) {
-        cleanupError = new TypeError('Invalid selected Account settings fixture cleanup');
-      }
+      await runIndependentAccountSettingsCleanup({
+        connector: async () => {
+          if (!connectorId) {
+            return;
+          }
+          await input.request({
+            method: 'DELETE',
+            path: `connectors/${encodeURIComponent(connectorId)}`,
+            expectedStatuses: [204, 404],
+            responseKind: 'status',
+          });
+        },
+        policy: async () => {
+          if (passwordPolicy.previous === undefined) {
+            return;
+          }
+          await input.request({
+            method: 'PATCH',
+            path: 'sign-in-exp',
+            body: { passwordPolicy: passwordPolicy.previous },
+            expectedStatuses: [200],
+            responseKind: 'object',
+          });
+          const restoredExperience: unknown = await input.request({
+            method: 'GET',
+            path: 'sign-in-exp',
+            expectedStatuses: [200],
+            responseKind: 'object',
+          });
+          if (!accountPasswordPolicyMatches(restoredExperience, passwordPolicy.previous)) {
+            return fail();
+          }
+        },
+        accountCenter: async () => {
+          const restored = accountCenter(
+            await input.request({
+              method: 'PATCH',
+              path: 'account-center',
+              body: previous,
+              expectedStatuses: [200],
+              responseKind: 'object',
+            })
+          );
+          if (!isDeepStrictEqual(restored, previous)) {
+            return fail();
+          }
+        },
+      });
     } catch (error: unknown) {
-      cleanupError = error;
+      captureCleanup(error);
     }
   }
   if (primaryError && cleanupError) {
@@ -220,4 +361,4 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   }
   return result;
 };
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

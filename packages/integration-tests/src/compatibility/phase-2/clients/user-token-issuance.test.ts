@@ -489,6 +489,20 @@ describe('Phase 2 public user token issuance transport', () => {
     );
   });
 
+  it('adds phone only for an Account caller that requests phone claims', async () => {
+    const transport = flow();
+    await issuePublicAccountTokensForSubject(
+      target,
+      fixture,
+      { email: 'account-owner@example.invalid', password: 'private-account-password' },
+      transport.fetch,
+      { includePhone: true }
+    );
+    expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile email phone'
+    );
+  });
+
   it('classifies only password-verification failure as a rejected Account sign-in', async () => {
     const invalidPassword = flow({
       step: 2,

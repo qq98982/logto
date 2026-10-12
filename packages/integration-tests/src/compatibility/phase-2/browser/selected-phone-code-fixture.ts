@@ -5,6 +5,8 @@ import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fi
 
 import type { PhoneCodePurpose } from './common-phone-code.js';
 
+type AccountPhonePurpose = PhoneCodePurpose | 'ForgotPassword' | 'Generic';
+
 export type PhoneConnectorConfiguration = Readonly<{
   accessKeyId: string;
   accessKeySecret: string;
@@ -19,8 +21,8 @@ export type PhoneConnectorConfiguration = Readonly<{
 
 export type CommonPhoneCodeProviderLease = Readonly<{
   configuration: PhoneConnectorConfiguration;
-  arm(recipient: string, purpose: PhoneCodePurpose): Promise<void>;
-  takeCode(recipient: string, purpose: PhoneCodePurpose): Promise<string>;
+  arm(recipient: string, purpose: AccountPhonePurpose): Promise<void>;
+  takeCode(recipient: string, purpose: AccountPhonePurpose): Promise<string>;
 }>;
 
 export type SelectedPhoneCodeFixtureValue = Readonly<{

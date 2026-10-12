@@ -60,6 +60,11 @@ import {
   compareCommonAccountPasswordUpdateProjections,
   type CommonAccountPasswordUpdateScenarioResult,
 } from './scenarios/common-account-password-update.js';
+import {
+  commonAccountPhoneChangeScenarioIds,
+  compareCommonAccountPhoneChangeProjections,
+  type CommonAccountPhoneChangeScenarioResult,
+} from './scenarios/common-account-phone-change.js';
 import { commonEmailCodeRegistrationScenarioIds } from './scenarios/common-email-code-registration.js';
 import { commonEmailPasswordRegistrationScenarioIds } from './scenarios/common-email-password-registration.js';
 import {
@@ -211,7 +216,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 189).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 190).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -395,7 +400,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 189).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 190).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -590,6 +595,16 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
           scenario.projection
         ) as CommonAccountEmailChangeScenarioResult['projection'];
         if (compareCommonAccountEmailChangeProjections(wire, wire).length > 0) {
+          return fail();
+        }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonAccountPhoneChangeScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`account-phone-${index}`, () => {
+        const wire = snapshotJsonWire(
+          scenario.projection
+        ) as CommonAccountPhoneChangeScenarioResult['projection'];
+        if (compareCommonAccountPhoneChangeProjections(wire, wire).length > 0) {
           return fail();
         }
         assertWithBothSanitizers(wire);

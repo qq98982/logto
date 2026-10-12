@@ -4,6 +4,7 @@ import type { JsonValue } from '../normalize.js';
 
 import { commonAccountEmailChangeExpectedProjection } from './browser/common-account-email-change.js';
 import { commonAccountPasswordUpdateExpectedProjection } from './browser/common-account-password-update.js';
+import { commonAccountPhoneChangePendingReferenceProjection } from './browser/common-account-phone-change.js';
 import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
@@ -183,7 +184,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 190 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 191 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -254,7 +255,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 190 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 191 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -668,6 +669,32 @@ describe('Phase 2 public provenance envelope', () => {
     }
   });
 
+  it('requires the complete pending Account phone-change contract before publication', () => {
+    const projection = commonAccountPhoneChangePendingReferenceProjection;
+    const evidence = {
+      target: 'oracle',
+      discovery: {},
+      controls: [],
+      scenarios: [{ id: 'common.account.phone-change', projection }],
+    };
+    expect(sanitizerStageOf(evidence)).toBe('accepted');
+    for (const changed of [
+      { ...projection, collision: { status: 204, error: 'none' } },
+      { ...projection, destinationReplay: { status: 401, error: 'unknown' } },
+      { ...projection, denialStatePreserved: false },
+      { ...projection, emailPreserved: false },
+      { ...projection, oldPhoneReleased: false },
+      { ...projection, privatePhone: '8613000000000' },
+    ]) {
+      expect(
+        sanitizerStageOf({
+          ...evidence,
+          scenarios: [{ id: 'common.account.phone-change', projection: changed }],
+        })
+      ).toBe('account-phone-0');
+    }
+  });
+
   it.each([
     ['common.phone.code-registration', 'created'],
     ['common.phone.code-sign-in', 'accepted'],
@@ -903,8 +930,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 189-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 189 }, (_, index) => ({
+  it('publishes the full 190-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 190 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

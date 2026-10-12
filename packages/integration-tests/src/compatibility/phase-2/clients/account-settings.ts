@@ -12,6 +12,7 @@ export type AccountSettingsError =
   | 'password.rejected'
   | 'user.same_password'
   | 'user.email_already_in_use'
+  | 'user.phone_already_in_use'
   | 'session.invalid_credentials'
   | 'request.invalid_input'
   | 'unknown';
@@ -25,12 +26,15 @@ export type AccountProfileObservation = Readonly<{
   error: AccountSettingsError;
   ownerMatches: boolean;
   emailMatches: boolean;
+  phoneMatches: boolean;
 }>;
 export type AccountUserInfoObservation = Readonly<{
   status: number;
   ownerMatches: boolean;
   emailMatches: boolean;
   emailVerified: boolean;
+  phoneMatches: boolean;
+  phoneVerified: boolean;
 }>;
 
 export type AccountVerificationLease = Readonly<{
@@ -105,6 +109,7 @@ const closedError = (value: unknown): AccountSettingsError => {
     case 'password.rejected':
     case 'user.same_password':
     case 'user.email_already_in_use':
+    case 'user.phone_already_in_use':
     case 'session.invalid_credentials':
     case 'request.invalid_input': {
       return value;
@@ -223,6 +228,32 @@ export const requestAccountEmailProof = async (
   });
 };
 
+export const requestAccountPhoneProof = async (
+  input: Readonly<{ target: TargetConfig; bearer: string; phone: string }>,
+  requestFetch: typeof fetch = fetch
+): Promise<
+  Readonly<{ observation: AccountSettingsObservation; lease: AccountVerificationLease }>
+> => {
+  const value = await send(
+    input.target,
+    input.bearer,
+    '/api/verifications/verification-code',
+    'POST',
+    { identifier: { type: 'phone', value: bounded(input.phone, 32) } },
+    undefined,
+    requestFetch
+  );
+  const verificationRecordId = bounded(value.record.verificationRecordId, 4096);
+  return Object.freeze({
+    observation: observation(value),
+    lease: Object.freeze({
+      getVerificationRecordId: () => verificationRecordId,
+      toJSON: (): never => fail(),
+      [inspect.custom]: () => 'AccountVerificationLease(<redacted>)',
+    }),
+  });
+};
+
 export const verifyAccountEmailProof = async (
   input: Readonly<{
     target: TargetConfig;
@@ -241,6 +272,32 @@ export const verifyAccountEmailProof = async (
       'POST',
       {
         identifier: { type: 'email', value: bounded(input.email, 320) },
+        verificationId: bounded(input.verificationRecordId, 4096),
+        code: bounded(input.code, 64),
+      },
+      undefined,
+      requestFetch
+    )
+  );
+
+export const verifyAccountPhoneProof = async (
+  input: Readonly<{
+    target: TargetConfig;
+    bearer: string;
+    phone: string;
+    code: string;
+    verificationRecordId: string;
+  }>,
+  requestFetch: typeof fetch = fetch
+): Promise<AccountSettingsObservation> =>
+  observation(
+    await send(
+      input.target,
+      input.bearer,
+      '/api/verifications/verification-code/verify',
+      'POST',
+      {
+        identifier: { type: 'phone', value: bounded(input.phone, 32) },
         verificationId: bounded(input.verificationRecordId, 4096),
         code: bounded(input.code, 64),
       },
@@ -295,12 +352,38 @@ export const updateAccountEmail = async (
     )
   );
 
+export const updateAccountPhone = async (
+  input: Readonly<{
+    target: TargetConfig;
+    bearer: string;
+    phone: string;
+    destinationVerificationRecordId: string;
+    currentVerificationRecordId?: string;
+  }>,
+  requestFetch: typeof fetch = fetch
+): Promise<AccountSettingsObservation> =>
+  observation(
+    await send(
+      input.target,
+      input.bearer,
+      '/api/my-account/primary-phone',
+      'POST',
+      {
+        phone: bounded(input.phone, 32),
+        newIdentifierVerificationRecordId: bounded(input.destinationVerificationRecordId, 4096),
+      },
+      input.currentVerificationRecordId,
+      requestFetch
+    )
+  );
+
 export const readAccountProfile = async (
   input: Readonly<{
     target: TargetConfig;
     bearer: string;
     expectedOwnerId: string;
     expectedEmail?: string;
+    expectedPhone?: string;
   }>,
   requestFetch: typeof fetch = fetch
 ): Promise<AccountProfileObservation> => {
@@ -320,6 +403,10 @@ export const readAccountProfile = async (
       input.expectedEmail === undefined ||
       value.record.primaryEmail === bounded(input.expectedEmail, 320) ||
       value.record.email === input.expectedEmail,
+    phoneMatches:
+      input.expectedPhone === undefined ||
+      value.record.primaryPhone === bounded(input.expectedPhone, 32) ||
+      value.record.phone === input.expectedPhone,
   });
 };
 
@@ -328,7 +415,8 @@ export const readAccountUserInfo = async (
     target: TargetConfig;
     bearer: string;
     expectedOwnerId: string;
-    expectedEmail: string;
+    expectedEmail?: string;
+    expectedPhone?: string;
   }>,
   requestFetch: typeof fetch = fetch
 ): Promise<AccountUserInfoObservation> => {
@@ -344,8 +432,13 @@ export const readAccountUserInfo = async (
   return Object.freeze({
     status: value.response.status,
     ownerMatches: value.record.sub === bounded(input.expectedOwnerId, 256),
-    emailMatches: value.record.email === bounded(input.expectedEmail, 320),
-    emailVerified: value.record.email_verified === true,
+    emailMatches:
+      input.expectedEmail === undefined || value.record.email === bounded(input.expectedEmail, 320),
+    emailVerified: input.expectedEmail === undefined || value.record.email_verified === true,
+    phoneMatches:
+      input.expectedPhone === undefined ||
+      value.record.phone_number === bounded(input.expectedPhone, 32),
+    phoneVerified: input.expectedPhone === undefined || value.record.phone_number_verified === true,
   });
 };
 /* eslint-enable complexity, max-lines, max-params, no-await-in-loop, no-control-regex, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition */

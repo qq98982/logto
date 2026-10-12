@@ -1,6 +1,8 @@
+/* eslint-disable @silverhand/fp/no-mutating-methods -- Ordered cleanup attempts prove independent restoration. */
 import {
   accountPasswordPolicyMatches,
   isolateAccountPasswordPolicy,
+  runIndependentAccountSettingsCleanup,
   selectAccountSettingsFields,
 } from './selected-account-settings-fixture.js';
 
@@ -82,6 +84,30 @@ describe('selected Account settings fixture', () => {
       name: 'ReadOnly',
       email: 'Edit',
     });
+    expect(selectAccountSettingsFields(previous, 'phone', 'Edit')).toEqual({
+      name: 'ReadOnly',
+      phone: 'Edit',
+    });
     expect(previous).toEqual({ name: 'ReadOnly' });
   });
+
+  it('attempts policy and Account restoration when connector cleanup fails', async () => {
+    const attempted: string[] = [];
+    await expect(
+      runIndependentAccountSettingsCleanup({
+        connector: async () => {
+          attempted.push('connector');
+          throw new Error('private connector failure');
+        },
+        policy: async () => {
+          attempted.push('policy');
+        },
+        accountCenter: async () => {
+          attempted.push('account-center');
+        },
+      })
+    ).rejects.toThrow('Selected Account fixture cleanup failed');
+    expect(attempted).toEqual(['connector', 'policy', 'account-center']);
+  });
 });
+/* eslint-enable @silverhand/fp/no-mutating-methods */
