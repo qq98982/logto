@@ -3,6 +3,7 @@ import path from 'node:path';
 const fail = () => { throw new TypeError('Invalid Common206 H5 core topology'); };
 const absolute = (value) => typeof value === 'string' && path.isAbsolute(value) &&
   path.normalize(value) === value && !/[,:\u0000-\u001f\u007f]/u.test(value);
+const readyProbe = (port) => `printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 ${port} | grep -q ' 200 OK'`;
 
 export const extendH5CoreTopology = (raw, options) => {
   const keys = ['candidateConfigFile', 'role'];
@@ -16,6 +17,11 @@ export const extendH5CoreTopology = (raw, options) => {
   const network = `${role}-primary`;
   if (!source || document.services?.[serviceName] || document.networks?.[network]?.internal !== true) fail();
   const service = structuredClone(source);
+  const adminPort = role === 'oracle' ? 3411 : 3421;
+  const expectedHealth = `test -f /run/aster/maintainer-ready && ${readyProbe(3001)} && ${readyProbe(adminPort)}`;
+  if (!service.healthcheck || service.healthcheck.test?.length !== 2 ||
+      service.healthcheck.test[0] !== 'CMD-SHELL' || service.healthcheck.test[1] !== expectedHealth) fail();
+  service.healthcheck.test = ['CMD-SHELL', `test -f /run/aster/maintainer-ready && ${readyProbe(3001)}`];
   delete service.container_name;
   service.depends_on = structuredClone(source.depends_on ?? {});
   service.environment = { ...source.environment };

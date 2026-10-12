@@ -12,7 +12,12 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     const sms = `${root}/sms`;
     await Promise.all(['o', 'c'].map(async (role) => {
       await mkdir(`${sms}/${role}`, { recursive: true, mode: 0o700 });
-      await writeFile(`${sms}/${role}/configuration.json`, JSON.stringify({ accessKeySecret: `${role}-private` }), { mode: 0o600 });
+      await writeFile(`${sms}/${role}/configuration.json`, JSON.stringify({
+        accessKeyId: `${role}-id`,
+        accessKeySecret: `${role}-private`,
+        signName: `${role}-sign`,
+        templates: { Register: `${role}-register-template` },
+      }), { mode: 0o600 });
     }));
     const script = new URL('./generate-runtime-descriptors.mjs', import.meta.url).pathname;
     await execute(process.execPath, [script, root, `sha256:${'a'.repeat(64)}`, 'oracle-project',
@@ -29,6 +34,11 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     assert.match(oracle.wechat.phone, /^\d+$/u);
     assert.match(candidate.wechat.phone, /^\d+$/u);
     assert.notEqual(oracle.wechat.phone, candidate.wechat.phone);
+    assert.deepEqual(
+      [oracle.wechat.smsAccessKeyId, oracle.wechat.smsAccessSecret, oracle.wechat.smsSignName,
+        oracle.wechat.smsTemplateCode],
+      ['o-id', 'o-private', 'o-sign', 'o-register-template']
+    );
     assert.equal(oracle.wechat.dockerHome, candidate.wechat.dockerHome);
     const dockerHome = await stat(oracle.wechat.dockerHome);
     assert.equal(dockerHome.isDirectory(), true);

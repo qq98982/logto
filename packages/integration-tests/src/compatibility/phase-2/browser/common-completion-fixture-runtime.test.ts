@@ -1,5 +1,5 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- The launch fake captures the exact pinned browser options. */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { TargetConfig } from '../../model.js';
@@ -46,7 +46,10 @@ const base = {
     collisionUnionId: 'collision',
     ownerEmail: 'owner@example.invalid',
     phone: '+15555550101',
+    smsAccessKeyId: 'sms-id',
     smsAccessSecret: 'sms-secret',
+    smsSignName: 'Aster Test',
+    smsTemplateCode: 'SMS_REGISTER',
     universalLink: 'https://native.example.invalid/',
   },
   pwned: { clear: {}, compromised: {}, unavailable: {} },
@@ -70,6 +73,39 @@ const read = async (filePath: string) =>
     managementRequest: inertRequest,
     h5Observer: inertObserver,
   });
+const withControlledEmittedDescriptor = async (
+  use: (filePath: string) => Promise<void>,
+  sms = Object.freeze({
+    accessKeyId: 'controlled-sms-id',
+    accessKeySecret: 'controlled-sms-secret',
+    signName: 'Controlled Sign',
+    templateCode: 'CONTROLLED_REGISTER_TEMPLATE',
+  })
+) => {
+  const emitted = JSON.parse(
+    await readFile(
+      '/var/tmp/henry-build/aster-common206-completion/runtime-common/oracle-descriptor.json',
+      'utf8'
+    )
+  ) as typeof base;
+  await withDescriptor(
+    {
+      ...emitted,
+      wechat: {
+        ...emitted.wechat,
+        clientId: 'controlled-wechat-client',
+        clientSecret: 'controlled-wechat-secret',
+        unionId: 'controlled-wechat-subject',
+        collisionUnionId: 'controlled-wechat-collision',
+        smsAccessKeyId: sms.accessKeyId,
+        smsAccessSecret: sms.accessKeySecret,
+        smsSignName: sms.signName,
+        smsTemplateCode: sms.templateCode,
+      },
+    },
+    use
+  );
+};
 
 test('rejects a descriptor missing the required real SMS code socket before container I/O', async () => {
   await withDescriptor(base, async (file) => {
@@ -90,22 +126,49 @@ test('rejects a descriptor bound to another target before container I/O', async 
 });
 
 test('constructs capabilities from the emitted private descriptor without container I/O', async () => {
-  const runtime = await readCommonCompletionFixtureRuntime({
-    filePath:
-      '/var/tmp/henry-build/aster-common206-completion/runtime-common/oracle-descriptor.json',
-    controlSocket: '/run/user/1000/podman/podman.sock',
-    target,
-    managementRequest: inertRequest,
-    h5Observer: inertObserver,
+  await withControlledEmittedDescriptor(async (filePath) => {
+    const runtime = await read(filePath);
+    expect(runtime.h5Target).toEqual(target);
+    expect(runtime.h5Trust.caFile).toMatch(/h5-loopback-ca\.pem$/u);
+    expect(runtime.wechat.mini.wechatSubject).toBe(runtime.wechat.native.wechatSubject);
+    await runtime.wechat.h5.withProviderCredentialLease(async (lease) => {
+      expect(lease.getClientId()).toBe('controlled-wechat-client');
+      expect(lease.getSmsAccessSecret?.()).toBe('controlled-sms-secret');
+      expect(() => lease.toJSON()).toThrow('Invalid Common completion fixture runtime');
+    });
   });
-  expect(runtime.h5Target).toEqual(target);
-  expect(runtime.h5Trust.caFile).toMatch(/h5-loopback-ca\.pem$/u);
-  expect(runtime.wechat.mini.wechatSubject).toBe(runtime.wechat.native.wechatSubject);
-  await runtime.wechat.h5.withProviderCredentialLease(async (lease) => {
-    expect(lease.getClientId()).toBe(runtime.wechat.mini.clientId);
-    expect(lease.getSmsAccessSecret?.()).toBe(runtime.wechat.mini.smsAccessSecret);
-    expect(() => lease.toJSON()).toThrow('Invalid Common completion fixture runtime');
+});
+
+test('leases the complete owned SMS transport configuration to both provisioning markets', async () => {
+  const sms = Object.freeze({
+    accessKeyId: 'controlled-sms-id',
+    accessKeySecret: 'controlled-sms-secret',
+    signName: 'Controlled Sign',
+    templateCode: 'CONTROLLED_REGISTER_TEMPLATE',
   });
+  await withControlledEmittedDescriptor(async (filePath) => {
+    const runtime = await read(filePath);
+    await runtime.withProvisioningEnvironments(
+      async ({ globalEnvironment, chinaNativeEnvironment }) => {
+        const signName = Buffer.from(sms.signName, 'utf8').toString('base64');
+        for (const environment of [globalEnvironment, chinaNativeEnvironment]) {
+          expect(environment.BOX_AI_SMS_ACCESS_KEY_ID).toBe(sms.accessKeyId);
+          expect(environment.BOX_AI_SMS_ACCESS_KEY_SECRET).toBe(sms.accessKeySecret);
+          expect(environment.BOX_AI_SMS_SIGN_NAME_BASE64).toBe(signName);
+          expect(environment.BOX_AI_SMS_TEMPLATE_CODE).toBe(sms.templateCode);
+        }
+        expect(globalEnvironment.BOX_AI_SMS_CONNECTOR_FACTORY_ID).toBe(
+          'aliyun-short-message-service'
+        );
+        await expect(runtime.withProvisioningEnvironments(async () => {})).rejects.toThrow(
+          'Invalid Common completion fixture runtime'
+        );
+      }
+    );
+    await expect(runtime.withProvisioningEnvironments(async () => 'released')).resolves.toBe(
+      'released'
+    );
+  }, sms);
 });
 
 test('admits one pinned SPKI and CA without enabling global insecure TLS', async () => {

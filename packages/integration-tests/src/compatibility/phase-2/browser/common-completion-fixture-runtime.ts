@@ -73,7 +73,10 @@ const wechatKeys = [
   'collisionUnionId',
   'ownerEmail',
   'phone',
+  'smsAccessKeyId',
   'smsAccessSecret',
+  'smsSignName',
+  'smsTemplateCode',
   'smsCodeSocket',
   'universalLink',
 ].toSorted();
@@ -338,6 +341,10 @@ export const readCommonCompletionFixtureRuntime = async (
   const wechat = exact(row.wechat, wechatKeys);
   const h5Wechat = exact(row.h5Wechat, h5WechatKeys);
   const smsCodeSocket = absolute(wechat.smsCodeSocket);
+  const smsAccessKeyId = bounded(wechat.smsAccessKeyId);
+  const smsAccessSecret = bounded(wechat.smsAccessSecret);
+  const smsSignNameBase64 = Buffer.from(bounded(wechat.smsSignName), 'utf8').toString('base64');
+  const smsTemplateCode = bounded(wechat.smsTemplateCode);
   const apiVersion = bounded(wechat.apiVersion, 32);
   const providerControl = createDockerWechatBrowserProviderControl({
     socket: absolute(input.controlSocket),
@@ -471,8 +478,17 @@ export const readCommonCompletionFixtureRuntime = async (
                 globalEnvironment: Object.freeze({
                   BOX_AI_GOOGLE_CLIENT_ID: googleLease.getClientId(),
                   BOX_AI_GOOGLE_CLIENT_SECRET: googleLease.getClientSecret(),
+                  BOX_AI_SMS_ACCESS_KEY_ID: smsAccessKeyId,
+                  BOX_AI_SMS_ACCESS_KEY_SECRET: smsAccessSecret,
+                  BOX_AI_SMS_SIGN_NAME_BASE64: smsSignNameBase64,
+                  BOX_AI_SMS_TEMPLATE_CODE: smsTemplateCode,
+                  BOX_AI_SMS_CONNECTOR_FACTORY_ID: 'aliyun-short-message-service',
                 }),
                 chinaNativeEnvironment: Object.freeze({
+                  BOX_AI_SMS_ACCESS_KEY_ID: smsAccessKeyId,
+                  BOX_AI_SMS_ACCESS_KEY_SECRET: smsAccessSecret,
+                  BOX_AI_SMS_SIGN_NAME_BASE64: smsSignNameBase64,
+                  BOX_AI_SMS_TEMPLATE_CODE: smsTemplateCode,
                   BOX_AI_WECHAT_CHANNELS: 'native',
                   BOX_AI_WECHAT_NATIVE_APP_ID: wechatLease.getClientId(),
                   BOX_AI_WECHAT_NATIVE_APP_SECRET: wechatLease.getClientSecret(),
