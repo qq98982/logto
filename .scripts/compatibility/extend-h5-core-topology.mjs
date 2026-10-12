@@ -25,6 +25,10 @@ export const extendH5CoreTopology = (raw, options) => {
   if (role === 'oracle') {
     service.environment.ENDPOINT = 'https://localhost:3351';
   } else {
+    const postgres = document.services?.['candidate-primary-postgres'];
+    if (!postgres || typeof postgres.environment !== 'object' || postgres.environment === null ||
+        Object.hasOwn(postgres.environment, 'ASTER_PHASE1_H5_CORE_CIDR')) fail();
+    postgres.environment.ASTER_PHASE1_H5_CORE_CIDR = '172.30.241.14/32';
     const originalConfig = source.environment?.ASTER_PHASE1_PRIMARY_CONFIG_FILE;
     if (typeof originalConfig !== 'string' || !Array.isArray(source.volumes)) fail();
     service.environment.ASTER_PHASE1_PRIMARY_CONFIG_FILE = options.candidateConfigFile;
