@@ -104,6 +104,7 @@ export const runCommonAccountPhoneChange = async (
     browser: {
       clientId: status.client.id,
       redirectUri: new URL('/demo-app', input.target.coreUrl).href,
+      additionalRedirectUris: [status.client.redirectUri],
     },
     field: 'phone',
     phoneProvider: input.provider,

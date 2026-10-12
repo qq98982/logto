@@ -66,7 +66,7 @@ export const selectAccountSettingsFields = (
 ): Readonly<Record<string, unknown>> =>
   Object.freeze({
     ...previous,
-    ...(field === 'password' ? { email: 'ReadOnly' } : {}),
+    ...(field === 'password' || field === 'phone' ? { email: 'ReadOnly' } : {}),
     [field]: value,
   });
 
@@ -117,7 +117,11 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   input: Readonly<{
     fixture: ProvisionedPhase2Fixture;
     request: Phase2AdminRequestFunction;
-    browser: Readonly<{ clientId: string; redirectUri: string }>;
+    browser: Readonly<{
+      clientId: string;
+      redirectUri: string;
+      additionalRedirectUris?: readonly string[];
+    }>;
     field: AccountField;
     phoneProvider?: CommonPhoneCodeProviderLease;
     getPassword(): string;

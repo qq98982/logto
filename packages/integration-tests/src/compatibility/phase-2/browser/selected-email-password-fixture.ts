@@ -46,11 +46,29 @@ export type SelectedEmailPasswordIdentity = Readonly<{
   browser?: Readonly<{ clientId: string; redirectUri: string }>;
 }>;
 
+export const selectBrowserRedirectUris = (
+  redirectUri: string,
+  additionalRedirectUris: readonly string[] = []
+): readonly string[] => {
+  const selected = [redirectUri, ...additionalRedirectUris];
+  if (
+    selected.some((value) => typeof value !== 'string' || value.length === 0) ||
+    new Set(selected).size !== selected.length
+  ) {
+    return fail();
+  }
+  return Object.freeze(selected);
+};
+
 export const withSelectedEmailPasswordFixture = async <Result>(
   input: Readonly<{
     fixture: ProvisionedPhase2Fixture;
     request: Phase2AdminRequestFunction;
-    browser?: Readonly<{ clientId: string; redirectUri: string }>;
+    browser?: Readonly<{
+      clientId: string;
+      redirectUri: string;
+      additionalRedirectUris?: readonly string[];
+    }>;
     getPassword(): string;
     use(identity: SelectedEmailPasswordIdentity): Promise<Result>;
   }>
@@ -148,7 +166,10 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         postLogoutRedirectUris: Object.freeze([...postLogoutRedirectUris]),
       });
       const targetMetadata = Object.freeze({
-        redirectUris: Object.freeze([input.browser.redirectUri]),
+        redirectUris: selectBrowserRedirectUris(
+          input.browser.redirectUri,
+          input.browser.additionalRedirectUris
+        ),
         postLogoutRedirectUris: previousClientMetadata.postLogoutRedirectUris,
       });
       primaryStage = 'patch-app';
@@ -319,7 +340,14 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         id: userId,
         primaryEmail,
         isSuspended: false,
-        ...(input.browser ? { browser: Object.freeze({ ...input.browser }) } : {}),
+        ...(input.browser
+          ? {
+              browser: Object.freeze({
+                clientId: input.browser.clientId,
+                redirectUri: input.browser.redirectUri,
+              }),
+            }
+          : {}),
       })
     );
   } catch (error: unknown) {

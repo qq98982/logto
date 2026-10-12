@@ -1,7 +1,10 @@
 /* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-unsafe-assignment -- Fake Management state records setup and restoration. */
 import type { Phase2AdminRequest, ProvisionedPhase2Fixture } from '../fixtures.js';
 
-import { withSelectedEmailPasswordFixture } from './selected-email-password-fixture.js';
+import {
+  selectBrowserRedirectUris,
+  withSelectedEmailPasswordFixture,
+} from './selected-email-password-fixture.js';
 
 const fixture = {
   public: { allocationId: 'allocation' },
@@ -104,6 +107,7 @@ test('creates an independent email user and restores username methods', async ()
     browser: {
       clientId: 'browser-client',
       redirectUri: 'http://localhost:3311/demo-app',
+      additionalRedirectUris: ['http://localhost:3001/callback'],
     },
     use: async (identity) => identity,
   });
@@ -154,7 +158,7 @@ test('creates an independent email user and restores username methods', async ()
       path: 'applications/browser-client',
       body: {
         oidcClientMetadata: {
-          redirectUris: ['http://localhost:3311/demo-app'],
+          redirectUris: ['http://localhost:3311/demo-app', 'http://localhost:3001/callback'],
           postLogoutRedirectUris: [],
         },
       },
@@ -184,6 +188,15 @@ test('creates an independent email user and restores username methods', async ()
       expect.objectContaining({ method: 'DELETE', path: 'roles/email-role' }),
     ])
   );
+});
+
+test('keeps the existing single browser callback contract unchanged', () => {
+  expect(selectBrowserRedirectUris('http://localhost:3311/demo-app')).toEqual([
+    'http://localhost:3311/demo-app',
+  ]);
+  expect(() =>
+    selectBrowserRedirectUris('http://localhost:3311/demo-app', ['http://localhost:3311/demo-app'])
+  ).toThrow('Invalid selected email password fixture');
 });
 
 test('deletes an owned user when the create response is otherwise malformed', async () => {
