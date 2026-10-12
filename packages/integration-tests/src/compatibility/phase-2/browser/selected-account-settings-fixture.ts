@@ -62,11 +62,13 @@ export const accountPasswordPolicyMatches = (
 export const selectAccountSettingsFields = (
   previous: Readonly<Record<string, unknown>>,
   field: AccountField,
-  value: 'Edit' | 'ReadOnly'
+  value: 'Edit' | 'ReadOnly',
+  additionalReadOnlyFields: readonly AccountField[] = []
 ): Readonly<Record<string, unknown>> =>
   Object.freeze({
     ...previous,
     ...(field === 'password' || field === 'phone' ? { email: 'ReadOnly' } : {}),
+    ...Object.fromEntries(additionalReadOnlyFields.map((additional) => [additional, 'ReadOnly'])),
     [field]: value,
   });
 
@@ -123,6 +125,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
       additionalRedirectUris?: readonly string[];
     }>;
     field: AccountField;
+    additionalReadOnlyFields?: readonly AccountField[];
     phoneProvider?: CommonPhoneCodeProviderLease;
     getPassword(): string;
     use(value: SelectedAccountSettingsFixture): Promise<Result>;
@@ -145,7 +148,12 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   const passwordPolicy = isolateAccountPasswordPolicy(record(signInExperience).passwordPolicy);
   const selected = Object.freeze({
     enabled: true,
-    fields: selectAccountSettingsFields(previous.fields, input.field, 'Edit'),
+    fields: selectAccountSettingsFields(
+      previous.fields,
+      input.field,
+      'Edit',
+      input.additionalReadOnlyFields
+    ),
   });
   let connectorId: string | undefined;
   const patchControl = async (
@@ -153,7 +161,12 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   ) => {
     const expected = Object.freeze({
       enabled: value.enabled,
-      fields: selectAccountSettingsFields(previous.fields, input.field, value.field),
+      fields: selectAccountSettingsFields(
+        previous.fields,
+        input.field,
+        value.field,
+        input.additionalReadOnlyFields
+      ),
     });
     const patched = accountCenter(
       await input.request({

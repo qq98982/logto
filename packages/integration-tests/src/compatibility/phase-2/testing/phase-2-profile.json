@@ -229,7 +229,9 @@
     "common.account.email-change",
     "common.phone.code-registration",
     "common.phone.code-sign-in",
-    "common.account.phone-change"
+    "common.account.phone-change",
+    "common.management.user-create",
+    "common.management.user-contact-update"
   ],
   "candidateInvariantScenarios": [
     "client-credentials.cross-tenant-authority-rejected",

@@ -84,6 +84,11 @@ describe('selected Account settings fixture', () => {
       name: 'ReadOnly',
       email: 'Edit',
     });
+    expect(selectAccountSettingsFields(previous, 'email', 'Edit', ['phone'])).toEqual({
+      name: 'ReadOnly',
+      email: 'Edit',
+      phone: 'ReadOnly',
+    });
     expect(selectAccountSettingsFields(previous, 'phone', 'Edit')).toEqual({
       name: 'ReadOnly',
       email: 'ReadOnly',

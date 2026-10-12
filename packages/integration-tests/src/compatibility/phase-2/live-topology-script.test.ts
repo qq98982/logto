@@ -253,7 +253,7 @@ const runEvidenceValidation = async (
   );
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 190 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 192 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -1261,9 +1261,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 190',
+      'scenarioCount !== 192',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 190',
+      'comparisonCount !== 192',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1302,29 +1302,29 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(190, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(192, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(190, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(190, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(192, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(192, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(190, 24, 18, 'private-provider-credential')
+      runEvidenceValidation(192, 24, 18, 'private-provider-credential')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects SMS provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(190, 24, 18, 'private-sms-provider-credential')
+      runEvidenceValidation(192, 24, 18, 'private-sms-provider-credential')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects SMS retrieval capabilities in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(190, 24, 18, 'private-sms-control-capability')
+      runEvidenceValidation(192, 24, 18, 'private-sms-control-capability')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 

@@ -1446,13 +1446,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 190 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 192 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 190 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 192 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1462,7 +1462,7 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 190 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 192 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
