@@ -25,7 +25,7 @@ const descriptorFor = (root) => ({
   ),
 });
 const optionsFor = (root, descriptorFile) => ({
-  backchannelScript: `${root}/backchannel.mjs`, caFile: `${root}/ca.pem`,
+  backchannelScript: `${root}/backchannel.mjs`, coreCaBundleFile: `${root}/ca-bundle.pem`,
   certificateFile: `${root}/server.pem`, descriptorFile,
   privateKeyFile: `${root}/server.key`, pwnedScript: `${root}/pwned.mjs`,
 });
@@ -51,7 +51,8 @@ test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer se
   assert.ok(result.services['oracle-primary-core'].extra_hosts.includes('dysmsapi.aliyuncs.com:172.30.231.54'));
   assert.ok(result.services['oracle-primary-core'].extra_hosts.includes('api.pwnedpasswords.com:172.30.231.56'));
   assert.equal(result.services['oracle-primary-core'].environment.NODE_EXTRA_CA_CERTS, '/run/aster/core-extra-ca-bundle.pem');
-  assert.ok(result.services['oracle-primary-core'].volumes.includes(`${root}/ca.pem:/run/aster/core-extra-ca-bundle.pem:ro`));
+  assert.equal(result.services['oracle-primary-core'].environment.SSL_CERT_FILE, '/run/aster/core-extra-ca-bundle.pem');
+  assert.ok(result.services['oracle-primary-core'].volumes.includes(`${root}/ca-bundle.pem:/run/aster/core-extra-ca-bundle.pem:ro`));
   assert.equal(result.services['oracle-pwned-clear'].networks['oracle-primary'].ipv4_address, '172.30.231.56');
 });
 

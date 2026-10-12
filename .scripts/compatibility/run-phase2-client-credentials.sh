@@ -2278,21 +2278,21 @@ SMS_TOPOLOGY
     "$ORACLE_COMPLETION_INPUT" "$CANDIDATE_COMPLETION_INPUT" "$OWNED_ATTEMPT_TOPOLOGY" \
     "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" \
     "$PWNED_PROVIDER_SCRIPT" "$BACKCHANNEL_RECEIVER_SCRIPT" "$WECHAT_PROVIDER_SCRIPT" \
-    "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA_BUNDLE" "$IDENTITY_SERVER_CERT" \
+    "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA_BUNDLE" "$IDENTITY_CA" "$IDENTITY_SERVER_CERT" \
     "$IDENTITY_SERVER_KEY" "$CANDIDATE_IDENTITY_CONFIG" "$H5_CANDIDATE_CONFIG" <<'COMPLETION_TOPOLOGY' \
     || { failure_stage='completion-topology'; fail; return 1; }
 import { open, readFile, rename } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 const [oraclePath,candidatePath,oracleDescriptorPath,candidateDescriptorPath,attemptModule,h5Module,h5CoreModule,
  multichannelModule,candidateIdentityModule,pwnedScript,backchannelScript,legacyWechatScript,
- multichannelScript,caFile,certificateFile,privateKeyFile,candidateIdentityFile,h5CandidateConfig]=process.argv.slice(2);
+ multichannelScript,coreCaBundleFile,identityCaFile,certificateFile,privateKeyFile,candidateIdentityFile,h5CandidateConfig]=process.argv.slice(2);
 const [{extendOwnedAttemptServices},{extendH5WechatTopology},{extendH5CoreTopology},{extendWechatMultichannelTopology},
  {applyCandidateIdentityConfig}]=await Promise.all([attemptModule,h5Module,h5CoreModule,multichannelModule,candidateIdentityModule]
  .map(async value=>import(pathToFileURL(value).href)));
 for(const [role,composePath,descriptorPath] of [['oracle',oraclePath,oracleDescriptorPath],['candidate',candidatePath,candidateDescriptorPath]]){
  const descriptor=JSON.parse(await readFile(descriptorPath,'utf8'));
  let document=JSON.parse(await readFile(composePath,'utf8'));
- document=await extendOwnedAttemptServices(document,{backchannelScript,caFile,certificateFile,
+ document=await extendOwnedAttemptServices(document,{backchannelScript,coreCaBundleFile,certificateFile,
    descriptorFile:descriptorPath,privateKeyFile,pwnedScript});
  document=extendH5WechatTopology(document,{certificateFile,descriptor:descriptor.h5Wechat,
    privateKeyFile,role,script:legacyWechatScript});
@@ -2300,7 +2300,7 @@ for(const [role,composePath,descriptorPath] of [['oracle',oraclePath,oracleDescr
  document=extendWechatMultichannelTopology(document,{certificateFile,
    configurationFile:descriptor.wechat.configFile,fixtureImage:descriptor.wechat.image,
    privateKeyFile,receiptFile:descriptor.wechat.receiptFile,role,script:multichannelScript});
- if(role==='candidate')document=applyCandidateIdentityConfig(document,{configurationFile:candidateIdentityFile,caFile});
+ if(role==='candidate')document=applyCandidateIdentityConfig(document,{configurationFile:candidateIdentityFile,caFile:identityCaFile});
  const temporary=`${composePath}.completion`;
  const handle=await open(temporary,'wx',0o600);
  try{await handle.writeFile(JSON.stringify(document));await handle.sync();}finally{await handle.close();}
