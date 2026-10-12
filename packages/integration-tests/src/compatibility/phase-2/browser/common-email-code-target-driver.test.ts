@@ -209,11 +209,11 @@ test('delegates one active outer lease sequentially and rejects reentrancy and u
   await expect(scope.fixture.withSecretLease(async (value) => value === lease)).resolves.toBe(true);
   await expect(
     scope.fixture.withSecretLease(async () => scope.fixture.withSecretLease(async () => true))
-  ).rejects.toThrow('Common email code target failed: lease');
+  ).rejects.toThrow('Phase 2 fixture operation failed');
   await expect(scope.fixture.withSecretLease(async () => true)).resolves.toBe(true);
   scope.revoke();
   await expect(scope.fixture.withSecretLease(async () => true)).rejects.toThrow(
-    'Common email code target failed: lease'
+    'Phase 2 fixture operation failed'
   );
 });
 

@@ -184,7 +184,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(() => {
       assertPhase2TargetEvidenceIsSanitized({
         ...safeEvidence,
-        scenarios: Array.from({ length: 193 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 207 }, () => safeEvidence.scenarios[0]),
       });
     }).toThrow('Invalid Phase 2 evidence sanitizer');
     expect(() => {
@@ -255,7 +255,7 @@ describe('Phase 2 public provenance envelope', () => {
     expect(
       sanitizerStageOf({
         ...safeEvidence,
-        scenarios: Array.from({ length: 193 }, () => safeEvidence.scenarios[0]),
+        scenarios: Array.from({ length: 207 }, () => safeEvidence.scenarios[0]),
       })
     ).toBe('ids');
     expect(
@@ -930,8 +930,8 @@ describe('Phase 2 public provenance envelope', () => {
     expect(value.sanitizerSuccess).toBe(true);
   });
 
-  it('publishes the full 192-comparison differential envelope contract', () => {
-    const comparisons = Array.from({ length: 192 }, (_, index) => ({
+  it('publishes the full 206-comparison differential envelope contract', () => {
+    const comparisons = Array.from({ length: 206 }, (_, index) => ({
       scenarioId: `comparison-${index}`,
       differenceCount: 0,
     }));

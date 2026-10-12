@@ -11,7 +11,7 @@ import {
 } from './selected-email-password-fixture.js';
 import type { CommonPhoneCodeProviderLease } from './selected-phone-code-fixture.js';
 
-type AccountField = 'password' | 'email' | 'phone';
+type AccountField = 'password' | 'email' | 'phone' | 'social';
 type AccountCenterRecord = Readonly<{
   enabled: boolean;
   fields: Readonly<Record<string, unknown>>;

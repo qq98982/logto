@@ -1,4 +1,4 @@
-/* eslint-disable complexity, max-lines, no-await-in-loop, no-constant-condition, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment -- Admission, bounded discovery, one browser context, and fixture cleanup form one boundary. */
+/* eslint-disable complexity, no-await-in-loop, no-constant-condition, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment -- Admission, bounded discovery, one browser context, and fixture cleanup form one boundary. */
 import type { TargetConfig } from '../../model.js';
 import type {
   Phase1BrowserGroupObserver,
@@ -6,6 +6,7 @@ import type {
 } from '../../phase-1/browser/contracts.js';
 import { isPlaywrightBrowserGroupObserver } from '../../phase-1/browser/playwright-session.js';
 import { withPhase2AdminManagementBearer } from '../clients/admin-management-bearer.js';
+import { createScopedPhase2Fixture } from '../fixtures.js';
 import {
   createBearerPhase2AdminRequest,
   createReferencePhase2AdminRequest,
@@ -179,41 +180,7 @@ export type CommonEmailCodeTargetInput = Readonly<{
   fetch?: typeof fetch;
 }>;
 
-export const createScopedEmailCodeFixture = (
-  fixture: ProvisionedPhase2Fixture,
-  lease: Phase2FixtureSecretLease,
-  redirectUri: string
-) => {
-  let active = true;
-  let delegated = false;
-  return Object.freeze({
-    fixture: Object.freeze({
-      ...fixture,
-      ...(fixture.status && {
-        status: Object.freeze({
-          ...fixture.status,
-          client: Object.freeze({ ...fixture.status.client, redirectUri }),
-        }),
-      }),
-      withSecretLease: async <Result>(
-        use: (value: Phase2FixtureSecretLease) => Promise<Result>
-      ) => {
-        if (!active || delegated) {
-          return fail('lease');
-        }
-        delegated = true;
-        try {
-          return await use(lease);
-        } finally {
-          delegated = false;
-        }
-      },
-    }),
-    revoke: () => {
-      active = false;
-    },
-  });
-};
+export const createScopedEmailCodeFixture = createScopedPhase2Fixture;
 
 const execute = async (input: CommonEmailCodeTargetInput): Promise<CommonEmailCodeProjection> => {
   const status = input.fixture.status ?? fail('admission');
@@ -314,4 +281,4 @@ export const runCommonEmailCodeForTargetTesting = async (
   }
   return execute(input);
 };
-/* eslint-enable complexity, max-lines, no-await-in-loop, no-constant-condition, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment */
+/* eslint-enable complexity, no-await-in-loop, no-constant-condition, no-restricted-syntax, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unnecessary-condition, @typescript-eslint/no-unsafe-assignment */

@@ -99,6 +99,68 @@ export type ProvisionedPhase2Fixture = {
   withSecretLease<Result>(
     use: (lease: Phase2FixtureSecretLease) => Promise<Result>
   ): Promise<Result>;
+  withCandidateManagementMachineClient?<Result>(
+    clientSecret: string,
+    use: (client: CandidateManagementMachineClient) => Promise<Result>
+  ): Promise<Result>;
+  withForeignManagementControls?<Result>(
+    use: (controls: ForeignManagementControls) => Promise<Result>
+  ): Promise<Result>;
+};
+
+export type ForeignManagementControls = Readonly<{
+  userId: string;
+  connectorId: string;
+  applicationId: string;
+}>;
+
+export type CandidateManagementMachineClient = Readonly<{
+  clientId: 'aster-mgmt-m2m';
+  resource: 'urn:aster:resource:management';
+  scope: 'all';
+  tokenEndpointAuthMethod: 'client_secret_basic';
+  grantType: 'client_credentials';
+  accessTokenAlg: 'ES384';
+  accessTokenType: 'at+jwt';
+  accessTokenTtlSeconds: 3600;
+}>;
+
+/** Delegates an already active secret lease without reopening its parent fixture. */
+export const createScopedPhase2Fixture = (
+  fixture: ProvisionedPhase2Fixture,
+  lease: Phase2FixtureSecretLease,
+  redirectUri?: string
+) => {
+  let active = true;
+  let delegated = false;
+  return Object.freeze({
+    fixture: Object.freeze({
+      ...fixture,
+      ...(fixture.status &&
+        redirectUri && {
+          status: Object.freeze({
+            ...fixture.status,
+            client: Object.freeze({ ...fixture.status.client, redirectUri }),
+          }),
+        }),
+      withSecretLease: async <Result>(
+        use: (value: Phase2FixtureSecretLease) => Promise<Result>
+      ) => {
+        if (!active || delegated) {
+          return fail();
+        }
+        delegated = true;
+        try {
+          return await use(lease);
+        } finally {
+          delegated = false;
+        }
+      },
+    }),
+    revoke: () => {
+      active = false;
+    },
+  });
 };
 
 export type Phase2FixtureProvisioner = {
@@ -124,6 +186,7 @@ type ReferenceProvisionerOptions = Readonly<{
   target: TargetConfig;
   foreignTarget: TargetConfig;
   request?: Phase2AdminRequestFunction;
+  requestFetch?: typeof fetch;
   createAllocationId?: () => string;
 }>;
 
@@ -175,6 +238,16 @@ const cleanupFailure = 'Phase 2 fixture cleanup failed';
 const maximumResponseBytes = 64 * 1024;
 const commandTimeoutMs = 30_000;
 const maximumCommandOutputBytes = 262_144;
+const candidateManagementMachineClient: CandidateManagementMachineClient = Object.freeze({
+  clientId: 'aster-mgmt-m2m',
+  resource: 'urn:aster:resource:management',
+  scope: 'all',
+  tokenEndpointAuthMethod: 'client_secret_basic',
+  grantType: 'client_credentials',
+  accessTokenAlg: 'ES384',
+  accessTokenType: 'at+jwt',
+  accessTokenTtlSeconds: 3600,
+});
 const safeIdPattern = /^[A-Za-z0-9._~-]{1,128}$/u;
 const safeAllocationPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u;
 const markerPrefix = 'phase2-client-credentials-';
@@ -472,13 +545,15 @@ const createFixture = (
   state: FixtureState,
   status: Phase2StatusPublic,
   takeVerificationCode?: (recipient: string) => Promise<string>,
-  verificationPeer?: Phase2VerificationPeerPublic
+  verificationPeer?: Phase2VerificationPeerPublic,
+  withForeignManagementControls?: ProvisionedPhase2Fixture['withForeignManagementControls']
 ): ProvisionedPhase2Fixture => {
   let leaseActive = false;
   const fixture = Object.freeze({
     public: publicFixture,
     status,
     ...(verificationPeer && { verificationPeer }),
+    ...(withForeignManagementControls && { withForeignManagementControls }),
     withSecretLease: async <Result>(
       use: (lease: Phase2FixtureSecretLease) => Promise<Result>
     ): Promise<Result> => {
@@ -796,6 +871,119 @@ const referenceCall = async (
   expectedStatuses: readonly number[] = [200, 201],
   responseKind: Phase2AdminRequest['responseKind'] = 'object'
 ): Promise<unknown> => request({ method, path: apiPath, body, expectedStatuses, responseKind });
+
+const createReferenceForeignManagementControls = (
+  foreignTarget: TargetConfig,
+  allocationId: string,
+  requestFetch: typeof fetch
+): NonNullable<ProvisionedPhase2Fixture['withForeignManagementControls']> => {
+  const foreignRequest = createReferencePhase2AdminRequest(foreignTarget, requestFetch);
+  let active = false;
+  return async <Result>(
+    use: (controls: ForeignManagementControls) => Promise<Result>
+  ): Promise<Result> => {
+    if (active || typeof use !== 'function') {
+      return fail();
+    }
+    const digits = [...allocationId]
+      .filter((value) => /\d/u.test(value))
+      .join('')
+      .slice(0, 8);
+    if (digits.length !== 8) {
+      return fail();
+    }
+    active = true;
+    const connectorSecret = randomUUID();
+    let userId: string | undefined;
+    let connectorId: string | undefined;
+    let applicationId: string | undefined;
+    let bodyError: unknown;
+    let result: Result | undefined;
+    const cleanupErrors: unknown[] = [];
+    try {
+      const userValue = await referenceCall(
+        foreignRequest,
+        'POST',
+        'users',
+        { primaryPhone: `86155${digits}` },
+        [200, 201]
+      );
+      userId = safeId(own(exactRecord(userValue), 'id'));
+      const connectorValue = await referenceCall(
+        foreignRequest,
+        'POST',
+        'connectors',
+        {
+          connectorId: 'google-universal',
+          config: { clientId: `aster-${allocationId}`, clientSecret: connectorSecret },
+        },
+        [200]
+      );
+      connectorId = safeId(own(exactRecord(connectorValue), 'id'));
+      const applicationValue = await referenceCall(foreignRequest, 'POST', 'applications', {
+        name: `aster-${allocationId}`,
+        type: 'Traditional',
+      });
+      applicationId = safeId(own(exactRecord(applicationValue), 'id'));
+      result = await use(Object.freeze({ userId, connectorId, applicationId }));
+      const [retainedUser, retainedConnector, retainedApplication] = await Promise.all([
+        referenceCall(foreignRequest, 'GET', `users/${encodeURIComponent(userId)}`, undefined, [
+          200,
+        ]),
+        referenceCall(
+          foreignRequest,
+          'GET',
+          `connectors/${encodeURIComponent(connectorId)}`,
+          undefined,
+          [200]
+        ),
+        referenceCall(
+          foreignRequest,
+          'GET',
+          `applications/${encodeURIComponent(applicationId)}`,
+          undefined,
+          [200]
+        ),
+      ]);
+      if (
+        own(exactRecord(retainedUser), 'id') !== userId ||
+        own(exactRecord(retainedConnector), 'id') !== connectorId ||
+        own(exactRecord(retainedApplication), 'id') !== applicationId
+      ) {
+        fail();
+      }
+    } catch (error: unknown) {
+      bodyError = error;
+    } finally {
+      for (const [kind, id] of [
+        ['applications', applicationId],
+        ['connectors', connectorId],
+        ['users', userId],
+      ] as const) {
+        if (!id) {
+          continue;
+        }
+        try {
+          await referenceCall(
+            foreignRequest,
+            'DELETE',
+            `${kind}/${encodeURIComponent(id)}`,
+            undefined,
+            [204, 404],
+            'status'
+          );
+        } catch (error: unknown) {
+          cleanupErrors.push(error);
+        }
+      }
+      active = false;
+    }
+    if (bodyError !== undefined || cleanupErrors.length > 0) {
+      throw new Error(failure);
+    }
+    return result as Result;
+  };
+};
 
 const referencePublicFixture = (
   allocationId: string,
@@ -1656,7 +1844,13 @@ export const createReferencePhase2FixtureProvisioner = (
               scopeName: 'read:profile',
             }),
           },
-          takeOracleVerificationCode
+          takeOracleVerificationCode,
+          undefined,
+          createReferenceForeignManagementControls(
+            foreignTarget,
+            allocationId,
+            options.requestFetch ?? fetch
+          )
         );
         states.set(fixture as object, state);
         return fixture;
@@ -1772,7 +1966,15 @@ const requireRejectedCommandResult = (value: unknown): CommandRunnerResult => {
 
 const parseCommandOutput = (
   result: CommandRunnerResult,
-  operation: 'provision' | 'projectState' | 'cleanup' | 'takeVerificationDelivery',
+  operation:
+    | 'provision'
+    | 'projectState'
+    | 'cleanup'
+    | 'takeVerificationDelivery'
+    | 'provisionManagementMachineClient'
+    | 'cleanupManagementMachineClient'
+    | 'provisionForeignManagementControls'
+    | 'cleanupForeignManagementControls',
   secrets: readonly string[]
 ): Record<string, unknown> => {
   try {
@@ -1784,7 +1986,31 @@ const parseCommandOutput = (
     if (own(parsed, 'schemaVersion') !== 1 || own(parsed, 'operation') !== operation) {
       return fail();
     }
-    assertPhase1RuntimeCredentialGraphIsSanitized(parsed, secrets);
+    // Each operation admits a different exact response shape.
+    // eslint-disable-next-line unicorn/prefer-switch
+    if (operation === 'provisionManagementMachineClient') {
+      exactRecord(parsed, ['schemaVersion', 'operation', 'public']);
+      const metadata = exactRecord(
+        own(parsed, 'public'),
+        Object.keys(candidateManagementMachineClient)
+      );
+      if (
+        Object.entries(candidateManagementMachineClient).some(
+          ([key, value]) => own(metadata, key) !== value
+        )
+      ) {
+        return fail();
+      }
+      // Exact public protocol constants are admitted here, without relaxing evidence-key policy.
+      assertPhase1RuntimeCredentialGraphIsSanitized(Object.values(metadata), secrets);
+    } else if (operation === 'provisionForeignManagementControls') {
+      exactRecord(parsed, ['schemaVersion', 'operation', 'public']);
+      exactRecord(own(parsed, 'public'), ['userId', 'connectorId', 'applicationId']);
+    } else if (operation === 'cleanupForeignManagementControls') {
+      exactRecord(parsed, ['schemaVersion', 'operation', 'ok', 'preserved']);
+    } else {
+      assertPhase1RuntimeCredentialGraphIsSanitized(parsed, secrets);
+    }
     return parsed;
   } catch {
     return fail();
@@ -1926,7 +2152,7 @@ export const createCandidatePhase2FixtureProvisioner = (
 
   const run = async (
     descriptor: Readonly<Record<string, unknown>>,
-    operation: 'provision' | 'projectState' | 'cleanup' | 'takeVerificationDelivery',
+    operation: Parameters<typeof parseCommandOutput>[1],
     secrets: readonly string[]
   ): Promise<Record<string, unknown>> => {
     const invoke = async () => {
@@ -2294,7 +2520,7 @@ export const createCandidatePhase2FixtureProvisioner = (
           recipe
         );
         const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
-        const fixture = createFixture(
+        const baseFixture = createFixture(
           publicFixture,
           secrets,
           state,
@@ -2349,6 +2575,163 @@ export const createCandidatePhase2FixtureProvisioner = (
               })
             : undefined
         );
+        let machineClientActive = false;
+        let foreignControlsActive = false;
+        const fixture: ProvisionedPhase2Fixture = Object.freeze({
+          ...baseFixture,
+          ...(recipe === 'fullPhase1' && {
+            withCandidateManagementMachineClient: async <Result>(
+              clientSecret: string,
+              use: (client: CandidateManagementMachineClient) => Promise<Result>
+            ): Promise<Result> => {
+              if (
+                state.revoked ||
+                machineClientActive ||
+                typeof use !== 'function' ||
+                typeof clientSecret !== 'string' ||
+                Buffer.byteLength(clientSecret) < 12 ||
+                Buffer.byteLength(clientSecret) > 1024
+              ) {
+                return fail();
+              }
+              machineClientActive = true;
+              state.sensitiveValues = Object.freeze([...state.sensitiveValues, clientSecret]);
+              const descriptor = Object.freeze({
+                schemaVersion: 1,
+                recipe,
+                allocationId,
+                public: state.coordinatorPublic ?? fail(),
+              });
+              let bodyError: unknown;
+              let value: Result | undefined;
+              let cleanupFailed = false;
+              try {
+                const response = await run(
+                  { ...descriptor, operation: 'provisionManagementMachineClient', clientSecret },
+                  'provisionManagementMachineClient',
+                  state.sensitiveValues
+                );
+                const expected = candidateManagementMachineClient;
+                const actual = exactRecord(own(response, 'public'), Object.keys(expected));
+                if (
+                  Object.keys(response).length !== 3 ||
+                  Object.entries(expected).some(([key, value]) => own(actual, key) !== value)
+                ) {
+                  return fail();
+                }
+                value = await use(expected);
+              } catch (error: unknown) {
+                bodyError = error;
+              } finally {
+                try {
+                  const cleaned = await run(
+                    { ...descriptor, operation: 'cleanupManagementMachineClient' },
+                    'cleanupManagementMachineClient',
+                    state.sensitiveValues
+                  );
+                  if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                    fail();
+                  }
+                } catch {
+                  cleanupFailed = true;
+                } finally {
+                  machineClientActive = false;
+                }
+              }
+              if (cleanupFailed) {
+                throw new AggregateError(
+                  [
+                    ...(bodyError === undefined ? [] : [new Error(failure)]),
+                    new Error(cleanupFailure),
+                  ],
+                  cleanupFailure
+                );
+              }
+              if (bodyError !== undefined) {
+                throw new Error(failure);
+              }
+              return value as Result;
+            },
+            withForeignManagementControls: async <Result>(
+              use: (controls: ForeignManagementControls) => Promise<Result>
+            ): Promise<Result> => {
+              if (state.revoked || foreignControlsActive || typeof use !== 'function') {
+                return fail();
+              }
+              foreignControlsActive = true;
+              const descriptor = Object.freeze({
+                schemaVersion: 1,
+                recipe,
+                allocationId,
+                public: state.coordinatorPublic ?? fail(),
+              });
+              let bodyError: unknown;
+              let value: Result | undefined;
+              let cleanupFailed = false;
+              try {
+                const response = await run(
+                  { ...descriptor, operation: 'provisionForeignManagementControls' },
+                  'provisionForeignManagementControls',
+                  state.sensitiveValues
+                );
+                const controls = exactRecord(own(response, 'public'), [
+                  'userId',
+                  'connectorId',
+                  'applicationId',
+                ]);
+                if (
+                  Object.keys(response).length !== 3 ||
+                  own(controls, 'userId') !== 'aster-mgmt-u' ||
+                  own(controls, 'connectorId') !== 'aster-mgmt-google' ||
+                  own(controls, 'applicationId') !== 'aster-mgmt-app'
+                ) {
+                  return fail();
+                }
+                value = await use(
+                  Object.freeze({
+                    userId: 'aster-mgmt-u',
+                    connectorId: 'aster-mgmt-google',
+                    applicationId: 'aster-mgmt-app',
+                  })
+                );
+              } catch (error: unknown) {
+                bodyError = error;
+              } finally {
+                try {
+                  const cleaned = await run(
+                    { ...descriptor, operation: 'cleanupForeignManagementControls' },
+                    'cleanupForeignManagementControls',
+                    state.sensitiveValues
+                  );
+                  if (
+                    Object.keys(cleaned).length !== 4 ||
+                    own(cleaned, 'ok') !== true ||
+                    own(cleaned, 'preserved') !== true
+                  ) {
+                    fail();
+                  }
+                } catch {
+                  cleanupFailed = true;
+                } finally {
+                  foreignControlsActive = false;
+                }
+              }
+              if (cleanupFailed) {
+                throw new AggregateError(
+                  [
+                    ...(bodyError === undefined ? [] : [new Error(failure)]),
+                    new Error(cleanupFailure),
+                  ],
+                  cleanupFailure
+                );
+              }
+              if (bodyError !== undefined) {
+                throw new Error(failure);
+              }
+              return value as Result;
+            },
+          }),
+        });
         states.set(fixture as object, state);
         return fixture;
       } catch (error: unknown) {

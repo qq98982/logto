@@ -16,6 +16,7 @@ export type IssuedPublicUserSession = IssuedPublicUserTokens &
   Readonly<{
     getIdToken(): string;
     getCookieHeader(): string;
+    getExpectedNonce?(): string;
   }>;
 
 export type NativeCallbackClient = Readonly<{
@@ -43,6 +44,16 @@ export type NativeCallbackIdentityFixture = Readonly<{
     ) => Promise<Result>
   ): Promise<Result>;
 }>;
+
+export type NativeSocialIdentityDriver = (
+  input: Readonly<{
+    request(
+      path: string,
+      method: 'GET' | 'POST' | 'PUT',
+      body?: Readonly<Record<string, unknown>> | URLSearchParams
+    ): Promise<Response>;
+  }>
+) => Promise<void>;
 
 const diagnostic = 'Invalid Phase 2 public user token issuance';
 const fail = (): never => {
@@ -166,6 +177,9 @@ const issueUserTokens = async (
     signal?: AbortSignal;
     nativeClient?: NativeCallbackClient;
     nativeIdentityFixture?: NativeCallbackIdentityFixture;
+    nativeSocialIdentityDriver?: NativeSocialIdentityDriver;
+    publicIdentityDriver?: NativeSocialIdentityDriver;
+    boundCallbackIssuer?: string;
     stopAtNativeCallback?: boolean;
     authorizationResources?: readonly string[];
     authorizationScope?: string;
@@ -193,7 +207,7 @@ const issueUserTokens = async (
     ) {
       return fail();
     }
-    if (options.stopAtNativeCallback) {
+    if (options.stopAtNativeCallback && !options.nativeSocialIdentityDriver) {
       await options.nativeIdentityFixture?.withSecretLease(async (lease) => {
         bounded(lease.getSelectedNativePassword?.(), 256);
       });
@@ -225,10 +239,12 @@ const issueUserTokens = async (
     const origin = new URL(target.coreUrl);
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier).digest('base64url');
-    const state = options.stopAtNativeCallback ? randomBytes(32).toString('base64url') : undefined;
-    const nonce = options.stopAtNativeCallback ? randomBytes(32).toString('base64url') : undefined;
+    const boundCallback =
+      options.stopAtNativeCallback === true || options.boundCallbackIssuer !== undefined;
+    const state = boundCallback ? randomBytes(32).toString('base64url') : undefined;
+    const nonce = boundCallback ? randomBytes(32).toString('base64url') : undefined;
     const cookies = new Map<string, string>();
-    const endpoint = (path: string): URL => new URL(path, origin);
+    const endpoint = (path: string): URL => localRedirect(path, origin);
     const send = async (
       url: URL,
       method: 'GET' | 'POST' | 'PUT',
@@ -334,25 +350,30 @@ const issueUserTokens = async (
         )
       );
     };
-    await (options.stopAtNativeCallback
-      ? (options.nativeIdentityFixture?.withSecretLease(async (lease) =>
-          identifyWithPassword(lease.getSelectedNativePassword?.() ?? fail(), {
-            type: 'email',
-            value: nativeIdentity?.primaryEmail ?? fail(),
-          })
-        ) ?? fail())
-      : options.subjectPassword === undefined
-        ? fixture.withSecretLease(async (lease) =>
-            identifyWithPassword(lease.getSubjectPassword?.() ?? fail(), {
-              type: 'username',
-              value: options.subjectUsername ?? status.user.username,
+    const identityDriver = options.nativeSocialIdentityDriver ?? options.publicIdentityDriver;
+    await (identityDriver
+      ? identityDriver({
+          request: async (path, method, body) => send(endpoint(path), method, body),
+        })
+      : options.stopAtNativeCallback
+        ? (options.nativeIdentityFixture?.withSecretLease(async (lease) =>
+            identifyWithPassword(lease.getSelectedNativePassword?.() ?? fail(), {
+              type: 'email',
+              value: nativeIdentity?.primaryEmail ?? fail(),
             })
-          )
-        : identifyWithPassword(options.subjectPassword, {
-            type: options.subjectIdentifier?.type ?? 'username',
-            value:
-              options.subjectIdentifier?.value ?? options.subjectUsername ?? status.user.username,
-          }));
+          ) ?? fail())
+        : options.subjectPassword === undefined
+          ? fixture.withSecretLease(async (lease) =>
+              identifyWithPassword(lease.getSubjectPassword?.() ?? fail(), {
+                type: 'username',
+                value: options.subjectUsername ?? status.user.username,
+              })
+            )
+          : identifyWithPassword(options.subjectPassword, {
+              type: options.subjectIdentifier?.type ?? 'username',
+              value:
+                options.subjectIdentifier?.value ?? options.subjectUsername ?? status.user.username,
+            }));
     stage = 'submit';
     const submitted = await jsonBody(
       await requireStatus(await send(endpoint('/api/experience/submit'), 'POST'), 200)
@@ -385,7 +406,7 @@ const issueUserTokens = async (
     await resumed.body?.cancel();
     const expectedRedirect = new URL(client.redirectUri);
     const invalidNativeCallback =
-      options.stopAtNativeCallback &&
+      boundCallback &&
       (expectedRedirect.search !== '' ||
         expectedRedirect.hash !== '' ||
         location.protocol !== expectedRedirect.protocol ||
@@ -402,9 +423,10 @@ const issueUserTokens = async (
         location.searchParams.getAll('state').length !== 1 ||
         location.searchParams.get('state') !== state ||
         location.searchParams.getAll('iss').length !== 1 ||
-        location.searchParams.get('iss') !== options.nativeClient?.expectedIssuer);
+        location.searchParams.get('iss') !==
+          (options.nativeClient?.expectedIssuer ?? options.boundCallbackIssuer));
     if (
-      options.stopAtNativeCallback
+      boundCallback
         ? invalidNativeCallback
         : location.origin + location.pathname !== client.redirectUri
     ) {
@@ -474,6 +496,7 @@ const issueUserTokens = async (
         refresh,
         getIdToken: () => idToken,
         getCookieHeader: () => browserCookies,
+        ...(nonce === undefined ? {} : { getExpectedNonce: () => nonce }),
         toJSON: (): never => fail(),
       });
     }
@@ -496,6 +519,21 @@ export const stopPublicNativeAtCallback = async (
     stopAtNativeCallback: true,
   }) as Promise<NativeCallbackHandoff>;
 
+export const stopPublicNativeSocialAtCallback = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  nativeIdentityFixture: NativeCallbackIdentityFixture,
+  nativeClient: NativeCallbackClient,
+  nativeSocialIdentityDriver: NativeSocialIdentityDriver,
+  requestFetch: typeof fetch = fetch
+): Promise<NativeCallbackHandoff> =>
+  issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
+    nativeClient,
+    nativeIdentityFixture,
+    nativeSocialIdentityDriver,
+    stopAtNativeCallback: true,
+  }) as Promise<NativeCallbackHandoff>;
+
 export const issuePublicUserTokens = async (
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
@@ -508,6 +546,41 @@ export const issuePublicUserTokens = async (
     false,
     requestFetch
   ) as Promise<IssuedPublicUserTokens>;
+
+/** Owns an actual Experience identity driver and the ordinary public-client OIDC session. */
+export const issuePublicIdentitySession = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  identityDriver: NativeSocialIdentityDriver,
+  expectedIssuer: string,
+  requestFetch: typeof fetch = fetch,
+  options: Readonly<{ scope?: string }> = {}
+): Promise<IssuedPublicUserSession> =>
+  issueUserTokens(targetInput, fixture, 'public', true, requestFetch, {
+    publicIdentityDriver: identityDriver,
+    boundCallbackIssuer: bounded(expectedIssuer),
+    authorizationScope: options.scope ?? 'openid offline_access profile email identities',
+    authorizationResources: [],
+  }) as Promise<IssuedPublicUserSession>;
+
+/** Uses the actual selected Native identity and client for an ordinary OIDC session. */
+export const issuePublicNativeIdentitySession = async (
+  targetInput: TargetConfig,
+  fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
+  nativeIdentityFixture: NativeCallbackIdentityFixture,
+  nativeClient: NativeCallbackClient,
+  identityDriver: NativeSocialIdentityDriver,
+  requestFetch: typeof fetch = fetch,
+  options: Readonly<{ scope?: string }> = {}
+): Promise<IssuedPublicUserSession> =>
+  issueUserTokens(targetInput, fixture, 'public', true, requestFetch, {
+    nativeClient,
+    nativeIdentityFixture,
+    publicIdentityDriver: identityDriver,
+    boundCallbackIssuer: bounded(nativeClient.expectedIssuer),
+    authorizationScope: options.scope ?? 'openid offline_access profile',
+    authorizationResources: [],
+  }) as Promise<IssuedPublicUserSession>;
 
 export const issuePublicUserResourceTokensWithPassword = async (
   targetInput: TargetConfig,
@@ -538,7 +611,11 @@ export const issuePublicAccountTokensForSubject = async (
   fixture: Pick<ProvisionedPhase2Fixture, 'status' | 'withSecretLease'>,
   subject: Readonly<{ username: string; password: string } | { email: string; password: string }>,
   requestFetch: typeof fetch = fetch,
-  options: Readonly<{ includePhone?: boolean; resource?: boolean }> = {}
+  options: Readonly<{
+    includePhone?: boolean;
+    includeIdentities?: boolean;
+    resource?: boolean;
+  }> = {}
 ): Promise<IssuedPublicUserTokens> =>
   issueUserTokens(targetInput, fixture, 'public', false, requestFetch, {
     subjectPassword: subject.password,
@@ -547,7 +624,7 @@ export const issuePublicAccountTokensForSubject = async (
         ? { type: 'email', value: subject.email }
         : { type: 'username', value: subject.username },
     authorizationResources: options.resource ? undefined : [],
-    authorizationScope: `openid offline_access profile email${options.includePhone ? ' phone' : ''}${options.resource ? ` ${fixture.status?.resource.scopeName ?? fail()}` : ''}`,
+    authorizationScope: `openid offline_access profile email${options.includePhone ? ' phone' : ''}${options.includeIdentities ? ' identities' : ''}${options.resource ? ` ${fixture.status?.resource.scopeName ?? fail()}` : ''}`,
     resourceAtCodeExchange: options.resource,
   }) as Promise<IssuedPublicUserTokens>;
 

@@ -9,6 +9,8 @@ import {
   issueConfidentialUserSession,
   issueConfidentialUserTokens,
   issuePublicAccountTokensForSubject,
+  issuePublicIdentitySession,
+  issuePublicNativeIdentitySession,
   issuePublicUserTokens,
   observePublicAccountPasswordSignIn,
   stopPublicNativeAtCallback,
@@ -122,6 +124,135 @@ const nativeCallbackFlow = (
 };
 
 describe('Phase 2 public user token issuance transport', () => {
+  it('drives an actual selected public identity before bound S256 session issuance', async () => {
+    const requests: Array<{ url: URL; init: RequestInit }> = [];
+    const replies = [
+      response(303, undefined, { 'set-cookie': 'aster-session=private-cookie; Path=/; HttpOnly' }),
+      response(204),
+      response(200, { verificationId: 'private-social-proof' }),
+      response(204),
+      response(200, { redirectTo: 'https://candidate.example/oidc/bridge' }),
+      response(303),
+      response(200, {}),
+      response(200, { redirectTo: 'https://candidate.example/oidc/resume' }),
+    ];
+    const requestFetch: typeof fetch = async (input, init) => {
+      requests.push({ url: new URL(String(input)), init: init ?? {} });
+      if (requests.length === 9) {
+        return response(303, undefined, {
+          location: `https://client.example/callback?code=private-code&state=${requests[0]?.url.searchParams.get('state')}&iss=${encodeURIComponent(expectedIssuer)}`,
+        });
+      }
+      return requests.length === 10
+        ? response(200, {
+            token_type: 'Bearer',
+            access_token: 'private-access',
+            refresh_token: 'private-refresh',
+            id_token: 'private-id-token',
+          })
+        : (replies[requests.length - 1] ?? response(500));
+    };
+    const session = await issuePublicIdentitySession(
+      target,
+      fixture,
+      async ({ request }) => {
+        const initialized = await request('/api/experience', 'PUT', { interactionEvent: 'SignIn' });
+        expect(initialized.status).toBe(204);
+        const verified = await request(
+          '/api/experience/verification/social/owned-connector/verify',
+          'POST',
+          {
+            connectorData: { code: 'private-code' },
+          }
+        );
+        expect(verified.status).toBe(200);
+        const identified = await request('/api/experience/identification', 'POST', {
+          verificationId: 'private-social-proof',
+        });
+        expect(identified.status).toBe(204);
+      },
+      expectedIssuer,
+      requestFetch
+    );
+    expect(requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile email identities'
+    );
+    expect(requests[0]?.url.searchParams.getAll('resource')).toEqual([]);
+    expect(requests[0]?.url.searchParams.get('code_challenge_method')).toBe('S256');
+    expect(requests.some(({ url }) => url.pathname.includes('/verification/password'))).toBe(false);
+    expect(session.getCookieHeader()).toBe('aster-session=private-cookie');
+    expect(session.getIdToken()).toBe('private-id-token');
+    expect(session.refresh).toBe('private-refresh');
+    expect(() => JSON.stringify(session)).toThrow();
+  });
+
+  it('refuses an identity driver foreign request before any target cookie leaves the origin', async () => {
+    const transport = flow();
+    await expect(
+      issuePublicIdentitySession(
+        target,
+        fixture,
+        async ({ request }) => {
+          await request('https://foreign.example/api/experience', 'POST', {});
+        },
+        expectedIssuer,
+        transport.fetch
+      )
+    ).rejects.toThrow();
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('uses the selected Native client for a bound ordinary social session and offline refresh', async () => {
+    const transport = flow();
+    const requestFetch: typeof fetch = async (url, init) => {
+      const response = await transport.fetch(url, init);
+      if (new URL(String(url)).pathname === '/oidc/resume') {
+        const state = transport.requests[0]?.url.searchParams.get('state');
+        return new Response(null, {
+          status: 303,
+          headers: {
+            location: `https://native.example/callback?code=private-code&state=${state}&iss=${encodeURIComponent(expectedIssuer)}`,
+          },
+        });
+      }
+      return response;
+    };
+    const session = await issuePublicNativeIdentitySession(
+      target,
+      fixture,
+      nativeIdentityFixture,
+      {
+        clientId: 'actual-native-client',
+        redirectUri: 'https://native.example/callback',
+        expectedIssuer,
+        resourceIndicator: 'https://native-api.example/api',
+        resourceScope: 'session:exchange',
+      },
+      async ({ request }) => {
+        await request('/api/experience', 'PUT', { interactionEvent: 'SignIn' });
+        await request('/api/experience/verification/social/owned-connector/verify', 'POST', {
+          connectorData: { code: 'private-provider-code' },
+        });
+        await request('/api/experience/identification', 'POST', {
+          verificationId: 'private-social-proof',
+        });
+      },
+      requestFetch
+    );
+    expect(transport.requests[0]?.url.searchParams.get('client_id')).toBe('actual-native-client');
+    expect(transport.requests[0]?.url.searchParams.getAll('resource')).toEqual([]);
+    expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile'
+    );
+    expect(
+      transport.requests.some(({ url }) => url.pathname.includes('/verification/password'))
+    ).toBe(false);
+    expect(session.getIdToken()).toBe('private-id-token');
+    expect(session.getCookieHeader()).toBe('aster-session=private-cookie');
+    expect(session.access).toBe('private-access');
+    expect(session.refresh).toBe('private-refresh');
+  });
+
   it('stops an explicitly selected Native client at its exact state-bound callback before exchange', async () => {
     const requests: Array<{ url: URL; init: RequestInit }> = [];
     const replies = [
@@ -501,6 +632,23 @@ describe('Phase 2 public user token issuance transport', () => {
     expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
       'openid offline_access profile email phone'
     );
+  });
+
+  it('requests identities for social Account readback with an opaque user bearer', async () => {
+    const transport = flow();
+    const tokens = await issuePublicAccountTokensForSubject(
+      target,
+      fixture,
+      { email: 'account-owner@example.invalid', password: 'private-account-password' },
+      transport.fetch,
+      { includeIdentities: true }
+    );
+    expect(transport.requests[0]?.url.searchParams.get('scope')).toBe(
+      'openid offline_access profile email identities'
+    );
+    expect(transport.requests[0]?.url.searchParams.getAll('resource')).toEqual([]);
+    expect(tokens.access).toBe('private-access');
+    expect(tokens.access.includes('.')).toBe(false);
   });
 
   it('classifies only password-verification failure as a rejected Account sign-in', async () => {

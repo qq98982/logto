@@ -101,6 +101,9 @@ export type WechatWebProviderHealthTiming = Readonly<{
 export type WechatWebProviderLease = SelectedWechatWebProviderLease &
   Readonly<{
     takeBrowserCode(): Promise<string>;
+    takeAccountCode(): Promise<string>;
+    takeForeignAccountCode(): Promise<string>;
+    assertAccountProviderCase(): Promise<void>;
     takeControlCode(
       kind: 'noUnionId' | 'invalidCode' | 'replay' | 'malformedProvider'
     ): Promise<string>;
@@ -121,7 +124,8 @@ const validProviderPhase = (value: unknown): value is 'setup' | 'browser' =>
 
 const readProviderObservation = async (
   receiptFile: string,
-  identity: FileIdentity
+  identity: FileIdentity,
+  expectedBrowserRequests = 1
 ): Promise<WechatProviderTransportObservation> => {
   const receipt = await readPrivateMutableJson(receiptFile, identity);
   if (!exactRecordKeys(receipt, ['schemaVersion', 'facts']) || receipt.schemaVersion !== 1) {
@@ -139,8 +143,8 @@ const readProviderObservation = async (
     .map((value) => plainRecord(value))
     .filter((value) => value.kind === 'userinfo');
   if (
-    token.length !== 2 ||
-    userinfo.length !== 2 ||
+    token.length !== expectedBrowserRequests + 1 ||
+    userinfo.length !== expectedBrowserRequests + 1 ||
     token.some(
       (value) =>
         !exactRecordKeys(value, ['kind', 'phase', 'method', 'exact']) ||
@@ -165,9 +169,9 @@ const readProviderObservation = async (
         value.unionIdMatches !== true
     ) ||
     token.filter((value) => value.phase === 'setup').length !== 1 ||
-    token.filter((value) => value.phase === 'browser').length !== 1 ||
+    token.filter((value) => value.phase === 'browser').length !== expectedBrowserRequests ||
     userinfo.filter((value) => value.phase === 'setup').length !== 1 ||
-    userinfo.filter((value) => value.phase === 'browser').length !== 1
+    userinfo.filter((value) => value.phase === 'browser').length !== expectedBrowserRequests
   ) {
     return fail();
   }
@@ -653,6 +657,8 @@ export const prepareWechatWebProviderLease = async (
     }
     const setupCode = randomBytes(24).toString('hex');
     const browserCode = randomBytes(24).toString('hex');
+    const accountCode = randomBytes(24).toString('hex');
+    const foreignAccountCode = randomBytes(24).toString('hex');
     const controlCodes = Object.freeze({
       noUnionId: randomBytes(24).toString('hex'),
       invalidCode: randomBytes(24).toString('hex'),
@@ -665,7 +671,13 @@ export const prepareWechatWebProviderLease = async (
       appId: input.clientId,
       appSecret: input.clientSecret,
       unionId: input.subject,
-      codes: { setup: setupCode, browser: browserCode, ...controlCodes },
+      codes: {
+        setup: setupCode,
+        browser: browserCode,
+        account: accountCode,
+        foreignAccount: foreignAccountCode,
+        ...controlCodes,
+      },
     };
     stage = 'configuration-file';
     const configIdentity = await inspectPrivateMutableFile(input.configFile, true);
@@ -713,6 +725,8 @@ export const prepareWechatWebProviderLease = async (
       return stagedFail(failedStage);
     }
     let browserCodeTaken = false;
+    let accountCodeTaken = false;
+    let foreignAccountCodeTaken = false;
     const takenControls = new Set<string>();
     let stopped = false;
     return Object.freeze({
@@ -726,6 +740,23 @@ export const prepareWechatWebProviderLease = async (
         }
         browserCodeTaken = true;
         return browserCode;
+      },
+      takeAccountCode: async () => {
+        if (accountCodeTaken || stopped) {
+          return fail();
+        }
+        accountCodeTaken = true;
+        return accountCode;
+      },
+      takeForeignAccountCode: async () => {
+        if (foreignAccountCodeTaken || stopped) {
+          return fail();
+        }
+        foreignAccountCodeTaken = true;
+        return foreignAccountCode;
+      },
+      assertAccountProviderCase: async () => {
+        await readProviderObservation(input.receiptFile, receiptIdentity, 2);
       },
       takeControlCode: async (
         kind: 'noUnionId' | 'invalidCode' | 'replay' | 'malformedProvider'

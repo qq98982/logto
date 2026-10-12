@@ -152,6 +152,40 @@ const validReceipt = Object.freeze({
   ],
 });
 
+test('leases distinct one-use codes and proves both Account exchanges', async () => {
+  const fixture = await createLease();
+  try {
+    const config = JSON.parse(await readFile(fixture.configFile, 'utf8')) as {
+      codes: Record<string, string>;
+    };
+    const account = await fixture.lease.takeAccountCode();
+    const foreign = await fixture.lease.takeForeignAccountCode();
+    expect(new Set([fixture.lease.associationData.code, account, foreign]).size).toBe(3);
+    expect(config.codes.account).toBe(account);
+    expect(config.codes.foreignAccount).toBe(foreign);
+    const accountReceipt = {
+      schemaVersion: 1,
+      facts: [
+        ...validReceipt.facts,
+        { kind: 'token', phase: 'browser', method: 'GET', exact: true },
+        {
+          kind: 'userinfo',
+          phase: 'browser',
+          method: 'GET',
+          exact: true,
+          unionIdPresent: true,
+          unionIdMatches: true,
+        },
+      ],
+    };
+    await writeFile(fixture.receiptFile, `${JSON.stringify(accountReceipt)}\n`, { mode: 0o600 });
+    await expect(fixture.lease.assertAccountProviderCase()).resolves.toBeUndefined();
+  } finally {
+    await fixture.lease.stop();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('derives request phases and stable UnionID only from an identity-checked receipt', async () => {
   const fixture = await createLease();
   try {

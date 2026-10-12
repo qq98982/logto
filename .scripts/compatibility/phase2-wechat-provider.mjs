@@ -22,7 +22,7 @@ const readOwnedFile = async (file, modes = new Set([0o400, 0o440, 0o600])) => {
 };
 
 export const parseWechatProviderConfiguration = (value) => {
-  const codeKeys = ['setup', 'browser', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider'];
+  const codeKeys = ['setup', 'browser', 'account', 'foreignAccount', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider'];
   if (!exactKeys(value, ['schemaVersion', 'appId', 'appSecret', 'unionId', 'codes']) || value.schemaVersion !== 1 || !exactKeys(value.codes, codeKeys)) return fail();
   const codes = Object.freeze(Object.fromEntries(codeKeys.map((key) => [key, bounded(value.codes[key])])));
   if (new Set(Object.values(codes)).size !== codeKeys.length) return fail();
@@ -65,6 +65,8 @@ export const startWechatProviderFixture = async ({ certificateFile, privateKeyFi
   const acceptedCodes = new Map([
     [configuration.codes.setup, { behavior: 'positive', phase: 'setup' }],
     [configuration.codes.browser, { behavior: 'positive', phase: 'browser' }],
+    [configuration.codes.account, { behavior: 'positive', phase: 'browser' }],
+    [configuration.codes.foreignAccount, { behavior: 'positive', phase: 'browser' }],
     [configuration.codes.noUnionId, { behavior: 'no-union-id', phase: 'browser' }],
     [configuration.codes.replay, { behavior: 'positive', phase: 'browser' }],
   ]);

@@ -253,7 +253,7 @@ const runEvidenceValidation = async (
   );
   const oracleEnvPath = path.join(directory, 'oracle.env');
   const candidateEnvPath = path.join(directory, 'candidate.env');
-  const differentialScenarioIds = Array.from({ length: 192 }, (_, index) => `scenario-${index}`);
+  const differentialScenarioIds = Array.from({ length: 206 }, (_, index) => `scenario-${index}`);
   const invariantIds = Array.from({ length: 24 }, (_, index) => `invariant-${index}`);
   const profile = {
     baseAcceptance: { phase: 1 },
@@ -1261,9 +1261,9 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
 
   it('validates the closed evidence counts, provenance, sanitizer, and public topology', () => {
     for (const marker of [
-      'scenarioCount !== 192',
+      'scenarioCount !== 206',
       'expectedControlCount = expectedControlNames.length',
-      'comparisonCount !== 192',
+      'comparisonCount !== 206',
       'custom-jwt',
       'invariantCount !== 24',
       'differenceCount !== 0',
@@ -1302,29 +1302,29 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
   });
 
   it('executes the embedded evidence validator and rejects stale evidence cardinalities', async () => {
-    await expect(runEvidenceValidation(192, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
+    await expect(runEvidenceValidation(206, 24, 18)).resolves.toEqual({ code: 0, stderr: '' });
     await expect(runEvidenceValidation(183, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(154, 24, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(192, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
-    await expect(runEvidenceValidation(192, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(206, 12, 18)).resolves.toEqual({ code: 1, stderr: '' });
+    await expect(runEvidenceValidation(206, 24, 12)).resolves.toEqual({ code: 1, stderr: '' });
     await expect(runEvidenceValidation(178, 24, 17)).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(192, 24, 18, 'private-provider-credential')
+      runEvidenceValidation(206, 24, 18, 'private-provider-credential')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects SMS provider credentials in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(192, 24, 18, 'private-sms-provider-credential')
+      runEvidenceValidation(206, 24, 18, 'private-sms-provider-credential')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
   it('rejects SMS retrieval capabilities in otherwise valid evidence', async () => {
     await expect(
-      runEvidenceValidation(192, 24, 18, 'private-sms-control-capability')
+      runEvidenceValidation(206, 24, 18, 'private-sms-control-capability')
     ).resolves.toEqual({ code: 1, stderr: '' });
   });
 
@@ -1932,6 +1932,76 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     );
   });
 
+  it('forwards only the 14 exact Common completion rows and exact fixture stages', async () => {
+    const start = source.indexOf('forward_closed_common_row_failures() {');
+    const end = source.indexOf('\n}\n\ntrusted_binary()', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const patterns = Array.from(
+      source.slice(start, end).matchAll(/\/usr\/bin\/grep -E '([^'\n]+)'/gu),
+      (match) => match[1]
+    );
+    const completionPattern = patterns.find((pattern) =>
+      pattern?.includes('common\\.password\\.policy')
+    );
+    const fixturePattern = patterns.find((pattern) => pattern?.includes('completion-fixture'));
+    expect(completionPattern).toBeDefined();
+    expect(fixturePattern).toBeDefined();
+    const completionIds = [
+      'common.password.policy',
+      'common.google.configured-collision',
+      'common.account.google-link',
+      'common.wechat.h5',
+      'common.wechat.mini',
+      'common.wechat.mini-phone-registration',
+      'common.wechat.native',
+      'common.account.wechat-link',
+      'common.management.applications-secrets',
+      'common.management.native-resource-role',
+      'common.management.connectors-experience',
+      'common.management.user-suspend-delete',
+      'common.management.provisioning-convergence',
+      'common.session.logout-preservation',
+    ];
+    const targets = ['oracle', 'candidate'];
+    await expect(
+      Promise.all(
+        targets.flatMap((target) =>
+          completionIds.map(async (id) =>
+            grepMatches(
+              completionPattern ?? '',
+              `Phase 2 client credentials command failed (${target}/${id}).`
+            )
+          )
+        )
+      )
+    ).resolves.toEqual(Array.from({ length: 28 }, () => true));
+    await expect(
+      Promise.all(
+        targets.map(async (target) =>
+          grepMatches(
+            fixturePattern ?? '',
+            `Phase 2 client credentials command failed (${target}-completion-fixture).`
+          )
+        )
+      )
+    ).resolves.toEqual([true, true]);
+    const rejected = [
+      'Phase 2 client credentials command failed (oracle/common.password.policy:private).',
+      'Phase 2 client credentials command failed (candidate/common.management.unknown).',
+      'Phase 2 client credentials command failed (oracle-completion-fixture-private).',
+      'Phase 2 client credentials command failed (candidate/completion-fixture).',
+    ];
+    await expect(
+      Promise.all(
+        rejected.flatMap((line) => [
+          grepMatches(completionPattern ?? '', line),
+          grepMatches(fixturePattern ?? '', line),
+        ])
+      )
+    ).resolves.toEqual(Array.from({ length: 8 }, () => false));
+  });
+
   it('allows only closed device candidate-invariant stages in final output', async () => {
     const patterns = Array.from(
       source.matchAll(
@@ -2216,6 +2286,9 @@ remove_invariant_handle_root ${JSON.stringify(invariantRoot)}
         const payload =
           kind === 'empty' ? '' : kind === 'oversize' ? 'x'.repeat(65_537) : 'private';
         await writeFile(entry, payload, { mode: kind === 'wrong-mode' ? 0o640 : 0o600 });
+        if (kind === 'wrong-mode') {
+          await chmod(entry, 0o640);
+        }
         if (kind === 'multiple-links') {
           await link(entry, path.join(temporaryRoot, `linked-invariant-${Date.now()}`));
         }
@@ -2312,6 +2385,9 @@ if remove_state_handle_root ${JSON.stringify(stateRoot)}; then exit 19; fi
             : '{"schemaVersion":1,"retired":true}',
           { mode: kind === 'wrong-mode' ? 0o640 : 0o600 }
         );
+        if (kind === 'wrong-mode') {
+          await chmod(entry, 0o640);
+        }
         if (kind === 'multiple-links') {
           await link(entry, path.join(temporaryRoot, `linked-tombstone-${Date.now()}`));
         }
@@ -2418,7 +2494,7 @@ cleanup_resources 23
         'proxy:101',
         'project:candidate',
         'project:oracle',
-        'ports:3311 3411 3312 3412 3321 3421 3322 3422',
+        'ports:3311 3411 3312 3412 3321 3421 3322 3422 3351 3352 3353 3354',
         `run-root:${path.join(temporaryRoot, 'run')}`,
         '',
       ].join('\n')

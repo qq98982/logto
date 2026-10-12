@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 import {
   assertGoogleChangedEmailProviderReceipt,
+  assertGoogleAccountProviderReceipt,
+  assertGoogleConfiguredCollisionProviderReceipt,
   assertGooglePrimaryRegistrationProviderReceipt,
   assertGoogleReplayProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
@@ -100,11 +102,15 @@ export type GoogleProviderHealthTiming = Readonly<{
 export type GoogleProviderLease = SelectedGoogleProviderLease &
   Readonly<{
     takeBrowserCode(): Promise<string>;
+    takeAccountCode(): Promise<string>;
+    takeForeignAccountCode(): Promise<string>;
     takeWrongStateControlCode(): Promise<string>;
     takePrimaryRegistrationCode(): Promise<string>;
     takeUnverifiedEmailControlCode(): Promise<string>;
     takeOccupiedEmailControlCode(): Promise<string>;
     assertPrimaryRegistrationProviderCase(): Promise<void>;
+    assertConfiguredCollisionProviderCase(): Promise<void>;
+    assertAccountProviderCase(): Promise<void>;
   }>;
 
 const defaultHealthTiming: GoogleProviderHealthTiming = Object.freeze({
@@ -664,6 +670,20 @@ export const prepareGoogleProviderLease = async (
         browserCodeTaken = true;
         return changedCode;
       },
+      takeAccountCode: async () => {
+        if (browserCodeTaken || stopped) {
+          return fail();
+        }
+        browserCodeTaken = true;
+        return changedCode;
+      },
+      takeForeignAccountCode: async () => {
+        if (wrongStateControlCodeTaken || stopped) {
+          return fail();
+        }
+        wrongStateControlCodeTaken = true;
+        return wrongStateControlCode;
+      },
       takeWrongStateControlCode: async () => {
         if (wrongStateControlCodeTaken || stopped) {
           return fail();
@@ -728,6 +748,27 @@ export const prepareGoogleProviderLease = async (
             input.receiptFile,
             input.expectedUserinfoMethod
           );
+        } catch {
+          return fail();
+        }
+      },
+      assertConfiguredCollisionProviderCase: async () => {
+        try {
+          await samePrivateMutableFile(input.configFile, configIdentity);
+          await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+          await assertGoogleConfiguredCollisionProviderReceipt(
+            input.receiptFile,
+            input.expectedUserinfoMethod
+          );
+        } catch {
+          return fail();
+        }
+      },
+      assertAccountProviderCase: async () => {
+        try {
+          await samePrivateMutableFile(input.configFile, configIdentity);
+          await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+          await assertGoogleAccountProviderReceipt(input.receiptFile, input.expectedUserinfoMethod);
         } catch {
           return fail();
         }

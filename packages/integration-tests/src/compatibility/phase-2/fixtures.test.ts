@@ -995,6 +995,234 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(multiple.calls.some(({ method }) => method === 'POST')).toBe(false);
   });
 
+  it('scopes the Admin machine client to the active allocation and cleans up after a failed use', async () => {
+    const descriptors: Array<Record<string, unknown>> = [];
+    const machine = {
+      clientId: 'aster-mgmt-m2m',
+      resource: 'urn:aster:resource:management',
+      scope: 'all',
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      grantType: 'client_credentials',
+      accessTokenAlg: 'ES384',
+      accessTokenType: 'at+jwt',
+      accessTokenTtlSeconds: 3600,
+    };
+    let machineResponse: unknown = machine;
+    let uses = 0;
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { PATH: '/usr/bin:/bin', ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-fixture',
+      runner: async (request) => {
+        const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
+        descriptors.push(descriptor);
+        if (descriptor.operation === 'provision') {
+          return candidateProvisionResult('candidate-fixture');
+        }
+        if (descriptor.operation === 'provisionManagementMachineClient') {
+          return commandResult(
+            JSON.stringify({
+              schemaVersion: 1,
+              operation: descriptor.operation,
+              public: machineResponse,
+            })
+          );
+        }
+        return commandResult(
+          JSON.stringify({
+            schemaVersion: 1,
+            operation: descriptor.operation,
+            ok: true,
+            ...(descriptor.operation === 'cleanupForeignManagementControls' && {
+              preserved: true,
+            }),
+          })
+        );
+      },
+    });
+    const fixture = await provisioner.provision();
+    const useMachine =
+      fixture.withCandidateManagementMachineClient ??
+      (async () => {
+        throw new Error('missing machine fixture');
+      });
+    await expect(
+      useMachine('private-management-seed', async (client) => {
+        uses += 1;
+        expect(client).toEqual(machine);
+        await expect(useMachine('other-private-seed', async () => 'unexpected')).rejects.toThrow();
+        throw new Error('owned request failed');
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(uses).toBe(1);
+    const provision = descriptors.find(
+      ({ operation }) => operation === 'provisionManagementMachineClient'
+    );
+    const cleanup = descriptors.find(
+      ({ operation }) => operation === 'cleanupManagementMachineClient'
+    );
+    expect(provision).toMatchObject({
+      recipe: 'fullPhase1',
+      allocationId: 'candidate-fixture',
+      clientSecret: 'private-management-seed',
+    });
+    expect(cleanup).toMatchObject({
+      recipe: 'fullPhase1',
+      allocationId: 'candidate-fixture',
+      public: provision?.public,
+    });
+    expect(cleanup).not.toHaveProperty('clientSecret');
+    expect(JSON.stringify(fixture.public)).not.toContain('private-management-seed');
+    await expect(useMachine('next-private-management-seed', async () => 'complete')).resolves.toBe(
+      'complete'
+    );
+    expect(
+      descriptors.filter(({ operation }) => operation === 'cleanupManagementMachineClient')
+    ).toHaveLength(2);
+    for (const hostile of [
+      { ...machine, accessTokenTtlSeconds: 7200 },
+      { ...machine, token: 'synthetic-private-canary' },
+    ]) {
+      machineResponse = hostile;
+      // eslint-disable-next-line no-await-in-loop -- Each rejected owned descriptor must finish cleanup before the next allocation use.
+      await expect(
+        useMachine('another-private-management-seed', async () => 'unexpected')
+      ).rejects.toThrow('Phase 2 fixture operation failed');
+    }
+    expect(uses).toBe(1);
+    expect(
+      descriptors.filter(({ operation }) => operation === 'cleanupManagementMachineClient')
+    ).toHaveLength(4);
+  });
+
+  it('leases fixed foreign Management controls and cleans them after a failed observation', async () => {
+    const descriptors: Array<Record<string, unknown>> = [];
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { PATH: '/usr/bin:/bin', ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-foreign-controls',
+      runner: async (request) => {
+        const descriptor = JSON.parse(request.stdin) as Record<string, unknown>;
+        descriptors.push(descriptor);
+        if (descriptor.operation === 'provision') {
+          return candidateProvisionResult('candidate-foreign-controls');
+        }
+        if (descriptor.operation === 'provisionForeignManagementControls') {
+          return commandResult(
+            JSON.stringify({
+              schemaVersion: 1,
+              operation: descriptor.operation,
+              public: {
+                userId: 'aster-mgmt-u',
+                connectorId: 'aster-mgmt-google',
+                applicationId: 'aster-mgmt-app',
+              },
+            })
+          );
+        }
+        return commandResult(
+          JSON.stringify({
+            schemaVersion: 1,
+            operation: descriptor.operation,
+            ok: true,
+            preserved: true,
+          })
+        );
+      },
+    });
+    const fixture = await provisioner.provision();
+    const useControls = fixture.withForeignManagementControls ?? fail;
+
+    await expect(
+      useControls(async (controls) => {
+        expect(controls).toEqual({
+          userId: 'aster-mgmt-u',
+          connectorId: 'aster-mgmt-google',
+          applicationId: 'aster-mgmt-app',
+        });
+        await expect(
+          useControls(async () => {
+            await Promise.resolve();
+          })
+        ).rejects.toThrow();
+        throw new Error('observation failed');
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(descriptors.map(({ operation }) => operation)).toEqual([
+      'provision',
+      'provisionForeignManagementControls',
+      'cleanupForeignManagementControls',
+    ]);
+  });
+
+  it('creates reference foreign controls through the foreign Management boundary and removes both', async () => {
+    const admin = createReferenceAdmin();
+    const calls: Array<{ method: string; path: string }> = [];
+    const requestFetch: typeof fetch = async (input, init) => {
+      const url = new URL(
+        input instanceof URL ? input : typeof input === 'string' ? input : input.url
+      );
+      const method = init?.method ?? 'GET';
+      calls.push({ method, path: url.pathname });
+      if (method === 'POST' && url.pathname.endsWith('/users')) {
+        const body = JSON.parse(String(init?.body)) as { primaryPhone?: unknown };
+        expect(body.primaryPhone).toMatch(/^\d+$/u);
+        return Response.json({ id: 'foreign-user' }, { status: 200 });
+      }
+      if (method === 'POST' && url.pathname.endsWith('/connectors')) {
+        return Response.json({ id: 'foreign-connector' }, { status: 200 });
+      }
+      if (method === 'POST' && url.pathname.endsWith('/applications')) {
+        return Response.json({ id: 'foreign-application' }, { status: 200 });
+      }
+      if (method === 'GET') {
+        return Response.json(
+          url.pathname.includes('connectors')
+            ? { id: 'foreign-connector' }
+            : url.pathname.includes('applications')
+              ? { id: 'foreign-application' }
+              : { id: 'foreign-user' },
+          { status: 200 }
+        );
+      }
+      return new Response(null, { status: 204 });
+    };
+    const provisioner = createReferencePhase2FixtureProvisioner({
+      target: oracle,
+      foreignTarget: oracleForeign,
+      request: admin.request,
+      requestFetch,
+      createAllocationId: () => '12345678-1234-1234-1234-123456789012',
+    });
+    const fixture = await provisioner.provision();
+    const useControls = fixture.withForeignManagementControls ?? fail;
+
+    await expect(
+      useControls(async (controls) => {
+        expect(controls).toEqual({
+          userId: 'foreign-user',
+          connectorId: 'foreign-connector',
+          applicationId: 'foreign-application',
+        });
+      })
+    ).resolves.toBeUndefined();
+    expect(calls.map(({ method }) => method)).toEqual([
+      'POST',
+      'POST',
+      'POST',
+      'GET',
+      'GET',
+      'GET',
+      'DELETE',
+      'DELETE',
+      'DELETE',
+    ]);
+  });
+
   it('uses the Aster fixture coordinator with a secret-safe closed descriptor', async () => {
     const requests: CommandRunnerRequest[] = [];
     let fencedCalls = 0;

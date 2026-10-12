@@ -239,6 +239,51 @@ test('starts the exact owned provider, proves its receipt, and stops it idempote
   await rm(files.root, { recursive: true, force: true });
 });
 
+test('proves the configured collision consumed only stable and occupied-email cases', async () => {
+  const files = await createFiles();
+  const { control } = createControl();
+  const lease = await prepare(control, files);
+  await writeFile(
+    files.receiptFile,
+    JSON.stringify({
+      ...validReceipt,
+      changedEmailCaseConsumed: false,
+      occupiedEmailControlConsumed: true,
+    }),
+    { mode: 0o600 }
+  );
+  await expect(lease.assertConfiguredCollisionProviderCase()).resolves.toBeUndefined();
+  await writeFile(
+    files.receiptFile,
+    JSON.stringify({ ...validReceipt, occupiedEmailControlConsumed: true }),
+    { mode: 0o600 }
+  );
+  await expect(lease.assertConfiguredCollisionProviderCase()).rejects.toThrow(
+    'Invalid Google provider lease'
+  );
+  await lease.stop();
+  await rm(files.root, { recursive: true, force: true });
+});
+
+test('proves Account association and both provider proofs used distinct configured cases', async () => {
+  const files = await createFiles();
+  const { control } = createControl();
+  const lease = await prepare(control, files);
+  await writeFile(
+    files.receiptFile,
+    JSON.stringify({
+      ...validReceipt,
+      tokenRequestCount: 3,
+      userinfoRequestCount: 3,
+      wrongStateControlCodeConsumed: true,
+    }),
+    { mode: 0o600 }
+  );
+  await expect(lease.assertAccountProviderCase()).resolves.toBeUndefined();
+  await lease.stop();
+  await rm(files.root, { recursive: true, force: true });
+});
+
 test('reuses the same owned container across three compensated provider controls', async () => {
   const files = await createFiles();
   const shared = createControl();

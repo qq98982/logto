@@ -65,6 +65,11 @@ import {
   compareCommonAccountPhoneChangeProjections,
   type CommonAccountPhoneChangeScenarioResult,
 } from './scenarios/common-account-phone-change.js';
+import {
+  assertCommonCompletionProjection,
+  commonCompletionScenarioIds,
+  type CommonCompletionScenarioId,
+} from './scenarios/common-completion.js';
 import { commonEmailCodeRegistrationScenarioIds } from './scenarios/common-email-code-registration.js';
 import { commonEmailPasswordRegistrationScenarioIds } from './scenarios/common-email-password-registration.js';
 import {
@@ -221,7 +226,7 @@ const restoreOracleWirePayload = (value: unknown): JsonValue => {
     'discovery',
     'controls',
   ]);
-  const scenarios = snapshotDenseArray(target.scenarios, 192).map((entry) => {
+  const scenarios = snapshotDenseArray(target.scenarios, 206).map((entry) => {
     const scenario = snapshotExactDataRecord(entry, ['id', 'projection']);
     const { id, projection } = scenario;
     if (typeof id !== 'string') {
@@ -405,7 +410,7 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
   }
   const scenarios = (() => {
     try {
-      const snapshot = snapshotDenseArray(evidence.scenarios, 192).map((entry) =>
+      const snapshot = snapshotDenseArray(evidence.scenarios, 206).map((entry) =>
         snapshotExactDataRecord(entry, ['id', 'projection'])
       );
       if (snapshot.some((entry) => typeof entry.id !== 'string')) {
@@ -612,6 +617,12 @@ export const assertPhase2TargetEvidenceIsSanitized = (value: unknown): void => {
         if (compareCommonAccountPhoneChangeProjections(wire, wire).length > 0) {
           return fail();
         }
+        assertWithBothSanitizers(wire);
+      });
+    } else if ((commonCompletionScenarioIds as readonly string[]).includes(scenario.id)) {
+      assertSanitizedAt(`common-completion-${index}`, () => {
+        const wire = snapshotJsonWire(scenario.projection);
+        assertCommonCompletionProjection(scenario.id as CommonCompletionScenarioId, wire);
         assertWithBothSanitizers(wire);
       });
     } else if ((commonManagementUserScenarioIds as readonly string[]).includes(scenario.id)) {

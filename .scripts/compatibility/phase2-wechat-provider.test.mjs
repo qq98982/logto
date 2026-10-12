@@ -15,7 +15,8 @@ const valid = () => ({
   appSecret: 'private-secret',
   unionId: 'stable-union',
   codes: {
-    setup: 'setup-code', browser: 'browser-code', noUnionId: 'no-union-code',
+    setup: 'setup-code', browser: 'browser-code', account: 'account-code',
+    foreignAccount: 'foreign-account-code', noUnionId: 'no-union-code',
     invalidCode: 'invalid-code', replay: 'replay-code', malformedProvider: 'malformed-code',
   },
 });

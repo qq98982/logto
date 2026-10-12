@@ -55,6 +55,8 @@ type SelectedSignInMethod = Readonly<{
 export type SelectedNativeFixtureOptions = Readonly<{
   request: Phase2AdminRequestFunction;
   target: TargetConfig;
+  provisioningOrder?: 'application-first' | 'resource-first';
+  namespace?: string;
   getSelectedNativePassword?: () => string;
 }>;
 
@@ -160,12 +162,16 @@ const assertApplication = (value: unknown, expectedId?: string): string => {
   return id;
 };
 
-const assertResource = (value: unknown, expectedId?: string): string => {
+const assertResource = (
+  value: unknown,
+  expectedId?: string,
+  indicator = resourceIndicator
+): string => {
   const resource = exactRecord(value);
   const id = safeId(own(resource, 'id'));
   if (
     (expectedId !== undefined && id !== expectedId) ||
-    own(resource, 'indicator') !== resourceIndicator ||
+    own(resource, 'indicator') !== indicator ||
     own(resource, 'accessTokenTtl') !== 300
   ) {
     return fail();
@@ -217,6 +223,7 @@ const readSelectedNative = async (
     roleId: string;
     identityId: string;
     primaryEmail: string;
+    resourceIndicator: string;
   }>
 ): Promise<void> => {
   assertApplication(
@@ -235,7 +242,7 @@ const readSelectedNative = async (
   const resource = unknownArray(resources).find(
     (entry) => own(exactRecord(entry), 'id') === expected.resourceId
   );
-  assertResource(resource, expected.resourceId);
+  assertResource(resource, expected.resourceId, expected.resourceIndicator);
   const scopes = own(exactRecord(resource), 'scopes');
   const scope = unknownArray(scopes).find(
     (entry) => own(exactRecord(entry), 'id') === expected.scopeId
@@ -279,24 +286,47 @@ const provisionSelectedNative = async (
   fixture: ProvisionedPhase2Fixture,
   request: Phase2AdminRequestFunction,
   cleanup: SelectedNativeCleanup[],
-  getSelectedNativePassword?: () => string
+  provisioningOrder: 'application-first' | 'resource-first',
+  getSelectedNativePassword?: () => string,
+  namespace?: string
 ): Promise<Phase2SelectedNativePublic> => {
   const suffix = createHash('sha256')
-    .update(fixture.public.allocationId)
+    .update(
+      namespace === undefined
+        ? fixture.public.allocationId
+        : `${fixture.public.allocationId}:${namespace}`
+    )
     .digest('hex')
     .slice(0, 16);
   const marker = `phase2-native-${suffix}`;
+  const indicator = namespace === undefined ? resourceIndicator : `${resourceIndicator}/${suffix}`;
   const primaryEmail = `${marker}@example.invalid`;
+  const createApplication = async () => {
+    const value = exactRecord(
+      await call(request, 'POST', 'applications', {
+        name: `${marker} client`,
+        type: 'Native',
+        isThirdParty: false,
+        oidcClientMetadata: { redirectUris: [callbackUri], postLogoutRedirectUris: [] },
+      })
+    );
+    const id = safeId(own(value, 'id'));
+    cleanup.push(Object.freeze({ path: `applications/${encodeURIComponent(id)}` }));
+    assertApplication(value, id);
+    return Object.freeze({ id, value });
+  };
+  const applicationFirst =
+    provisioningOrder === 'application-first' ? await createApplication() : undefined;
   const resource = exactRecord(
     await call(request, 'POST', 'resources', {
       name: `${marker} API`,
-      indicator: resourceIndicator,
+      indicator,
       accessTokenTtl: 300,
     })
   );
   const resourceId = safeId(own(resource, 'id'));
   cleanup.push(Object.freeze({ path: `resources/${encodeURIComponent(resourceId)}` }));
-  assertResource(resource, resourceId);
+  assertResource(resource, resourceId, indicator);
   const scope = exactRecord(
     await call(request, 'POST', `resources/${encodeURIComponent(resourceId)}/scopes`, {
       name: scopeName,
@@ -332,17 +362,8 @@ const provisionSelectedNative = async (
   const identityId = safeId(own(identity, 'id'));
   cleanup.push(Object.freeze({ path: `users/${encodeURIComponent(identityId)}` }));
   assertIdentity(identity, primaryEmail, identityId);
-  const application = exactRecord(
-    await call(request, 'POST', 'applications', {
-      name: `${marker} client`,
-      type: 'Native',
-      isThirdParty: false,
-      oidcClientMetadata: { redirectUris: [callbackUri], postLogoutRedirectUris: [] },
-    })
-  );
-  const applicationId = safeId(own(application, 'id'));
-  cleanup.push(Object.freeze({ path: `applications/${encodeURIComponent(applicationId)}` }));
-  assertApplication(application, applicationId);
+  const provisionedApplication = applicationFirst ?? (await createApplication());
+  const applicationId = provisionedApplication.id;
   await readSelectedNative(request, {
     applicationId,
     resourceId,
@@ -350,6 +371,7 @@ const provisionSelectedNative = async (
     roleId,
     identityId,
     primaryEmail,
+    resourceIndicator: indicator,
   });
   return Object.freeze({
     clientId: applicationId,
@@ -357,7 +379,7 @@ const provisionSelectedNative = async (
     redirectUri: callbackUri,
     resource: Object.freeze({
       id: resourceId,
-      indicator: resourceIndicator,
+      indicator,
       accessTokenTtl: 300,
       scope: Object.freeze({ id: scopeId, name: scopeName }),
     }),
@@ -395,6 +417,7 @@ export const withSelectedNativeFixture = async <Result>(
   if (
     fixture.public.selectedNative !== undefined ||
     typeof use !== 'function' ||
+    (options.namespace !== undefined && !/^[a-z][a-z0-9-]{0,63}$/u.test(options.namespace)) ||
     (options.getSelectedNativePassword !== undefined &&
       typeof options.getSelectedNativePassword !== 'function')
   ) {
@@ -412,7 +435,9 @@ export const withSelectedNativeFixture = async <Result>(
       fixture,
       options.request,
       cleanup,
-      options.getSelectedNativePassword
+      options.provisioningOrder ?? 'resource-first',
+      options.getSelectedNativePassword,
+      options.namespace
     );
     const overlay = Object.freeze({
       ...fixture,

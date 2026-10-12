@@ -134,9 +134,9 @@ test('writes a valid non-authenticating health probe in place and clears every m
       ].toSorted());
       assert.equal(value.schemaVersion, 1);
       assert.deepEqual(Object.keys(value.codes).toSorted(), [
-        'setup', 'browser', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider',
+        'setup', 'browser', 'account', 'foreignAccount', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider',
       ].toSorted());
-      assert.equal(new Set(Object.values(value.codes)).size, 6);
+      assert.equal(new Set(Object.values(value.codes)).size, 8);
       assert.match(value.unionId, /^common-wechat-health-/u);
       assert.doesNotThrow(() => parseWechatProviderConfiguration(value));
     }

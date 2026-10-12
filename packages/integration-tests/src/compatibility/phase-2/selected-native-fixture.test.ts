@@ -130,9 +130,12 @@ const management = (
     malformedReadback?: boolean;
     malformedPolicyResponse?: boolean;
     throwAfterPolicyMutation?: boolean;
+    allowNamespaced?: boolean;
     observeMethods?(methods: ReadonlyArray<Readonly<Record<string, unknown>>>): void;
   }> = {}
 ): Phase2AdminRequestFunction => {
+  let selectedResource = resource;
+  let selectedIdentity = identity;
   let methods = [
     {
       identifier: 'username',
@@ -161,11 +164,16 @@ const management = (
       return { signIn: { methods } };
     }
     if (method === 'POST' && path === 'resources') {
+      if (options.allowNamespaced) {
+        selectedResource = { ...resource, indicator: String(Reflect.get(body ?? {}, 'indicator')) };
+      }
       expect(body).toMatchObject({
-        indicator: resource.indicator,
+        indicator: selectedResource.indicator,
         accessTokenTtl: 300,
       });
-      return options.malformedCreate ? { ...resource, accessTokenTtl: 301 } : resource;
+      return options.malformedCreate
+        ? { ...selectedResource, accessTokenTtl: 301 }
+        : selectedResource;
     }
     if (method === 'POST' && path === 'resources/native-resource/scopes') {
       expect(body).toEqual({
@@ -179,11 +187,17 @@ const management = (
       return role;
     }
     if (method === 'POST' && path === 'users') {
+      if (options.allowNamespaced) {
+        selectedIdentity = {
+          ...identity,
+          primaryEmail: String(Reflect.get(body ?? {}, 'primaryEmail')),
+        };
+      }
       expect(body).toEqual({
-        primaryEmail: identity.primaryEmail,
+        primaryEmail: selectedIdentity.primaryEmail,
         password: 'private-native-password-A1!',
       });
-      return identity;
+      return selectedIdentity;
     }
     if (method === 'POST' && path === 'applications') {
       expect(body).toMatchObject({
@@ -198,7 +212,7 @@ const management = (
     }
     if (method === 'GET' && path === 'resources') {
       expect(query).toEqual({ includeScopes: 'true' });
-      return [{ ...resource, scopes: [scope] }];
+      return [{ ...selectedResource, scopes: [scope] }];
     }
     if (method === 'GET' && path === 'roles') {
       expect(query).toEqual({ page: '1', page_size: '20' });
@@ -209,7 +223,7 @@ const management = (
     }
     if (method === 'GET' && path === 'users') {
       expect(query).toEqual({ page: '1', page_size: '100' });
-      return [identity];
+      return [selectedIdentity];
     }
     if (method === 'DELETE') {
       return 204;
@@ -219,6 +233,58 @@ const management = (
 };
 
 describe('selected Native public Management fixture', () => {
+  test('provisions independent Candidate Native resources and owners for repeated family attempts', async () => {
+    const requests: Phase2AdminRequest[] = [];
+    const original = fixture();
+    const request = management(requests, { allowNamespaced: true });
+    const resources = new Set<string>();
+    const emails = new Set<string>();
+    const observe = async (selected: ProvisionedPhase2Fixture) => {
+      const value = selected.public.selectedNative;
+      if (!value) {
+        throw new Error('missing selected Native');
+      }
+      expect(resources.has(value.resource.indicator)).toBe(false);
+      expect(emails.has(value.identity.primaryEmail)).toBe(false);
+      resources.add(value.resource.indicator);
+      emails.add(value.identity.primaryEmail);
+      expect(value.resource.accessTokenTtl).toBe(300);
+      expect(value.resource.scope.name).toBe('session:exchange');
+      expect(value.redirectUri).toBe('https://app.example.test/wechat/logto-callback');
+    };
+    for (const namespace of [
+      'management-application-first',
+      'management-resource-first',
+      'logout-wechat-native-0',
+    ]) {
+      // eslint-disable-next-line no-await-in-loop -- Sequential setup must not reuse the prior attempt's owned resource or user.
+      await withSelectedNativeFixture(original, { request, target: candidate, namespace }, observe);
+    }
+    expect(resources.size).toBe(3);
+    expect(emails.size).toBe(3);
+  });
+
+  it('creates and owns the Native application before the resource when explicitly selected', async () => {
+    const requests: Phase2AdminRequest[] = [];
+    await withSelectedNativeFixture(
+      fixture(),
+      {
+        request: management(requests),
+        target: candidate,
+        provisioningOrder: 'application-first',
+      },
+      async (selected) => {
+        expect(selected.public.selectedNative.clientId).toBe('native-client');
+        expect(selected.public.selectedNative.resource.scope.name).toBe('session:exchange');
+      }
+    );
+    const operations = requests.map(({ method, path }) => `${method} ${path}`);
+    expect(operations.indexOf('POST applications')).toBeLessThan(
+      operations.indexOf('POST resources')
+    );
+    expect(operations).toContain('GET applications/native-client');
+  });
+
   it('creates candidate metadata without unsupported DELETEs or changing coordinator public', async () => {
     const base = fixture();
     const requests: Phase2AdminRequest[] = [];

@@ -315,7 +315,7 @@ const healthProbeConfiguration = (role) => {
     appSecret: randomBytes(32).toString('hex'),
     unionId: `common-wechat-health-${role}`,
     codes: Object.freeze(Object.fromEntries(
-      ['setup', 'browser', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider']
+      ['setup', 'browser', 'account', 'foreignAccount', 'noUnionId', 'invalidCode', 'replay', 'malformedProvider']
         .map((kind) => [kind, randomBytes(24).toString('hex')])
     )),
   });

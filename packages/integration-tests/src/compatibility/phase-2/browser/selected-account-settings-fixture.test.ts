@@ -102,6 +102,19 @@ describe('selected Account settings fixture', () => {
     expect(previous).toEqual({ name: 'ReadOnly' });
   });
 
+  it('selects social edit permission while preserving the other Account fields', () => {
+    const previous = { email: 'ReadOnly', phone: 'ReadOnly', password: 'Edit' };
+    expect(selectAccountSettingsFields(previous, 'social', 'Edit')).toEqual({
+      ...previous,
+      social: 'Edit',
+    });
+    expect(selectAccountSettingsFields(previous, 'social', 'ReadOnly')).toEqual({
+      ...previous,
+      social: 'ReadOnly',
+    });
+    expect(previous).toEqual({ email: 'ReadOnly', phone: 'ReadOnly', password: 'Edit' });
+  });
+
   it('attempts policy and Account restoration when connector cleanup fails', async () => {
     const attempted: string[] = [];
     await expect(

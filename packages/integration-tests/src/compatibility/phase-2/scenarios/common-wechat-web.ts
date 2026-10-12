@@ -115,7 +115,15 @@ export type CommonWechatWebFixtureRuntime = Readonly<{
       subject: string;
       providerCase?: 'positive' | CommonWechatWebProviderControlKind;
     }>
-  ): Promise<SelectedWechatWebProviderLease & Readonly<{ takeBrowserCode(): Promise<string> }>>;
+  ): Promise<
+    SelectedWechatWebProviderLease &
+      Readonly<{
+        takeBrowserCode(): Promise<string>;
+        takeAccountCode(): Promise<string>;
+        takeForeignAccountCode(): Promise<string>;
+        assertAccountProviderCase(): Promise<void>;
+      }>
+  >;
 }>;
 
 const fields = Object.freeze([

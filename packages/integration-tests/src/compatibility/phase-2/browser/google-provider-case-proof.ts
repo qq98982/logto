@@ -6,6 +6,8 @@ const changedEmailMessage = 'Invalid Google changed-email provider receipt';
 const replayMessage = 'Invalid Google replay provider receipt';
 const wrongStateMessage = 'Invalid Google wrong-state provider receipt';
 const registrationMessage = 'Invalid Google registration provider receipt';
+const configuredCollisionMessage = 'Invalid Google configured-collision provider receipt';
+const accountMessage = 'Invalid Google Account provider receipt';
 const keys = [
   'tokenRequestCount',
   'userinfoRequestCount',
@@ -150,6 +152,62 @@ export const assertGooglePrimaryRegistrationProviderReceipt = async (
       receiptFail(registrationMessage);
   } catch {
     receiptFail(registrationMessage);
+  }
+};
+
+export const assertGoogleConfiguredCollisionProviderReceipt = async (
+  path: string,
+  expectedUserinfoMethod: 'GET' | 'POST'
+): Promise<void> => {
+  try {
+    const row = await readGoogleProviderReceipt(path, configuredCollisionMessage);
+    if (
+      row.tokenRequestCount !== 2 ||
+      row.userinfoRequestCount !== 2 ||
+      row.userinfoGetObserved !== (expectedUserinfoMethod === 'GET') ||
+      row.userinfoPostObserved !== (expectedUserinfoMethod === 'POST') ||
+      row.grantTypeExact !== true ||
+      row.callbackUriExact !== true ||
+      row.clientAuthenticationExact !== true ||
+      row.issuedBearerObserved !== true ||
+      row.stableSubjectCaseConsumed !== true ||
+      row.changedEmailCaseConsumed !== false ||
+      row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== true ||
+      row.replayRejected !== false
+    )
+      receiptFail(configuredCollisionMessage);
+  } catch {
+    receiptFail(configuredCollisionMessage);
+  }
+};
+
+export const assertGoogleAccountProviderReceipt = async (
+  path: string,
+  expectedUserinfoMethod: 'GET' | 'POST'
+): Promise<void> => {
+  try {
+    const row = await readGoogleProviderReceipt(path, accountMessage);
+    if (
+      row.tokenRequestCount !== 3 ||
+      row.userinfoRequestCount !== 3 ||
+      row.userinfoGetObserved !== (expectedUserinfoMethod === 'GET') ||
+      row.userinfoPostObserved !== (expectedUserinfoMethod === 'POST') ||
+      row.grantTypeExact !== true ||
+      row.callbackUriExact !== true ||
+      row.clientAuthenticationExact !== true ||
+      row.issuedBearerObserved !== true ||
+      row.stableSubjectCaseConsumed !== true ||
+      row.changedEmailCaseConsumed !== true ||
+      row.wrongStateControlCodeConsumed !== true ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== false ||
+      row.replayRejected !== false
+    )
+      receiptFail(accountMessage);
+  } catch {
+    receiptFail(accountMessage);
   }
 };
 

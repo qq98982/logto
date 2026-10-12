@@ -15,6 +15,7 @@ import { createPlaywrightBrowserGroupObserver } from '../phase-1/browser/playwri
 import { runPhase1FixtureCommand } from '../phase-1/clients/command-provisioner.js';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
+import { runBoundCommonCompletionScenarios } from './browser/common-completion-target-driver.js';
 import { readCommonGoogleExistingOwnerFixtureRuntime } from './browser/common-google-existing-owner-fixture-runtime.js';
 import { readCommonGoogleRegistrationFixtureRuntime } from './browser/common-google-registration-fixture-runtime.js';
 import { readCommonWechatWebFixtureRuntime } from './browser/common-wechat-web-fixture-runtime.js';
@@ -138,6 +139,13 @@ import {
   runCommonAccountPhoneChangeScenarioRow,
   type CommonAccountPhoneChangeScenarioResult,
 } from './scenarios/common-account-phone-change.js';
+import { CommonCompletionScenarioFailure } from './scenarios/common-completion-runner.js';
+import {
+  commonCompletionScenarioIds,
+  compareCommonCompletionProjections,
+  type CommonCompletionScenarioId,
+  type CommonCompletionScenarioResult,
+} from './scenarios/common-completion.js';
 import {
   commonEmailCodeRegistrationScenarioIds,
   compareCommonEmailCodeRegistrationProjections,
@@ -345,6 +353,7 @@ type TargetScenarioEvidence = Readonly<{
     | CommonAccountEmailChangeScenarioResult
     | CommonAccountPhoneChangeScenarioResult
     | CommonManagementUserScenarioResult
+    | CommonCompletionScenarioResult
     | CommonPhoneCodeScenarioResult
     | CustomJwtScenarioEvidence
     | CustomJwtFetchScenarioEvidence
@@ -564,7 +573,7 @@ export const deviceScenarioProjectionFailure = (
   );
 };
 const scenarioFailurePattern =
-  /^(?!.*common\.(?:email\.(?:code-sign-in|code-registration|password-registration)|password\.recovery|google\.existing-owner):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration|password-registration)|common\.password\.recovery|common\.google\.existing-owner|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
+  /^(?!.*common\.(?:email\.(?:code-sign-in|code-registration|password-registration)|password\.recovery|google\.existing-owner):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration|password-registration)|common\.password\.recovery|common\.google\.existing-owner|common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation)|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -601,7 +610,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|completion-fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 export const commonEmailPasswordScenarioFailure = (
@@ -1207,6 +1216,7 @@ const profileScenarioIdIsClosed = (value: string): boolean =>
   (commonAccountEmailChangeScenarioIds as readonly string[]).includes(value) ||
   (commonAccountPhoneChangeScenarioIds as readonly string[]).includes(value) ||
   (commonManagementUserScenarioIds as readonly string[]).includes(value) ||
+  (commonCompletionScenarioIds as readonly string[]).includes(value) ||
   (commonPhoneCodeScenarioIds as readonly string[]).includes(value) ||
   (deviceAuthorizationScenarioIds as readonly string[]).includes(value);
 const candidateAdminBearerFailurePattern =
@@ -2424,6 +2434,29 @@ const runTargetScenarios = async (
       }
       throw new Error(`Phase 2 stage failed: ${descriptor.kind}-custom-jwt`);
     }
+    const commonCompletionScenarios = await (async () => {
+      const runtimeFile =
+        descriptor.kind === 'oracle'
+          ? process.env.ASTER_PHASE2_ORACLE_COMPLETION_INPUT
+          : process.env.ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT;
+      if (!runtimeFile) {
+        throw new TypeError('Missing Common completion fixture');
+      }
+      return runBoundCommonCompletionScenarios({
+        target: descriptor.target,
+        fixture,
+        jwks,
+        browserType: loadChromium(),
+        runtimeFile,
+        controlSocket: descriptor.stateDriver.controlSocket,
+        signal: AbortSignal.timeout(1_620_000),
+      });
+    })().catch((error: unknown) => {
+      if (error instanceof CommonCompletionScenarioFailure) {
+        throw new TypeError(`Phase 2 scenario failed: ${descriptor.kind}/${error.scenarioId}`);
+      }
+      throw new Error(`Phase 2 stage failed: ${descriptor.kind}-completion-fixture`);
+    });
     return Object.freeze([
       ...results,
       ...statusScenarios,
@@ -2446,6 +2479,7 @@ const runTargetScenarios = async (
       ...commonPhoneCodeScenarios,
       commonAccountPhoneChangeScenario,
       ...commonManagementUserScenarios,
+      ...commonCompletionScenarios,
     ]);
   };
   const scenarios = await runPhase2TargetFixture({
@@ -2546,6 +2580,9 @@ const executeOracle = async (
   const target = await runTargetScenarios(input.profile, input.target);
   return Object.freeze({ schemaVersion: 1, mode: 'oracle', target });
 };
+
+const projectionHasKind = (value: unknown): boolean =>
+  typeof value === 'object' && value !== null && 'kind' in value;
 
 const statusScopeClass = (value: unknown): 'short' | 'full' | 'resource' | 'offline' | 'other' => {
   switch (value) {
@@ -2709,6 +2746,18 @@ export const executeDifferential = async (
       }
       return Object.freeze({ scenarioId: oracleScenario.id, differenceCount: 0 });
     }
+    if ((commonCompletionScenarioIds as readonly string[]).includes(oracleScenario.id)) {
+      const id = oracleScenario.id as CommonCompletionScenarioId;
+      const found = compareCommonCompletionProjections(
+        id,
+        oracleScenario.projection,
+        candidateScenario.projection
+      );
+      if (found.length > 0) {
+        throw new Error(`Phase 2 scenario failed: candidate/${id}`);
+      }
+      return Object.freeze({ scenarioId: id, differenceCount: 0 });
+    }
     if ((commonManagementUserScenarioIds as readonly string[]).includes(oracleScenario.id)) {
       const id = oracleScenario.id as CommonManagementUserScenarioResult['id'];
       const found = compareCommonManagementUserProjections(
@@ -2815,15 +2864,15 @@ export const executeDifferential = async (
             oracleScenario.id as DeviceAuthorizationScenarioId
           )
         : isTokenStatus &&
-            'kind' in oracleScenario.projection &&
-            'kind' in candidateScenario.projection
+            projectionHasKind(oracleScenario.projection) &&
+            projectionHasKind(candidateScenario.projection)
           ? compareTokenStatus(
               oracleScenario.projection as TokenStatusScenarioResult['projection'],
               candidateScenario.projection as TokenStatusScenarioResult['projection']
             )
           : !isTokenStatus &&
-              !('kind' in oracleScenario.projection) &&
-              !('kind' in candidateScenario.projection)
+              !projectionHasKind(oracleScenario.projection) &&
+              !projectionHasKind(candidateScenario.projection)
             ? compareClientCredentialsProjections(
                 oracleScenario.projection as ClientCredentialsScenarioResult['projection'],
                 candidateScenario.projection as ClientCredentialsScenarioResult['projection']
@@ -2840,8 +2889,8 @@ export const executeDifferential = async (
           ) ?? found[0];
         if (
           first === '/body/scope' &&
-          'kind' in oracleScenario.projection &&
-          'kind' in candidateScenario.projection
+          projectionHasKind(oracleScenario.projection) &&
+          projectionHasKind(candidateScenario.projection)
         ) {
           const oracleStatus = oracleScenario.projection as TokenStatusScenarioResult['projection'];
           const candidateStatus =

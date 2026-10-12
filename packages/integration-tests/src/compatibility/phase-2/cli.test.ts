@@ -71,6 +71,7 @@ import {
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
+import { commonCompletionScenarioIds } from './scenarios/common-completion.js';
 import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-password.js';
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
@@ -2492,6 +2493,43 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it.each(commonCompletionScenarioIds)(
+    'reports a failed completion row %s without publishing an artifact',
+    async (scenarioId) => {
+      const output = path.join(root, 'phase-2-client-credentials-differential.json');
+      const calls: string[] = [];
+      const code = await runPhase2CliMain(
+        [
+          'differential',
+          '--profile',
+          profilePath,
+          '--schema',
+          schemaPath,
+          '--oracle-evidence',
+          oracleTargetPath,
+          '--candidate-target',
+          candidateTargetPath,
+          '--output',
+          output,
+          '--temp-root',
+          root,
+        ],
+        undefined,
+        {
+          ...dependencies(calls),
+          executeDifferential: async () => {
+            throw new TypeError(`Phase 2 scenario failed: candidate/${scenarioId}`);
+          },
+        }
+      );
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (candidate/${scenarioId}).`
+      );
+      await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  );
+
   it('preserves an exact closed verification-code scenario failure for the launcher', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');
     const calls: string[] = [];
@@ -2920,6 +2958,48 @@ describe('Phase 2 CLI', () => {
     expect(calls.join(' ')).not.toContain('private credential');
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it.each(commonCompletionScenarioIds.map((id, offset) => [id, 192 + offset] as const))(
+    'retains the sanitizer location for %s and hides private details',
+    async (_id, index) => {
+      const calls: string[] = [];
+      const output = path.join(root, 'phase-2-client-credentials-oracle.json');
+      const code = await runPhase2CliMain(oracleArguments(output), undefined, {
+        ...dependencies(calls),
+        executeOracle: async () => {
+          throw new Error(
+            `Phase 2 stage failed: oracle-sanitizer-common-completion-${index}: private credential`
+          );
+        },
+      });
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (oracle-sanitizer-common-completion-${index}).`
+      );
+      expect(calls.join(' ')).not.toContain('private credential');
+      await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  );
+
+  it.each(['191', '206', '192-private-credential'])(
+    'hides unapproved completion sanitizer location %s',
+    async (suffix) => {
+      const calls: string[] = [];
+      const output = path.join(root, 'phase-2-client-credentials-oracle.json');
+      const code = await runPhase2CliMain(oracleArguments(output), undefined, {
+        ...dependencies(calls),
+        executeOracle: async () => {
+          throw new Error(`Phase 2 stage failed: oracle-sanitizer-common-completion-${suffix}`);
+        },
+      });
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        'stderr:Phase 2 client credentials command failed (oracle-execution).'
+      );
+      expect(calls.join(' ')).not.toContain(`common-completion-${suffix}`);
+      await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  );
 
   it('identifies a fixed fixture failure stage without printing its private exception', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');

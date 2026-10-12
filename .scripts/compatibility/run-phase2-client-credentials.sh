@@ -13,14 +13,21 @@ readonly ORACLE_SERVICES=(
   oracle-primary-postgres oracle-primary-redis oracle-primary-core
   oracle-fetch-observer oracle-primary-smtp
   oracle-foreign-postgres oracle-foreign-redis oracle-foreign-core oracle-google-provider oracle-wechat-provider oracle-sms-provider
+  oracle-pwned-clear oracle-pwned-compromised oracle-pwned-unavailable
+  oracle-backchannel-accepted oracle-backchannel-rejected oracle-h5-wechat-provider oracle-wechat-multichannel-provider
+  oracle-h5-core
 )
 readonly CANDIDATE_SERVICES=(
   candidate-primary-postgres candidate-primary-init candidate-primary-core candidate-primary-smtp
   candidate-fetch-observer candidate-script-supervisor candidate-script-executor
   candidate-foreign-postgres candidate-foreign-init candidate-foreign-core
   candidate-fixture-coordinator candidate-google-provider candidate-wechat-provider candidate-sms-provider
+  candidate-pwned-clear candidate-pwned-compromised candidate-pwned-unavailable
+  candidate-backchannel-accepted candidate-backchannel-rejected candidate-h5-wechat-provider candidate-wechat-multichannel-provider
+  candidate-h5-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
+readonly COMPLETION_PORTS=(3351 3352 3353 3354)
 readonly LOOPBACK_PROXY_BINDINGS=(
   'oracle|oracle-primary-core|3001|3311'
   'oracle|oracle-primary-core|3411|3411'
@@ -68,6 +75,10 @@ forward_closed_common_row_failures() {
   local file=$1
   [[ -f "$file" && ! -L "$file" ]] || return 1
   /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/(common\.email\.password-registration|common\.password\.recovery|common\.google\.existing-owner)\)\.$' \
+    "$file" >&2 || true
+  /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)/(common\.password\.policy|common\.google\.configured-collision|common\.account\.google-link|common\.wechat\.h5|common\.wechat\.mini|common\.wechat\.mini-phone-registration|common\.wechat\.native|common\.account\.wechat-link|common\.management\.applications-secrets|common\.management\.native-resource-role|common\.management\.connectors-experience|common\.management\.user-suspend-delete|common\.management\.provisioning-convergence|common\.session\.logout-preservation)\)\.$' \
+    "$file" >&2 || true
+  /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-fixture\)\.$' \
     "$file" >&2
 }
 
@@ -581,6 +592,29 @@ start_loopback_proxy() {
   return 1
 }
 
+start_h5_carrier() {
+  local listen=$1 upstream=$2 token pid pgid attempt observed
+  port_is_released "$listen" || return 1
+  token="$(random_hex 32)" || return 1
+  ASTER_PHASE2_PROCESS_TOKEN="$token" "$ENV_BIN" -i PATH="$(/usr/bin/dirname -- "$NODE_BIN"):/usr/bin:/bin" \
+    ASTER_PHASE2_PROCESS_TOKEN="$token" "$SETSID_BIN" "$NODE_BIN" "$H5_CARRIER_SCRIPT" \
+    "$listen" "$upstream" "$H5_SERVER_CERT" "$H5_SERVER_KEY" </dev/null >/dev/null 2>&1 &
+  pid=$!
+  pgid=$pid
+  for ((attempt=0; attempt<100; attempt++)); do
+    kill -0 "$pid" 2>/dev/null || break
+    observed="$($PS_BIN -o pgid= -p "$pid" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+    if [[ "$observed" == "$pgid" ]] && process_has_token "$pid" "$token" && port_is_listened_by_pid "$listen" "$pid"; then
+      PROXY_PIDS+=("$pid"); PROXY_PGIDS+=("$pgid"); PROXY_TOKENS+=("$token")
+      return 0
+    fi
+    /usr/bin/sleep 0.05
+  done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 1
+}
+
 http_ready() {
   local port=$1 issuer=$2 response attempt
   for ((attempt=0; attempt<90; attempt++)); do
@@ -589,6 +623,17 @@ http_ready() {
       printf 'Host: localhost:%s\r\nConnection: close\r\n\r\n' "$port"
     } | "$NC_BIN" -w 3 127.0.0.1 "$port" 2>/dev/null || true)"
     [[ "$response" == *' 200 OK'* && "$response" == *"\"issuer\":\"${issuer}\""* ]] && return 0
+    /usr/bin/sleep 1
+  done
+  return 1
+}
+
+https_ready() {
+  local port=$1 issuer=$2 response attempt
+  for ((attempt=0; attempt<90; attempt++)); do
+    response="$($CURL_BIN --silent --show-error --fail --max-time 3 --cacert "$H5_CA" \
+      "https://localhost:${port}/oidc/.well-known/openid-configuration" 2>/dev/null || true)"
+    [[ "$response" == *"\"issuer\":\"${issuer}\""* ]] && return 0
     /usr/bin/sleep 1
   done
   return 1
@@ -938,7 +983,7 @@ cleanup_resources() {
     if [[ -z "$EXTRACTION_CONTAINER_ID" && -z "$PROBE_CONTAINER_ID" && ${#PROXY_PIDS[@]} == 0 && "$CANDIDATE_PROJECT_STARTED" == 0 && "$ORACLE_PROJECT_STARTED" == 0 ]]; then
       remove_invariant_handle_root "$INVARIANT_HANDLE_ROOT" || cleanup_failed=1
       remove_state_handle_root "$STATE_HANDLE_ROOT" || cleanup_failed=1
-      assert_ports_released "${PORTS[@]}" || cleanup_failed=1
+      assert_ports_released "${PORTS[@]}" "${COMPLETION_PORTS[@]}" || cleanup_failed=1
       if [[ -n "$RUN_DIR" ]]; then
         remove_run_root "$RUN_DIR" || cleanup_failed=1
       fi
@@ -1296,6 +1341,8 @@ assert_runtime_identity_unchanged() {
   [[ "$(core_identity oracle oracle-foreign-core "$ORACLE_IMAGE_ID")" == "$ORACLE_FOREIGN_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity candidate candidate-primary-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_PRIMARY_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity candidate candidate-foreign-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_FOREIGN_CORE_IDENTITY" ]] || return 1
+  [[ "$(core_identity oracle oracle-h5-core "$ORACLE_IMAGE_ID")" == "$ORACLE_H5_CORE_IDENTITY" ]] || return 1
+  [[ "$(core_identity candidate candidate-h5-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_H5_CORE_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$ORACLE_STATE_DRIVER")" == "$ORACLE_STATE_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_STATE_DRIVER")" == "$CANDIDATE_STATE_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_INVARIANT_DRIVER")" == "$CANDIDATE_INVARIANT_DRIVER_IDENTITY" ]] || return 1
@@ -1308,6 +1355,17 @@ assert_runtime_identity_unchanged() {
     == "$ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_WECHAT_PROVIDER_INPUT")" \
     == "$CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$ORACLE_COMPLETION_INPUT")" == "$ORACLE_COMPLETION_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$CANDIDATE_COMPLETION_INPUT")" == "$CANDIDATE_COMPLETION_INPUT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$CANDIDATE_IDENTITY_CONFIG")" == "$CANDIDATE_IDENTITY_CONFIG_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$IDENTITY_CA")" == "$IDENTITY_CA_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$IDENTITY_SERVER_CERT")" == "$IDENTITY_SERVER_CERT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$IDENTITY_SERVER_KEY")" == "$IDENTITY_SERVER_KEY_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$H5_CA")" == "$H5_CA_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$H5_SERVER_CERT")" == "$H5_SERVER_CERT_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$H5_SERVER_KEY")" == "$H5_SERVER_KEY_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$H5_SPKI")" == "$H5_SPKI_IDENTITY" ]] || return 1
+  [[ "$(artifact_identity "$H5_CANDIDATE_CONFIG")" == "$H5_CANDIDATE_CONFIG_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
@@ -1446,13 +1504,13 @@ if (!exactKeys(oracle.payload, ['schemaVersion','mode','target']) ||
     !exactKeys(oracle.payload?.target, ['target','scenarios','discovery','controls']) ||
     oracle.payload.schemaVersion !== 1 || oracle.payload.mode !== 'oracle' ||
     oracle.payload.target.target !== 'oracle' ||
-    scenarioCount !== 192 || oracleControls?.length !== expectedControlCount ||
+    scenarioCount !== 206 || oracleControls?.length !== expectedControlCount ||
     oracleScenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
     !controlsAreExact(oracleControls) ||
     !exact(oracleScenarios.map(({id}) => id), profile.differentialScenarios)) fail();
 for (const side of [differential.payload?.oracle, differential.payload?.candidate]) {
   if (!exactKeys(side, ['target','scenarios','discovery','controls']) ||
-      side?.scenarios?.length !== 192 || side?.controls?.length !== expectedControlCount ||
+      side?.scenarios?.length !== 206 || side?.controls?.length !== expectedControlCount ||
       side.scenarios.some((scenario) => !exactKeys(scenario, ['id','projection'])) ||
       !controlsAreExact(side.controls) || !exact(side.controls, oracleControls) ||
       !exact(side.scenarios.map(({id}) => id), profile.differentialScenarios)) fail();
@@ -1462,7 +1520,7 @@ if (!exactKeys(differential.payload, ['schemaVersion','mode','oracle','candidate
     differential.payload.oracle.target !== 'oracle' ||
     differential.payload.candidate.target !== 'candidate') fail();
 const comparisonCount = differential.payload?.comparisons?.length;
-if (comparisonCount !== 192 || differential.payload.comparisons.some((comparison, index) =>
+if (comparisonCount !== 206 || differential.payload.comparisons.some((comparison, index) =>
   !exactKeys(comparison, ['scenarioId','differenceCount']) ||
   comparison.scenarioId !== profile.differentialScenarios[index] || comparison.differenceCount !== 0)) fail();
 const invariantCount = invariants.payload?.invariants?.length;
@@ -1566,16 +1624,35 @@ main() {
   SMS_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider.mjs"
   SMS_TOPOLOGY_MODULE="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider-topology.mjs"
   SMS_RUNTIME_HELPER="$REPO_ROOT/.scripts/compatibility/phase2-sms-provider-runtime.mjs"
+  IDENTITY_PKI_SCRIPT="$REPO_ROOT/.scripts/compatibility/generate-identity-transport-pki.sh"
+  H5_PKI_SCRIPT="$REPO_ROOT/.scripts/compatibility/generate-h5-pki.sh"
+  COMPLETION_DESCRIPTOR_GENERATOR="$REPO_ROOT/.scripts/compatibility/generate-runtime-descriptors.mjs"
+  OWNED_ATTEMPT_TOPOLOGY="$REPO_ROOT/.scripts/compatibility/extend-owned-attempt-services.mjs"
+  H5_WECHAT_TOPOLOGY="$REPO_ROOT/.scripts/compatibility/extend-h5-wechat-topology.mjs"
+  H5_CORE_TOPOLOGY="$REPO_ROOT/.scripts/compatibility/extend-h5-core-topology.mjs"
+  MULTICHANNEL_TOPOLOGY="$REPO_ROOT/.scripts/compatibility/extend-wechat-multichannel-topology.mjs"
+  CANDIDATE_IDENTITY_TOPOLOGY="$REPO_ROOT/.scripts/compatibility/apply-candidate-identity-config.mjs"
+  PWNED_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/pwned-range-provider.mjs"
+  BACKCHANNEL_RECEIVER_SCRIPT="$REPO_ROOT/.scripts/compatibility/backchannel-receiver.mjs"
+  MULTICHANNEL_PROVIDER_SCRIPT="$REPO_ROOT/.scripts/compatibility/wechat-multichannel-provider.mjs"
+  H5_CARRIER_SCRIPT="$REPO_ROOT/.scripts/compatibility/h5-https-carrier.mjs"
   LAUNCHER_SOURCE="$REPO_ROOT/packages/integration-tests/src/compatibility/phase-2/launcher.mjs"
   readonly SOURCE_COMPOSE PODMAN_GENERATOR STATE_DRIVER_SOURCE INVARIANT_DRIVER_SOURCE
   readonly GOOGLE_PROVIDER_SCRIPT GOOGLE_TOPOLOGY_MODULE GOOGLE_RUNTIME_HELPER LAUNCHER_SOURCE
   readonly WECHAT_PROVIDER_SCRIPT WECHAT_TOPOLOGY_MODULE WECHAT_RUNTIME_HELPER
   readonly SMS_PROVIDER_SCRIPT SMS_TOPOLOGY_MODULE SMS_RUNTIME_HELPER
+  readonly IDENTITY_PKI_SCRIPT H5_PKI_SCRIPT COMPLETION_DESCRIPTOR_GENERATOR OWNED_ATTEMPT_TOPOLOGY
+  readonly H5_WECHAT_TOPOLOGY H5_CORE_TOPOLOGY MULTICHANNEL_TOPOLOGY CANDIDATE_IDENTITY_TOPOLOGY
+  readonly PWNED_PROVIDER_SCRIPT BACKCHANNEL_RECEIVER_SCRIPT MULTICHANNEL_PROVIDER_SCRIPT H5_CARRIER_SCRIPT
   for tracked_input in "$SOURCE_COMPOSE" "$PODMAN_GENERATOR" "$STATE_DRIVER_SOURCE" \
     "$INVARIANT_DRIVER_SOURCE" "$GOOGLE_PROVIDER_SCRIPT" "$GOOGLE_TOPOLOGY_MODULE" \
     "$GOOGLE_RUNTIME_HELPER" "$WECHAT_PROVIDER_SCRIPT" "$WECHAT_TOPOLOGY_MODULE" \
     "$WECHAT_RUNTIME_HELPER" "$SMS_PROVIDER_SCRIPT" "$SMS_TOPOLOGY_MODULE" \
-    "$SMS_RUNTIME_HELPER" "$LAUNCHER_SOURCE"; do
+    "$SMS_RUNTIME_HELPER" "$IDENTITY_PKI_SCRIPT" "$H5_PKI_SCRIPT" \
+    "$COMPLETION_DESCRIPTOR_GENERATOR" "$OWNED_ATTEMPT_TOPOLOGY" "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" \
+    "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" "$PWNED_PROVIDER_SCRIPT" \
+    "$BACKCHANNEL_RECEIVER_SCRIPT" "$MULTICHANNEL_PROVIDER_SCRIPT" "$H5_CARRIER_SCRIPT" \
+    "$LAUNCHER_SOURCE"; do
     [[ -f "$tracked_input" && ! -L "$tracked_input" ]] \
       || { failure_stage='tracked-inputs'; fail; return 1; }
   done
@@ -1640,6 +1717,9 @@ main() {
   GOOGLE_PROVIDER_ROOT="$RUN_DIR/google-provider"
   WECHAT_PROVIDER_ROOT="$RUN_DIR/wechat-provider"
   SMS_PROVIDER_ROOT="$RUN_DIR/s"
+  COMPLETION_ROOT="$RUN_DIR/common-completion"
+  IDENTITY_TLS_ROOT="$COMPLETION_ROOT/runtime-identity"
+  H5_RUNTIME_ROOT="$COMPLETION_ROOT/runtime-h5"
   ORACLE_SMS_PROVIDER_INPUT="$SMS_PROVIDER_ROOT/o/input.json"
   CANDIDATE_SMS_PROVIDER_INPUT="$SMS_PROVIDER_ROOT/c/input.json"
   readonly SMS_PROVIDER_ROOT ORACLE_SMS_PROVIDER_INPUT CANDIDATE_SMS_PROVIDER_INPUT
@@ -1647,7 +1727,7 @@ main() {
     "$FIXTURE_DIRECTORY" "$HOST_BIN_DIRECTORY" \
     "$PRIMARY_KEYRING_DIRECTORY" "$FOREIGN_KEYRING_DIRECTORY" "$EVIDENCE_DIR" "$TLS_DIRECTORY" \
     "$ORACLE_OBSERVER_RECEIPT_DIRECTORY" "$CANDIDATE_OBSERVER_RECEIPT_DIRECTORY" \
-    "$SCRIPT_HOST_STATE"; do
+    "$SCRIPT_HOST_STATE" "$COMPLETION_ROOT" "$IDENTITY_TLS_ROOT" "$H5_RUNTIME_ROOT"; do
     /usr/bin/mkdir -m 700 -- "$directory"
   done
   readonly PRIVATE_HOME BROWSER_TMP XDG_RUNTIME PLAYWRIGHT_BOOTSTRAP_LOG
@@ -1712,9 +1792,22 @@ main() {
   CANDIDATE_WECHAT_RECEIPT="$WECHAT_PROVIDER_ROOT/candidate/receipts/observations.json"
   CANDIDATE_WECHAT_DIAGNOSTIC="$WECHAT_PROVIDER_ROOT/candidate/diagnostics/health.json"
   CANDIDATE_WECHAT_PROVIDER_INPUT="$WECHAT_PROVIDER_ROOT/candidate/provider-input.json"
+  ORACLE_COMPLETION_INPUT="$COMPLETION_ROOT/runtime-common/oracle-descriptor.json"
+  CANDIDATE_COMPLETION_INPUT="$COMPLETION_ROOT/runtime-common/candidate-descriptor.json"
+  CANDIDATE_IDENTITY_CONFIG="$IDENTITY_TLS_ROOT/candidate-identity-transports.json"
+  IDENTITY_CA="$IDENTITY_TLS_ROOT/identity-ca.pem"
+  IDENTITY_SERVER_CERT="$IDENTITY_TLS_ROOT/identity-server.pem"
+  IDENTITY_SERVER_KEY="$IDENTITY_TLS_ROOT/identity-server.key"
+  H5_CA="$H5_RUNTIME_ROOT/h5-loopback-ca.pem"
+  H5_SERVER_CERT="$H5_RUNTIME_ROOT/h5-loopback-server.pem"
+  H5_SERVER_KEY="$H5_RUNTIME_ROOT/h5-loopback-server.key"
+  H5_SPKI="$H5_RUNTIME_ROOT/h5-loopback-server.spki"
+  H5_CANDIDATE_CONFIG="$CONFIG_DIR/candidate-h5.conf"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
+  readonly COMPLETION_ROOT IDENTITY_TLS_ROOT H5_RUNTIME_ROOT ORACLE_COMPLETION_INPUT CANDIDATE_COMPLETION_INPUT
+  readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
   [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
@@ -1723,6 +1816,10 @@ main() {
     || { failure_stage='browser-cache-identity'; fail; return 1; }
   [[ -f "$FETCH_OBSERVER_SCRIPT" && ! -L "$FETCH_OBSERVER_SCRIPT" ]] || { failure_stage='fetch-observer-script'; fail; return 1; }
   generate_fetch_and_script_host_pki || { failure_stage='private-pki'; fail; return 1; }
+  "$IDENTITY_PKI_SCRIPT" "$IDENTITY_TLS_ROOT" || { failure_stage='identity-fixture-pki'; fail; return 1; }
+  "$H5_PKI_SCRIPT" generate "$H5_RUNTIME_ROOT" >/dev/null || { failure_stage='h5-loopback-pki'; fail; return 1; }
+  "$JQ_BIN" -cn '{schemaVersion:1,passwordCompromise:{peer:"172.30.241.54:443",caFile:"/run/aster/identity-fixture-ca.pem"},backchannel:{origin:"https://backchannel.aster.test:8443",peer:"172.30.241.55:8443",caFile:"/run/aster/identity-fixture-ca.pem"}}' >"$CANDIDATE_IDENTITY_CONFIG"
+  /usr/bin/chmod 0400 "$CANDIDATE_IDENTITY_CONFIG"
   assert_private_runtime_material || { failure_stage='private-runtime-material'; fail; return 1; }
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
     "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" prepare "$GOOGLE_PROVIDER_ROOT" \
@@ -1799,6 +1896,8 @@ main() {
   printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$primary_deployment_id" "$primary_sentinel" >"$PRIMARY_CONFIG_FILE"
   printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$foreign_deployment_id" "$foreign_sentinel" >"$FOREIGN_CONFIG_FILE"
   /usr/bin/chmod 0400 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"
+  /usr/bin/cp -- "$PRIMARY_CONFIG_FILE" "$H5_CANDIDATE_CONFIG"
+  /usr/bin/chmod 0400 "$H5_CANDIDATE_CONFIG"
 
   cat >"$ORACLE_ENV" <<EOF
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE
@@ -2164,6 +2263,45 @@ for (const [destination, value] of [[oraclePath, bound.oracle], [candidatePath, 
   await rename(temporary, destination);
 }
 SMS_TOPOLOGY
+  failure_stage='completion-runtime-descriptors'
+  "$ENV_BIN" -i PATH="$(/usr/bin/dirname -- "$NODE_BIN"):/usr/bin:/bin" HOME="$PRIVATE_HOME" \
+    "$NODE_BIN" "$COMPLETION_DESCRIPTOR_GENERATOR" "$COMPLETION_ROOT" "$ORACLE_IMAGE_ID" \
+    "$ORACLE_PROJECT_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_GOOGLE_PROVIDER_INPUT" \
+    "$CANDIDATE_GOOGLE_PROVIDER_INPUT" "$ORACLE_WECHAT_PROVIDER_INPUT" \
+    "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$SMS_PROVIDER_ROOT" || { fail; return 1; }
+  "$NODE_BIN" --input-type=module - "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" \
+    "$ORACLE_COMPLETION_INPUT" "$CANDIDATE_COMPLETION_INPUT" "$OWNED_ATTEMPT_TOPOLOGY" \
+    "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" \
+    "$PWNED_PROVIDER_SCRIPT" "$BACKCHANNEL_RECEIVER_SCRIPT" "$WECHAT_PROVIDER_SCRIPT" \
+    "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA" "$IDENTITY_SERVER_CERT" \
+    "$IDENTITY_SERVER_KEY" "$CANDIDATE_IDENTITY_CONFIG" "$H5_CANDIDATE_CONFIG" <<'COMPLETION_TOPOLOGY' \
+    || { failure_stage='completion-topology'; fail; return 1; }
+import { open, readFile, rename } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+const [oraclePath,candidatePath,oracleDescriptorPath,candidateDescriptorPath,attemptModule,h5Module,h5CoreModule,
+ multichannelModule,candidateIdentityModule,pwnedScript,backchannelScript,legacyWechatScript,
+ multichannelScript,caFile,certificateFile,privateKeyFile,candidateIdentityFile,h5CandidateConfig]=process.argv.slice(2);
+const [{extendOwnedAttemptServices},{extendH5WechatTopology},{extendH5CoreTopology},{extendWechatMultichannelTopology},
+ {applyCandidateIdentityConfig}]=await Promise.all([attemptModule,h5Module,h5CoreModule,multichannelModule,candidateIdentityModule]
+ .map(async value=>import(pathToFileURL(value).href)));
+for(const [role,composePath,descriptorPath] of [['oracle',oraclePath,oracleDescriptorPath],['candidate',candidatePath,candidateDescriptorPath]]){
+ const descriptor=JSON.parse(await readFile(descriptorPath,'utf8'));
+ let document=JSON.parse(await readFile(composePath,'utf8'));
+ document=await extendOwnedAttemptServices(document,{backchannelScript,caFile,certificateFile,
+   descriptorFile:descriptorPath,privateKeyFile,pwnedScript});
+ document=extendH5WechatTopology(document,{certificateFile,descriptor:descriptor.h5Wechat,
+   privateKeyFile,role,script:legacyWechatScript});
+ document=extendH5CoreTopology(document,{candidateConfigFile:h5CandidateConfig,role});
+ document=extendWechatMultichannelTopology(document,{certificateFile,
+   configurationFile:descriptor.wechat.configFile,fixtureImage:descriptor.wechat.image,
+   privateKeyFile,receiptFile:descriptor.wechat.receiptFile,role,script:multichannelScript});
+ if(role==='candidate')document=applyCandidateIdentityConfig(document,{configurationFile:candidateIdentityFile,caFile});
+ const temporary=`${composePath}.completion`;
+ const handle=await open(temporary,'wx',0o600);
+ try{await handle.writeFile(JSON.stringify(document));await handle.sync();}finally{await handle.close();}
+ await rename(temporary,composePath);
+}
+COMPLETION_TOPOLOGY
   compose_oracle config --quiet >/dev/null 2>&1 || { fail; return 1; }
   compose_candidate config --quiet >/dev/null 2>&1 || { fail; return 1; }
 
@@ -2175,6 +2313,7 @@ SMS_TOPOLOGY
   start_compose_stage oracle dependencies oracle-primary-postgres oracle-primary-redis oracle-foreign-postgres oracle-foreign-redis || { fail; return 1; }
   start_compose_stage oracle observer oracle-fetch-observer || { fail; return 1; }
   start_compose_stage oracle core oracle-primary-core oracle-foreign-core || { fail; return 1; }
+  start_compose_stage oracle h5-core oracle-h5-core || { fail; return 1; }
   start_compose_stage oracle smtp oracle-primary-smtp || { fail; return 1; }
   CANDIDATE_PROJECT_STARTED=1
   start_compose_stage candidate postgres candidate-primary-postgres candidate-foreign-postgres || { fail; return 1; }
@@ -2183,6 +2322,7 @@ SMS_TOPOLOGY
   start_compose_stage candidate script-host candidate-script-supervisor candidate-script-executor || { fail; return 1; }
   wait_for_script_host_serving || { failure_stage='script-host-readiness'; fail; return 1; }
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
+  start_compose_stage candidate h5-core candidate-h5-core || { fail; return 1; }
   start_compose_stage candidate smtp candidate-primary-smtp || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
@@ -2266,6 +2406,18 @@ SMS_TOPOLOGY
     "$CANDIDATE_WECHAT_PROVIDER_INPUT")"
   readonly ORACLE_WECHAT_PROVIDER_INPUT_IDENTITY CANDIDATE_WECHAT_PROVIDER_INPUT_IDENTITY
 
+  failure_stage='completion-services-create'
+  for service in oracle-pwned-clear oracle-pwned-compromised oracle-pwned-unavailable \
+    oracle-backchannel-accepted oracle-backchannel-rejected oracle-h5-wechat-provider \
+    oracle-wechat-multichannel-provider; do
+    compose_oracle create "$service" >/dev/null || { fail; return 1; }
+  done
+  for service in candidate-pwned-clear candidate-pwned-compromised candidate-pwned-unavailable \
+    candidate-backchannel-accepted candidate-backchannel-rejected candidate-h5-wechat-provider \
+    candidate-wechat-multichannel-provider; do
+    compose_candidate create "$service" >/dev/null || { fail; return 1; }
+  done
+
   failure_stage='service-closure-oracle'
   start_compose_stage oracle sms oracle-sms-provider || { failure_stage='oracle-sms-provider-start'; fail; return 1; }
   start_compose_stage candidate sms candidate-sms-provider || { failure_stage='candidate-sms-provider-start'; fail; return 1; }
@@ -2281,6 +2433,12 @@ SMS_TOPOLOGY
     IFS='|' read -r proxy_role proxy_service proxy_target proxy_host <<<"$binding"
     start_loopback_proxy "$proxy_role" "$proxy_service" "$proxy_target" "$proxy_host" || { failure_stage="proxy-${proxy_host}"; fail; return 1; }
   done
+  start_loopback_proxy oracle oracle-h5-core 3001 3353 || { failure_stage='h5-upstream-oracle'; fail; return 1; }
+  start_loopback_proxy candidate candidate-h5-core 3001 3354 || { failure_stage='h5-upstream-candidate'; fail; return 1; }
+  start_h5_carrier 3351 3353 || { failure_stage='h5-carrier-oracle'; fail; return 1; }
+  start_h5_carrier 3352 3354 || { failure_stage='h5-carrier-candidate'; fail; return 1; }
+  https_ready 3351 'https://localhost:3351/oidc' || { failure_stage='h5-readiness-oracle'; fail; return 1; }
+  https_ready 3352 'https://localhost:3352/oidc' || { failure_stage='h5-readiness-candidate'; fail; return 1; }
 
   for readiness in \
     '3311|http://localhost:3311/oidc' '3411|http://localhost:3411/oidc' \
@@ -2309,14 +2467,32 @@ SMS_TOPOLOGY
   ORACLE_FOREIGN_CORE_IDENTITY="$(core_identity oracle oracle-foreign-core "$ORACLE_IMAGE_ID")"
   CANDIDATE_PRIMARY_CORE_IDENTITY="$(core_identity candidate candidate-primary-core "$CANDIDATE_IMAGE_ID")"
   CANDIDATE_FOREIGN_CORE_IDENTITY="$(core_identity candidate candidate-foreign-core "$CANDIDATE_IMAGE_ID")"
+  ORACLE_H5_CORE_IDENTITY="$(core_identity oracle oracle-h5-core "$ORACLE_IMAGE_ID")"
+  CANDIDATE_H5_CORE_IDENTITY="$(core_identity candidate candidate-h5-core "$CANDIDATE_IMAGE_ID")"
   ORACLE_STATE_DRIVER_IDENTITY="$(artifact_identity "$ORACLE_STATE_DRIVER")"
   CANDIDATE_STATE_DRIVER_IDENTITY="$(artifact_identity "$CANDIDATE_STATE_DRIVER")"
   CANDIDATE_INVARIANT_DRIVER_IDENTITY="$(artifact_identity "$CANDIDATE_INVARIANT_DRIVER")"
   ASTER_ADMIN_IDENTITY="$(artifact_identity "$ASTER_ADMIN_BIN")"
   FIXTURE_SOCKET_IDENTITY="$(socket_identity "$FIXTURE_SOCKET")"
+  ORACLE_COMPLETION_INPUT_IDENTITY="$(artifact_identity "$ORACLE_COMPLETION_INPUT")"
+  CANDIDATE_COMPLETION_INPUT_IDENTITY="$(artifact_identity "$CANDIDATE_COMPLETION_INPUT")"
+  CANDIDATE_IDENTITY_CONFIG_IDENTITY="$(artifact_identity "$CANDIDATE_IDENTITY_CONFIG")"
+  IDENTITY_CA_IDENTITY="$(artifact_identity "$IDENTITY_CA")"
+  IDENTITY_SERVER_CERT_IDENTITY="$(artifact_identity "$IDENTITY_SERVER_CERT")"
+  IDENTITY_SERVER_KEY_IDENTITY="$(artifact_identity "$IDENTITY_SERVER_KEY")"
+  H5_CA_IDENTITY="$(artifact_identity "$H5_CA")"
+  H5_SERVER_CERT_IDENTITY="$(artifact_identity "$H5_SERVER_CERT")"
+  H5_SERVER_KEY_IDENTITY="$(artifact_identity "$H5_SERVER_KEY")"
+  H5_SPKI_IDENTITY="$(artifact_identity "$H5_SPKI")"
+  H5_CANDIDATE_CONFIG_IDENTITY="$(artifact_identity "$H5_CANDIDATE_CONFIG")"
   TOPOLOGY_IDENTITY="$(topology_identity)"
   readonly ORACLE_PRIMARY_CORE_IDENTITY ORACLE_FOREIGN_CORE_IDENTITY CANDIDATE_PRIMARY_CORE_IDENTITY CANDIDATE_FOREIGN_CORE_IDENTITY
+  readonly ORACLE_H5_CORE_IDENTITY CANDIDATE_H5_CORE_IDENTITY
   readonly ORACLE_STATE_DRIVER_IDENTITY CANDIDATE_STATE_DRIVER_IDENTITY CANDIDATE_INVARIANT_DRIVER_IDENTITY ASTER_ADMIN_IDENTITY FIXTURE_SOCKET_IDENTITY TOPOLOGY_IDENTITY
+  readonly ORACLE_COMPLETION_INPUT_IDENTITY CANDIDATE_COMPLETION_INPUT_IDENTITY CANDIDATE_IDENTITY_CONFIG_IDENTITY
+  readonly IDENTITY_CA_IDENTITY IDENTITY_SERVER_CERT_IDENTITY IDENTITY_SERVER_KEY_IDENTITY
+  readonly H5_CA_IDENTITY H5_SERVER_CERT_IDENTITY H5_SERVER_KEY_IDENTITY H5_SPKI_IDENTITY
+  readonly H5_CANDIDATE_CONFIG_IDENTITY
   assert_source_identity_unchanged || { failure_stage='source-fence-before'; fail; return 1; }
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-before'; fail; return 1; }
 
@@ -2333,6 +2509,9 @@ SMS_TOPOLOGY
     ASTER_PHASE2_CANDIDATE_GOOGLE_PROVIDER_INPUT="$CANDIDATE_GOOGLE_PROVIDER_INPUT" \
     ASTER_PHASE2_ORACLE_WECHAT_PROVIDER_INPUT="$ORACLE_WECHAT_PROVIDER_INPUT" \
     ASTER_PHASE2_CANDIDATE_WECHAT_PROVIDER_INPUT="$CANDIDATE_WECHAT_PROVIDER_INPUT" \
+    ASTER_PHASE2_ORACLE_COMPLETION_INPUT="$ORACLE_COMPLETION_INPUT" \
+    ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT="$CANDIDATE_COMPLETION_INPUT" \
+    NODE_EXTRA_CA_CERTS="$H5_CA" \
     "$NODE_BIN" --input-type=module - "$LAUNCHER_SOURCE" "$PROFILE_SOURCE" "$SCHEMA_SOURCE" \
     "$ORACLE_DESCRIPTOR" "$CANDIDATE_DESCRIPTOR" "$ORACLE_EVIDENCE" "$DIFFERENTIAL_EVIDENCE" \
     "$INVARIANT_EVIDENCE" "$EVIDENCE_DIR" <<'NODE' >/dev/null 2>"$RUN_DIR/evidence-sequence.stderr" || {
