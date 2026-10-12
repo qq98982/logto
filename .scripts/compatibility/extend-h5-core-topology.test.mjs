@@ -18,7 +18,9 @@ const base = (role) => ({
         ? { ENDPOINT: 'http://localhost:3311' }
         : { ASTER_PHASE1_PRIMARY_CONFIG_FILE: '/private/original.conf', ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3321/oidc', NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem', SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem' },
       volumes: role === 'candidate' ? ['/private/original.conf:/private/original.conf:ro', 'keys:/keys:ro', '/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro'] : [],
-      healthcheck: { test: ['CMD-SHELL', `test -f /run/aster/maintainer-ready && ${probe(3001)} && ${probe(role === 'oracle' ? 3411 : 3421)}`], interval: '0s', timeout: '3s', retries: 60 },
+      healthcheck: { test: ['CMD-SHELL', role === 'oracle'
+        ? 'nc -z localhost 3001 && nc -z localhost 3411'
+        : `test -f /run/aster/maintainer-ready && ${probe(3001)} && ${probe(3421)}`], interval: '0s', timeout: '3s', retries: 60 },
       networks: { [`${role}-primary`]: { ipv4_address: 'old' } },
     },
     ...(role === 'candidate'
@@ -35,7 +37,7 @@ test('clones oracle authority with only an HTTPS public issuer and isolated list
   assert.deepEqual(output.services['oracle-h5-core'].ports,['127.0.0.1::3001']);
   assert.equal(output.services['oracle-h5-core'].container_name,undefined);
   assert.deepEqual(output.services['oracle-h5-core'].healthcheck.test,
-    ['CMD-SHELL', `test -f /run/aster/maintainer-ready && ${probe(3001)}`]);
+    ['CMD-SHELL', 'nc -z localhost 3001']);
   assert.match(output.services['oracle-primary-core'].healthcheck.test[1],/3411/u);
 });
 

@@ -17,11 +17,14 @@ export const extendH5CoreTopology = (raw, options) => {
   const network = `${role}-primary`;
   if (!source || document.services?.[serviceName] || document.networks?.[network]?.internal !== true) fail();
   const service = structuredClone(source);
-  const adminPort = role === 'oracle' ? 3411 : 3421;
-  const expectedHealth = `test -f /run/aster/maintainer-ready && ${readyProbe(3001)} && ${readyProbe(adminPort)}`;
+  const expectedHealth = role === 'oracle'
+    ? 'nc -z localhost 3001 && nc -z localhost 3411'
+    : `test -f /run/aster/maintainer-ready && ${readyProbe(3001)} && ${readyProbe(3421)}`;
   if (!service.healthcheck || service.healthcheck.test?.length !== 2 ||
       service.healthcheck.test[0] !== 'CMD-SHELL' || service.healthcheck.test[1] !== expectedHealth) fail();
-  service.healthcheck.test = ['CMD-SHELL', `test -f /run/aster/maintainer-ready && ${readyProbe(3001)}`];
+  service.healthcheck.test = ['CMD-SHELL', role === 'oracle'
+    ? 'nc -z localhost 3001'
+    : `test -f /run/aster/maintainer-ready && ${readyProbe(3001)}`];
   delete service.container_name;
   service.depends_on = structuredClone(source.depends_on ?? {});
   service.environment = { ...source.environment };
