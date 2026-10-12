@@ -953,6 +953,44 @@ wait_for_script_host_serving
     );
   });
 
+  it('builds the core trust bundle as the public file admitted by the candidate entrypoint', async () => {
+    const directory = await mkdtemp(path.join(temporaryRoot, 'core-ca-bundle-'));
+    try {
+      const observerCa = path.join(directory, 'observer-ca.pem');
+      const identityCa = path.join(directory, 'identity-ca.pem');
+      const bundle = path.join(directory, 'bundle.pem');
+      const observerBytes = 'observer-ca-certificate\n';
+      const identityBytes = 'identity-ca-certificate\n';
+      await Promise.all([
+        writeFile(observerCa, observerBytes, { mode: 0o444 }),
+        writeFile(identityCa, identityBytes, { mode: 0o400 }),
+      ]);
+      const start = source.indexOf(
+        '  /usr/bin/cat -- "$FETCH_OBSERVER_CA" "$IDENTITY_CA" >"$IDENTITY_CA_BUNDLE"'
+      );
+      const modeLine = '  /usr/bin/chmod 0444 "$IDENTITY_CA_BUNDLE"';
+      const end = source.indexOf('\n', source.indexOf(modeLine, start)) + 1;
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      const harnessPath = path.join(directory, 'generate-bundle.sh');
+      await writeFile(
+        harnessPath,
+        `#!/usr/bin/env bash\nset -euo pipefail\nFETCH_OBSERVER_CA=${JSON.stringify(observerCa)}\nIDENTITY_CA=${JSON.stringify(identityCa)}\nIDENTITY_CA_BUNDLE=${JSON.stringify(bundle)}\n${source.slice(start, end)}`,
+        { mode: 0o500 }
+      );
+
+      await expect(runBash(harnessPath)).resolves.toEqual({ code: 0, stderr: '' });
+      await expect(readFile(bundle, 'utf8')).resolves.toBe(observerBytes + identityBytes);
+      const state = await lstat(bundle);
+      expect(state.isFile()).toBe(true);
+      expect(state.isSymbolicLink()).toBe(false);
+      expect(state.nlink).toBe(1);
+      expect(state.mode.toString(8).slice(-3)).toBe('444');
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
   it('rejects a pinned script-host image whose source tree label is wrong', async () => {
     const harnessPath = path.join(temporaryRoot, 'script-host-tree-harness.sh');
     const digest = `sha256:${'a'.repeat(64)}`;

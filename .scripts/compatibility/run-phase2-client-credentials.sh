@@ -1821,7 +1821,7 @@ main() {
   "$IDENTITY_PKI_SCRIPT" "$IDENTITY_TLS_ROOT" || { failure_stage='identity-fixture-pki'; fail; return 1; }
   /usr/bin/cat -- "$FETCH_OBSERVER_CA" "$IDENTITY_CA" >"$IDENTITY_CA_BUNDLE" \
     || { failure_stage='identity-fixture-ca-bundle'; fail; return 1; }
-  /usr/bin/chmod 0400 "$IDENTITY_CA_BUNDLE"
+  /usr/bin/chmod 0444 "$IDENTITY_CA_BUNDLE"
   "$H5_PKI_SCRIPT" generate "$H5_RUNTIME_ROOT" >/dev/null || { failure_stage='h5-loopback-pki'; fail; return 1; }
   "$JQ_BIN" -cn '{schemaVersion:1,passwordCompromise:{peer:"172.30.241.56:443",caFile:"/run/aster/identity-fixture-ca.pem"},backchannel:{origin:"https://backchannel.aster.test:8443",peer:"172.30.241.55:8443",caFile:"/run/aster/identity-fixture-ca.pem"}}' >"$CANDIDATE_IDENTITY_CONFIG"
   /usr/bin/chmod 0400 "$CANDIDATE_IDENTITY_CONFIG"
