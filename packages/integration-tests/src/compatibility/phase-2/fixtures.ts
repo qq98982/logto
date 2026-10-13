@@ -484,29 +484,7 @@ const frozenCandidateFixtures = Object.freeze({
   }),
 });
 
-const phase2CandidateFixtures = Object.freeze({
-  ...frozenCandidateFixtures,
-  dataTenant: Object.freeze({
-    ...frozenCandidateFixtures.dataTenant,
-    applications: Object.freeze(
-      frozenCandidateFixtures.dataTenant.applications.map((application) =>
-        application.id === 'phase1-browser'
-          ? Object.freeze({
-              ...application,
-              userConsentScopes: Object.freeze([
-                'profile',
-                'email',
-                'address',
-                'phone',
-                'identities',
-                'urn:aster:scope:sessions',
-              ]),
-            })
-          : application
-      )
-    ),
-  }),
-});
+const phase2CandidateFixtures = frozenCandidateFixtures;
 
 const fail = (message = failure): never => {
   throw new Error(message);

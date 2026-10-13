@@ -13,13 +13,15 @@ const value = (record: Readonly<Record<string, unknown>>, key: string): string =
     ? item
     : fail(key);
 };
-const localPath = (item: string): string => {
-  const parsed = new URL(item, 'https://common.invalid');
-  return item.startsWith('/') &&
-    !item.startsWith('//') &&
-    parsed.origin === 'https://common.invalid' &&
+const targetRedirect = (item: string, targetOrigin: string): string => {
+  const target = new URL(targetOrigin);
+  const parsed = new URL(item, target);
+  return !item.startsWith('//') &&
+    parsed.origin === target.origin &&
+    !parsed.username &&
+    !parsed.password &&
     !parsed.hash
-    ? item
+    ? parsed.href
     : fail('redirect-uri');
 };
 const authorizationState = (authorizationPath: string, targetOrigin: string): string => {
@@ -195,7 +197,7 @@ export const runWechatMiniPhoneRegistration = async (
   });
   await status(input.session, '/api/experience/identification', 'POST', 201, {});
   const submitted = await status(input.session, '/api/experience/submit', 'POST', 200);
-  const redirectTo = localPath(value(submitted.getRecord(), 'redirectTo'));
+  const redirectTo = targetRedirect(value(submitted.getRecord(), 'redirectTo'), input.targetOrigin);
   const consentRedirect = await status(input.session, redirectTo, 'GET', 303);
   admitConsentLocation(
     consentRedirect.getLocation(),
@@ -204,7 +206,10 @@ export const runWechatMiniPhoneRegistration = async (
   );
   await status(input.session, '/api/interaction/consent', 'GET', 200);
   const consent = await status(input.session, '/api/interaction/consent', 'POST', 200, {});
-  const consentRedirectTo = localPath(value(consent.getRecord(), 'redirectTo'));
+  const consentRedirectTo = targetRedirect(
+    value(consent.getRecord(), 'redirectTo'),
+    input.targetOrigin
+  );
   const resumed = await status(input.session, consentRedirectTo, 'GET', 303);
   admitCallback(resumed.getLocation(), input.callbackScheme, expectedState, expectedIssuer);
   return Object.freeze({

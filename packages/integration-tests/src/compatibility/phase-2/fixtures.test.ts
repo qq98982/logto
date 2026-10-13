@@ -1493,14 +1493,7 @@ describe('Phase 2 fixture lifecycle', () => {
               {
                 id: 'phase1-browser',
                 isThirdParty: true,
-                userConsentScopes: [
-                  'profile',
-                  'email',
-                  'address',
-                  'phone',
-                  'identities',
-                  'urn:aster:scope:sessions',
-                ],
+                userConsentScopes: ['profile', 'email', 'address', 'phone'],
                 resourceConsentScopes: ['phase1-read-profile'],
               },
             ],
@@ -1620,8 +1613,6 @@ describe('Phase 2 fixture lifecycle', () => {
       'email',
       'address',
       'phone',
-      'identities',
-      'urn:aster:scope:sessions',
     ]);
     expect(
       provision.profile.fixtures.dataTenant.browserClientConfiguration.effectiveScopes

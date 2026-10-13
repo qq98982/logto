@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -7,11 +8,12 @@ import test from 'node:test';
 const execute = promisify(execFile);
 
 test('binds public targets to core ports while reserving HTTPS ports for H5', async () => {
-  const root = await mkdtemp('/var/tmp/henry-build/common206-descriptor-test.');
+  const parent = '/var/tmp/henry-build/p6/aster-phase2-client-credentials-live';
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const root = await mkdtemp(`${parent}/run.`);
   try {
-    const completionRoot = `${root}/completion`;
-    const fixtureDirectory =
-      '/var/tmp/henry-build/p6/aster-phase2-client-credentials-live/run.XXXXXX/fixture';
+    const completionRoot = `${root}/common-completion`;
+    const fixtureDirectory = `${root}/fixture`;
     const sms = `${root}/sms`;
     await Promise.all(['o', 'c'].map(async (role) => {
       await mkdir(`${sms}/${role}`, { recursive: true, mode: 0o700 });
@@ -48,6 +50,20 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     });
     assert.equal(Buffer.byteLength(oracle.password.smtpSocket) <= 100, true);
     assert.equal(Buffer.byteLength(candidate.password.smtpSocket) <= 100, true);
+    const receiverDirectories = new Set();
+    for (const descriptor of [oracle, candidate]) {
+      for (const row of Object.values(descriptor.backchannel)) {
+        assert.equal(Buffer.byteLength(row.socketFile) <= 100, true);
+        const directory = path.dirname(row.socketFile);
+        assert.equal(path.dirname(directory), fixtureDirectory);
+        const metadata = await stat(directory);
+        assert.equal(metadata.isDirectory(), true);
+        assert.equal(metadata.mode & 0o777, 0o700);
+        assert.equal(metadata.uid, process.getuid());
+        receiverDirectories.add(directory);
+      }
+    }
+    assert.equal(receiverDirectories.size, 4);
     assert.equal(oracle.wechat.service, 'oracle-wechat-multichannel-provider');
     assert.equal(candidate.wechat.service, 'candidate-wechat-multichannel-provider');
     assert.match(oracle.wechat.clientId, /^wx[0-9a-f]{16}$/u);

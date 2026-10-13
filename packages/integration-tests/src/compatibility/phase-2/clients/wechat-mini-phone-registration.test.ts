@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function, max-params -- Scripted transport records the exact request sequence. */
+/* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- Scripted transport records the exact request sequence and closed redirect controls. */
 import type { CommonExperienceSession } from './common-experience.js';
 import {
   runWechatMiniCrossInteractionControl,
@@ -23,7 +23,7 @@ test('completes Mini phone registration through consent and the bound callback',
     },
     4: { code: 'user.identity_not_exist' },
     7: { verificationId: 'phone-id' },
-    11: { redirectTo: '/oidc/resume' },
+    11: { redirectTo: 'https://core.example/oidc/resume' },
     14: { redirectTo: '/oidc/resume-after-consent' },
   };
   const session = {
@@ -89,10 +89,10 @@ test('completes Mini phone registration through consent and the bound callback',
     '/api/experience/profile',
     '/api/experience/identification',
     '/api/experience/submit',
-    '/oidc/resume',
+    'https://core.example/oidc/resume',
     '/api/interaction/consent',
     '/api/interaction/consent',
-    '/oidc/resume-after-consent',
+    'https://core.example/oidc/resume-after-consent',
   ]);
   expect(calls[14]?.body).toEqual({});
 });
@@ -170,6 +170,34 @@ test.each([
     '/oidc/resume',
     'https://core.example/consent?app_id=application-id',
     '//common.invalid/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'foreign submit continuation',
+    'https://foreign.invalid/oidc/resume',
+    'https://core.example/consent?app_id=application-id',
+    '/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'foreign consent continuation',
+    '/oidc/resume',
+    'https://core.example/consent?app_id=application-id',
+    'https://foreign.invalid/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'credentialed submit continuation',
+    'https://user@core.example/oidc/resume',
+    'https://core.example/consent?app_id=application-id',
+    '/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'hashed consent continuation',
+    '/oidc/resume',
+    'https://core.example/consent?app_id=application-id',
+    '/oidc/resume-after-consent#fragment',
     validCallback,
   ],
   [
@@ -402,4 +430,4 @@ test('rejects a Mini verification proof owned by another interaction', async () 
     accepted: false,
   });
 });
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function, max-params */
+/* eslint-enable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */

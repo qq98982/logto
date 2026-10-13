@@ -87,3 +87,23 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
 });
 server.listen(8443, '0.0.0.0');
 
+let shuttingDown = false;
+const closeServer = (ownedServer) => new Promise((resolve, reject) => {
+  ownedServer.close((error) => error ? reject(error) : resolve());
+});
+const shutdown = async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  process.off('SIGTERM', shutdown);
+  process.off('SIGINT', shutdown);
+  try {
+    await Promise.all([closeServer(server), closeServer(ipc)]);
+    await receipt.sync();
+    await receipt.close();
+  } catch {
+    process.exitCode = 1;
+  }
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
