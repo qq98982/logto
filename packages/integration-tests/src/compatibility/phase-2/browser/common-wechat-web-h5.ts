@@ -227,7 +227,7 @@ export const runCommonWechatH5Registration = async (
     input.session.waitForRoute('wechat-h5-phone', ['/continue/phone'])
   );
   await h5Stage('phone-submit', async () => {
-    await input.session.fill('wechat-h5-phone-input', 'input[type="tel"]', input.phone);
+    await input.session.fill('wechat-h5-phone-input', 'input[type="tel"]', `+${input.phone}`);
     await input.armPasscode(input.phone);
     await input.session.click('wechat-h5-phone-continue', 'role=button[name="Continue"]');
   });

@@ -48,19 +48,36 @@ test('Web distinguishes the Management association from the browser provider tra
   expect(actions).toContain('wechat-web-provider-count:role=button[name="Continue with WeChat"]:1');
 });
 
-test('H5 follows the pinned mobile phone completion route and six-input auto-submit', async () => {
+test('H5 enters the canonical phone as international form while SMS keeps canonical digits', async () => {
   const actions: string[] = [];
+  const phone = '13800138019';
+  const browserSession = session(actions, { sub: 'h5-owner', phone, phoneVerified: true });
   const result = await runCommonWechatH5Registration({
-    session: session(actions, { sub: 'h5-owner', phone: '13800138019', phoneVerified: true }),
+    session: {
+      ...browserSession,
+      fill: async (step, selector, value) => {
+        if (step === 'wechat-h5-phone-input') {
+          actions.push(`phone-input:${value}`);
+        }
+        return browserSession.fill(step, selector, value);
+      },
+    },
     selector: 'role=button[name="Continue with WeChat"]',
-    phone: '13800138019',
-    armPasscode: async () => void actions.push('sms-arm:Register'),
-    takePasscode: async () => '012345',
+    phone,
+    armPasscode: async (recipient) => {
+      actions.push(`sms-arm:Register:${recipient}`);
+    },
+    takePasscode: async (recipient) => {
+      expect(recipient).toBe(phone);
+      return '012345';
+    },
     providerObservation: () => observation(0),
   });
+  expect(actions).toContain(`phone-input:+${phone}`);
+  expect(actions).toContain(`sms-arm:Register:${phone}`);
   expect(actions.filter((entry) => entry.includes('passcode_'))).toHaveLength(6);
   expect(actions).toContain('wechat-h5-phone:/continue/phone');
-  expect(actions.indexOf('sms-arm:Register')).toBeLessThan(
+  expect(actions.indexOf(`sms-arm:Register:${phone}`)).toBeLessThan(
     actions.indexOf('wechat-h5-phone-continue:role=button[name="Continue"]')
   );
   expect(result).toMatchObject({ channel: 'h5', verifiedPhone: true, phoneOnlyFulfillment: true });
