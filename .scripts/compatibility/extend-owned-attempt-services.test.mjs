@@ -88,3 +88,22 @@ test('accepts the topology independently of the existing SMS fixture details', a
   delete input.services['oracle-sms-provider'];
   await assert.doesNotReject(extendOwnedAttemptServices(input, optionsFor(root, descriptorFile)));
 });
+
+test('binds each backchannel receiver to the admitted socket basename in its owned parent mount', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'aster-owned-attempt-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const descriptor = descriptorFor(root);
+  descriptor.backchannel.accepted.socketFile = `${root}/bc-o-a/c.sock`;
+  descriptor.backchannel.rejected.socketFile = `${root}/bc-o-r/c.sock`;
+  const descriptorFile = `${root}/descriptor.json`;
+  await writeFile(descriptorFile, JSON.stringify(descriptor));
+
+  const result = await extendOwnedAttemptServices(topology(), optionsFor(root, descriptorFile));
+
+  for (const name of ['accepted', 'rejected']) {
+    const row = descriptor.backchannel[name];
+    const receiver = result.services[`oracle-backchannel-${name}`];
+    assert.equal(receiver.environment.ASTER_BACKCHANNEL_CONSUME_SOCKET, '/run/fixture/private/c.sock');
+    assert.ok(receiver.volumes.includes(`${path.dirname(row.socketFile)}:/run/fixture/private:rw`));
+  }
+});

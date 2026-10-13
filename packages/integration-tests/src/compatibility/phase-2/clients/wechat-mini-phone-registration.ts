@@ -43,9 +43,21 @@ const admitConsentLocation = (
   clientId: string
 ): void => {
   const expectedOrigin = new URL(targetOrigin);
+  const admittedLocation = location ?? fail('consent-location');
+  if (
+    admittedLocation.length === 0 ||
+    Buffer.byteLength(admittedLocation) > 8192 ||
+    [...admittedLocation].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 31 || code === 127;
+    }) ||
+    admittedLocation.startsWith('//')
+  ) {
+    fail('consent-location');
+  }
   const consent = (() => {
     try {
-      return new URL(location ?? '');
+      return new URL(admittedLocation, expectedOrigin);
     } catch {
       return fail('consent-location');
     }

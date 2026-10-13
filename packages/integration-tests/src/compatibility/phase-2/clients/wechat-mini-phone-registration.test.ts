@@ -24,7 +24,7 @@ test('completes Mini phone registration through consent and the bound callback',
     4: { code: 'user.identity_not_exist' },
     7: { verificationId: 'phone-id' },
     11: { redirectTo: 'https://core.example/oidc/resume' },
-    14: { redirectTo: '/oidc/resume-after-consent' },
+    14: { redirectTo: 'https://core.example/oidc/resume-after-consent' },
   };
   const session = {
     request: async (path: string, _method: string, body?: unknown) => {
@@ -35,7 +35,7 @@ test('completes Mini phone registration through consent and the bound callback',
         getRecord: () => Object.freeze(records[current] ?? {}),
         getLocation: () =>
           current === 12
-            ? 'https://core.example/consent?app_id=application-id'
+            ? '/consent?app_id=application-id'
             : current === 15
               ? validCallback
               : undefined,
@@ -138,9 +138,9 @@ test.each([
     validCallback,
   ],
   [
-    'relative consent',
+    'protocol-relative consent',
     '/oidc/resume',
-    '/consent?app_id=application-id',
+    '//core.example/consent?app_id=application-id',
     '/oidc/resume-after-consent',
     validCallback,
   ],
@@ -155,6 +155,27 @@ test.each([
     'extra consent query',
     '/oidc/resume',
     'https://core.example/consent?app_id=application-id&unexpected=true',
+    '/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'credentialed consent',
+    '/oidc/resume',
+    'https://user@core.example/consent?app_id=application-id',
+    '/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'hashed consent',
+    '/oidc/resume',
+    'https://core.example/consent?app_id=application-id#fragment',
+    '/oidc/resume-after-consent',
+    validCallback,
+  ],
+  [
+    'duplicate consent application',
+    '/oidc/resume',
+    'https://core.example/consent?app_id=application-id&app_id=application-id',
     '/oidc/resume-after-consent',
     validCallback,
   ],
