@@ -338,6 +338,75 @@ test('routes the real browser request through the existing guard and reaches the
   });
 });
 
+test('admits the H5 authorization after Chromium removes its navigation fragment', async () => {
+  await withAuthorizationPage(
+    (origin) => {
+      const url = new URL('https://open.weixin.qq.com/connect/oauth2/authorize');
+      for (const [key, value] of Object.entries({
+        appid: 'client-id',
+        redirect_uri: `${origin}/callback/wechat-main`,
+        response_type: 'code',
+        scope: 'snsapi_userinfo',
+        state: 'abcDEF_123-',
+      })) {
+        url.searchParams.set(key, value);
+      }
+      url.hash = 'wechat_redirect';
+      return url.href;
+    },
+    async (origin) => {
+      const wechat = createWechatAuthorizationObserver({
+        connectorId: 'wechat-main',
+        clientId: 'client-id',
+        channel: 'h5',
+        targetOrigin: origin,
+        takeCode: async () => 'private-code',
+      });
+      const observer = createPlaywrightBrowserGroupObserver(chromium, wechat.capability);
+      const target: TargetConfig = Object.freeze({
+        label: 'oracle',
+        coreUrl: `${origin}/`,
+        adminUrl: `${origin}/`,
+      });
+      await observer.runInFreshContext(
+        'experience',
+        new AbortController().signal,
+        target,
+        async (session) => {
+          await session.navigate('open', 'core', '/start');
+          await session.click('wechat', '#wechat');
+          await session.waitForRoute('callback-route', 'core', ['/callback/wechat-main']);
+        }
+      );
+      expect(wechat.observation().fulfilledOnce).toBe(true);
+    }
+  );
+});
+
+test('rejects a nonempty unexpected H5 authorization fragment', async () => {
+  let gets = 0;
+  const observer = createWechatAuthorizationObserver({
+    connectorId: 'wechat-h5',
+    clientId: 'owned-client',
+    channel: 'h5',
+    targetOrigin: 'https://core.example/',
+    takeCode: async () => {
+      gets += 1;
+      return 'owned-code';
+    },
+  });
+  const authorization = new URL(
+    'https://open.weixin.qq.com/connect/oauth2/authorize?appid=owned-client&redirect_uri=https%3A%2F%2Fcore.example%2Fcallback%2Fwechat-h5&response_type=code&scope=snsapi_userinfo&state=abcdefghijk#unexpected'
+  );
+  await expect(
+    invokePlaywrightExternalAuthorizationCapability(observer.capability, 'GET', authorization, {
+      abort: async () => {},
+      fulfill: async () => {},
+    })
+  ).resolves.toBe(false);
+  expect(gets).toBe(0);
+});
+
 test('rewrites the H5 fixed UI verification body to exact code and validated state', async () => {
   let forwarded = '';
   const observer = createWechatAuthorizationObserver({

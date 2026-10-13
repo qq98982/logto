@@ -162,7 +162,9 @@ export const createWechatAuthorizationObserver = (
         method !== 'GET' ||
         url.username ||
         url.password ||
-        (input.channel === 'h5' ? url.hash !== '#wechat_redirect' : Boolean(url.hash)) ||
+        (input.channel === 'h5'
+          ? Boolean(url.hash) && url.hash !== '#wechat_redirect'
+          : Boolean(url.hash)) ||
         requestCount !== 1 ||
         used ||
         !Object.values(facts).every(Boolean)
