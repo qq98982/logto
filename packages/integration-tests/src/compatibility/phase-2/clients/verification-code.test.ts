@@ -24,7 +24,7 @@ describe('Phase 2 verification-code request boundary', () => {
         surface: 'experience',
         operation: 'request',
         identifier: 'owner@example.invalid',
-        event: 'SignIn',
+        event: 'ForgotPassword',
         cookie: 'interaction=opaque',
         clientId: 'browser-client',
       },
@@ -37,6 +37,10 @@ describe('Phase 2 verification-code request boundary', () => {
     );
     expect(calls[0]?.headers.get('cookie')).toBe('interaction=opaque');
     expect(calls[0]?.headers.get('aster-app-id')).toBe('browser-client');
+    await expect(calls[0]?.json()).resolves.toEqual({
+      identifier: { type: 'email', value: 'owner@example.invalid' },
+      interactionEvent: 'ForgotPassword',
+    });
     expect(projection).toEqual({
       status: 200,
       contentType: 'application/json',

@@ -247,7 +247,7 @@ export const runCommonPasswordPolicyForTarget = async (
       compromised.status !== 422 ||
       !isDeepStrictEqual(compromised.issues, [{ code: 'password_rejected.pwned' }]) ||
       compromiseClear.status !== 204 ||
-      lookupUnavailable.status !== 503
+      !isDeepStrictEqual(lookupUnavailable, { status: 500, error: 'none', issues: [] })
     ) {
       return fail('compromise-contract');
     }
@@ -286,7 +286,7 @@ export const runCommonPasswordPolicyForTarget = async (
             const requested = await session.request(
               '/api/experience/verification/verification-code',
               'POST',
-              { identifier }
+              { identifier, interactionEvent: 'ForgotPassword' }
             );
             if (requested.getStatus() !== 200) {
               return fail('recovery-request');

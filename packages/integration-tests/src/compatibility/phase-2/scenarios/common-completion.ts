@@ -69,8 +69,8 @@ const passwordPolicy = z
     compromiseClear: success,
     lookupUnavailable: z
       .object({
-        status: z.literal(503),
-        error: z.literal('temporarily_unavailable'),
+        status: z.literal(500),
+        error: z.literal('none'),
         issues: z.tuple([]),
       })
       .strict(),

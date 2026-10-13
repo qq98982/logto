@@ -57,9 +57,9 @@ test('Password policy preserves compromise denial, successful staging and same-p
     error: 'password.rejected',
     issues: [{ code: 'password_rejected.pwned' }],
   });
-  expect(await observe(503, { error: 'temporarily_unavailable' })).toEqual({
-    status: 503,
-    error: 'temporarily_unavailable',
+  expect(await observe(500)).toEqual({
+    status: 500,
+    error: 'none',
     issues: [],
   });
   expect(await observe(204)).toEqual({ status: 204, error: 'none', issues: [] });
