@@ -54,6 +54,7 @@ test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer se
   assert.ok(result.services['oracle-primary-core'].extra_hosts.includes('api.pwnedpasswords.com:172.30.231.56'));
   assert.equal(result.services['oracle-primary-core'].environment.NODE_EXTRA_CA_CERTS, '/run/aster/fetch-observer-ca.pem');
   assert.equal(result.services['oracle-primary-core'].environment.SSL_CERT_FILE, '/run/aster/fetch-observer-ca.pem');
+  assert.equal(result.services['oracle-primary-core'].environment.OIDC_PROVIDER_SSRF_PROTECTION_DISABLED, 'true');
   assert.deepEqual(result.services['oracle-primary-core'].volumes,
     [`${root}/ca-bundle.pem:/run/aster/fetch-observer-ca.pem:ro`]);
   assert.equal(result.services['oracle-pwned-clear'].networks['oracle-primary'].ipv4_address, '172.30.231.56');
@@ -67,6 +68,34 @@ test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer se
       result.services[`oracle-backchannel-${name}`].mac_address),
     ['02:42:ac:1e:e7:60', '02:42:ac:1e:e7:60']
   );
+});
+
+test('limits the private backchannel SSRF opt-out to the isolated Oracle core', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'aster-owned-attempt-'));
+  t.after(() => rm(root, { force: true, recursive: true }));
+  const descriptor = descriptorFor(root);
+  descriptor.target.label = 'candidate';
+  for (const family of ['pwned', 'backchannel']) {
+    for (const row of Object.values(descriptor[family])) {
+      row.service = row.service.replace('oracle', 'candidate');
+      row.container = row.container.replace('oracle', 'candidate');
+    }
+  }
+  const descriptorFile = `${root}/descriptor.json`;
+  await writeFile(descriptorFile, JSON.stringify(descriptor));
+  const input = topology();
+  input.services['candidate-primary-core'] = input.services['oracle-primary-core'];
+  delete input.services['oracle-primary-core'];
+  input.networks['candidate-primary'] = input.networks['oracle-primary'];
+  delete input.networks['oracle-primary'];
+  const result = await extendOwnedAttemptServices(input, optionsFor(root, descriptorFile));
+  assert.deepEqual(result.services['candidate-primary-core'].environment, {
+    NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem',
+    SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem',
+  });
+  assert.ok(result.services['candidate-primary-core'].extra_hosts.includes(
+    'backchannel.aster.test:172.30.241.55'
+  ));
 });
 
 test('rejects a core whose existing trust mount cannot be replaced exactly', async (t) => {
