@@ -769,6 +769,48 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(requested).toHaveLength(1);
   });
 
+  it('admits the selected connector catalog up to one MiB while retaining other response bounds', async () => {
+    const mediumCatalog = JSON.stringify([{ id: 'connector', metadata: 'x'.repeat(70_000) }]);
+    const oversizedCatalog = JSON.stringify([
+      { id: 'connector', metadata: 'x'.repeat(1024 * 1024) },
+    ]);
+    const request = createReferencePhase2AdminRequest(oracle, async (input) => {
+      const url = new URL(String(input));
+      return new Response(
+        url.pathname === '/api/connectors' && url.searchParams.has('oversized')
+          ? oversizedCatalog
+          : mediumCatalog,
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    });
+
+    await expect(
+      request({
+        method: 'GET',
+        path: 'connectors',
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).resolves.toEqual([{ id: 'connector', metadata: 'x'.repeat(70_000) }]);
+    await expect(
+      request({
+        method: 'GET',
+        path: 'resources',
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
+    await expect(
+      request({
+        method: 'GET',
+        path: 'connectors',
+        query: { oversized: 'true' },
+        expectedStatuses: [200],
+        responseKind: 'array',
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
+  });
+
   it('reuses the selected Management transport with one bounded bearer authority', async () => {
     const requests: Array<Readonly<{ url: string; authorization: string | undefined }>> = [];
     const request = createBearerPhase2AdminRequest(
@@ -1095,6 +1137,24 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(
       descriptors.filter(({ operation }) => operation === 'cleanupManagementMachineClient')
     ).toHaveLength(4);
+    const cleanupProvisioningRows = fixture.cleanupManagementProvisioningRows ?? fail;
+    await cleanupProvisioningRows({
+      resourceId: 'owned-resource',
+      applicationIds: ['owned-application-a', 'owned-application-b'],
+    });
+    expect(descriptors.at(-1)).toMatchObject({
+      operation: 'cleanupManagementProvisioningRows',
+      recipe: 'fullPhase1',
+      allocationId: 'candidate-fixture',
+      resourceId: 'owned-resource',
+      applicationIds: ['owned-application-a', 'owned-application-b'],
+    });
+    await expect(
+      cleanupProvisioningRows({
+        resourceId: 'owned-resource',
+        applicationIds: ['duplicate', 'duplicate'],
+      })
+    ).rejects.toThrow('Phase 2 fixture operation failed');
   });
 
   it('leases fixed foreign Management controls and cleans them after a failed observation', async () => {

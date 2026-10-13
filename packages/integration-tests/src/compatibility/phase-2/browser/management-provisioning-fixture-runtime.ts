@@ -26,6 +26,12 @@ export type ManagementProvisioningRuntimeInput = Readonly<{
   withForeignManagementControls<Result>(
     use: (controls: ForeignManagementControls) => Promise<Result>
   ): Promise<Result>;
+  cleanupProvisioningRows(
+    rows: Readonly<{
+      resourceId: string;
+      applicationIds: readonly [string, string];
+    }>
+  ): Promise<void>;
 }>;
 const environment = (
   input: ManagementProvisioningRuntimeInput,
@@ -297,6 +303,7 @@ const rowId = (value: Record<string, unknown>): string => {
   return typeof id === 'string' && id.length > 0 && id.length <= 128 ? id : fail();
 };
 const restoreProvisioningCatalog = async (
+  input: ManagementProvisioningRuntimeInput,
   request: Phase2AdminRequestFunction,
   before: ProvisioningCatalog
 ): Promise<void> => {
@@ -309,7 +316,7 @@ const restoreProvisioningCatalog = async (
       failures = [...failures, error];
     }
   };
-  for (const path of catalogPaths) {
+  for (const path of ['roles', 'connectors'] as const) {
     const beforeIds = new Set(before.rows[path].map(rowId));
     for (const id of after.rows[path].map(rowId).filter((id) => !beforeIds.has(id))) {
       await attempt(async () =>
@@ -322,19 +329,46 @@ const restoreProvisioningCatalog = async (
       );
     }
   }
-  for (const connector of before.rows.connectors) {
-    const config = field(connector, 'config');
-    if (config !== undefined) {
-      await attempt(async () =>
-        request({
-          method: 'PATCH',
-          path: `connectors/${encodeURIComponent(rowId(connector))}`,
-          body: { config },
-          expectedStatuses: [200],
-          responseKind: 'object',
-        })
-      );
-    }
+  const applicationBeforeIds = new Set(before.rows.applications.map(rowId));
+  const applications = after.rows.applications.filter(
+    (row) => !applicationBeforeIds.has(rowId(row))
+  );
+  const resourceBeforeIds = new Set(before.rows.resources.map(rowId));
+  const resources = after.rows.resources.filter((row) => !resourceBeforeIds.has(rowId(row)));
+  const applicationsMatch =
+    applications.length === 2 &&
+    new Set(applications.map((row) => field(row, 'name'))).size === 2 &&
+    applications.every(
+      (row) =>
+        (field(row, 'name') === 'Box-AI' &&
+          field(row, 'description') === 'Managed by the Box-AI deployment' &&
+          field(row, 'type') === 'Traditional') ||
+        (field(row, 'name') === 'Box-AI Native' &&
+          field(row, 'description') ===
+            'Managed by the Box-AI deployment as a native public client' &&
+          field(row, 'type') === 'Native')
+    );
+  const resource = resources.length === 1 ? resources[0] : undefined;
+  const scopes = resource === undefined ? undefined : field(resource, 'scopes');
+  const resourceMatches =
+    resource !== undefined &&
+    field(resource, 'name') === 'Box-AI Native Session API' &&
+    field(resource, 'indicator') === new URL('/api', input.target.coreUrl).href &&
+    field(resource, 'accessTokenTtl') === 300 &&
+    Array.isArray(scopes) &&
+    scopes.length === 1 &&
+    field(scopes[0], 'name') === 'session:exchange' &&
+    field(scopes[0], 'description') ===
+      'Managed by the Box-AI deployment for native session exchange';
+  if (!applicationsMatch || !resourceMatches) {
+    failures = [...failures, new TypeError('Invalid Management provisioning owned rows')];
+  } else {
+    await attempt(async () =>
+      input.cleanupProvisioningRows({
+        resourceId: rowId(resource),
+        applicationIds: applications.map(rowId).toSorted() as [string, string],
+      })
+    );
   }
   const experienceKeys = [
     'branding',
@@ -429,7 +463,7 @@ export const withManagementProvisioningFixtureRuntime = async <Result>(
     bodyError = error;
   }
   try {
-    await restoreProvisioningCatalog(input.request, before);
+    await restoreProvisioningCatalog(input, input.request, before);
   } catch (cleanupError: unknown) {
     throw new AggregateError(
       [...(bodyError === undefined ? [] : [bodyError]), cleanupError],

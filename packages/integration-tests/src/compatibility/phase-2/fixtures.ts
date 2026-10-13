@@ -106,6 +106,12 @@ export type ProvisionedPhase2Fixture = {
   withForeignManagementControls?<Result>(
     use: (controls: ForeignManagementControls) => Promise<Result>
   ): Promise<Result>;
+  cleanupManagementProvisioningRows?(
+    rows: Readonly<{
+      resourceId: string;
+      applicationIds: readonly [string, string];
+    }>
+  ): Promise<void>;
 };
 
 export type ForeignManagementControls = Readonly<{
@@ -236,6 +242,7 @@ type ReferenceCleanup = Readonly<{
 const failure = 'Phase 2 fixture operation failed';
 const cleanupFailure = 'Phase 2 fixture cleanup failed';
 const maximumResponseBytes = 64 * 1024;
+const maximumConnectorListResponseBytes = 1024 * 1024;
 const commandTimeoutMs = 30_000;
 const maximumCommandOutputBytes = 262_144;
 const candidateManagementMachineClient: CandidateManagementMachineClient = Object.freeze({
@@ -824,7 +831,11 @@ const createPhase2AdminRequest =
     if (input.responseKind === 'status') {
       return response.status;
     }
-    const bytes = await readBoundedResponseBody(response, maximumResponseBytes);
+    const maximumBytes =
+      input.method === 'GET' && input.path === 'connectors'
+        ? maximumConnectorListResponseBytes
+        : maximumResponseBytes;
+    const bytes = await readBoundedResponseBody(response, maximumBytes);
     if (input.responseKind === 'empty') {
       return bytes.byteLength === 0 ? undefined : fail();
     }
@@ -1982,7 +1993,8 @@ const parseCommandOutput = (
     | 'provisionManagementMachineClient'
     | 'cleanupManagementMachineClient'
     | 'provisionForeignManagementControls'
-    | 'cleanupForeignManagementControls',
+    | 'cleanupForeignManagementControls'
+    | 'cleanupManagementProvisioningRows',
   secrets: readonly string[]
 ): Record<string, unknown> => {
   try {
@@ -2659,6 +2671,39 @@ export const createCandidatePhase2FixtureProvisioner = (
                 throw new Error(failure);
               }
               return value as Result;
+            },
+            cleanupManagementProvisioningRows: async ({
+              resourceId,
+              applicationIds,
+            }: Readonly<{
+              resourceId: string;
+              applicationIds: readonly [string, string];
+            }>) => {
+              if (
+                state.revoked ||
+                !safeIdPattern.test(resourceId) ||
+                applicationIds.length !== 2 ||
+                applicationIds[0] === applicationIds[1] ||
+                applicationIds.some((id) => !safeIdPattern.test(id))
+              ) {
+                return fail();
+              }
+              const cleaned = await run(
+                {
+                  schemaVersion: 1,
+                  operation: 'cleanupManagementProvisioningRows',
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                  resourceId,
+                  applicationIds,
+                },
+                'cleanupManagementProvisioningRows',
+                state.sensitiveValues
+              );
+              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                return fail();
+              }
             },
             withForeignManagementControls: async <Result>(
               use: (controls: ForeignManagementControls) => Promise<Result>

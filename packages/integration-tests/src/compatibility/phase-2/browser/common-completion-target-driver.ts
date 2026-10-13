@@ -37,6 +37,32 @@ export const runBoundCommonCompletionScenarios = async (
     });
     const applications = new Set<string>();
     const foreignControls = input.fixture.withForeignManagementControls ?? fail();
+    const cleanupProvisioningRows = async (
+      rows: Readonly<{
+        resourceId: string;
+        applicationIds: readonly [string, string];
+      }>
+    ): Promise<void> => {
+      if (input.target.label === 'candidate') {
+        const cleanup = input.fixture.cleanupManagementProvisioningRows ?? fail();
+        await cleanup(rows);
+        return;
+      }
+      for (const applicationId of rows.applicationIds) {
+        await request({
+          method: 'DELETE',
+          path: `applications/${encodeURIComponent(applicationId)}`,
+          expectedStatuses: [204, 404],
+          responseKind: 'status',
+        });
+      }
+      await request({
+        method: 'DELETE',
+        path: `resources/${encodeURIComponent(rows.resourceId)}`,
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      });
+    };
     let result: Awaited<ReturnType<typeof runCommonCompletionScenariosForTarget>> | undefined;
     let bodyError: unknown;
     try {
@@ -80,6 +106,7 @@ export const runBoundCommonCompletionScenarios = async (
                     request,
                     bearer,
                     withForeignManagementControls: foreignControls,
+                    cleanupProvisioningRows,
                     ...environments,
                   },
                   use

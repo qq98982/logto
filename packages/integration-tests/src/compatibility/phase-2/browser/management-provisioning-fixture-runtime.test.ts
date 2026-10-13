@@ -24,6 +24,9 @@ test('binds endpoints and bearer and repairs only the exact China Native relatio
         connectorId: 'foreign-connector',
         applicationId: 'foreign-application',
       }),
+    cleanupProvisioningRows: async () => {
+      await Promise.resolve();
+    },
     request: async (request) => {
       requests.push(request);
       if (request.path === 'roles') {
@@ -89,6 +92,9 @@ test('fails closed when the repair relation is ambiguous', async () => {
         connectorId: 'foreign-connector',
         applicationId: 'foreign-application',
       }),
+    cleanupProvisioningRows: async () => {
+      await Promise.resolve();
+    },
     request: async () => [
       { id: 'one', name: 'Box-AI Native Session User' },
       { id: 'two', name: 'Box-AI Native Session User' },
@@ -137,7 +143,7 @@ test('ownership refusal requires the pinned client refusal, preserved state, and
   await expect(observe()).resolves.toBe(true);
   expect(cleanupCompleted).toBe(true);
 });
-test('lease removes only newly provisioned rows and restores connector and experience state', async () => {
+test('lease uses private cleanup only for validated applications and resource and preserves connector state', async () => {
   const rows: Record<string, Array<Record<string, unknown>>> = {
     roles: [{ id: 'old-role' }],
     resources: [{ id: 'old-resource' }],
@@ -146,6 +152,7 @@ test('lease removes only newly provisioned rows and restores connector and exper
   };
   const mutations: Array<{ method: string; path: string; body?: unknown }> = [];
   const rejectedDeletion = 'roles/failed-roles';
+  const privateCleanupCalls: unknown[] = [];
   let experience: Record<string, unknown> = {
     branding: { logoUrl: 'before' },
     signIn: { methods: [] },
@@ -201,12 +208,49 @@ test('lease removes only newly provisioned rows and restores connector and exper
         connectorId: 'foreign-connector',
         applicationId: 'foreign-application',
       }),
+    cleanupProvisioningRows: async (
+      owned: Readonly<{
+        resourceId: string;
+        applicationIds: readonly [string, string];
+      }>
+    ) => {
+      privateCleanupCalls.push(owned);
+      rows.resources = rows.resources?.filter(({ id }) => id !== owned.resourceId) ?? [];
+      rows.applications =
+        rows.applications?.filter(({ id }) => !owned.applicationIds.includes(String(id))) ?? [];
+    },
     request,
   } as const;
   await withManagementProvisioningFixtureRuntime(input, async () => {
-    for (const kind of Object.keys(rows)) {
-      rows[kind]?.push({ id: `new-${kind}` });
-    }
+    rows.roles?.push({ id: 'new-roles' });
+    rows.connectors?.push({ id: 'new-connectors' });
+    rows.resources?.push({
+      id: 'new-resources',
+      name: 'Box-AI Native Session API',
+      indicator: 'https://core.example/api',
+      accessTokenTtl: 300,
+      scopes: [
+        {
+          id: 'new-scope',
+          name: 'session:exchange',
+          description: 'Managed by the Box-AI deployment for native session exchange',
+        },
+      ],
+    });
+    rows.applications?.push(
+      {
+        id: 'new-application-global',
+        name: 'Box-AI',
+        description: 'Managed by the Box-AI deployment',
+        type: 'Traditional',
+      },
+      {
+        id: 'new-application-native',
+        name: 'Box-AI Native',
+        description: 'Managed by the Box-AI deployment as a native public client',
+        type: 'Native',
+      }
+    );
   });
   expect(
     Object.fromEntries(Object.entries(rows).map(([key, value]) => [key, value.map(({ id }) => id)]))
@@ -216,14 +260,13 @@ test('lease removes only newly provisioned rows and restores connector and exper
     applications: ['old-application'],
     connectors: ['old-connector'],
   });
-  expect(mutations.filter(({ method }) => method === 'PATCH')).toEqual([
+  expect(privateCleanupCalls).toEqual([
     {
-      method: 'PATCH',
-      path: 'connectors/old-connector',
-      body: { config: { clientId: 'before' } },
-      expectedStatuses: [200],
-      responseKind: 'object',
+      resourceId: 'new-resources',
+      applicationIds: ['new-application-global', 'new-application-native'],
     },
+  ]);
+  expect(mutations.filter(({ method }) => method === 'PATCH')).toEqual([
     {
       method: 'PATCH',
       path: 'sign-in-exp',
@@ -236,18 +279,41 @@ test('lease removes only newly provisioned rows and restores connector and exper
   mutations.splice(0);
   await expect(
     withManagementProvisioningFixtureRuntime(input, async () => {
-      for (const kind of Object.keys(rows)) {
-        rows[kind]?.push({ id: `failed-${kind}` });
-      }
+      rows.roles?.push({ id: 'failed-roles' });
+      rows.connectors?.push({ id: 'failed-connectors' });
+      rows.resources?.push({
+        id: 'failed-resources',
+        name: 'Box-AI Native Session API',
+        indicator: 'https://core.example/api',
+        accessTokenTtl: 300,
+        scopes: [
+          {
+            id: 'failed-scope',
+            name: 'session:exchange',
+            description: 'Managed by the Box-AI deployment for native session exchange',
+          },
+        ],
+      });
+      rows.applications?.push(
+        {
+          id: 'failed-application-global',
+          name: 'Box-AI',
+          description: 'Managed by the Box-AI deployment',
+          type: 'Traditional',
+        },
+        {
+          id: 'failed-application-native',
+          name: 'Box-AI Native',
+          description: 'Managed by the Box-AI deployment as a native public client',
+          type: 'Native',
+        }
+      );
     })
   ).rejects.toThrow('Invalid Management provisioning fixture cleanup');
   expect(mutations.map(({ method, path }) => `${method} ${path}`)).toEqual(
     expect.arrayContaining([
       'DELETE roles/failed-roles',
-      'DELETE resources/failed-resources',
-      'DELETE applications/failed-applications',
       'DELETE connectors/failed-connectors',
-      'PATCH connectors/old-connector',
       'PATCH sign-in-exp',
     ])
   );
@@ -282,6 +348,9 @@ test('refuses a preexisting selected provisioning namespace before running the l
             connectorId: 'foreign-connector',
             applicationId: 'foreign-application',
           }),
+        cleanupProvisioningRows: async () => {
+          await Promise.resolve();
+        },
         request,
       },
       async () => {
