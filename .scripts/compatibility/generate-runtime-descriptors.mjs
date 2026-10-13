@@ -9,7 +9,7 @@ await mkdir(dockerHome,{recursive:true,mode:0o700});await chmod(dockerHome,0o700
 const token=()=>randomBytes(24).toString('base64url');
 const exclusive=async(file,value)=>{await mkdir(path.dirname(file),{recursive:true,mode:0o700});const handle=await open(file,'wx',0o600);try{await handle.writeFile(`${JSON.stringify(value)}\n`);await handle.sync();}finally{await handle.close();}await chmod(file,0o600);};
 const empty=async file=>{await mkdir(path.dirname(file),{recursive:true,mode:0o700});const handle=await open(file,'wx',0o600);await handle.close();};
-for(const [role,ports] of Object.entries({oracle:{core:3311,h5:3351,password:3361,admin:3411,prefix:'172.30.231'},candidate:{core:3321,h5:3352,password:3362,admin:3421,prefix:'172.30.241'}})){
+for(const [role,ports] of Object.entries({oracle:{core:3311,h5:3351,password:3361,admin:3411,prefix:'172.30.231'},candidate:{core:3321,h5:3352,password:3352,admin:3421,prefix:'172.30.241'}})){
  const roleRoot=`${runtime}/${role}`;await mkdir(roleRoot,{recursive:true,mode:0o700});
  const project=role==='oracle'?oracleProject:candidateProject;const service=`${role}-wechat-multichannel-provider`;const container=`${project}-${service}-1`;
  const wechatConfig=`${roleRoot}/wechat/configuration.json`,wechatReceipt=`${roleRoot}/wechat/receipt.ndjson`,wechatHealth=`${roleRoot}/wechat/health.json`;

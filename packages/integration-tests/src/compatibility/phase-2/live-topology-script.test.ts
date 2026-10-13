@@ -2542,7 +2542,7 @@ cleanup_resources 23
         'proxy:101',
         'project:candidate',
         'project:oracle',
-        'ports:3311 3411 3312 3412 3321 3421 3322 3422 3351 3352 3353 3354 3361 3362 3363 3364',
+        'ports:3311 3411 3312 3412 3321 3421 3322 3422 3351 3352 3353 3354 3361 3363',
         `run-root:${path.join(temporaryRoot, 'run')}`,
         '',
       ].join('\n')

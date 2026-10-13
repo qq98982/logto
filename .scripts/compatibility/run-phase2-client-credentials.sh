@@ -26,10 +26,9 @@ readonly CANDIDATE_SERVICES=(
   candidate-pwned-clear candidate-pwned-compromised candidate-pwned-unavailable
   candidate-backchannel-accepted candidate-backchannel-rejected candidate-h5-wechat-provider candidate-wechat-multichannel-provider
   candidate-h5-core
-  candidate-password-core
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
-readonly COMPLETION_PORTS=(3351 3352 3353 3354 3361 3362 3363 3364)
+readonly COMPLETION_PORTS=(3351 3352 3353 3354 3361 3363)
 readonly LOOPBACK_PROXY_BINDINGS=(
   'oracle|oracle-primary-core|3001|3311'
   'oracle|oracle-primary-core|3411|3411'
@@ -1349,7 +1348,6 @@ assert_runtime_identity_unchanged() {
   [[ "$(core_identity oracle oracle-h5-core "$ORACLE_IMAGE_ID")" == "$ORACLE_H5_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity candidate candidate-h5-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_H5_CORE_IDENTITY" ]] || return 1
   [[ "$(core_identity oracle oracle-password-core "$ORACLE_IMAGE_ID")" == "$ORACLE_PASSWORD_CORE_IDENTITY" ]] || return 1
-  [[ "$(core_identity candidate candidate-password-core "$CANDIDATE_IMAGE_ID")" == "$CANDIDATE_PASSWORD_CORE_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$ORACLE_STATE_DRIVER")" == "$ORACLE_STATE_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_STATE_DRIVER")" == "$CANDIDATE_STATE_DRIVER_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$CANDIDATE_INVARIANT_DRIVER")" == "$CANDIDATE_INVARIANT_DRIVER_IDENTITY" ]] || return 1
@@ -1374,7 +1372,6 @@ assert_runtime_identity_unchanged() {
   [[ "$(artifact_identity "$H5_SERVER_KEY")" == "$H5_SERVER_KEY_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$H5_SPKI")" == "$H5_SPKI_IDENTITY" ]] || return 1
   [[ "$(artifact_identity "$H5_CANDIDATE_CONFIG")" == "$H5_CANDIDATE_CONFIG_IDENTITY" ]] || return 1
-  [[ "$(artifact_identity "$PASSWORD_CANDIDATE_CONFIG")" == "$PASSWORD_CANDIDATE_CONFIG_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$ENGINE_SOCKET")" == "$ENGINE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(socket_identity "$FIXTURE_SOCKET")" == "$FIXTURE_SOCKET_IDENTITY" ]] || return 1
   [[ "$(topology_identity)" == "$TOPOLOGY_IDENTITY" ]] || return 1
@@ -1814,12 +1811,11 @@ main() {
   H5_SERVER_KEY="$H5_RUNTIME_ROOT/h5-loopback-server.key"
   H5_SPKI="$H5_RUNTIME_ROOT/h5-loopback-server.spki"
   H5_CANDIDATE_CONFIG="$CONFIG_DIR/candidate-h5.conf"
-  PASSWORD_CANDIDATE_CONFIG="$CONFIG_DIR/candidate-password.conf"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
   readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
   readonly COMPLETION_ROOT IDENTITY_TLS_ROOT H5_RUNTIME_ROOT ORACLE_COMPLETION_INPUT CANDIDATE_COMPLETION_INPUT
-  readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_CA_BUNDLE IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG PASSWORD_CANDIDATE_CONFIG
+  readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_CA_BUNDLE IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
   [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
@@ -1912,8 +1908,7 @@ main() {
   printf 'deployment_id=%s\ndatabase_sentinel=%s\n' "$foreign_deployment_id" "$foreign_sentinel" >"$FOREIGN_CONFIG_FILE"
   /usr/bin/chmod 0400 "$PRIMARY_CONFIG_FILE" "$FOREIGN_CONFIG_FILE"
   /usr/bin/cp -- "$PRIMARY_CONFIG_FILE" "$H5_CANDIDATE_CONFIG"
-  /usr/bin/cp -- "$PRIMARY_CONFIG_FILE" "$PASSWORD_CANDIDATE_CONFIG"
-  /usr/bin/chmod 0400 "$H5_CANDIDATE_CONFIG" "$PASSWORD_CANDIDATE_CONFIG"
+  /usr/bin/chmod 0400 "$H5_CANDIDATE_CONFIG"
 
   cat >"$ORACLE_ENV" <<EOF
 ASTER_PHASE1_POSTGRES_IMAGE=$POSTGRES_IMAGE
@@ -2290,13 +2285,13 @@ SMS_TOPOLOGY
     "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" "$PASSWORD_CORE_TOPOLOGY" "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" \
     "$PWNED_PROVIDER_SCRIPT" "$BACKCHANNEL_RECEIVER_SCRIPT" "$WECHAT_PROVIDER_SCRIPT" \
     "$MULTICHANNEL_PROVIDER_SCRIPT" "$IDENTITY_CA_BUNDLE" "$IDENTITY_CA" "$IDENTITY_SERVER_CERT" \
-    "$IDENTITY_SERVER_KEY" "$CANDIDATE_IDENTITY_CONFIG" "$H5_CANDIDATE_CONFIG" "$PASSWORD_CANDIDATE_CONFIG" <<'COMPLETION_TOPOLOGY' \
+    "$IDENTITY_SERVER_KEY" "$CANDIDATE_IDENTITY_CONFIG" "$H5_CANDIDATE_CONFIG" <<'COMPLETION_TOPOLOGY' \
     || { failure_stage='completion-topology'; fail; return 1; }
 import { open, readFile, rename } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 const [oraclePath,candidatePath,oracleDescriptorPath,candidateDescriptorPath,attemptModule,h5Module,h5CoreModule,passwordCoreModule,
  multichannelModule,candidateIdentityModule,pwnedScript,backchannelScript,legacyWechatScript,
- multichannelScript,coreCaBundleFile,identityCaFile,certificateFile,privateKeyFile,candidateIdentityFile,h5CandidateConfig,passwordCandidateConfig]=process.argv.slice(2);
+ multichannelScript,coreCaBundleFile,identityCaFile,certificateFile,privateKeyFile,candidateIdentityFile,h5CandidateConfig]=process.argv.slice(2);
 const [{extendOwnedAttemptServices},{extendH5WechatTopology},{extendH5CoreTopology},{extendPasswordCoreTopology},{extendWechatMultichannelTopology},
  {applyCandidateIdentityConfig}]=await Promise.all([attemptModule,h5Module,h5CoreModule,passwordCoreModule,multichannelModule,candidateIdentityModule]
  .map(async value=>import(pathToFileURL(value).href)));
@@ -2309,7 +2304,7 @@ for(const [role,composePath,descriptorPath] of [['oracle',oraclePath,oracleDescr
    privateKeyFile,role,script:legacyWechatScript});
  if(role==='candidate')document=applyCandidateIdentityConfig(document,{configurationFile:candidateIdentityFile,caFile:identityCaFile});
  document=extendH5CoreTopology(document,{candidateConfigFile:h5CandidateConfig,role});
- document=extendPasswordCoreTopology(document,{candidateConfigFile:passwordCandidateConfig,role});
+ if(role==='oracle')document=extendPasswordCoreTopology(document,{role});
  document=extendWechatMultichannelTopology(document,{certificateFile,
    configurationFile:descriptor.wechat.configFile,fixtureImage:descriptor.wechat.image,
    privateKeyFile,receiptFile:descriptor.wechat.receiptFile,role,script:multichannelScript});
@@ -2341,7 +2336,6 @@ COMPLETION_TOPOLOGY
   wait_for_script_host_serving || { failure_stage='script-host-readiness'; fail; return 1; }
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
   start_compose_stage candidate h5-core candidate-h5-core || { fail; return 1; }
-  start_compose_stage candidate password-core candidate-password-core || { fail; return 1; }
   start_compose_stage candidate smtp candidate-primary-smtp || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
@@ -2457,13 +2451,10 @@ COMPLETION_TOPOLOGY
   start_h5_carrier 3351 3353 || { failure_stage='h5-carrier-oracle'; fail; return 1; }
   start_h5_carrier 3352 3354 || { failure_stage='h5-carrier-candidate'; fail; return 1; }
   start_loopback_proxy oracle oracle-password-core 3001 3363 || { failure_stage='password-upstream-oracle'; fail; return 1; }
-  start_loopback_proxy candidate candidate-password-core 3001 3364 || { failure_stage='password-upstream-candidate'; fail; return 1; }
   start_h5_carrier 3361 3363 || { failure_stage='password-carrier-oracle'; fail; return 1; }
-  start_h5_carrier 3362 3364 || { failure_stage='password-carrier-candidate'; fail; return 1; }
   https_ready 3351 'https://localhost:3351/oidc' || { failure_stage='h5-readiness-oracle'; fail; return 1; }
   https_ready 3352 'https://localhost:3352/oidc' || { failure_stage='h5-readiness-candidate'; fail; return 1; }
   https_ready 3361 'https://localhost:3361/oidc' || { failure_stage='password-readiness-oracle'; fail; return 1; }
-  https_ready 3362 'https://localhost:3362/oidc' || { failure_stage='password-readiness-candidate'; fail; return 1; }
 
   for readiness in \
     '3311|http://localhost:3311/oidc' '3411|http://localhost:3411/oidc' \
@@ -2495,7 +2486,6 @@ COMPLETION_TOPOLOGY
   ORACLE_H5_CORE_IDENTITY="$(core_identity oracle oracle-h5-core "$ORACLE_IMAGE_ID")"
   CANDIDATE_H5_CORE_IDENTITY="$(core_identity candidate candidate-h5-core "$CANDIDATE_IMAGE_ID")"
   ORACLE_PASSWORD_CORE_IDENTITY="$(core_identity oracle oracle-password-core "$ORACLE_IMAGE_ID")"
-  CANDIDATE_PASSWORD_CORE_IDENTITY="$(core_identity candidate candidate-password-core "$CANDIDATE_IMAGE_ID")"
   ORACLE_STATE_DRIVER_IDENTITY="$(artifact_identity "$ORACLE_STATE_DRIVER")"
   CANDIDATE_STATE_DRIVER_IDENTITY="$(artifact_identity "$CANDIDATE_STATE_DRIVER")"
   CANDIDATE_INVARIANT_DRIVER_IDENTITY="$(artifact_identity "$CANDIDATE_INVARIANT_DRIVER")"
@@ -2513,17 +2503,15 @@ COMPLETION_TOPOLOGY
   H5_SERVER_KEY_IDENTITY="$(artifact_identity "$H5_SERVER_KEY")"
   H5_SPKI_IDENTITY="$(artifact_identity "$H5_SPKI")"
   H5_CANDIDATE_CONFIG_IDENTITY="$(artifact_identity "$H5_CANDIDATE_CONFIG")"
-  PASSWORD_CANDIDATE_CONFIG_IDENTITY="$(artifact_identity "$PASSWORD_CANDIDATE_CONFIG")"
   TOPOLOGY_IDENTITY="$(topology_identity)"
   readonly ORACLE_PRIMARY_CORE_IDENTITY ORACLE_FOREIGN_CORE_IDENTITY CANDIDATE_PRIMARY_CORE_IDENTITY CANDIDATE_FOREIGN_CORE_IDENTITY
   readonly ORACLE_H5_CORE_IDENTITY CANDIDATE_H5_CORE_IDENTITY
-  readonly ORACLE_PASSWORD_CORE_IDENTITY CANDIDATE_PASSWORD_CORE_IDENTITY
+  readonly ORACLE_PASSWORD_CORE_IDENTITY
   readonly ORACLE_STATE_DRIVER_IDENTITY CANDIDATE_STATE_DRIVER_IDENTITY CANDIDATE_INVARIANT_DRIVER_IDENTITY ASTER_ADMIN_IDENTITY FIXTURE_SOCKET_IDENTITY TOPOLOGY_IDENTITY
   readonly ORACLE_COMPLETION_INPUT_IDENTITY CANDIDATE_COMPLETION_INPUT_IDENTITY CANDIDATE_IDENTITY_CONFIG_IDENTITY
   readonly IDENTITY_CA_IDENTITY IDENTITY_CA_BUNDLE_IDENTITY IDENTITY_SERVER_CERT_IDENTITY IDENTITY_SERVER_KEY_IDENTITY
   readonly H5_CA_IDENTITY H5_SERVER_CERT_IDENTITY H5_SERVER_KEY_IDENTITY H5_SPKI_IDENTITY
   readonly H5_CANDIDATE_CONFIG_IDENTITY
-  readonly PASSWORD_CANDIDATE_CONFIG_IDENTITY
   assert_source_identity_unchanged || { failure_stage='source-fence-before'; fail; return 1; }
   assert_runtime_identity_unchanged || { failure_stage='runtime-fence-before'; fail; return 1; }
 

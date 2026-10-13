@@ -36,7 +36,11 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     });
     assert.deepEqual(candidate.target, { label: 'candidate', coreUrl: 'http://localhost:3321/', adminUrl: 'http://localhost:3421/' });
     assert.equal(candidate.h5.listenUrl, 'https://localhost:3352');
-    assert.equal(candidate.password.listenUrl, 'https://localhost:3362');
+    assert.deepEqual(candidate.password, {
+      listenUrl: 'https://localhost:3352',
+      caFile: candidate.h5.caFile,
+      spkiFile: candidate.h5.spkiFile,
+    });
     assert.equal(oracle.wechat.service, 'oracle-wechat-multichannel-provider');
     assert.equal(candidate.wechat.service, 'candidate-wechat-multichannel-provider');
     assert.match(oracle.wechat.clientId, /^wx[0-9a-f]{16}$/u);

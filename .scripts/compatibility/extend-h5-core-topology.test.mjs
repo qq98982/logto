@@ -16,7 +16,7 @@ const base = (role) => ({
       depends_on: { db: { condition: 'service_healthy' } },
       environment: role === 'oracle'
         ? { ENDPOINT: 'http://localhost:3311' }
-        : { ASTER_PHASE1_PRIMARY_CONFIG_FILE: '/private/original.conf', ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3321/oidc', NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem', SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem' },
+        : { ASTER_PHASE1_PRIMARY_CONFIG_FILE: '/private/original.conf', ASTER_PHASE1_DATA_ISSUER: 'http://localhost:3321/oidc', ASTER_ISOLATED_IDENTITY_TRANSPORT_CONFIG: '/private/identity.json', NODE_EXTRA_CA_CERTS: '/run/aster/fetch-observer-ca.pem', SSL_CERT_FILE: '/run/aster/fetch-observer-ca.pem' },
       volumes: role === 'candidate' ? ['/private/original.conf:/private/original.conf:ro', 'keys:/keys:ro', '/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro'] : [],
       healthcheck: { test: ['CMD-SHELL', role === 'oracle'
         ? 'nc -z localhost 3001 && nc -z localhost 3411'
@@ -46,6 +46,7 @@ test('clones candidate authority with the H5 config and issuer while retaining k
   const service=output.services['candidate-h5-core'];
   assert.equal(service.environment.ASTER_PHASE1_DATA_ISSUER,'https://localhost:3352/oidc');
   assert.equal(service.environment.ASTER_PHASE1_PRIMARY_CONFIG_FILE,'/private/h5.conf');
+  assert.equal(service.environment.ASTER_ISOLATED_IDENTITY_TRANSPORT_CONFIG,'/private/identity.json');
   assert.deepEqual(service.volumes,['/private/h5.conf:/private/h5.conf:ro','keys:/keys:ro','/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro']);
   assert.equal(service.environment.NODE_EXTRA_CA_CERTS,'/run/aster/fetch-observer-ca.pem');
   assert.equal(service.environment.SSL_CERT_FILE,'/run/aster/fetch-observer-ca.pem');
