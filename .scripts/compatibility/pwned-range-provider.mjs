@@ -48,11 +48,11 @@ const userAgentProduct = (value) => {
 };
 const server = https.createServer({ cert: certificate, key: privateKey }, (request, response) => {
   const target = request.url ?? '';
-  const pathMatch = /^\/range\/([0-9A-F]{5})$/u.exec(target);
+  const pathMatch = /^\/range\/([0-9A-F]{5})$/iu.exec(target);
   const originMatches = request.headers.host === 'api.pwnedpasswords.com' &&
     request.socket.servername === 'api.pwnedpasswords.com';
   const accepted = !used && request.method === 'GET' && originMatches &&
-    pathMatch?.[1] === configuration.prefix;
+    pathMatch?.[1].toUpperCase() === configuration.prefix;
   const status = accepted ? configuration.responseMode === 'transport-reset' ? 0 : 200 : 400;
   if (receiptCount >= 4) {
     response.writeHead(503, { connection: 'close' }).end();
@@ -61,7 +61,7 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
   receiptCount += 1;
   void receipt.write(`${JSON.stringify({
     methodGet: request.method === 'GET', originMatches, pathShapeMatches: pathMatch !== null,
-    prefixMatches: pathMatch?.[1] === configuration.prefix,
+    prefixMatches: pathMatch?.[1].toUpperCase() === configuration.prefix,
     addPaddingPresent: request.headers['add-padding'] !== undefined,
     userAgentProduct: userAgentProduct(request.headers['user-agent']), status,
   })}\n`).then(async () => {
@@ -74,7 +74,11 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
       }
       response.writeHead(200, { 'content-type': 'text/plain', connection: 'close' });
       if (configuration.responseMode === 'malformed-body') response.end('NOT-A-RANGE-ROW\r\n');
-      else response.end(`${configuration.suffix}:${configuration.responseMode === 'count-one' ? 1 : 0}\r\n`);
+      else if (configuration.responseMode === 'count-one') response.end(`${configuration.suffix}:1\r\n`);
+      else {
+        const differentSuffix = `${configuration.suffix[0] === '0' ? '1' : '0'}${configuration.suffix.slice(1)}`;
+        response.end(`${differentSuffix}:1\r\n`);
+      }
     } else response.writeHead(status, { connection: 'close' }).end();
   }, () => response.writeHead(503, { connection: 'close' }).end());
 });
