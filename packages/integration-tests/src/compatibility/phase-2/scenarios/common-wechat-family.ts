@@ -142,7 +142,7 @@ export const assertCommonWechatFamilyProjection = (
       ? { calls: 5, existingOwner: true, unionIdRequired: true }
       : id === 'common.wechat.mini-phone-registration'
         ? {
-            calls: 13,
+            calls: 16,
             registered: true,
             unionIdRequired: true,
             callbackScheme: 'box-ai-wechat-mini:',

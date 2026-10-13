@@ -484,6 +484,30 @@ const frozenCandidateFixtures = Object.freeze({
   }),
 });
 
+const phase2CandidateFixtures = Object.freeze({
+  ...frozenCandidateFixtures,
+  dataTenant: Object.freeze({
+    ...frozenCandidateFixtures.dataTenant,
+    applications: Object.freeze(
+      frozenCandidateFixtures.dataTenant.applications.map((application) =>
+        application.id === 'phase1-browser'
+          ? Object.freeze({
+              ...application,
+              userConsentScopes: Object.freeze([
+                'profile',
+                'email',
+                'address',
+                'phone',
+                'identities',
+                'urn:aster:scope:sessions',
+              ]),
+            })
+          : application
+      )
+    ),
+  }),
+});
+
 const fail = (message = failure): never => {
   throw new Error(message);
 };
@@ -2515,7 +2539,7 @@ export const createCandidatePhase2FixtureProvisioner = (
         recipe,
         allocationId,
         profile: Object.freeze({
-          fixtures: Object.freeze({ ...frozenCandidateFixtures, phase2 }),
+          fixtures: Object.freeze({ ...phase2CandidateFixtures, phase2 }),
         }),
         seeds: Object.freeze({
           passwords: Object.freeze([

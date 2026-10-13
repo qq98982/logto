@@ -28,6 +28,7 @@ export const createWechatAuthorizationObserver = (
   input: Readonly<{
     connectorId: string;
     clientId: string;
+    oidcClientId?: string;
     channel: 'web' | 'h5';
     targetOrigin: string;
     takeCode(): Promise<string>;
@@ -120,7 +121,8 @@ export const createWechatAuthorizationObserver = (
         const ui =
           (keys === ['code', 'redirectUri'].toSorted().join('\0') ||
             (keys === ['app_id', 'code', 'redirectUri'].toSorted().join('\0') &&
-              row.app_id === input.clientId) ||
+              typeof input.oidcClientId === 'string' &&
+              row.app_id === input.oidcClientId) ||
             (keys === ['code', 'redirectUri', 'state'].toSorted().join('\0') &&
               row.state === exact.state)) &&
           row.code === exact.code &&

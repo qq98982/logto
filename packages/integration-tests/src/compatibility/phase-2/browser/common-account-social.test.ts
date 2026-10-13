@@ -31,7 +31,7 @@ test.each(['google', 'wechat'] as const)(
       [401, { code: 'verification_record.permission_denied' }],
       [204, {}],
       [200, { id: 'owner', identities: { [provider]: { userId: `${provider}-subject` } } }],
-      [404, { code: 'session.verification_session_not_found' }],
+      [204, {}],
       [204, {}],
       [200, { id: 'owner', identities: {} }],
       [422, { code: 'user.identity_already_in_use' }],
@@ -74,6 +74,24 @@ test.each(['google', 'wechat'] as const)(
     };
     const projection = await runCommonAccountSocial(target, fixture, requestFetch);
     expect(projection.provider).toBe(provider);
+    expect(projection.destinationReplay).toEqual({ status: 204, error: 'none' });
+    expect(projection.missingCurrentProof).toEqual({
+      status: 401,
+      error: 'verification_record.permission_denied',
+    });
+    expect(projection.wrongAccountProof).toEqual({
+      status: 401,
+      error: 'verification_record.permission_denied',
+    });
+    expect(projection.foreignOwner).toEqual({
+      status: 422,
+      error: 'user.identity_already_in_use',
+    });
+    expect(projection.lastMethod).toEqual({
+      status: 400,
+      error: 'user.last_sign_in_method_required',
+    });
+    expect(projection.denialStatePreserved).toBe(true);
     expect(calls).toEqual([
       'POST /api/verifications/password',
       'POST /api/my-account/identities',

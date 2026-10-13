@@ -405,6 +405,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
         : createWechatAuthorizationObserver({
             connectorId: activeConnectorId,
             clientId: input.clientId,
+            oidcClientId: input.browser.clientId,
             channel: input.channel,
             targetOrigin: input.targetOrigin,
             takeCode: input.takeBrowserCode ?? fail,

@@ -23,9 +23,19 @@ test.each(['google', 'wechat'] as const)(
     expect(
       compareCommonAccountSocialProjections(projection, {
         ...projection,
-        destinationReplay: { status: 204, error: 'none' },
+        destinationReplay: { status: 404, error: 'session.verification_session_not_found' },
       })
     ).toEqual(['/projection']);
+    for (const [key, weakened] of [
+      ['missingCurrentProof', { status: 204, error: 'none' }],
+      ['wrongAccountProof', { status: 204, error: 'none' }],
+      ['foreignOwner', { status: 204, error: 'none' }],
+      ['lastMethod', { status: 204, error: 'none' }],
+    ] as const) {
+      expect(
+        compareCommonAccountSocialProjections(projection, { ...projection, [key]: weakened })
+      ).toEqual(['/projection']);
+    }
     expect(
       compareCommonAccountSocialProjections(projection, {
         ...projection,

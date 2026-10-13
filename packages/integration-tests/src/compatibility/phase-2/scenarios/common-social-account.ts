@@ -47,10 +47,7 @@ const permissionDenied = Object.freeze({
   error: 'verification_record.permission_denied',
 });
 const identityInUse = Object.freeze({ status: 422, error: 'user.identity_already_in_use' });
-const proofMissing = Object.freeze({
-  status: 404,
-  error: 'session.verification_session_not_found',
-});
+const sameOwnerLinked = Object.freeze({ status: 204, error: 'none' });
 const lastMethod = Object.freeze({ status: 400, error: 'user.last_sign_in_method_required' });
 
 export const commonAccountSocialExpectedProjection = (
@@ -67,7 +64,7 @@ export const commonAccountSocialExpectedProjection = (
     missingCurrentProof: permissionDenied,
     wrongAccountProof: permissionDenied,
     foreignOwner: identityInUse,
-    destinationReplay: proofMissing,
+    destinationReplay: sameOwnerLinked,
     lastMethod,
     denialStatePreserved: true,
     credentialsAbsent: true,

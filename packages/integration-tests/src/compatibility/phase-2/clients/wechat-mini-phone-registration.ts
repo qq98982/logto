@@ -1,4 +1,4 @@
-/* eslint-disable max-lines, max-params -- The request assertions keep the observed sequences explicit. */
+/* eslint-disable complexity, max-lines, max-params -- The request assertions keep the observed sequences explicit. */
 import { isDeepStrictEqual } from 'node:util';
 
 import type { CommonExperienceSession } from './common-experience.js';
@@ -12,6 +12,86 @@ const value = (record: Readonly<Record<string, unknown>>, key: string): string =
   return typeof item === 'string' && item.length > 0 && Buffer.byteLength(item) <= 4096
     ? item
     : fail(key);
+};
+const localPath = (item: string): string => {
+  const parsed = new URL(item, 'https://common.invalid');
+  return item.startsWith('/') &&
+    !item.startsWith('//') &&
+    parsed.origin === 'https://common.invalid' &&
+    !parsed.hash
+    ? item
+    : fail('redirect-uri');
+};
+const authorizationState = (authorizationPath: string, targetOrigin: string): string => {
+  const authorization = new URL(authorizationPath, targetOrigin);
+  const states = authorization.searchParams.getAll('state');
+  const state = states[0];
+  return authorizationPath.startsWith('/') &&
+    !authorizationPath.startsWith('//') &&
+    authorization.origin === new URL(targetOrigin).origin &&
+    states.length === 1 &&
+    state !== undefined &&
+    /^[\u0021-\u007E]{1,4096}$/u.test(state)
+    ? state
+    : fail('authorization-state');
+};
+const admitConsentLocation = (
+  location: string | undefined,
+  targetOrigin: string,
+  clientId: string
+): void => {
+  const expectedOrigin = new URL(targetOrigin);
+  const consent = (() => {
+    try {
+      return new URL(location ?? '');
+    } catch {
+      return fail('consent-location');
+    }
+  })();
+  if (
+    consent.origin !== expectedOrigin.origin ||
+    consent.pathname !== '/consent' ||
+    consent.username ||
+    consent.password ||
+    consent.hash ||
+    consent.searchParams.getAll('app_id').length !== 1 ||
+    consent.searchParams.get('app_id') !== clientId ||
+    [...consent.searchParams.keys()].some((key) => key !== 'app_id')
+  ) {
+    fail('consent-location');
+  }
+};
+const admitCallback = (
+  location: string | undefined,
+  protocol: string,
+  expectedState: string,
+  expectedIssuer: string
+): void => {
+  const callback = (() => {
+    try {
+      return new URL(location ?? '');
+    } catch {
+      return fail('oidc-resume');
+    }
+  })();
+  if (
+    callback.protocol !== protocol ||
+    callback.hostname !== 'callback' ||
+    callback.port !== '' ||
+    (callback.pathname !== '' && callback.pathname !== '/') ||
+    callback.username ||
+    callback.password ||
+    callback.hash ||
+    callback.searchParams.getAll('code').length !== 1 ||
+    callback.searchParams.getAll('state').length !== 1 ||
+    callback.searchParams.getAll('iss').length !== 1 ||
+    [...callback.searchParams.keys()].some((key) => !['code', 'state', 'iss'].includes(key)) ||
+    !/^[\u0021-\u007E]{1,4096}$/u.test(callback.searchParams.get('code') ?? '') ||
+    callback.searchParams.get('state') !== expectedState ||
+    callback.searchParams.get('iss') !== expectedIssuer
+  ) {
+    fail('oidc-resume');
+  }
 };
 const status = async (
   session: CommonExperienceSession,
@@ -47,7 +127,7 @@ const miniAuthorization = async (
   return value(authorization.getRecord(), 'verificationId');
 };
 
-/** Executes the observed 13-call Mini registration sequence over the real cookie-bound transport. */
+/** Executes the observed 13-call registration prefix and 3-call consent completion. */
 export const runWechatMiniPhoneRegistration = async (
   input: Readonly<{
     session: CommonExperienceSession;
@@ -57,11 +137,15 @@ export const runWechatMiniPhoneRegistration = async (
     providerState: string;
     providerCode: string;
     phone: string;
+    targetOrigin: string;
+    applicationClientId: string;
     callbackScheme: 'box-ai-wechat-mini:';
     armPhoneCode(): Promise<void>;
     getPhoneCode(): Promise<string>;
   }>
 ) => {
+  const expectedState = authorizationState(input.authorizationPath, input.targetOrigin);
+  const expectedIssuer = new URL('/oidc', input.targetOrigin).toString();
   await status(input.session, input.authorizationPath, 'GET', 303);
   await status(input.session, '/api/experience', 'PUT', 204, { interactionEvent: 'SignIn' });
   const socialId = await miniAuthorization(input);
@@ -111,14 +195,20 @@ export const runWechatMiniPhoneRegistration = async (
   });
   await status(input.session, '/api/experience/identification', 'POST', 201, {});
   const submitted = await status(input.session, '/api/experience/submit', 'POST', 200);
-  const redirectTo = value(submitted.getRecord(), 'redirectTo');
-  const resumed = await status(input.session, redirectTo, 'GET', 303);
-  const location = resumed.getLocation();
-  if (!location || new URL(location).protocol !== input.callbackScheme) {
-    fail('oidc-resume');
-  }
+  const redirectTo = localPath(value(submitted.getRecord(), 'redirectTo'));
+  const consentRedirect = await status(input.session, redirectTo, 'GET', 303);
+  admitConsentLocation(
+    consentRedirect.getLocation(),
+    input.targetOrigin,
+    input.applicationClientId
+  );
+  await status(input.session, '/api/interaction/consent', 'GET', 200);
+  const consent = await status(input.session, '/api/interaction/consent', 'POST', 200, {});
+  const consentRedirectTo = localPath(value(consent.getRecord(), 'redirectTo'));
+  const resumed = await status(input.session, consentRedirectTo, 'GET', 303);
+  admitCallback(resumed.getLocation(), input.callbackScheme, expectedState, expectedIssuer);
   return Object.freeze({
-    calls: 13 as const,
+    calls: 16 as const,
     registered: true as const,
     unionIdRequired: true as const,
     callbackScheme: input.callbackScheme,
@@ -366,4 +456,4 @@ export const prepareWechatMiniPhoneCollision = async (
   );
   return phoneVerificationId;
 };
-/* eslint-enable max-lines, max-params */
+/* eslint-enable complexity, max-lines, max-params */

@@ -110,6 +110,8 @@ const run = async (input: Input, registration: boolean) => {
               phone: input.phone,
               armPhoneCode: async () => input.smsLease.arm(input.phone, 'Register'),
               getPhoneCode: async () => input.smsLease.takeCode(input.phone, 'Register'),
+              targetOrigin: input.target.coreUrl,
+              applicationClientId: status.client.id,
               callbackScheme: 'box-ai-wechat-mini:',
             })
           : await runWechatMiniExistingOwner(common);

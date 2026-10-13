@@ -1484,6 +1484,34 @@ describe('Phase 2 fixture lifecycle', () => {
       },
       profile: {
         fixtures: {
+          dataTenant: {
+            applications: [
+              {
+                id: 'phase1-app',
+                isThirdParty: false,
+              },
+              {
+                id: 'phase1-browser',
+                isThirdParty: true,
+                userConsentScopes: [
+                  'profile',
+                  'email',
+                  'address',
+                  'phone',
+                  'identities',
+                  'urn:aster:scope:sessions',
+                ],
+                resourceConsentScopes: ['phase1-read-profile'],
+              },
+            ],
+            browserClientConfiguration: {
+              route: '/demo-app?app_id=phase1-browser',
+              localStorageValue: {
+                appId: 'phase1-browser',
+                scope: 'profile email address phone read:profile',
+              },
+            },
+          },
           phase2: {
             subjectPrimaryEmail: null,
             subjectResourceScopeIds: ['read-scope'],
@@ -1580,6 +1608,24 @@ describe('Phase 2 fixture lifecycle', () => {
         },
       },
     });
+    const candidateApplications = provision.profile.fixtures.dataTenant.applications as Array<{
+      id?: string;
+      userConsentScopes?: string[];
+    }>;
+    expect(candidateApplications).toHaveLength(2);
+    expect(candidateApplications.map(({ id }) => id)).toEqual(['phase1-app', 'phase1-browser']);
+    expect(candidateApplications[0]).not.toHaveProperty('userConsentScopes');
+    expect(candidateApplications[1]?.userConsentScopes).toEqual([
+      'profile',
+      'email',
+      'address',
+      'phone',
+      'identities',
+      'urn:aster:scope:sessions',
+    ]);
+    expect(
+      provision.profile.fixtures.dataTenant.browserClientConfiguration.effectiveScopes
+    ).toEqual(['openid', 'offline_access', 'profile', 'email', 'address', 'phone', 'read:profile']);
     expect(
       requests.every(({ env }) =>
         Object.keys(env).every((key) =>

@@ -407,67 +407,97 @@ test('rejects a nonempty unexpected H5 authorization fragment', async () => {
   expect(gets).toBe(0);
 });
 
-test('rewrites the H5 fixed UI verification body to exact code and validated state', async () => {
-  let forwarded = '';
-  const observer = createWechatAuthorizationObserver({
-    connectorId: 'wechat-h5',
-    clientId: 'owned-client',
-    channel: 'h5',
-    targetOrigin: 'https://core.example/',
-    takeCode: async () => 'owned-code',
-  });
-  const authorization = new URL(
-    'https://open.weixin.qq.com/connect/oauth2/authorize?appid=owned-client&redirect_uri=https%3A%2F%2Fcore.example%2Fcallback%2Fwechat-h5&response_type=code&scope=snsapi_userinfo&state=abcdefghijk#wechat_redirect'
-  );
-  await invokePlaywrightExternalAuthorizationCapability(observer.capability, 'GET', authorization, {
-    abort: async () => {},
-    fulfill: async () => {},
-  });
-  const apiResponse = { status: () => 200 };
-  await expect(
-    invokePlaywrightExternalAuthorizationCapability(
+test.each([
+  { name: 'provider state', extra: { state: 'abcdefghijk' } },
+  { name: 'OIDC application', extra: { app_id: 'owned-oidc-client' } },
+])(
+  'rewrites the H5 fixed UI callback with bound $name to exact code and state',
+  async ({ extra }) => {
+    let forwarded = '';
+    const observer = createWechatAuthorizationObserver({
+      connectorId: 'wechat-h5',
+      clientId: 'owned-client',
+      oidcClientId: 'owned-oidc-client',
+      channel: 'h5',
+      targetOrigin: 'https://core.example/',
+      takeCode: async () => 'owned-code',
+    });
+    const authorization = new URL(
+      'https://open.weixin.qq.com/connect/oauth2/authorize?appid=owned-client&redirect_uri=https%3A%2F%2Fcore.example%2Fcallback%2Fwechat-h5&response_type=code&scope=snsapi_userinfo&state=abcdefghijk#wechat_redirect'
+    );
+    await invokePlaywrightExternalAuthorizationCapability(
       observer.capability,
       'GET',
-      new URL('https://core.example/api/experience/verification/social/wechat-h5/verify'),
-      { abort: async () => {}, fulfill: async () => {} }
-    )
-  ).resolves.toBe(false);
-  await expect(
-    invokePlaywrightExternalAuthorizationCapability(
-      observer.capability,
-      'POST',
-      new URL('https://core.example/api/experience/verification/social/wechat-h5/verify'),
+      authorization,
       {
         abort: async () => {},
-        request: () =>
-          ({
-            postData: () =>
-              JSON.stringify({
-                verificationId: 'owned-verification',
-                connectorData: {
-                  code: 'owned-code',
-                  state: 'abcdefghijk',
-                  redirectUri: 'https://core.example/callback/wechat-h5',
-                },
-              }),
-          }) as never,
-        fetch: async (options) => {
-          forwarded = String(options?.postData);
-          return apiResponse as never;
-        },
-        fulfill: async (options) => {
-          expect(options?.response).toBe(apiResponse);
-        },
+        fulfill: async () => {},
       }
-    )
-  ).resolves.toBe(true);
-  expect(JSON.parse(forwarded)).toEqual({
-    verificationId: 'owned-verification',
-    connectorData: { code: 'owned-code', state: 'abcdefghijk' },
-  });
-});
+    );
+    const apiResponse = { status: () => 200 };
+    await expect(
+      invokePlaywrightExternalAuthorizationCapability(
+        observer.capability,
+        'GET',
+        new URL('https://core.example/api/experience/verification/social/wechat-h5/verify'),
+        { abort: async () => {}, fulfill: async () => {} }
+      )
+    ).resolves.toBe(false);
+    await expect(
+      invokePlaywrightExternalAuthorizationCapability(
+        observer.capability,
+        'POST',
+        new URL('https://core.example/api/experience/verification/social/wechat-h5/verify'),
+        {
+          abort: async () => {},
+          request: () =>
+            ({
+              postData: () =>
+                JSON.stringify({
+                  verificationId: 'owned-verification',
+                  connectorData: {
+                    code: 'owned-code',
+                    ...extra,
+                    redirectUri: 'https://core.example/callback/wechat-h5',
+                  },
+                }),
+            }) as never,
+          fetch: async (options) => {
+            forwarded = String(options?.postData);
+            return apiResponse as never;
+          },
+          fulfill: async (options) => {
+            expect(options?.response).toBe(apiResponse);
+          },
+        }
+      )
+    ).resolves.toBe(true);
+    expect(JSON.parse(forwarded)).toEqual({
+      verificationId: 'owned-verification',
+      connectorData: { code: 'owned-code', state: 'abcdefghijk' },
+    });
+  }
+);
 
 test.each([
+  {
+    name: 'wrong OIDC application',
+    verificationId: 'owned-verification',
+    body: {
+      code: 'owned-code',
+      app_id: 'other-oidc-client',
+      redirectUri: 'https://core.example/callback/wechat-h5',
+    },
+  },
+  {
+    name: 'provider id used as OIDC application',
+    verificationId: 'owned-verification',
+    body: {
+      code: 'owned-code',
+      app_id: 'owned-client',
+      redirectUri: 'https://core.example/callback/wechat-h5',
+    },
+  },
   {
     name: 'wrong state',
     verificationId: 'owned-verification',
@@ -497,6 +527,7 @@ test.each([
   const observer = createWechatAuthorizationObserver({
     connectorId: 'wechat-h5',
     clientId: 'owned-client',
+    oidcClientId: 'owned-oidc-client',
     channel: 'h5',
     targetOrigin: 'https://core.example/',
     takeCode: async () => 'owned-code',
