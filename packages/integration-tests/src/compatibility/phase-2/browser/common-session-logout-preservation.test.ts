@@ -31,10 +31,17 @@ const fixture = (
     duplicate?: boolean;
   }> = {}
 ) => {
-  const state = { present: true, attempts: 0, cleaned: 0, posts: 0 };
+  const state = {
+    present: true,
+    attempts: 0,
+    cleaned: 0,
+    posts: 0,
+    operations: [] as Array<'rp' | 'account'>,
+  };
   const runtime: CommonLogoutPreservationRuntime = {
     withAttempt: async (input, use) => {
       state.attempts += 1;
+      state.operations = [...state.operations, input.operation];
       state.present = true;
       const now = Math.floor(Date.now() / 1000);
       const idToken = await new SignJWT({
@@ -191,6 +198,17 @@ test('Every selected identity removes its exact session while preserving offline
   expect(owned.state.attempts).toBe(9);
   expect(owned.state.cleaned).toBe(9);
   expect(owned.state.posts).toBe(6);
+  expect(owned.state.operations).toEqual([
+    'rp',
+    'rp',
+    'account',
+    'rp',
+    'rp',
+    'account',
+    'rp',
+    'rp',
+    'account',
+  ]);
 });
 
 test('A correctly signed notification for another session fails the comparison and releases its owned fixture', async () => {

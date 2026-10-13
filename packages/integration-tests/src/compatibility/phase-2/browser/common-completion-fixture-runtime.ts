@@ -535,8 +535,9 @@ export const readCommonCompletionFixtureRuntime = async (
   };
   const receiver: CommonCompletionFixtureRuntime['logout']['withReceiver'] = async (
     delivery,
+    expectedNotification,
     use
-  ) => withOwnedBackchannelReceiver({ delivery, services: receivers }, use);
+  ) => withOwnedBackchannelReceiver({ delivery, expectedNotification, services: receivers }, use);
   let environmentActive = false;
   const withProvisioningEnvironments: CommonCompletionIdentityRuntime['withProvisioningEnvironments'] =
     async (use) => {

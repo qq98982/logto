@@ -94,7 +94,8 @@ const writePrivateFile = async (
 };
 const readPrivateReceipt = async (
   filePath: string,
-  identity: FileIdentity
+  identity: FileIdentity,
+  expectEmpty = false
 ): Promise<Record<string, unknown>> => {
   const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -106,12 +107,15 @@ const readPrivateReceipt = async (
       state.nlink !== 1 ||
       state.uid !== process.getuid?.() ||
       (state.mode & 0o777) !== 0o600 ||
-      state.size < 3 ||
+      (expectEmpty ? state.size > 0 : state.size < 3) ||
       state.size > maximumFileBytes
     ) {
       return fail();
     }
     const text = await handle.readFile('utf8');
+    if (text === '') {
+      return {};
+    }
     if (!text.endsWith('\n') || text.trimEnd().includes('\n')) {
       return fail();
     }
@@ -193,7 +197,10 @@ const attempt = async <Result>(
   service: OwnedPrivateService,
   configure: () => Promise<Readonly<{ receipt: FileIdentity; config?: FileIdentity }>>,
   use: () => Promise<Result>,
-  verify: (receipt: Record<string, unknown>) => void
+  validation: Readonly<{
+    expectEmptyReceipt?: boolean;
+    verify(receipt: Record<string, unknown>): void;
+  }>
 ): Promise<Result> => {
   const files = await configure();
   let id: string | undefined;
@@ -202,7 +209,13 @@ const attempt = async <Result>(
     id = await ownedContainer(service);
     await startOwned(service, id);
     const result = await use();
-    verify(await readPrivateReceipt(service.receiptFile, files.receipt));
+    validation.verify(
+      await readPrivateReceipt(
+        service.receiptFile,
+        files.receipt,
+        validation.expectEmptyReceipt ?? false
+      )
+    );
     return result;
   } catch (error: unknown) {
     primary = error;
@@ -272,20 +285,22 @@ export const createOwnedPasswordCompromiseFixture = (
         return { config, receipt };
       },
       use,
-      (receipt) => {
-        const allowedAgent = new Set(['absent', 'aster', 'logto', 'undici', 'node', 'other']);
-        if (
-          receipt.methodGet !== true ||
-          receipt.originMatches !== true ||
-          receipt.pathShapeMatches !== true ||
-          receipt.prefixMatches !== true ||
-          receipt.addPaddingPresent !== (role === 'candidate') ||
-          !allowedAgent.has(receipt.userAgentProduct as string) ||
-          receipt.status !== (outcome === 'unavailable' ? 0 : 200) ||
-          Reflect.ownKeys(receipt).length !== 7
-        ) {
-          fail();
-        }
+      {
+        verify: (receipt) => {
+          const allowedAgent = new Set(['absent', 'aster', 'logto', 'undici', 'node', 'other']);
+          if (
+            receipt.methodGet !== true ||
+            receipt.originMatches !== true ||
+            receipt.pathShapeMatches !== true ||
+            receipt.prefixMatches !== true ||
+            receipt.addPaddingPresent !== (role === 'candidate') ||
+            !allowedAgent.has(receipt.userAgentProduct as string) ||
+            receipt.status !== (outcome === 'unavailable' ? 0 : 200) ||
+            Reflect.ownKeys(receipt).length !== 7
+          ) {
+            fail();
+          }
+        },
       }
     );
   },
@@ -298,6 +313,7 @@ export type OwnedBackchannelReceiver = Readonly<{
 export const withOwnedBackchannelReceiver = async <Result>(
   input: Readonly<{
     delivery: 'accepted' | 'rejected';
+    expectedNotification?: boolean;
     services: Readonly<Record<'accepted' | 'rejected', OwnedPrivateService>>;
     signal?: AbortSignal;
   }>,
@@ -305,8 +321,15 @@ export const withOwnedBackchannelReceiver = async <Result>(
 ): Promise<Result> => {
   const service = input.services[input.delivery];
   const expected = input.delivery === 'accepted' ? 204 : 503;
+  const expectedNotification = input.expectedNotification ?? true;
   let receiptIdentity: FileIdentity | undefined;
   const verify = (receipt: Record<string, unknown>) => {
+    if (!expectedNotification) {
+      if (Reflect.ownKeys(receipt).length > 0) {
+        fail();
+      }
+      return;
+    }
     if (
       receipt.methodPost !== true ||
       receipt.pathMatches !== true ||
@@ -334,13 +357,16 @@ export const withOwnedBackchannelReceiver = async <Result>(
           consume: async () =>
             consumeOwnedBackchannelNotification(service.socketFile ?? fail(), input.signal),
           deliveryStatus: async () => {
+            if (!expectedNotification) {
+              return fail();
+            }
             const identity = receiptIdentity ?? fail();
             verify(await readPrivateReceipt(service.receiptFile, identity));
             return expected;
           },
         })
       ),
-    verify
+    { verify, expectEmptyReceipt: !expectedNotification }
   );
 };
 /* eslint-enable complexity, max-lines, no-await-in-loop, no-bitwise, no-restricted-syntax, no-unsafe-finally, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-throw-literal */

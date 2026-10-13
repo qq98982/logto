@@ -5,11 +5,98 @@ import path from 'node:path';
 
 import {
   createOwnedPasswordCompromiseFixture,
+  withOwnedBackchannelReceiver,
   type OwnedPrivateService,
 } from './owned-policy-logout-fixtures.js';
 
 const id = `sha256:${'a'.repeat(64)}`;
 const containerId = 'b'.repeat(64);
+
+const createBackchannelService = (receiptFile: string): OwnedPrivateService => {
+  let running = false;
+  return {
+    container: 'owned-backchannel',
+    project: 'owned-project',
+    service: 'owned-backchannel',
+    image: id,
+    receiptFile,
+    control: {
+      run: async (args) => {
+        if (args[0] === 'inspect' && args[2] === '{{json .}}') {
+          return JSON.stringify({
+            Id: containerId,
+            Name: '/owned-backchannel',
+            Image: id,
+            Config: {
+              Image: id,
+              Labels: {
+                'com.docker.compose.project': 'owned-project',
+                'com.docker.compose.service': 'owned-backchannel',
+              },
+            },
+            State: { Status: running ? 'running' : 'created', Running: running },
+          });
+        }
+        if (args[0] === 'start') {
+          running = true;
+          return '';
+        }
+        if (args[0] === 'inspect' && args[2] === '{{json .State}}') {
+          return JSON.stringify({
+            Status: running ? 'running' : 'exited',
+            Running: running,
+            Health: { Status: running ? 'healthy' : 'none' },
+          });
+        }
+        if (args[0] === 'stop') {
+          running = false;
+          return '';
+        }
+        throw new TypeError('unexpected control command');
+      },
+    },
+  };
+};
+
+test('requires one notification for RP logout and an exact empty receipt for Account deletion', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'owned-backchannel-'));
+  const receiptFile = path.join(directory, 'receipt.ndjson');
+  const service = createBackchannelService(receiptFile);
+  const services = { accepted: service, rejected: service };
+  try {
+    await writeFile(receiptFile, '', { mode: 0o600 });
+    await expect(
+      withOwnedBackchannelReceiver(
+        { delivery: 'accepted', expectedNotification: false, services },
+        async (receiver) => {
+          await expect(receiver.deliveryStatus()).rejects.toThrow(
+            'Invalid owned policy/logout fixture'
+          );
+          return 'account';
+        }
+      )
+    ).resolves.toBe('account');
+
+    await expect(
+      withOwnedBackchannelReceiver(
+        { delivery: 'accepted', expectedNotification: true, services },
+        async () => 'rp'
+      )
+    ).rejects.toThrow('Invalid owned policy/logout fixture');
+
+    await expect(
+      withOwnedBackchannelReceiver(
+        { delivery: 'accepted', expectedNotification: false, services },
+        async () => {
+          await writeFile(receiptFile, '{}\n');
+          return 'account';
+        }
+      )
+    ).rejects.toThrow('Invalid owned policy/logout fixture');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('writes only the SHA1 range config, validates one receipt and clears files after stop', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'owned-pwned-'));

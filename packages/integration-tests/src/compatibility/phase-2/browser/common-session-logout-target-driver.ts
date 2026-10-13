@@ -43,6 +43,7 @@ export type CommonSessionLogoutFixtureRuntime = Readonly<{
   >;
   withReceiver<Result>(
     delivery: 'accepted' | 'rejected',
+    expectedNotification: boolean,
     use: (receiver: Receiver) => Promise<Result>
   ): Promise<Result>;
 }>;
@@ -162,8 +163,8 @@ export const runCommonSessionLogoutForTarget = async (
         jwks: input.jwks,
         fetch: requestFetch,
         runtime: {
-          withAttempt: async ({ method, delivery }, use) =>
-            input.runtime.withReceiver(delivery, async (receiver) => {
+          withAttempt: async ({ method, delivery, operation }, use) =>
+            input.runtime.withReceiver(delivery, operation === 'rp', async (receiver) => {
               const observe = async (owner: OwnedLogoutSession) => use(owner, receiver);
               if (method === 'google') {
                 return withOwnedGoogleSession({

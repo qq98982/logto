@@ -21,7 +21,11 @@ export type OwnedLogoutSession = Readonly<{
 }>;
 export type CommonLogoutPreservationRuntime = Readonly<{
   withAttempt<Result>(
-    input: Readonly<{ method: LogoutEntryMethod; delivery: 'accepted' | 'rejected' }>,
+    input: Readonly<{
+      method: LogoutEntryMethod;
+      delivery: 'accepted' | 'rejected';
+      operation: 'rp' | 'account';
+    }>,
     use: (
       session: OwnedLogoutSession,
       receiver: Readonly<{
@@ -213,7 +217,7 @@ export const runCommonSessionLogoutPreservation = async (
   const results: CommonLogoutMethodProjection[] = [];
   for (const method of ['google', 'email-code', 'wechat-native'] as const) {
     const attempt = async (delivery: 'accepted' | 'rejected', operation: 'rp' | 'account') =>
-      input.runtime.withAttempt({ method, delivery }, async (owner, receiver) => {
+      input.runtime.withAttempt({ method, delivery, operation }, async (owner, receiver) => {
         const identity = await verifyBoundLogoutIdentity({
           session: owner.session,
           jwks: input.jwks,
