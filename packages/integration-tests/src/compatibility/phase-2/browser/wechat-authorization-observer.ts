@@ -123,6 +123,10 @@ export const createWechatAuthorizationObserver = (
             (keys === ['app_id', 'code', 'redirectUri'].toSorted().join('\0') &&
               typeof input.oidcClientId === 'string' &&
               row.app_id === input.oidcClientId) ||
+            (keys === ['app_id', 'code', 'redirectUri', 'wechat_redirect'].toSorted().join('\0') &&
+              typeof input.oidcClientId === 'string' &&
+              row.app_id === input.oidcClientId &&
+              row.wechat_redirect === '') ||
             (keys === ['code', 'redirectUri', 'state'].toSorted().join('\0') &&
               row.state === exact.state)) &&
           row.code === exact.code &&

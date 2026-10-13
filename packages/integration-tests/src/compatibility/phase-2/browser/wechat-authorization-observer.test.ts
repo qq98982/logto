@@ -410,6 +410,10 @@ test('rejects a nonempty unexpected H5 authorization fragment', async () => {
 test.each([
   { name: 'provider state', extra: { state: 'abcdefghijk' } },
   { name: 'OIDC application', extra: { app_id: 'owned-oidc-client' } },
+  {
+    name: 'OIDC application with the WeChat callback marker',
+    extra: { app_id: 'owned-oidc-client', wechat_redirect: '' },
+  },
 ])(
   'rewrites the H5 fixed UI callback with bound $name to exact code and state',
   async ({ extra }) => {
@@ -496,6 +500,25 @@ test.each([
       code: 'owned-code',
       app_id: 'owned-client',
       redirectUri: 'https://core.example/callback/wechat-h5',
+    },
+  },
+  {
+    name: 'nonempty WeChat callback marker',
+    verificationId: 'owned-verification',
+    body: {
+      code: 'owned-code',
+      app_id: 'owned-oidc-client',
+      redirectUri: 'https://core.example/callback/wechat-h5',
+      wechat_redirect: '1',
+    },
+  },
+  {
+    name: 'WeChat callback marker without the owned OIDC application',
+    verificationId: 'owned-verification',
+    body: {
+      code: 'owned-code',
+      redirectUri: 'https://core.example/callback/wechat-h5',
+      wechat_redirect: '',
     },
   },
   {
