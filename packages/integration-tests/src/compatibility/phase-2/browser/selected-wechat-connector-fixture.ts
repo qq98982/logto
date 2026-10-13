@@ -152,6 +152,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
   let registrationOwnerId: string | undefined;
   let result: Result | undefined;
   let bodyFailed = false;
+  let primaryError: unknown;
   let primaryStage = 'read-sie';
   const cleanupStages: string[] = [];
   const registrationOwners = async (): Promise<unknown[]> => {
@@ -487,6 +488,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
       ? `prepare-connector-${providerStage}`
       : (ownerStage(error) ?? primaryStage);
     bodyFailed = true;
+    primaryError = error;
   } finally {
     if (preparedProvider) {
       try {
@@ -636,12 +638,19 @@ export const withSelectedWechatConnectorFixture = async <Result>(
           (stage) => new TypeError(`Selected Wechat connector fixture failed: ${stage}`)
         ),
         ...(bodyFailed
-          ? [new TypeError(`Selected Wechat connector fixture failed: ${primaryStage}`)]
+          ? [
+              new TypeError(`Selected Wechat connector fixture failed: ${primaryStage}`, {
+                cause: primaryError,
+              }),
+            ]
           : []),
       ],
       'Selected Wechat connector cleanup failed'
     );
-  if (bodyFailed) throw new TypeError(`Selected Wechat connector fixture failed: ${primaryStage}`);
+  if (bodyFailed)
+    throw new TypeError(`Selected Wechat connector fixture failed: ${primaryStage}`, {
+      cause: primaryError,
+    });
   return result as Result;
 };
 /* eslint-enable complexity, max-lines, no-restricted-syntax, curly, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

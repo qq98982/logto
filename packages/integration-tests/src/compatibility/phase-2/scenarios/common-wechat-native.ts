@@ -52,6 +52,18 @@ export type WechatNativeProviderLease = Readonly<{
   stop(): Promise<void>;
 }>;
 
+export const runWechatNativeControlsAndAudit = async <Controls>(
+  provider: WechatNativeProviderLease,
+  runControls: () => Promise<Controls>
+) => {
+  const controls = await runControls();
+  const observed = await provider.observation();
+  if (!Object.values(observed).every(Boolean)) {
+    return fail();
+  }
+  return Object.freeze({ controls, observed });
+};
+
 export const runCommonWechatNativeScenarioRow = async (
   input: Readonly<{
     target: TargetConfig;
@@ -109,6 +121,8 @@ export const runCommonWechatNativeScenarioRow = async (
         ) {
           return fail();
         }
+        const activeConnectorId = connectorId;
+        const activeProvider = provider;
         const state = randomBytes(24).toString('base64url');
         const projection = await observeCommonNativeCodePkce({
           target: input.target,
@@ -131,39 +145,39 @@ export const runCommonWechatNativeScenarioRow = async (
                 resourceScope: 'session:exchange',
               },
               createWechatNativeIdentityDriver({
-                connectorId: connectorId ?? fail(),
+                connectorId: activeConnectorId,
                 redirectUri: selectedFixture.public.selectedNative.redirectUri,
                 state,
                 appId: input.clientId,
                 universalLink: input.universalLink,
-                takeProviderCode: provider?.takeCode ?? fail,
+                takeProviderCode: activeProvider.takeCode,
               }),
               requestFetch
             ),
         });
-        const observed = await provider.observation();
-        if (!Object.values(observed).every(Boolean)) {
-          return fail();
-        }
-        const controls = await runWechatNativeProviderControls({
-          connectorId,
-          redirectUri: fixture.public.selectedNative.redirectUri,
-          appId: input.clientId,
-          universalLink: input.universalLink,
-          createSession: () =>
-            createCommonExperienceSession({
-              target: input.target,
-              clientId: fixture.public.selectedNative.clientId,
-              ...(input.fetch && { fetch: input.fetch }),
-            }),
-          authorizationPath: () =>
-            nativeAuthorizationPath(
-              fixture.public.selectedNative.clientId,
-              fixture.public.selectedNative.redirectUri,
-              fixture.public.selectedNative.resource.indicator
-            ),
-          takeControlCode: provider.takeControlCode,
-        });
+        const { controls, observed } = await runWechatNativeControlsAndAudit(
+          activeProvider,
+          async () =>
+            runWechatNativeProviderControls({
+              connectorId: activeConnectorId,
+              redirectUri: fixture.public.selectedNative.redirectUri,
+              appId: input.clientId,
+              universalLink: input.universalLink,
+              createSession: () =>
+                createCommonExperienceSession({
+                  target: input.target,
+                  clientId: fixture.public.selectedNative.clientId,
+                  ...(input.fetch && { fetch: input.fetch }),
+                }),
+              authorizationPath: () =>
+                nativeAuthorizationPath(
+                  fixture.public.selectedNative.clientId,
+                  fixture.public.selectedNative.redirectUri,
+                  fixture.public.selectedNative.resource.indicator
+                ),
+              takeControlCode: activeProvider.takeControlCode,
+            })
+        );
         return Object.freeze({
           id: commonWechatNativeScenarioIds[0],
           projection: Object.freeze({ ...projection, provider: observed, ...controls }),

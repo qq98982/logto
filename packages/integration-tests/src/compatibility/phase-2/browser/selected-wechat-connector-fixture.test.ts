@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- The stateful request fake exercises the ordered connector transaction and its compensating restores. */
+/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function -- The stateful request fake exercises the ordered connector transaction and its compensating restores. */
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 import { withSelectedWechatConnectorFixture } from './selected-wechat-connector-fixture.js';
@@ -14,6 +14,8 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
   let currentMetadata: unknown = originalMetadata;
   let currentSie: typeof originalSie | Record<string, unknown> = originalSie;
   let smsBody: unknown;
+  let cleanupFails = false;
+  const cleanupAttempts: string[] = [];
   const request: Phase2AdminRequestFunction = async (input) => {
     if (input.method === 'GET' && input.path === 'sign-in-exp') {
       return currentSie;
@@ -45,48 +47,61 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
       return [];
     }
     if (input.method === 'DELETE') {
+      cleanupAttempts.push(input.path);
+      if (cleanupFails) {
+        throw new TypeError('Controlled cleanup failure');
+      }
       return 204;
     }
     throw new TypeError('Unexpected test request');
   };
-  await expect(
-    withSelectedWechatConnectorFixture({
-      fixture: {
-        public: { allocationId: 'fixture' },
-        status: {
-          resource: {
-            id: 'resource',
-            indicator: 'https://resource.invalid/',
-            scopeName: 'session:exchange',
-          },
-        },
-      } as ProvisionedPhase2Fixture,
-      request,
-      targetOrigin: 'https://target.invalid/',
-      browser: { clientId: 'client', redirectUri: 'https://target.invalid/demo-app' },
-      clientId: 'wx0123456789abcdef',
-      clientSecret: '0123456789abcdef',
-      channel: 'h5',
-      wechatSubject: 'subject',
-      registrationPhone: '15555550101',
-      smsConfiguration: {
-        accessKeyId: 'controlled-id',
-        accessKeySecret: 'controlled-secret',
-        signName: 'Controlled Sign',
-        templates: {
-          Register: 'controlled-register',
-          SignIn: 'controlled-sign-in',
-          ForgotPassword: 'controlled-forgot',
-          Generic: 'controlled-generic',
+  const primary = new TypeError('Controlled stop after connector creation');
+  const fixtureInput = {
+    fixture: {
+      public: { allocationId: 'fixture' },
+      status: {
+        resource: {
+          id: 'resource',
+          indicator: 'https://resource.invalid/',
+          scopeName: 'session:exchange',
         },
       },
-      ownerMode: 'registration',
-      prepareConnector: async () => {
-        throw new TypeError('Controlled stop after connector creation');
+    } as ProvisionedPhase2Fixture,
+    request,
+    targetOrigin: 'https://target.invalid/',
+    browser: { clientId: 'client', redirectUri: 'https://target.invalid/demo-app' },
+    clientId: 'wx0123456789abcdef',
+    clientSecret: '0123456789abcdef',
+    channel: 'h5',
+    wechatSubject: 'subject',
+    registrationPhone: '15555550101',
+    smsConfiguration: {
+      accessKeyId: 'controlled-id',
+      accessKeySecret: 'controlled-secret',
+      signName: 'Controlled Sign',
+      templates: {
+        Register: 'controlled-register',
+        SignIn: 'controlled-sign-in',
+        ForgotPassword: 'controlled-forgot',
+        Generic: 'controlled-generic',
       },
-      use: async () => {},
-    })
-  ).rejects.toThrow('Selected Wechat connector fixture failed: prepare-connector');
+    },
+    ownerMode: 'registration',
+    prepareConnector: async () => {
+      throw primary;
+    },
+    use: async () => {},
+  } as const;
+  try {
+    await withSelectedWechatConnectorFixture(fixtureInput);
+    throw new TypeError('Expected fixture failure');
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(TypeError);
+    expect((error as Error).message).toBe(
+      'Selected Wechat connector fixture failed: prepare-connector'
+    );
+    expect((error as Error).cause).toBe(primary);
+  }
   expect(smsBody).toEqual({
     connectorId: 'aliyun-short-message-service',
     config: {
@@ -106,5 +121,23 @@ test('creates the H5 verification transport with the Aliyun SMS factory', async 
     socialSignInConnectorTargets: originalSie.socialSignInConnectorTargets,
     branding: originalSie.branding,
   });
+
+  cleanupFails = true;
+  cleanupAttempts.length = 0;
+  try {
+    await withSelectedWechatConnectorFixture(fixtureInput);
+    throw new TypeError('Expected fixture cleanup failure');
+  } catch (error: unknown) {
+    expect(error).toBeInstanceOf(AggregateError);
+    const { errors } = error as AggregateError;
+    const fixedPrimary = errors.find(
+      (value) =>
+        value instanceof TypeError &&
+        value.message === 'Selected Wechat connector fixture failed: prepare-connector'
+    );
+    expect(fixedPrimary).toBeInstanceOf(TypeError);
+    expect((fixedPrimary as Error).cause).toBe(primary);
+  }
+  expect(cleanupAttempts).toEqual(['roles/role', 'connectors/wechat', 'connectors/sms']);
 });
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */
+/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-empty-function */
