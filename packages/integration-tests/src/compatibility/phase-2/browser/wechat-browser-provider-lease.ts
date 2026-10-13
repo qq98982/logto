@@ -11,7 +11,6 @@ import {
   realpathSync,
 } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
-import net from 'node:net';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -122,41 +121,6 @@ const defaultHealthTiming: WechatBrowserProviderHealthTiming = Object.freeze({
     }),
 });
 
-export const takeWechatRecipientCode = async (
-  socketPath: string,
-  recipient: string
-): Promise<string> =>
-  new Promise<string>((resolve, reject) => {
-    if (!exactAbsolutePath(socketPath) || !/^\d{8,15}$/u.test(recipient)) {
-      reject(new TypeError(failure));
-      return;
-    }
-    const socket = net.createConnection(socketPath);
-    let response = '';
-    socket.setTimeout(5000);
-    socket.on('connect', () => socket.end(JSON.stringify({ recipient })));
-    socket.on('data', (chunk) => {
-      response += chunk.toString('utf8');
-      if (Buffer.byteLength(response) > 256) {
-        socket.destroy(new TypeError(failure));
-      }
-    });
-    socket.on('timeout', () => socket.destroy(new TypeError(failure)));
-    socket.on('error', reject);
-    socket.on('close', () => {
-      try {
-        const value = parsedRecord(response).code;
-        if (typeof value !== 'string' || !/^\d{6}$/u.test(value)) {
-          reject(new TypeError(failure));
-          return;
-        }
-        resolve(value);
-      } catch (error: unknown) {
-        reject(error instanceof Error ? error : new TypeError(failure));
-      }
-    });
-  });
-
 const readProviderObservation = (
   receiptFile: string,
   channel: 'web' | 'h5',
@@ -211,7 +175,7 @@ const readProviderObservation = (
   if (
     token.length !== expectedProviderRequests ||
     userinfo.length !== expectedProviderRequests ||
-    (channel === 'h5' && sms.length !== 1) ||
+    sms.length > 0 ||
     [...token, ...userinfo].some((value) => plainRecord(value).exact !== true) ||
     sms.some(
       (value) =>
@@ -597,7 +561,6 @@ export const prepareWechatBrowserProviderLease = async (
     image: string;
     configFile: string;
     receiptFile: string;
-    codeSocket?: string;
     healthDiagnosticFile: string;
     role: 'oracle' | 'candidate';
     targetOrigin: string;
@@ -644,16 +607,25 @@ export const prepareWechatBrowserProviderLease = async (
     ) {
       return fail();
     }
-    const setupCode = randomBytes(24).toString('hex');
-    const browserCode = randomBytes(24).toString('hex');
+    const codes = Object.freeze({
+      setup: randomBytes(24).toString('hex'),
+      browser: randomBytes(24).toString('hex'),
+      account: randomBytes(24).toString('hex'),
+      foreignAccount: randomBytes(24).toString('hex'),
+      noUnionId: randomBytes(24).toString('hex'),
+      invalidCode: randomBytes(24).toString('hex'),
+      replay: randomBytes(24).toString('hex'),
+      malformedProvider: randomBytes(24).toString('hex'),
+    });
+    const setupCode = codes.setup;
+    const browserCode = codes.browser;
     const callbackUri = new URL(`/callback/${encodeURIComponent(input.connectorId)}`, origin).href;
     const config = {
       schemaVersion: 1,
       appId: input.clientId,
       appSecret: input.clientSecret,
-      smsAccessSecret: input.smsAccessSecret ?? 'unused',
       unionId: input.subject,
-      codes: input.channel === 'web' ? [setupCode, browserCode] : [browserCode],
+      codes,
     };
     stage = 'configuration-file';
     const configIdentity = await inspectPrivateMutableFile(input.configFile, true);
@@ -701,6 +673,7 @@ export const prepareWechatBrowserProviderLease = async (
       return stagedFail(failedStage);
     }
     let accountCodeTaken = false;
+    let foreignAccountCodeTaken = false;
     let browserCodeTaken = false;
     let stopped = false;
     return Object.freeze({
@@ -710,14 +683,14 @@ export const prepareWechatBrowserProviderLease = async (
           return fail();
         }
         accountCodeTaken = true;
-        return setupCode;
+        return codes.account;
       },
       takeForeignAccountCode: async () => {
-        if (browserCodeTaken || stopped) {
+        if (foreignAccountCodeTaken || stopped) {
           return fail();
         }
-        browserCodeTaken = true;
-        return browserCode;
+        foreignAccountCodeTaken = true;
+        return codes.foreignAccount;
       },
       takeBrowserCode: async () => {
         if (browserCodeTaken || stopped) {
@@ -726,11 +699,6 @@ export const prepareWechatBrowserProviderLease = async (
         browserCodeTaken = true;
         return browserCode;
       },
-      takePhoneCode:
-        input.channel === 'h5' && input.codeSocket
-          ? async (recipient: string) =>
-              takeWechatRecipientCode(input.codeSocket ?? fail(), recipient)
-          : undefined,
       observation: () => readProviderObservation(input.receiptFile, input.channel, receiptIdentity),
       stop: async () => {
         stopped = true;

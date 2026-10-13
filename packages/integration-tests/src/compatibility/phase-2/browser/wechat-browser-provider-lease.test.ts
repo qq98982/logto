@@ -44,6 +44,22 @@ const validReceipt = {
   ],
 };
 
+const h5ExternalSmsReceipt = {
+  schemaVersion: 1,
+  facts: [
+    { kind: 'token', method: 'GET', exact: true },
+    { kind: 'userinfo', method: 'GET', exact: true },
+  ],
+};
+
+const h5ReceiptWithForeignSmsFact = {
+  schemaVersion: 1,
+  facts: [
+    ...h5ExternalSmsReceipt.facts,
+    { kind: 'sms', recipientBound: true, signatureValid: true },
+  ],
+};
+
 const containerRow = (state: ProviderState, override: Record<string, unknown> = {}) => ({
   Id: id,
   Name: `/${name}`,
@@ -153,7 +169,6 @@ const prepare = async (
     image,
     configFile: files.configFile,
     receiptFile: files.receiptFile,
-    codeSocket: path.join(files.root, 'take.sock'),
     healthDiagnosticFile: files.healthDiagnosticFile,
     role: 'oracle',
     targetOrigin: input.targetOrigin ?? 'http://localhost:3321/',
@@ -199,6 +214,58 @@ test('starts the exact owned provider, proves its receipt, and stops it idempote
     ['inspect', '--format', '{{json .State}}', id],
   ]);
   await rm(files.root, { recursive: true, force: true });
+});
+
+test('writes the exact provider schema and keeps H5 SMS evidence in its external lease', async () => {
+  const externalFiles = await createFiles();
+  const externalControl = createControl();
+  const externalLease = await prepareWechatBrowserProviderLease({
+    control: externalControl.control,
+    container: name,
+    project,
+    service,
+    image,
+    configFile: externalFiles.configFile,
+    receiptFile: externalFiles.receiptFile,
+    healthDiagnosticFile: externalFiles.healthDiagnosticFile,
+    role: 'oracle',
+    targetOrigin: 'http://localhost:3321/',
+    connectorId: 'wechatBrowser-instance',
+    clientId: 'client',
+    clientSecret: 'private-client-secret',
+    subject: 'wechat-subject',
+    channel: 'h5',
+    smsAccessSecret: 'private-sms-secret',
+  });
+  const configuration = JSON.parse(await readFile(externalFiles.configFile, 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  expect(new Set(Object.keys(configuration))).toEqual(
+    new Set(['appId', 'appSecret', 'codes', 'schemaVersion', 'unionId'])
+  );
+  const codes = configuration.codes as Record<string, unknown>;
+  expect(new Set(Object.keys(codes))).toEqual(
+    new Set([
+      'account',
+      'browser',
+      'foreignAccount',
+      'invalidCode',
+      'malformedProvider',
+      'noUnionId',
+      'replay',
+      'setup',
+    ])
+  );
+  expect(new Set(Object.values(codes)).size).toBe(8);
+  await writeFile(externalFiles.receiptFile, JSON.stringify(h5ExternalSmsReceipt), { mode: 0o600 });
+  expect(externalLease.observation()).toMatchObject({ setupRequests: 0, browserRequests: 1 });
+  await writeFile(externalFiles.receiptFile, JSON.stringify(h5ReceiptWithForeignSmsFact), {
+    mode: 0o600,
+  });
+  expect(() => externalLease.observation()).toThrow('Invalid WechatBrowser provider lease');
+  await externalLease.stop();
+  await rm(externalFiles.root, { recursive: true, force: true });
 });
 
 test('refuses a replaced receipt inode before publishing provider observation', async () => {
