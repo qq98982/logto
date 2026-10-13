@@ -132,7 +132,10 @@ export const createCommonExperienceSession = (
       if (cookie) {
         headers.set('cookie', cookie);
       }
-      if (endpoint.pathname.startsWith('/api/experience')) {
+      if (
+        endpoint.pathname.startsWith('/api/experience') ||
+        endpoint.pathname === '/api/interaction/consent'
+      ) {
         headers.set(input.target.label === 'oracle' ? 'logto-app-id' : 'aster-app-id', clientId);
       }
       const encoded =

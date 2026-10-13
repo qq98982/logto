@@ -264,7 +264,10 @@ const issueUserTokens = async (
       if (authorization !== undefined) {
         headers.set('authorization', authorization);
       }
-      if (url.pathname.startsWith('/api/experience')) {
+      if (
+        url.pathname.startsWith('/api/experience') ||
+        url.pathname === '/api/interaction/consent'
+      ) {
         headers.set(target.label === 'oracle' ? 'logto-app-id' : 'aster-app-id', client.id);
       }
       const response = await requestFetch(url, {

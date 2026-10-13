@@ -586,11 +586,36 @@ describe('Phase 2 public user token issuance transport', () => {
       identifier: { type: 'username', value: 'status-user' },
       password: 'private-password',
     });
+    expect(
+      transport.requests
+        .slice(6, 8)
+        .map(({ init }) => new Headers(init.headers).get('aster-app-id'))
+    ).toEqual(['public-client', 'public-client']);
+    expect(
+      [transport.requests[0], transport.requests[8], transport.requests[9]].map((request) =>
+        new Headers(request?.init.headers).get('aster-app-id')
+      )
+    ).toEqual([null, null, null]);
     const form = new URLSearchParams(String(transport.requests[9]?.init.body));
     expect(form.get('client_id')).toBe('public-client');
     expect(form.get('code')).toBe('private-code');
     expect(form.get('code_verifier')).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(form.get('client_secret')).toBeNull();
+  });
+
+  it('binds Oracle consent GET and POST with only the owned reference app header', async () => {
+    const transport = flow();
+    await issuePublicUserTokens({ ...target, label: 'oracle' }, fixture, transport.fetch);
+    expect(
+      transport.requests.slice(6, 8).map(({ init }) => {
+        const headers = new Headers(init.headers);
+        return [headers.get('logto-app-id'), headers.get('aster-app-id')];
+      })
+    ).toEqual([
+      ['public-client', null],
+      ['public-client', null],
+    ]);
+    expect(new Headers(transport.requests[8]?.init.headers).get('logto-app-id')).toBeNull();
   });
 
   it('issues an opaque Account bearer from the selected subject with ordinary user scopes', async () => {

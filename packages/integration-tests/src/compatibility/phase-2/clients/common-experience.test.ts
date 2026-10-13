@@ -12,43 +12,61 @@ const target: TargetConfig = {
 };
 
 describe('Common Experience interaction transport', () => {
-  test('retains cookie path and secure boundaries while binding the Experience app header', async () => {
-    const calls: Array<{ url: string; headers: Headers; redirect?: RequestRedirect }> = [];
-    const requestFetch: typeof fetch = async (input, init) => {
-      const url = String(input);
-      calls.push({ url, headers: new Headers(init?.headers), redirect: init?.redirect });
-      return new Response('{}', {
-        status: 200,
-        headers: {
-          'content-type': 'application/json',
-          ...(calls.length === 1
-            ? { 'set-cookie': 'interaction=private-cookie; Path=/api/experience; Secure; HttpOnly' }
-            : {}),
-        },
+  test.each([
+    ['candidate', 'aster-app-id', 'logto-app-id'],
+    ['oracle', 'logto-app-id', 'aster-app-id'],
+  ] as const)(
+    'retains cookie boundaries while binding %s Experience and consent requests',
+    async (label, ownedHeader, foreignHeader) => {
+      const calls: Array<{ url: string; headers: Headers; redirect?: RequestRedirect }> = [];
+      const requestFetch: typeof fetch = async (input, init) => {
+        const url = String(input);
+        calls.push({ url, headers: new Headers(init?.headers), redirect: init?.redirect });
+        return new Response('{}', {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            ...(calls.length === 1
+              ? {
+                  'set-cookie':
+                    'interaction=private-cookie; Path=/api/experience; Secure; HttpOnly',
+                }
+              : {}),
+          },
+        });
+      };
+      const session = createCommonExperienceSession({
+        target: { ...target, label },
+        clientId: 'owned-client',
+        fetch: requestFetch,
       });
-    };
-    const session = createCommonExperienceSession({
-      target,
-      clientId: 'owned-client',
-      fetch: requestFetch,
-    });
-    await session.request('/api/experience', 'PUT', { interactionEvent: 'SignIn' });
-    await session.request('/api/experience/identification', 'POST', {});
-    await session.request('/oidc/auth', 'GET');
-    expect(calls.map(({ headers }) => headers.get('cookie'))).toEqual([
-      null,
-      'interaction=private-cookie',
-      null,
-    ]);
-    expect(calls.map(({ headers }) => headers.get('aster-app-id'))).toEqual([
-      'owned-client',
-      'owned-client',
-      null,
-    ]);
-    expect(calls.every(({ redirect }) => redirect === 'manual')).toBe(true);
-    expect(calls.every(({ headers }) => headers.get('logto-app-id') === null)).toBe(true);
-    session.close();
-  });
+      await session.request('/api/experience', 'PUT', { interactionEvent: 'SignIn' });
+      await session.request('/api/experience/identification', 'POST', {});
+      await session.request('/api/interaction/consent', 'GET');
+      await session.request('/api/interaction/consent', 'POST', {});
+      await session.request('/api/interaction/consent/foreign', 'GET');
+      await session.request('/oidc/auth', 'GET');
+      expect(calls.map(({ headers }) => headers.get('cookie'))).toEqual([
+        null,
+        'interaction=private-cookie',
+        null,
+        null,
+        null,
+        null,
+      ]);
+      expect(calls.map(({ headers }) => headers.get(ownedHeader))).toEqual([
+        'owned-client',
+        'owned-client',
+        'owned-client',
+        'owned-client',
+        null,
+        null,
+      ]);
+      expect(calls.every(({ redirect }) => redirect === 'manual')).toBe(true);
+      expect(calls.every(({ headers }) => headers.get(foreignHeader) === null)).toBe(true);
+      session.close();
+    }
+  );
 
   test('rejects foreign destinations before a cookie or credential leaves the target', async () => {
     let calls = 0;
