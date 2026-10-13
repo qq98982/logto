@@ -30,8 +30,25 @@ test('adds one stopped legacy H5 service at the shared provider address', () => 
   assert.deepEqual(result.services['oracle-h5-wechat-provider'].networks, {
     'oracle-primary': { ipv4_address: '172.30.231.53' },
   });
-  assert.equal(result.services['oracle-h5-wechat-provider'].mac_address, '02:42:ac:1e:e7:3a');
+  assert.equal(result.services['oracle-h5-wechat-provider'].mac_address, '02:42:ac:1e:e7:35');
   assert.equal(result.services['oracle-h5-wechat-provider'].restart, 'no');
+});
+
+test('uses the candidate stable peer identity without changing its shared address', () => {
+  const candidateDescriptor = {
+    ...descriptor,
+    container: 'aster206-candidate-candidate-h5-wechat-provider-1',
+    project: 'aster206-candidate',
+    service: 'candidate-h5-wechat-provider',
+  };
+  const result = extendH5WechatTopology(
+    { services: {}, networks: { 'candidate-primary': { internal: true } } },
+    { ...options, role: 'candidate', descriptor: candidateDescriptor }
+  );
+  assert.deepEqual(result.services['candidate-h5-wechat-provider'].networks, {
+    'candidate-primary': { ipv4_address: '172.30.241.53' },
+  });
+  assert.equal(result.services['candidate-h5-wechat-provider'].mac_address, '02:42:ac:1e:f1:35');
 });
 
 test('rejects foreign service ownership and unknown fields', () => {
