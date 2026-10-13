@@ -123,7 +123,8 @@ test('ownership refusal requires the pinned client refusal, preserved state, and
             name: 'Box-AI',
             description: 'Foreign owner retained by compatibility fixture',
             type: 'Traditional',
-            oidcClientMetadata: {},
+            isThirdParty: false,
+            oidcClientMetadata: { redirectUris: [], postLogoutRedirectUris: [] },
           })
         ) {
           throw new TypeError('selected Traditional application shape rejected');
