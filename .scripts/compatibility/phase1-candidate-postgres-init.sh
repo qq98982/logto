@@ -45,6 +45,14 @@ if [[ -n "${ASTER_PHASE1_H5_CORE_CIDR+x}" ]]; then
     && "$ASTER_PHASE1_H5_CORE_CIDR" != "$ASTER_PHASE1_CORE_CIDR" \
     && "$ASTER_PHASE1_H5_CORE_CIDR" != "$ASTER_PHASE1_COORDINATOR_CIDR" ]] || fail
 fi
+if [[ -n "${ASTER_PHASE1_PASSWORD_CORE_CIDR+x}" ]]; then
+  [[ -n "$ASTER_PHASE1_PASSWORD_CORE_CIDR" && "$ASTER_PHASE1_PASSWORD_CORE_CIDR" != *$'\n'* ]] || fail
+  validate_host_cidr "$ASTER_PHASE1_PASSWORD_CORE_CIDR"
+  [[ "$ASTER_PHASE1_PASSWORD_CORE_CIDR" != "$ASTER_PHASE1_INIT_CIDR" \
+    && "$ASTER_PHASE1_PASSWORD_CORE_CIDR" != "$ASTER_PHASE1_CORE_CIDR" \
+    && "$ASTER_PHASE1_PASSWORD_CORE_CIDR" != "$ASTER_PHASE1_COORDINATOR_CIDR" \
+    && "$ASTER_PHASE1_PASSWORD_CORE_CIDR" != "${ASTER_PHASE1_H5_CORE_CIDR-}" ]] || fail
+fi
 [[ "$ASTER_PHASE1_INIT_CIDR" != "$ASTER_PHASE1_CORE_CIDR" \
   && "$ASTER_PHASE1_INIT_CIDR" != "$ASTER_PHASE1_COORDINATOR_CIDR" \
   && "$ASTER_PHASE1_CORE_CIDR" != "$ASTER_PHASE1_COORDINATOR_CIDR" ]] || fail
@@ -62,6 +70,7 @@ host all postgres ${ASTER_PHASE1_INIT_CIDR} trust
 host all aster_migrator,aster_admin,aster_maintainer ${ASTER_PHASE1_INIT_CIDR} trust
 host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer ${ASTER_PHASE1_CORE_CIDR} trust
 ${ASTER_PHASE1_H5_CORE_CIDR:+host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer ${ASTER_PHASE1_H5_CORE_CIDR} trust}
+${ASTER_PHASE1_PASSWORD_CORE_CIDR:+host all aster_control_resolver,aster_request,aster_key_runtime,aster_maintainer ${ASTER_PHASE1_PASSWORD_CORE_CIDR} trust}
 host all postgres,aster_admin,aster_control_resolver,aster_request ${ASTER_PHASE1_COORDINATOR_CIDR} trust
 host all all 0.0.0.0/0 reject
 host all all ::/0 reject

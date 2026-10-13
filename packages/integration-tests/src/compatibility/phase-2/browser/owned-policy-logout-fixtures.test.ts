@@ -66,11 +66,14 @@ test('writes only the SHA1 range config, validates one receipt and clears files 
       },
     },
   };
-  const fixture = createOwnedPasswordCompromiseFixture({
-    clear: service,
-    compromised: service,
-    unavailable: service,
-  });
+  const fixture = createOwnedPasswordCompromiseFixture(
+    {
+      clear: service,
+      compromised: service,
+      unavailable: service,
+    },
+    'candidate'
+  );
   try {
     await expect(
       fixture.withAttempt({ password: 'private-password', outcome: 'clear' }, async () => {
@@ -102,6 +105,29 @@ test('writes only the SHA1 range config, validates one receipt and clears files 
     expect(order).toEqual(['start', 'stop']);
     await expect(readFile(configFile, 'utf8')).resolves.toBe('');
     await expect(readFile(receiptFile, 'utf8')).resolves.toBe('');
+    await expect(
+      createOwnedPasswordCompromiseFixture(
+        { clear: service, compromised: service, unavailable: service },
+        'oracle'
+      ).withAttempt({ password: 'private-password', outcome: 'unavailable' }, async () => {
+        const config = JSON.parse(await readFile(configFile, 'utf8')) as Record<string, unknown>;
+        expect(config.responseMode).toBe('transport-reset');
+        await writeFile(
+          receiptFile,
+          `${JSON.stringify({
+            methodGet: true,
+            originMatches: true,
+            pathShapeMatches: true,
+            prefixMatches: true,
+            addPaddingPresent: false,
+            userAgentProduct: 'logto',
+            status: 0,
+          })}\n`
+        );
+        return 'denied';
+      })
+    ).resolves.toBe('denied');
+    expect(order).toEqual(['start', 'stop', 'start', 'stop']);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -163,11 +189,14 @@ test('stops the exact owned service and clears private files when the body fails
   };
   try {
     await expect(
-      createOwnedPasswordCompromiseFixture({
-        clear: service,
-        compromised: service,
-        unavailable: service,
-      }).withAttempt({ password: 'private-password', outcome: 'compromised' }, async () => {
+      createOwnedPasswordCompromiseFixture(
+        {
+          clear: service,
+          compromised: service,
+          unavailable: service,
+        },
+        'candidate'
+      ).withAttempt({ password: 'private-password', outcome: 'compromised' }, async () => {
         throw new TypeError('body failed');
       })
     ).rejects.toThrow('body failed');
@@ -234,11 +263,14 @@ test('compensates a container that starts before its health inspection fails', a
   };
   try {
     await expect(
-      createOwnedPasswordCompromiseFixture({
-        clear: service,
-        compromised: service,
-        unavailable: service,
-      }).withAttempt({ password: 'private-password', outcome: 'clear' }, async () => 'unused')
+      createOwnedPasswordCompromiseFixture(
+        {
+          clear: service,
+          compromised: service,
+          unavailable: service,
+        },
+        'candidate'
+      ).withAttempt({ password: 'private-password', outcome: 'clear' }, async () => 'unused')
     ).rejects.toThrow('health inspection failed');
     expect(stopped).toBe(true);
     await expect(readFile(configFile, 'utf8')).resolves.toBe('');

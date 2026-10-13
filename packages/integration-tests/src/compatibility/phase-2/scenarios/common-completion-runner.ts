@@ -12,6 +12,7 @@ import {
   type CommonSessionLogoutFixtureRuntime,
 } from '../browser/common-session-logout-target-driver.js';
 import { runCommonSocialAccountForTarget } from '../browser/common-social-account-target-driver.js';
+import { withSelectedPasswordCoreApplication } from '../browser/selected-password-core-application-fixture.js';
 import { withPhase2AdminManagementBearer } from '../clients/admin-management-bearer.js';
 import {
   createBearerPhase2AdminRequest,
@@ -45,6 +46,7 @@ export type CommonCompletionFixtureRuntime = Readonly<{
   google: CommonGoogleExistingOwnerFixtureRuntime;
   web: CommonWechatWebFixtureRuntime;
   password: PasswordCompromiseFixture;
+  passwordTarget: TargetConfig;
   logout: CommonSessionLogoutFixtureRuntime;
   wechat: CommonWechatFamilyRuntime;
   h5Target: TargetConfig;
@@ -110,13 +112,21 @@ export const runCommonCompletionScenariosForTarget = async (
         ) => {
           const delegated = createScopedPhase2Fixture(input.fixture, lease);
           try {
-            return await runCommonPasswordPolicyForTarget({
-              ...input,
+            const redirectUri = new URL('/demo-app', input.runtime.passwordTarget.coreUrl).href;
+            return await withSelectedPasswordCoreApplication({
               fixture: delegated.fixture,
               request,
-              compromiseFixture: input.runtime.password,
-              getPassword: lease.getSelectedEmailPassword ?? fail,
-              takeRecoveryCode: lease.takeVerificationCode ?? fail,
+              redirectUri,
+              use: async (fixture) =>
+                runCommonPasswordPolicyForTarget({
+                  ...input,
+                  target: input.runtime.passwordTarget,
+                  fixture,
+                  request,
+                  compromiseFixture: input.runtime.password,
+                  getPassword: lease.getSelectedEmailPassword ?? fail,
+                  takeRecoveryCode: lease.takeVerificationCode ?? fail,
+                }),
             });
           } finally {
             delegated.revoke();

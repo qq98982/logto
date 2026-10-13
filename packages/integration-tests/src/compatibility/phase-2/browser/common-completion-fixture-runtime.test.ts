@@ -31,6 +31,11 @@ const base = {
     caFile: '/private/h5-ca.pem',
     spkiFile: '/private/h5.spki',
   },
+  password: {
+    listenUrl: 'https://localhost:3361',
+    caFile: '/private/h5-ca.pem',
+    spkiFile: '/private/h5.spki',
+  },
   wechat: {
     container: 'owned-wechat',
     project: 'owned',
@@ -160,6 +165,10 @@ const withControlledEmittedDescriptor = async (
   await withDescriptor(
     {
       ...emitted,
+      password: {
+        ...emitted.h5,
+        listenUrl: 'https://localhost:3361',
+      },
       wechat: {
         ...emittedWechat,
         clientId: 'controlled-wechat-client',
@@ -206,6 +215,7 @@ test('constructs capabilities from the emitted private descriptor without contai
   await withControlledEmittedDescriptor(async (filePath) => {
     const runtime = await read(filePath);
     expect(runtime.h5Target).toEqual(target);
+    expect(runtime.passwordTarget).toEqual({ ...target, coreUrl: 'https://localhost:3361/' });
     expect(runtime.h5Trust.caFile).toMatch(/h5-loopback-ca\.pem$/u);
     expect(runtime.wechat.mini.wechatSubject).toBe(runtime.wechat.native.wechatSubject);
     await runtime.wechat.h5.withProviderCredentialLease(async (lease) => {

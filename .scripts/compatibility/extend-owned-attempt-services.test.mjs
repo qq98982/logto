@@ -57,6 +57,16 @@ test('keeps the Common SMS fixture stable and assigns the isolated Pwned peer se
   assert.deepEqual(result.services['oracle-primary-core'].volumes,
     [`${root}/ca-bundle.pem:/run/aster/fetch-observer-ca.pem:ro`]);
   assert.equal(result.services['oracle-pwned-clear'].networks['oracle-primary'].ipv4_address, '172.30.231.56');
+  assert.deepEqual(
+    ['clear', 'compromised', 'unavailable'].map((name) =>
+      result.services[`oracle-pwned-${name}`].mac_address),
+    ['02:42:ac:1e:e7:56', '02:42:ac:1e:e7:56', '02:42:ac:1e:e7:56']
+  );
+  assert.deepEqual(
+    ['accepted', 'rejected'].map((name) =>
+      result.services[`oracle-backchannel-${name}`].mac_address),
+    ['02:42:ac:1e:e7:60', '02:42:ac:1e:e7:60']
+  );
 });
 
 test('rejects a core whose existing trust mount cannot be replaced exactly', async (t) => {

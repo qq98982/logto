@@ -7,6 +7,11 @@ const required = (name) => {
   if (!value) throw new Error('fixture configuration invalid');
   return value;
 };
+const listenHost = process.env.ASTER_PWNED_LISTEN_HOST ?? '0.0.0.0';
+const listenPortText = process.env.ASTER_PWNED_LISTEN_PORT ?? '443';
+if (!/^(?:0|[1-9][0-9]{0,4})$/u.test(listenPortText) || Number(listenPortText) > 65_535) {
+  throw new Error('fixture configuration invalid');
+}
 
 const privateAppendFile = async (path) => {
   if (!path.startsWith('/') || path !== await realpath(path)) throw new Error('receipt path invalid');
@@ -23,7 +28,7 @@ const privateAppendFile = async (path) => {
 };
 
 const configuration = JSON.parse(await readFile(required('ASTER_PWNED_CONFIGURATION_FILE'), 'utf8'));
-const responseModes = new Set(['count-zero', 'count-one', 'status-503', 'malformed-body']);
+const responseModes = new Set(['count-zero', 'count-one', 'transport-reset', 'malformed-body']);
 if (!/^[0-9A-F]{5}$/u.test(configuration.prefix) || !/^[0-9A-F]{35}$/u.test(configuration.suffix) ||
     !responseModes.has(configuration.responseMode)) {
   throw new Error('fixture configuration invalid');
@@ -48,7 +53,7 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
     request.socket.servername === 'api.pwnedpasswords.com';
   const accepted = !used && request.method === 'GET' && originMatches &&
     pathMatch?.[1] === configuration.prefix;
-  const status = accepted ? configuration.responseMode === 'status-503' ? 503 : 200 : 400;
+  const status = accepted ? configuration.responseMode === 'transport-reset' ? 0 : 200 : 400;
   if (receiptCount >= 4) {
     response.writeHead(503, { connection: 'close' }).end();
     return;
@@ -63,8 +68,8 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
     await receipt.sync();
     if (accepted) {
       used = true;
-      if (configuration.responseMode === 'status-503') {
-        response.writeHead(503, { connection: 'close' }).end();
+      if (configuration.responseMode === 'transport-reset') {
+        request.socket.destroy();
         return;
       }
       response.writeHead(200, { 'content-type': 'text/plain', connection: 'close' });
@@ -73,5 +78,5 @@ const server = https.createServer({ cert: certificate, key: privateKey }, (reque
     } else response.writeHead(status, { connection: 'close' }).end();
   }, () => response.writeHead(503, { connection: 'close' }).end());
 });
-server.listen(443, '0.0.0.0');
+server.listen(Number(listenPortText), listenHost);
 

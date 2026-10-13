@@ -242,7 +242,8 @@ const attempt = async <Result>(
 };
 
 export const createOwnedPasswordCompromiseFixture = (
-  services: Readonly<Record<'clear' | 'compromised' | 'unavailable', OwnedPrivateService>>
+  services: Readonly<Record<'clear' | 'compromised' | 'unavailable', OwnedPrivateService>>,
+  role: 'oracle' | 'candidate'
 ): PasswordCompromiseFixture => ({
   withAttempt: async ({ password, outcome }, use) => {
     const digest = createHash('sha1').update(password).digest('hex').toUpperCase();
@@ -250,7 +251,11 @@ export const createOwnedPasswordCompromiseFixture = (
     const suffix = digest.slice(5);
     const service = services[outcome];
     const responseMode =
-      outcome === 'clear' ? 'count-zero' : outcome === 'compromised' ? 'count-one' : 'status-503';
+      outcome === 'clear'
+        ? 'count-zero'
+        : outcome === 'compromised'
+          ? 'count-one'
+          : 'transport-reset';
     return attempt(
       service,
       async () => {
@@ -274,9 +279,9 @@ export const createOwnedPasswordCompromiseFixture = (
           receipt.originMatches !== true ||
           receipt.pathShapeMatches !== true ||
           receipt.prefixMatches !== true ||
-          receipt.addPaddingPresent !== true ||
+          receipt.addPaddingPresent !== (role === 'candidate') ||
           !allowedAgent.has(receipt.userAgentProduct as string) ||
-          receipt.status !== (outcome === 'unavailable' ? 503 : 200) ||
+          receipt.status !== (outcome === 'unavailable' ? 0 : 200) ||
           Reflect.ownKeys(receipt).length !== 7
         ) {
           fail();

@@ -40,6 +40,7 @@ const rootKeys = [
   'googleProviderInput',
   'webProviderInput',
   'h5',
+  'password',
   'h5Wechat',
   'wechat',
   'pwned',
@@ -318,8 +319,31 @@ export const readCommonCompletionFixtureRuntime = async (
     return fail();
   }
   sameTarget(row, input.target);
-  const h5 = exact(row.h5, h5Keys);
-  const listen = new URL(bounded(h5.listenUrl));
+  const browserTarget = (value: unknown) => {
+    const source = exact(value, h5Keys);
+    const listen = new URL(bounded(source.listenUrl));
+    if (
+      listen.protocol !== 'https:' ||
+      listen.username ||
+      listen.password ||
+      listen.pathname !== '/' ||
+      listen.search ||
+      listen.hash
+    ) {
+      return fail();
+    }
+    return Object.freeze({
+      target: Object.freeze({ ...input.target, coreUrl: `${listen.origin}/` }),
+      caFile: absolute(source.caFile),
+      spkiFile: absolute(source.spkiFile),
+    });
+  };
+  const h5 = browserTarget(row.h5);
+  const passwordBrowser = browserTarget(row.password);
+  if (passwordBrowser.caFile !== h5.caFile || passwordBrowser.spkiFile !== h5.spkiFile) {
+    return fail();
+  }
+  const listen = new URL(h5.target.coreUrl);
   if (
     listen.protocol !== 'https:' ||
     listen.username ||
@@ -330,9 +354,9 @@ export const readCommonCompletionFixtureRuntime = async (
   ) {
     return fail();
   }
-  const h5Target = Object.freeze({ ...input.target, coreUrl: `${listen.origin}/` });
-  const caFile = absolute(h5.caFile);
-  const spkiFile = absolute(h5.spkiFile);
+  const h5Target = h5.target;
+  const { caFile } = h5;
+  const { spkiFile } = h5;
   if ((input.h5Observer === undefined) === (input.h5BrowserType === undefined)) {
     return fail();
   }
@@ -398,11 +422,14 @@ export const readCommonCompletionFixtureRuntime = async (
   ]);
   const pwned = exact(row.pwned, ['clear', 'compromised', 'unavailable']);
   const backchannel = exact(row.backchannel, ['accepted', 'rejected']);
-  const password = createOwnedPasswordCompromiseFixture({
-    clear: service(pwned.clear, input.controlSocket, false),
-    compromised: service(pwned.compromised, input.controlSocket, false),
-    unavailable: service(pwned.unavailable, input.controlSocket, false),
-  });
+  const password = createOwnedPasswordCompromiseFixture(
+    {
+      clear: service(pwned.clear, input.controlSocket, false),
+      compromised: service(pwned.compromised, input.controlSocket, false),
+      unavailable: service(pwned.unavailable, input.controlSocket, false),
+    },
+    input.target.label
+  );
   const receivers = {
     accepted: service(backchannel.accepted, input.controlSocket, true),
     rejected: service(backchannel.rejected, input.controlSocket, true),
@@ -545,6 +572,7 @@ export const readCommonCompletionFixtureRuntime = async (
     google,
     web,
     password,
+    passwordTarget: passwordBrowser.target,
     h5Target,
     h5Observer,
     h5Trust: Object.freeze({ caFile, spkiFile }),
