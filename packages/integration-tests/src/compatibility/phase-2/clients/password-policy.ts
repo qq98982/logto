@@ -124,4 +124,16 @@ export const observeExperiencePasswordProfile = async (
     await session.request('/api/experience/profile', 'POST', { type: 'password', value: password })
   );
 };
+
+export const observeExperienceRecoveryPassword = async (
+  session: CommonExperienceSession,
+  password: string
+): Promise<PasswordPolicyObservation> => {
+  if (!password || Buffer.byteLength(password) > 4096) {
+    return fail();
+  }
+  return projectPasswordPolicyResponse(
+    await session.request('/api/experience/profile/password', 'PUT', { password })
+  );
+};
 /* eslint-enable complexity */

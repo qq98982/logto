@@ -9,6 +9,7 @@ import {
 } from '../clients/common-experience.js';
 import {
   observeExperiencePasswordProfile,
+  observeExperienceRecoveryPassword,
   type PasswordPolicyObservation,
 } from '../clients/password-policy.js';
 import { observePublicAccountPasswordSignIn } from '../clients/user-token-issuance.js';
@@ -310,12 +311,12 @@ export const runCommonPasswordPolicyForTarget = async (
             if (identified.getStatus() !== 204) {
               return fail('recovery-identification');
             }
-            const recoverySamePassword = await observeExperiencePasswordProfile(
+            const recoverySamePassword = await observeExperienceRecoveryPassword(
               session,
               input.getPassword()
             );
             const local = identity.primaryEmail.split('@')[0] ?? fail('email');
-            const recoveryUserInfo = await observeExperiencePasswordProfile(
+            const recoveryUserInfo = await observeExperienceRecoveryPassword(
               session,
               `Aa9!${local}`
             );

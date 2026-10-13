@@ -1,5 +1,8 @@
 import { createCommonExperienceSession } from './common-experience.js';
-import { observeExperiencePasswordProfile } from './password-policy.js';
+import {
+  observeExperiencePasswordProfile,
+  observeExperienceRecoveryPassword,
+} from './password-policy.js';
 
 const observe = async (status: number, body?: unknown) => {
   const session = createCommonExperienceSession({
@@ -68,6 +71,35 @@ test('Password policy preserves compromise denial, successful staging and same-p
     error: 'user.same_password',
     issues: [],
   });
+});
+
+test('Password recovery submits only the password to the dedicated recovery profile endpoint', async () => {
+  const session = createCommonExperienceSession({
+    target: {
+      label: 'oracle',
+      coreUrl: 'https://core.example/',
+      adminUrl: 'https://admin.example/',
+    },
+    clientId: 'owned-client',
+    fetch: async (url, init) => {
+      expect(new URL(String(url)).pathname).toBe('/api/experience/profile/password');
+      expect(init?.method).toBe('PUT');
+      expect(JSON.parse(String(init?.body))).toEqual({ password: 'private-password' });
+      return new Response(JSON.stringify({ code: 'user.same_password' }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  try {
+    await expect(observeExperienceRecoveryPassword(session, 'private-password')).resolves.toEqual({
+      status: 422,
+      error: 'user.same_password',
+      issues: [],
+    });
+  } finally {
+    session.close();
+  }
 });
 
 test.each(
