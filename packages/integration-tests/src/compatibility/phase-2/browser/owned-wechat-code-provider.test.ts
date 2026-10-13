@@ -108,6 +108,17 @@ const miniReceipts = [
   exactQuery: true,
   accepted,
 }));
+const miniRegistrationReceipts = [
+  ...miniReceipts.filter(({ kind }) => kind !== 'setup'),
+  {
+    channel: 'mini',
+    step: 'session',
+    kind: 'collision',
+    methodGet: true,
+    exactQuery: true,
+    accepted: true,
+  },
+];
 
 test('refuses a pre-populated configuration before inspecting or starting the container', async () => {
   const fixture = await files();
@@ -155,6 +166,44 @@ test('Mini lease writes all distinct private codes, binds SMS, proves receipts, 
     expect(calls.some((value) => value[0] === 'stop' && value[3] === id)).toBe(true);
     await expect(readFile(fixture.configFile, 'utf8')).resolves.toBe('');
     await expect(readFile(fixture.receiptFile, 'utf8')).resolves.toBe('');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Mini registration proves zero setup and exactly one accepted collision receipt', async () => {
+  const fixture = await files();
+  try {
+    const { control } = controlled();
+    const lease = await prepareOwnedWechatMiniProvider(input(control, fixture));
+    await writeFile(
+      fixture.receiptFile,
+      `${miniRegistrationReceipts.map((value) => JSON.stringify(value)).join('\n')}\n`,
+      { mode: 0o600 }
+    );
+    expect(lease.observation('registration')).toMatchObject({ setupRequests: 0 });
+    await lease.stop();
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test.each([
+  ['missing collision', miniRegistrationReceipts.filter(({ kind }) => kind !== 'collision')],
+  ['duplicate collision', [...miniRegistrationReceipts, miniRegistrationReceipts.at(-1)]],
+  ['unexpected setup', [miniReceipts[0], ...miniRegistrationReceipts]],
+])('Mini registration rejects %s receipts', async (_name, receipts) => {
+  const fixture = await files();
+  try {
+    const { control } = controlled();
+    const lease = await prepareOwnedWechatMiniProvider(input(control, fixture));
+    await writeFile(
+      fixture.receiptFile,
+      `${receipts.map((value) => JSON.stringify(value)).join('\n')}\n`,
+      { mode: 0o600 }
+    );
+    expect(() => lease.observation('registration')).toThrow('Invalid owned WeChat code provider');
+    await lease.stop();
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

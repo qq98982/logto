@@ -101,9 +101,9 @@ const providerProjection = (value: unknown) =>
     userinfoExact: true,
     unionIdStable: true,
   });
-const rawProviderProjection = (value: unknown) =>
+const rawProviderProjection = (value: unknown, setupRequests: 0 | 1 = 1) =>
   closedRecord(value, {
-    setupRequests: 1,
+    setupRequests,
     browserRequests: 1,
     authorizationExact: true,
     tokenExact: true,
@@ -207,7 +207,7 @@ export const assertCommonWechatFamilyProjection = (
       unionIdStable: true,
     });
   } else {
-    rawProviderProjection(row.provider);
+    rawProviderProjection(row.provider, id === 'common.wechat.mini-phone-registration' ? 0 : 1);
   }
 };
 export const runCommonWechatFamilyScenarioRow = async (

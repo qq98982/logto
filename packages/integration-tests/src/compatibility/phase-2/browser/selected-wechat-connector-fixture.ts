@@ -99,7 +99,7 @@ export type SelectedWechatProviderLease = Readonly<{
   ): Promise<string>;
   takeCollisionCode?(): Promise<string>;
   takePhoneCode?(recipient: string): Promise<string>;
-  observation(): WechatProviderObservation;
+  observation(recipe?: 'existing' | 'registration'): WechatProviderObservation;
   stop(): Promise<void>;
 }>;
 

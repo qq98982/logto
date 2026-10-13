@@ -56,3 +56,56 @@ test('publishes H5 evidence only when no owner setup request preceded registrati
     compareCommonCompletionProjections('common.wechat.h5', precreatedOwner, precreatedOwner)
   ).toEqual(['/projection']);
 });
+
+test('publishes Mini phone registration only for the zero-setup provider recipe', () => {
+  const provider = {
+    setupRequests: 0,
+    browserRequests: 1,
+    authorizationExact: true,
+    tokenExact: true,
+    userinfoExact: true,
+    unionIdStable: true,
+  };
+  const projection = {
+    calls: 16,
+    registered: true,
+    unionIdRequired: true,
+    callbackScheme: 'box-ai-wechat-mini:',
+    collision: {
+      status: 422,
+      error: 'user.phone_already_in_use',
+      partialOwnerCreated: false,
+      ownersPreserved: true,
+    },
+    noUnionId: { status: 400, error: 'connector.wechat_unionid_required', accepted: false },
+    invalidCode: { status: 401, error: 'connector.social_auth_code_invalid', accepted: false },
+    malformedProvider: { status: 400, error: 'connector.invalid_response', accepted: false },
+    replay: {
+      firstStatus: 200,
+      status: 401,
+      error: 'connector.social_auth_code_invalid',
+      accepted: false,
+    },
+    crossInteraction: {
+      status: 404,
+      error: 'session.verification_session_not_found',
+      accepted: false,
+    },
+    provider,
+  };
+  expect(
+    compareCommonCompletionProjections(
+      'common.wechat.mini-phone-registration',
+      projection,
+      projection
+    )
+  ).toEqual([]);
+  const precreated = { ...projection, provider: { ...provider, setupRequests: 1 } };
+  expect(
+    compareCommonCompletionProjections(
+      'common.wechat.mini-phone-registration',
+      precreated,
+      precreated
+    )
+  ).toEqual(['/projection']);
+});

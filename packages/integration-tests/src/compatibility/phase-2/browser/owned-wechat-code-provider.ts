@@ -236,11 +236,18 @@ const exactly = (
   predicate: (value: Receipt) => boolean,
   count: number
 ) => values.filter(predicate).length === count;
-const assertMiniReceipts = (file: string) => {
+const assertMiniReceipts = (file: string, recipe: 'existing' | 'registration') => {
   const values = receipts(file);
+  const expectedSetup = recipe === 'existing' ? 1 : 0;
+  const expectedCollision = recipe === 'registration' ? 1 : 0;
   if (
     values.some((value) => !exactBase(value, 'mini', 'session')) ||
-    !exactly(values, (value) => value.kind === 'setup' && value.accepted === true, 1) ||
+    !exactly(values, (value) => value.kind === 'setup' && value.accepted === true, expectedSetup) ||
+    !exactly(
+      values,
+      (value) => value.kind === 'collision' && value.accepted === true,
+      expectedCollision
+    ) ||
     !exactly(values, (value) => value.kind === 'positive' && value.accepted === true, 1) ||
     !exactly(values, (value) => value.kind === 'noUnionId' && value.accepted === true, 1) ||
     !exactly(values, (value) => value.kind === 'invalidCode' && value.accepted === false, 1) ||
@@ -262,12 +269,8 @@ const assertMiniReceipts = (file: string) => {
   ) {
     return fail();
   }
-  const collisions = values.filter((value) => value.kind === 'collision');
-  if (collisions.length > 1 || collisions.some((value) => value.accepted !== true)) {
-    return fail();
-  }
   return Object.freeze({
-    setupRequests: 1,
+    setupRequests: expectedSetup,
     browserRequests: 1,
     authorizationExact: true,
     tokenExact: true,
@@ -403,7 +406,8 @@ export const prepareOwnedWechatMiniProvider = async (
         return typeof value === 'string' && /^\d{6}$/u.test(value) ? value : fail();
       },
     }),
-    observation: () => assertMiniReceipts(input.receiptFile),
+    observation: (recipe: 'existing' | 'registration' = 'existing') =>
+      assertMiniReceipts(input.receiptFile, recipe),
     stop: lease.finish,
   });
 };

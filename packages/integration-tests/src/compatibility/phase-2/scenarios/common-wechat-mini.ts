@@ -66,6 +66,7 @@ type Input = Readonly<{
 
 const run = async (input: Input, registration: boolean) => {
   const status = input.fixture.status ?? fail();
+  const providerReceiptRecipe = registration ? 'registration' : 'existing';
   return withSelectedWechatConnectorFixture({
     fixture: input.fixture,
     request: input.managementRequest,
@@ -262,7 +263,7 @@ const run = async (input: Input, registration: boolean) => {
             crossForeign.close();
           }
         })();
-        const providerObservation = provider.observation();
+        const providerObservation = provider.observation(providerReceiptRecipe);
         return Object.freeze({
           id: registration ? commonWechatMiniScenarioIds[1] : commonWechatMiniScenarioIds[0],
           projection: Object.freeze({
