@@ -25,6 +25,7 @@ export const withSelectedAccountSocialConnector = async <Result>(
     fixture: ProvisionedPhase2Fixture;
     request: Phase2AdminRequestFunction;
     browser: Readonly<{ clientId: string; redirectUri: string }>;
+    callbackOrigin: string;
     provider: 'google' | 'wechat';
     connectorConfig: Readonly<Record<string, unknown>>;
     getPassword(): string;
@@ -76,6 +77,10 @@ export const withSelectedAccountSocialConnector = async <Result>(
     if (!connectorId) {
       return fail();
     }
+    const redirectUri = new URL(
+      `/callback/${encodeURIComponent(connectorId)}`,
+      input.callbackOrigin
+    ).href;
     providerLease = await input.prepareProvider(connectorId);
     const patched = record(
       await input.request({
@@ -94,17 +99,14 @@ export const withSelectedAccountSocialConnector = async <Result>(
     result = await withSelectedAccountSettingsFixture({
       fixture: input.fixture,
       request: input.request,
-      browser: input.browser,
+      browser: { ...input.browser, additionalRedirectUris: [redirectUri] },
       field: 'social',
       getPassword: input.getPassword,
       use: async ({ identity }) =>
         input.use({
           owner: identity,
           connectorId: activeConnectorId,
-          redirectUri: new URL(
-            `/callback/${encodeURIComponent(activeConnectorId)}`,
-            input.browser.redirectUri
-          ).href,
+          redirectUri,
           provider: activeProvider,
         }),
     });

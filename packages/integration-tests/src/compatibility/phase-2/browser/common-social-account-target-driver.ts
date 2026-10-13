@@ -197,6 +197,7 @@ const runAccount = async (
       fixture: input.fixture,
       request: input.request,
       browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
+      callbackOrigin: input.target.coreUrl,
       provider: input.provider,
       connectorConfig:
         input.provider === 'google'
@@ -370,6 +371,7 @@ const runCollision = async (
       fixture: input.fixture,
       request: input.request,
       browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
+      callbackOrigin: input.target.coreUrl,
       provider: 'google',
       connectorConfig: { clientId, clientSecret },
       getPassword: () => input.lease.getSubjectPassword?.() ?? fail(),
@@ -559,6 +561,7 @@ export const withOwnedGoogleSession = async <Result>(
       fixture: input.fixture,
       request: input.request,
       browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
+      callbackOrigin: input.target.coreUrl,
       provider: 'google',
       connectorConfig: { clientId, clientSecret },
       getPassword: input.getPassword,
