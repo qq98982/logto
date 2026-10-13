@@ -21,7 +21,16 @@ const jwks = {
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
-const fixture = (foreignNotification = false) => {
+const fixture = (
+  options: Readonly<{
+    foreignNotification?: boolean;
+    sessionAccount?: string;
+    authorizationClient?: string;
+    authorizationSid?: string;
+    sessionUid?: string;
+    duplicate?: boolean;
+  }> = {}
+) => {
   const state = { present: true, attempts: 0, cleaned: 0, posts: 0 };
   const runtime: CommonLogoutPreservationRuntime = {
     withAttempt: async (input, use) => {
@@ -41,7 +50,7 @@ const fixture = (foreignNotification = false) => {
         .sign(pair.privateKey);
       const logoutToken = await new SignJWT({
         sub: 'owned-subject',
-        sid: foreignNotification ? 'foreign-session' : 'owned-session',
+        sid: options.foreignNotification ? 'foreign-session' : 'owned-session',
         jti: 'owned-notification-id',
         events: { 'http://schemas.openid.net/event/backchannel-logout': {} },
       })
@@ -93,18 +102,24 @@ const fixture = (foreignNotification = false) => {
       expect(headers.get('authorization')).toBe('Bearer private-access');
       expect(headers.get('aster-verification-id')).toBe('private-current-proof');
       if (init?.method === 'DELETE') {
-        expect(endpoint.pathname).toBe('/api/my-account/sessions/owned-session');
+        expect(endpoint.pathname).toBe('/api/my-account/sessions/owned-session-uid');
         state.present = false;
         return new Response(null, { status: 204 });
       }
       return json({
         sessions: state.present
-          ? [
-              {
-                accountId: 'owned-subject',
-                payload: { accountId: 'owned-subject', uid: 'owned-session' },
+          ? Array.from({ length: options.duplicate ? 2 : 1 }, () => ({
+              accountId: options.sessionAccount ?? 'owned-subject',
+              payload: {
+                accountId: options.sessionAccount ?? 'owned-subject',
+                uid: options.sessionUid ?? 'owned-session-uid',
+                authorizations: {
+                  [options.authorizationClient ?? 'owned-client']: {
+                    sid: options.authorizationSid ?? 'owned-session',
+                  },
+                },
               },
-            ]
+            }))
           : [],
       });
     }
@@ -179,7 +194,7 @@ test('Every selected identity removes its exact session while preserving offline
 });
 
 test('A correctly signed notification for another session fails the comparison and releases its owned fixture', async () => {
-  const owned = fixture(true);
+  const owned = fixture({ foreignNotification: true });
   await expect(
     runCommonSessionLogoutPreservation({
       target,
@@ -188,6 +203,26 @@ test('A correctly signed notification for another session fails the comparison a
       fetch: owned.requestFetch,
     })
   ).rejects.toThrow('Invalid Common signed backchannel logout');
+  expect(owned.state.cleaned).toBe(1);
+});
+
+test.each([
+  ['another client', { authorizationClient: 'foreign-client' }, 'session-before'],
+  ['another client session', { authorizationSid: 'foreign-session' }, 'session-before'],
+  ['a foreign account', { sessionAccount: 'foreign-subject' }, 'foreign-session'],
+  ['duplicate matching sessions', { duplicate: true }, 'duplicate-session'],
+  ['a malformed session UID', { sessionUid: 'owned\nsession' }, 'session-uid'],
+] as const)('rejects %s without deleting an unrelated session', async (_name, options, stage) => {
+  const owned = fixture(options);
+  await expect(
+    runCommonSessionLogoutPreservation({
+      target,
+      jwks,
+      runtime: owned.runtime,
+      fetch: owned.requestFetch,
+    })
+  ).rejects.toThrow(`Invalid Common identity logout (${stage})`);
+  expect(owned.state.present).toBe(true);
   expect(owned.state.cleaned).toBe(1);
 });
 /* eslint-enable @silverhand/fp/no-mutation, @typescript-eslint/no-unnecessary-condition */

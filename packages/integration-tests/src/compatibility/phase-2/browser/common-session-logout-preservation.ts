@@ -1,4 +1,4 @@
-/* eslint-disable no-await-in-loop, @silverhand/fp/no-mutating-methods, unicorn/no-await-expression-member -- Each real identity entry owns its session, current proof and signed notification in one sequential logout attempt. */
+/* eslint-disable complexity, max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, unicorn/no-await-expression-member -- Each real identity entry owns its bounded session correlation, current proof and signed notification in one sequential logout attempt. */
 import type { JSONWebKeySet } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
@@ -58,6 +58,17 @@ const bounded = (value: unknown, max = 16_384): string =>
   typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max
     ? value
     : fail('field');
+const privateSessionUid = (value: unknown): string =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  Buffer.byteLength(value) <= 4096 &&
+  ![...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+
+    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
+  })
+    ? value
+    : fail('session-uid');
 
 const withAccountTransport = async <Result>(
   input: Readonly<{ target: TargetConfig; bearer: string; proofId: string; fetch: typeof fetch }>,
@@ -82,13 +93,14 @@ const withAccountTransport = async <Result>(
     session.close();
   }
 };
-const boundSessionPresent = async (
+const boundSessionUid = async (
   input: Readonly<{
     target: TargetConfig;
     bearer: string;
     proofId: string;
     sessionId: string;
     subject: string;
+    clientId: string;
     fetch: typeof fetch;
   }>
 ) =>
@@ -98,7 +110,7 @@ const boundSessionPresent = async (
     if (response.getStatus() !== 200 || !Array.isArray(sessions) || sessions.length > 100) {
       return fail('session-read');
     }
-    const current = sessions.filter((value: unknown) => {
+    const current = sessions.flatMap((value: unknown) => {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return fail('session-shape');
       }
@@ -112,12 +124,29 @@ const boundSessionPresent = async (
       ) {
         return fail('foreign-session');
       }
-      return Reflect.get(payload, 'uid') === input.sessionId;
+      const authorizations: unknown = Reflect.get(payload, 'authorizations');
+      if (
+        typeof authorizations !== 'object' ||
+        authorizations === null ||
+        Array.isArray(authorizations)
+      ) {
+        return [];
+      }
+      const authorization: unknown = Reflect.get(authorizations, input.clientId);
+      if (
+        typeof authorization !== 'object' ||
+        authorization === null ||
+        Array.isArray(authorization) ||
+        Reflect.get(authorization, 'sid') !== input.sessionId
+      ) {
+        return [];
+      }
+      return [privateSessionUid(Reflect.get(payload, 'uid'))];
     });
     if (current.length > 1) {
       return fail('duplicate-session');
     }
-    return current.length === 1;
+    return current[0];
   });
 
 const rotateOrdinaryRefresh = async (
@@ -199,9 +228,11 @@ export const runCommonSessionLogoutPreservation = async (
             proofId,
             sessionId: identity.sessionId,
             subject: owner.subject,
+            clientId: owner.clientId,
             fetch: requestFetch,
           };
-          if (!(await boundSessionPresent(bound))) {
+          const boundUid = await boundSessionUid(bound);
+          if (!boundUid) {
             return fail('session-before');
           }
           const status =
@@ -232,7 +263,7 @@ export const runCommonSessionLogoutPreservation = async (
                   async (session) =>
                     (
                       await session.request(
-                        `/api/my-account/sessions/${encodeURIComponent(identity.sessionId)}`,
+                        `/api/my-account/sessions/${encodeURIComponent(boundUid)}`,
                         'DELETE'
                       )
                     ).getStatus()
@@ -240,7 +271,7 @@ export const runCommonSessionLogoutPreservation = async (
           if (status !== (operation === 'rp' ? 303 : 204)) {
             return fail('logout-status');
           }
-          if (await boundSessionPresent(bound)) {
+          if (await boundSessionUid(bound)) {
             return fail('session-after');
           }
           await rotateOrdinaryRefresh({ target: input.target, owner, fetch: requestFetch });
@@ -301,4 +332,4 @@ export const runCommonSessionLogoutPreservation = async (
   }
   return Object.freeze({ methods: Object.freeze(results) });
 };
-/* eslint-enable no-await-in-loop, @silverhand/fp/no-mutating-methods, unicorn/no-await-expression-member */
+/* eslint-enable complexity, max-lines, no-await-in-loop, @silverhand/fp/no-mutating-methods, unicorn/no-await-expression-member */
