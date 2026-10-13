@@ -23,8 +23,16 @@ const files = async () => {
   return { root, configFile, receiptFile };
 };
 
-const controlled = (stopRunning = false) => {
-  let state: Record<string, unknown> = { Status: 'created', Running: false, ExitCode: 0 };
+const controlled = (
+  stopRunning = false,
+  initialState?: Record<string, unknown>,
+  stopExitCode = 0
+) => {
+  let state: Record<string, unknown> = initialState ?? {
+    Status: 'created',
+    Running: false,
+    ExitCode: 0,
+  };
   const calls: string[][] = [];
   const control: WechatBrowserProviderControl = {
     run: async (args) => {
@@ -41,7 +49,7 @@ const controlled = (stopRunning = false) => {
       if (args[0] === 'stop') {
         state = stopRunning
           ? { Status: 'running', Running: true, ExitCode: 0, Health: { Status: 'healthy' } }
-          : { Status: 'exited', Running: false, ExitCode: 0 };
+          : { Status: 'exited', Running: false, ExitCode: stopExitCode };
         return id;
       }
       if (args[2] === '{{json .State}}') {
@@ -145,6 +153,47 @@ test('Mini lease writes all distinct private codes, binds SMS, proves receipts, 
     expect(lease.observation()).toMatchObject({ authorizationExact: true, unionIdStable: true });
     await lease.stop();
     expect(calls.some((value) => value[0] === 'stop' && value[3] === id)).toBe(true);
+    await expect(readFile(fixture.configFile, 'utf8')).resolves.toBe('');
+    await expect(readFile(fixture.receiptFile, 'utf8')).resolves.toBe('');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('cleanly stopped owned provider can serve a second lease with the same files and container', async () => {
+  const fixture = await files();
+  try {
+    const { control } = controlled();
+    const first = await prepareOwnedWechatMiniProvider(input(control, fixture));
+    await writeFile(
+      fixture.receiptFile,
+      `${miniReceipts.map((value) => JSON.stringify(value)).join('\n')}\n`,
+      { mode: 0o600 }
+    );
+    expect(first.observation()).toMatchObject({ authorizationExact: true });
+    await first.stop();
+
+    const second = await prepareOwnedWechatMiniProvider(input(control, fixture));
+    await expect(second.takeCode()).resolves.toMatch(/^[a-f0-9]{48}$/u);
+    await second.stop();
+    await expect(readFile(fixture.configFile, 'utf8')).resolves.toBe('');
+    await expect(readFile(fixture.receiptFile, 'utf8')).resolves.toBe('');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test.each([
+  { Status: 'exited', Running: false, ExitCode: 1 },
+  { Status: 'running', Running: true, ExitCode: 0 },
+  { Status: 'dead', Running: false, ExitCode: 0 },
+])('refuses a provider container outside the created or cleanly exited state', async (state) => {
+  const fixture = await files();
+  try {
+    const { control } = controlled(false, state);
+    await expect(prepareOwnedWechatMiniProvider(input(control, fixture))).rejects.toThrow(
+      'Invalid owned WeChat code provider'
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -157,6 +206,17 @@ test('Native lease rejects Mini receipts and reports an owned-container cleanup 
     const lease = await prepareOwnedWechatNativeProvider(input(control, fixture));
     await writeFile(fixture.receiptFile, `${JSON.stringify(miniReceipts[0])}\n`, { mode: 0o600 });
     await expect(lease.observation()).rejects.toThrow('Invalid owned WeChat code provider');
+    await expect(lease.stop()).rejects.toThrow('Invalid owned WeChat code provider');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('owned provider cleanup rejects a nonzero container exit', async () => {
+  const fixture = await files();
+  try {
+    const { control } = controlled(false, undefined, 1);
+    const lease = await prepareOwnedWechatNativeProvider(input(control, fixture));
     await expect(lease.stop()).rejects.toThrow('Invalid owned WeChat code provider');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });

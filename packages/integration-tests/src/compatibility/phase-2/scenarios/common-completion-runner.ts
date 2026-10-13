@@ -60,6 +60,7 @@ export type CommonCompletionFixtureRuntime = Readonly<{
     | 'observeForeignConnectorPreserved'
     | 'withProvisioningFixture'
   >;
+  takePasswordRecoveryCode(recipient: string): Promise<string>;
 }>;
 export class CommonCompletionScenarioFailure extends Error {
   constructor(readonly scenarioId: CommonCompletionScenarioId) {
@@ -125,7 +126,7 @@ export const runCommonCompletionScenariosForTarget = async (
                   request,
                   compromiseFixture: input.runtime.password,
                   getPassword: lease.getSelectedEmailPassword ?? fail,
-                  takeRecoveryCode: lease.takeVerificationCode ?? fail,
+                  takeRecoveryCode: input.runtime.takePasswordRecoveryCode,
                 }),
             });
           } finally {

@@ -652,12 +652,12 @@ const deliveryFail = (stage: VerificationDeliveryFailure): never => {
   throw new TypeError(`Phase 2 verification delivery failed: ${stage}`);
 };
 
-export const takeOracleVerificationCode = async (recipient: string): Promise<string> => {
-  const socketPath = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
-  if (typeof socketPath !== 'string') {
-    return deliveryFail('env-missing');
-  }
-  if (!socketPath.startsWith('/') || !socketPath.endsWith('/oracle-smtp.sock')) {
+export const takePhase2VerificationCode = async (
+  socketPath: string,
+  socketName: 'oracle-smtp.sock' | 'password-verification-smtp.sock',
+  recipient: string
+): Promise<string> => {
+  if (!socketPath.startsWith('/') || !socketPath.endsWith(`/${socketName}`)) {
     return deliveryFail('socket-shape');
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) || recipient.length > 256) {
@@ -722,6 +722,14 @@ export const takeOracleVerificationCode = async (recipient: string): Promise<str
       }
     });
   });
+};
+
+export const takeOracleVerificationCode = async (recipient: string): Promise<string> => {
+  const socketPath = process.env.ASTER_PHASE2_ORACLE_SMTP_SOCKET;
+  if (typeof socketPath !== 'string') {
+    return deliveryFail('env-missing');
+  }
+  return takePhase2VerificationCode(socketPath, 'oracle-smtp.sock', recipient);
 };
 
 const revoke = (state: FixtureState): void => {

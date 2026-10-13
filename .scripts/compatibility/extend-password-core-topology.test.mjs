@@ -17,7 +17,27 @@ const base = (role) => ({
         : `test -f /run/aster/maintainer-ready && ${probe(3001)} && ${probe(3421)}`] },
       networks: { [`${role}-primary`]: { ipv4_address: 'old' } },
     },
-    ...(role === 'candidate' ? { 'candidate-primary-postgres': { environment: {} } } : {}),
+    ...(role === 'candidate' ? {
+      'candidate-h5-core': {
+        container_name: 'fixture-candidate-project-candidate-h5-core',
+        image: 'candidate-image',
+        userns_mode: 'keep-id',
+      },
+      'candidate-primary-postgres': { environment: {} },
+      'candidate-primary-smtp': {
+        container_name: 'primary-smtp',
+        depends_on: { 'candidate-primary-core': { condition: 'service_healthy' } },
+        environment: {
+          ASTER_SMTP_BIND: '127.0.0.1',
+          ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/verification-smtp.sock',
+        },
+        network_mode: 'service:candidate-primary-core',
+        read_only: true,
+        restart: 'no',
+        userns_mode: 'container:fixture-candidate-project-candidate-primary-core',
+        volumes: ['${ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw'],
+      },
+    } : {}),
   },
   networks: { [`${role}-primary`]: { internal: true } },
 });
@@ -32,6 +52,29 @@ test('clones an isolated Reference production password authority without changin
   assert.deepEqual(output.services['oracle-password-core'].networks, { 'oracle-primary': { ipv4_address: '172.30.231.15' } });
 });
 
-test('rejects a Candidate password clone because its existing H5 core owns that HTTPS target', () => {
-  assert.throws(() => extendPasswordCoreTopology(base('candidate'), { role: 'candidate' }), TypeError);
+test('adds an owned Candidate password SMTP sink in the existing H5 core namespace', () => {
+  const input = base('candidate');
+  const output = extendPasswordCoreTopology(input, { role: 'candidate' });
+  assert.deepEqual(output.services['candidate-primary-smtp'], input.services['candidate-primary-smtp']);
+  assert.deepEqual(output.services['candidate-password-smtp'], {
+    depends_on: { 'candidate-h5-core': { condition: 'service_healthy' } },
+    environment: {
+      ASTER_SMTP_BIND: '127.0.0.1',
+      ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/password-verification-smtp.sock',
+    },
+    network_mode: 'service:candidate-h5-core',
+    read_only: true,
+    restart: 'no',
+    userns_mode: 'container:fixture-candidate-project-candidate-h5-core',
+    volumes: ['${ASTER_PHASE1_FIXTURE_DIRECTORY}:/run/aster-smtp:rw'],
+  });
+});
+
+test('rejects a Candidate password sink without the bound H5 container identity', () => {
+  const input = base('candidate');
+  delete input.services['candidate-h5-core'].container_name;
+  assert.throws(
+    () => extendPasswordCoreTopology(input, { role: 'candidate' }),
+    /Invalid Common206 password core topology/u
+  );
 });

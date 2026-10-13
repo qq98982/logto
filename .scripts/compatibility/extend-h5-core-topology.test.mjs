@@ -42,9 +42,10 @@ test('clones oracle authority with only an HTTPS public issuer and isolated list
 });
 
 test('clones candidate authority with the H5 config and issuer while retaining keys', () => {
-  const output=extendH5CoreTopology(base('candidate'),{role:'candidate',candidateConfigFile:'/private/h5.conf'});
+  const output=extendH5CoreTopology(base('candidate'),{role:'candidate',candidateConfigFile:'/private/h5.conf',candidateContainerName:'fixture-candidate-project-candidate-h5-core'});
   const service=output.services['candidate-h5-core'];
   assert.equal(service.environment.ASTER_PHASE1_DATA_ISSUER,'https://localhost:3352/oidc');
+  assert.equal(service.container_name,'fixture-candidate-project-candidate-h5-core');
   assert.equal(service.environment.ASTER_PHASE1_PRIMARY_CONFIG_FILE,'/private/h5.conf');
   assert.equal(service.environment.ASTER_ISOLATED_IDENTITY_TRANSPORT_CONFIG,'/private/identity.json');
   assert.deepEqual(service.volumes,['/private/h5.conf:/private/h5.conf:ro','keys:/keys:ro','/private/bundle.pem:/run/aster/fetch-observer-ca.pem:ro']);
@@ -60,7 +61,7 @@ test('clones candidate authority with the H5 config and issuer while retaining k
 test('rejects an unknown primary healthcheck instead of weakening it', () => {
   const input=base('candidate');
   input.services['candidate-primary-core'].healthcheck.test[1]='true';
-  assert.throws(() => extendH5CoreTopology(input,{role:'candidate',candidateConfigFile:'/private/h5.conf'}),
+  assert.throws(() => extendH5CoreTopology(input,{role:'candidate',candidateConfigFile:'/private/h5.conf',candidateContainerName:'fixture-candidate-project-candidate-h5-core'}),
     /Invalid Common206 H5 core topology/u);
 });
 
@@ -68,7 +69,7 @@ test('clone health requires maintainer readiness and a ready data authority', as
   const root=await mkdtemp('/var/tmp/henry-build/h5-health-command.');
   const marker=`${root}/maintainer-ready`;
   const service=extendH5CoreTopology(base('candidate'),{
-    role:'candidate',candidateConfigFile:'/private/h5.conf',
+    role:'candidate',candidateConfigFile:'/private/h5.conf',candidateContainerName:'fixture-candidate-project-candidate-h5-core',
   }).services['candidate-h5-core'];
   const server=net.createServer();
   await new Promise((resolve,reject) => {
@@ -96,4 +97,13 @@ test('clone health requires maintainer readiness and a ready data authority', as
     await new Promise((resolve) => server.close(resolve));
     await rm(root,{recursive:true,force:true});
   }
+});
+
+test('rejects a missing or unbound Candidate H5 container identity', () => {
+  assert.throws(() => extendH5CoreTopology(base('candidate'), {
+    role: 'candidate', candidateConfigFile: '/private/h5.conf',
+  }), /Invalid Common206 H5 core topology/u);
+  assert.throws(() => extendH5CoreTopology(base('candidate'), {
+    role: 'candidate', candidateConfigFile: '/private/h5.conf', candidateContainerName: 'foreign',
+  }), /Invalid Common206 H5 core topology/u);
 });

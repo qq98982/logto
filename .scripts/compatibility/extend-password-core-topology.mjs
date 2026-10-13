@@ -3,9 +3,29 @@ const fail = () => { throw new TypeError('Invalid Common206 password core topolo
 export const extendPasswordCoreTopology = (raw, options) => {
   const keys = ['role'];
   if (!options || Object.keys(options).toSorted().join() !== keys.toSorted().join() ||
-      options.role !== 'oracle') fail();
+      !['oracle', 'candidate'].includes(options.role)) fail();
   const document = structuredClone(raw);
   const role = options.role;
+  if (role === 'candidate') {
+    const h5 = document.services?.['candidate-h5-core'];
+    const source = document.services?.['candidate-primary-smtp'];
+    if (!h5 || !source || document.services?.['candidate-password-smtp'] ||
+        typeof h5.container_name !== 'string' ||
+        !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}-candidate-h5-core$/u.test(h5.container_name) ||
+        source.environment?.ASTER_SMTP_CONTROL_SOCKET !== '/run/aster-smtp/verification-smtp.sock' ||
+        !Array.isArray(source.volumes) || source.volumes.length !== 1) fail();
+    const service = structuredClone(source);
+    delete service.container_name;
+    delete service.networks;
+    delete service.ports;
+    service.depends_on = { 'candidate-h5-core': { condition: 'service_healthy' } };
+    service.environment.ASTER_SMTP_CONTROL_SOCKET = '/run/aster-smtp/password-verification-smtp.sock';
+    service.network_mode = 'service:candidate-h5-core';
+    service.restart = 'no';
+    service.userns_mode = `container:${h5.container_name}`;
+    document.services['candidate-password-smtp'] = service;
+    return Object.freeze(document);
+  }
   const sourceName = `${role}-primary-core`;
   const serviceName = `${role}-password-core`;
   const source = document.services?.[sourceName];

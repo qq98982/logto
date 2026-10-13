@@ -35,6 +35,7 @@ const base = {
     listenUrl: 'https://localhost:3361',
     caFile: '/private/h5-ca.pem',
     spkiFile: '/private/h5.spki',
+    smtpSocket: '/private/oracle-smtp.sock',
   },
   wechat: {
     container: 'owned-wechat',
@@ -102,6 +103,7 @@ const withControlledEmittedDescriptor = async (
   const smsConfigurationFile = path.join(smsRoot, 'configuration.json');
   const smsProviderInput = path.join(smsRoot, 'input.json');
   const smsSocket = path.join(smsRoot, 'sms.sock');
+  const passwordSocket = path.join(smsRoot, 'oracle-smtp.sock');
   const controlCapability = 'controlled-sms-capability';
   await writeFile(
     smsConfigurationFile,
@@ -152,6 +154,21 @@ const withControlledEmittedDescriptor = async (
     server.listen(smsSocket, resolve);
   });
   await chmod(smsSocket, 0o600);
+  const passwordServer = createServer((connection) => {
+    connection.once('data', (chunk: Uint8Array) => {
+      const command = JSON.parse(Buffer.from(chunk).toString('utf8')) as Record<string, string>;
+      connection.end(
+        command.recipient === 'owner@example.invalid'
+          ? '{"code":"654321"}\n'
+          : '{"error":"not_found"}\n'
+      );
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    passwordServer.once('error', reject);
+    passwordServer.listen(passwordSocket, resolve);
+  });
+  await chmod(passwordSocket, 0o600);
   const emitted = JSON.parse(
     await readFile(
       '/var/tmp/henry-build/aster-common206-completion/runtime-common/oracle-descriptor.json',
@@ -168,6 +185,7 @@ const withControlledEmittedDescriptor = async (
       password: {
         ...emitted.h5,
         listenUrl: 'https://localhost:3361',
+        smtpSocket: passwordSocket,
       },
       wechat: {
         ...emittedWechat,
@@ -184,6 +202,11 @@ const withControlledEmittedDescriptor = async (
     },
     use
   ).finally(async () => {
+    await new Promise<void>((resolve) => {
+      passwordServer.close(() => {
+        resolve();
+      });
+    });
     await new Promise<void>((resolve) => {
       server.close(() => {
         resolve();
@@ -205,6 +228,15 @@ test('rejects unknown descriptor fields before container I/O', async () => {
   });
 });
 
+test('rejects a password delivery socket outside the selected owned namespace', async () => {
+  await withDescriptor(
+    { ...base, password: { ...base.password, smtpSocket: '/private/verification-smtp.sock' } },
+    async (file) => {
+      await expect(read(file)).rejects.toThrow('Invalid Common completion fixture runtime');
+    }
+  );
+});
+
 test('rejects a descriptor bound to another target before container I/O', async () => {
   await withDescriptor({ ...base, target: { ...target, label: 'candidate' } }, async (file) => {
     await expect(read(file)).rejects.toThrow('Invalid Common completion fixture runtime');
@@ -216,6 +248,10 @@ test('constructs capabilities from the emitted private descriptor without contai
     const runtime = await read(filePath);
     expect(runtime.h5Target).toEqual(target);
     expect(runtime.passwordTarget).toEqual({ ...target, coreUrl: 'https://localhost:3361/' });
+    await expect(runtime.takePasswordRecoveryCode('owner@example.invalid')).resolves.toBe('654321');
+    await expect(runtime.takePasswordRecoveryCode('missing@example.invalid')).rejects.toThrow(
+      'Phase 2 verification delivery failed: not-found'
+    );
     expect(runtime.h5Trust.caFile).toMatch(/h5-loopback-ca\.pem$/u);
     expect(runtime.wechat.mini.wechatSubject).toBe(runtime.wechat.native.wechatSubject);
     await runtime.wechat.h5.withProviderCredentialLease(async (lease) => {

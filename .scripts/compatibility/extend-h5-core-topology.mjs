@@ -6,7 +6,9 @@ const absolute = (value) => typeof value === 'string' && path.isAbsolute(value) 
 const readyProbe = (port) => `printf 'GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' | nc -w 2 127.0.0.1 ${port} | grep -q ' 200 OK'`;
 
 export const extendH5CoreTopology = (raw, options) => {
-  const keys = ['candidateConfigFile', 'role'];
+  const keys = options?.role === 'candidate'
+    ? ['candidateConfigFile', 'candidateContainerName', 'role']
+    : ['candidateConfigFile', 'role'];
   if (!options || Object.keys(options).toSorted().join() !== keys.toSorted().join() ||
       !['oracle', 'candidate'].includes(options.role) || !absolute(options.candidateConfigFile)) fail();
   const document = structuredClone(raw);
@@ -34,6 +36,9 @@ export const extendH5CoreTopology = (raw, options) => {
   if (role === 'oracle') {
     service.environment.ENDPOINT = 'https://localhost:3351';
   } else {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}-candidate-h5-core$/u.test(
+      options.candidateContainerName ?? '')) fail();
+    service.container_name = options.candidateContainerName;
     const postgres = document.services?.['candidate-primary-postgres'];
     if (!postgres || typeof postgres.environment !== 'object' || postgres.environment === null ||
         Object.hasOwn(postgres.environment, 'ASTER_PHASE1_H5_CORE_CIDR')) fail();

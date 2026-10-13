@@ -121,6 +121,26 @@ const writeConfig = async (file: string, identity: FileIdentity, value: unknown)
   }
   await sameFile(file, identity);
 };
+const clearPrivateFile = async (file: string, identity: FileIdentity) => {
+  const handle = await open(file, constants.O_RDWR | constants.O_NOFOLLOW).catch(fail);
+  try {
+    const state = await handle.stat();
+    if (
+      state.dev !== identity.dev ||
+      state.ino !== identity.ino ||
+      state.uid !== currentUid() ||
+      state.nlink !== 1 ||
+      (state.mode & 0o777) !== 0o600
+    ) {
+      return fail();
+    }
+    await handle.truncate(0);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await sameFile(file, identity);
+};
 
 const inspectContainer = async (input: Input) => {
   if (
@@ -145,8 +165,8 @@ const inspectContainer = async (input: Input) => {
     (config.Image !== input.image && config.Image !== input.image.slice('sha256:'.length)) ||
     labels['com.docker.compose.project'] !== input.project ||
     labels['com.docker.compose.service'] !== input.service ||
-    state.Status !== 'created' ||
-    state.Running !== false
+    state.Running !== false ||
+    (state.Status !== 'created' && (state.Status !== 'exited' || state.ExitCode !== 0))
   ) {
     return fail();
   }
@@ -187,7 +207,10 @@ const waitHealthy = async (input: Input, id: string) => {
 const stopContainer = async (input: Input, id: string) => {
   await input.control.run(['stop', '--time', '5', id]).catch(() => '');
   const state = await inspectState(input, id);
-  if (state.Running !== false || (state.Status !== 'created' && state.Status !== 'exited')) {
+  if (
+    state.Running !== false ||
+    (state.Status !== 'created' && (state.Status !== 'exited' || state.ExitCode !== 0))
+  ) {
     return fail();
   }
 };
@@ -350,8 +373,8 @@ const prepare = async (input: Input, channel: 'mini' | 'native') => {
     stopped = true;
     await stopContainer(input, id);
     await Promise.all([
-      sameFile(input.configFile, configIdentity),
-      sameFile(input.receiptFile, receiptIdentity),
+      clearPrivateFile(input.configFile, configIdentity),
+      clearPrivateFile(input.receiptFile, receiptIdentity),
     ]);
   };
   return { codes, takeOnce, replay, finish, stopped: () => stopped };

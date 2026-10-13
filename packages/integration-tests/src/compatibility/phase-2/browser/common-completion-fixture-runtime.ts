@@ -10,7 +10,7 @@ import type { Browser, BrowserType } from '@playwright/test';
 import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
 import { createPlaywrightBrowserGroupObserver } from '../../phase-1/browser/playwright-session.js';
-import type { Phase2AdminRequestFunction } from '../fixtures.js';
+import { takePhase2VerificationCode, type Phase2AdminRequestFunction } from '../fixtures.js';
 import type { CommonCompletionFixtureRuntime } from '../scenarios/common-completion-runner.js';
 
 import { readCommonGoogleExistingOwnerFixtureRuntime } from './common-google-existing-owner-fixture-runtime.js';
@@ -48,6 +48,7 @@ const rootKeys = [
 ].toSorted();
 const targetKeys = ['label', 'coreUrl', 'adminUrl'].toSorted();
 const h5Keys = ['listenUrl', 'caFile', 'spkiFile'].toSorted();
+const passwordKeys = [...h5Keys, 'smtpSocket'].toSorted();
 const h5WechatKeys = [
   'container',
   'project',
@@ -319,8 +320,8 @@ export const readCommonCompletionFixtureRuntime = async (
     return fail();
   }
   sameTarget(row, input.target);
-  const browserTarget = (value: unknown) => {
-    const source = exact(value, h5Keys);
+  const browserTarget = (value: unknown, keys = h5Keys) => {
+    const source = exact(value, keys);
     const listen = new URL(bounded(source.listenUrl));
     if (
       listen.protocol !== 'https:' ||
@@ -339,7 +340,14 @@ export const readCommonCompletionFixtureRuntime = async (
     });
   };
   const h5 = browserTarget(row.h5);
-  const passwordBrowser = browserTarget(row.password);
+  const passwordSource = exact(row.password, passwordKeys);
+  const passwordBrowser = browserTarget(passwordSource, passwordKeys);
+  const passwordSmtpSocket = absolute(passwordSource.smtpSocket);
+  const passwordSmtpSocketName =
+    input.target.label === 'oracle' ? 'oracle-smtp.sock' : 'password-verification-smtp.sock';
+  if (!passwordSmtpSocket.endsWith(`/${passwordSmtpSocketName}`)) {
+    return fail();
+  }
   if (passwordBrowser.caFile !== h5.caFile || passwordBrowser.spkiFile !== h5.spkiFile) {
     return fail();
   }
@@ -573,6 +581,8 @@ export const readCommonCompletionFixtureRuntime = async (
     web,
     password,
     passwordTarget: passwordBrowser.target,
+    takePasswordRecoveryCode: async (recipient: string) =>
+      takePhase2VerificationCode(passwordSmtpSocket, passwordSmtpSocketName, recipient),
     h5Target,
     h5Observer,
     h5Trust: Object.freeze({ caFile, spkiFile }),

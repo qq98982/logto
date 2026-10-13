@@ -26,6 +26,7 @@ readonly CANDIDATE_SERVICES=(
   candidate-pwned-clear candidate-pwned-compromised candidate-pwned-unavailable
   candidate-backchannel-accepted candidate-backchannel-rejected candidate-h5-wechat-provider candidate-wechat-multichannel-provider
   candidate-h5-core
+  candidate-password-smtp
 )
 readonly PORTS=(3311 3411 3312 3412 3321 3421 3322 3422)
 readonly COMPLETION_PORTS=(3351 3352 3353 3354 3361 3363)
@@ -641,9 +642,9 @@ https_ready() {
 }
 
 wait_for_fixture_socket() {
-  local attempt
+  local socket_path=${1:-$FIXTURE_SOCKET} attempt
   for ((attempt=0; attempt<90; attempt++)); do
-    verify_private_socket "$FIXTURE_SOCKET" && return 0
+    verify_private_socket "$socket_path" && return 0
     /usr/bin/sleep 1
   done
   return 1
@@ -1095,6 +1096,7 @@ candidate|candidate-fetch-observer|$ORACLE_IMAGE_ID
 candidate|candidate-script-supervisor|$SCRIPT_SUPERVISOR_IMAGE_ID
 candidate|candidate-script-executor|$SCRIPT_EXECUTOR_IMAGE_ID
 candidate|candidate-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
+candidate|candidate-password-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
 EOF
 }
 
@@ -1757,6 +1759,7 @@ main() {
   FOREIGN_CONFIG_FILE="$CONFIG_DIR/candidate-foreign.conf"
   FIXTURE_SOCKET="$FIXTURE_DIRECTORY/aster-fixture.sock"
   ORACLE_SMTP_SOCKET="$FIXTURE_DIRECTORY/oracle-smtp.sock"
+  CANDIDATE_PASSWORD_SMTP_SOCKET="$FIXTURE_DIRECTORY/password-verification-smtp.sock"
   ORACLE_STATE_DRIVER="$HOST_BIN_DIRECTORY/oracle-state-driver"
   CANDIDATE_STATE_DRIVER="$HOST_BIN_DIRECTORY/candidate-state-driver"
   CANDIDATE_INVARIANT_DRIVER="$HOST_BIN_DIRECTORY/candidate-invariant-driver"
@@ -1812,12 +1815,13 @@ main() {
   H5_SPKI="$H5_RUNTIME_ROOT/h5-loopback-server.spki"
   H5_CANDIDATE_CONFIG="$CONFIG_DIR/candidate-h5.conf"
   readonly ORACLE_ENV CANDIDATE_ENV ORACLE_COMPOSE CANDIDATE_COMPOSE ORACLE_DESCRIPTOR CANDIDATE_DESCRIPTOR
-  readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
+  readonly PRIMARY_CONFIG_FILE FOREIGN_CONFIG_FILE FIXTURE_SOCKET ORACLE_SMTP_SOCKET CANDIDATE_PASSWORD_SMTP_SOCKET ORACLE_STATE_DRIVER CANDIDATE_STATE_DRIVER
   readonly CANDIDATE_INVARIANT_DRIVER ASTER_ADMIN_BIN ORACLE_EVIDENCE DIFFERENTIAL_EVIDENCE INVARIANT_EVIDENCE
   readonly COMPLETION_ROOT IDENTITY_TLS_ROOT H5_RUNTIME_ROOT ORACLE_COMPLETION_INPUT CANDIDATE_COMPLETION_INPUT
   readonly CANDIDATE_IDENTITY_CONFIG IDENTITY_CA IDENTITY_CA_BUNDLE IDENTITY_SERVER_CERT IDENTITY_SERVER_KEY H5_CA H5_SERVER_CERT H5_SERVER_KEY H5_SPKI H5_CANDIDATE_CONFIG
   [[ ${#FIXTURE_SOCKET} -le 100 ]] || { failure_stage='fixture-socket-path'; fail; return 1; }
   [[ ${#ORACLE_SMTP_SOCKET} -le 100 ]] || { failure_stage='oracle-smtp-socket-path'; fail; return 1; }
+  [[ ${#CANDIDATE_PASSWORD_SMTP_SOCKET} -le 100 ]] || { failure_stage='candidate-password-smtp-socket-path'; fail; return 1; }
   trap cleanup_trap EXIT
   bootstrap_playwright || { failure_stage='playwright-bootstrap'; fail; return 1; }
   assert_path_identity "$BROWSER_CACHE" "$BROWSER_CACHE_IDENTITY" \
@@ -2062,7 +2066,7 @@ const healthcheckIntervals = {
   'oracle-fetch-observer': '1s', 'oracle-primary-smtp': '1s', 'oracle-foreign-postgres': '3s',
   'oracle-foreign-redis': '3s', 'oracle-foreign-core': '3s',
   'candidate-primary-postgres': '2s', 'candidate-primary-core': '2s',
-  'candidate-primary-smtp': '1s',
+  'candidate-primary-smtp': '1s', 'candidate-password-smtp': '1s',
   'candidate-fetch-observer': '1s', 'candidate-script-supervisor': '1s',
   'candidate-script-executor': '1s', 'candidate-foreign-postgres': '2s',
   'candidate-foreign-core': '2s', 'candidate-fixture-coordinator': '1s',
@@ -2279,7 +2283,20 @@ SMS_TOPOLOGY
     "$NODE_BIN" "$COMPLETION_DESCRIPTOR_GENERATOR" "$COMPLETION_ROOT" "$ORACLE_IMAGE_ID" \
     "$ORACLE_PROJECT_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_GOOGLE_PROVIDER_INPUT" \
     "$CANDIDATE_GOOGLE_PROVIDER_INPUT" "$ORACLE_WECHAT_PROVIDER_INPUT" \
-    "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$SMS_PROVIDER_ROOT" || { fail; return 1; }
+    "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$SMS_PROVIDER_ROOT" "$FIXTURE_DIRECTORY" || { fail; return 1; }
+  "$NODE_BIN" --input-type=module - "$ORACLE_COMPLETION_INPUT" "$CANDIDATE_COMPLETION_INPUT" \
+    "$ORACLE_SMTP_SOCKET" "$CANDIDATE_PASSWORD_SMTP_SOCKET" <<'PASSWORD_SOCKET_BINDING' \
+    || { failure_stage='completion-password-socket-binding'; fail; return 1; }
+import { readFile } from 'node:fs/promises';
+const inputs = process.argv.slice(2);
+if (inputs.length !== 4) throw new TypeError('Invalid Common206 password socket binding');
+for (const [descriptorFile, expectedSocket] of [[inputs[0], inputs[2]], [inputs[1], inputs[3]]]) {
+  const descriptor = JSON.parse(await readFile(descriptorFile, 'utf8'));
+  if (descriptor?.password?.smtpSocket !== expectedSocket) {
+    throw new TypeError('Invalid Common206 password socket binding');
+  }
+}
+PASSWORD_SOCKET_BINDING
   "$NODE_BIN" --input-type=module - "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" \
     "$ORACLE_COMPLETION_INPUT" "$CANDIDATE_COMPLETION_INPUT" "$OWNED_ATTEMPT_TOPOLOGY" \
     "$H5_WECHAT_TOPOLOGY" "$H5_CORE_TOPOLOGY" "$PASSWORD_CORE_TOPOLOGY" "$MULTICHANNEL_TOPOLOGY" "$CANDIDATE_IDENTITY_TOPOLOGY" \
@@ -2303,8 +2320,9 @@ for(const [role,composePath,descriptorPath] of [['oracle',oraclePath,oracleDescr
  document=extendH5WechatTopology(document,{certificateFile,descriptor:descriptor.h5Wechat,
    privateKeyFile,role,script:legacyWechatScript});
  if(role==='candidate')document=applyCandidateIdentityConfig(document,{configurationFile:candidateIdentityFile,caFile:identityCaFile});
- document=extendH5CoreTopology(document,{candidateConfigFile:h5CandidateConfig,role});
- if(role==='oracle')document=extendPasswordCoreTopology(document,{role});
+ document=extendH5CoreTopology(document,{candidateConfigFile:h5CandidateConfig,
+   ...(role==='candidate'&&{candidateContainerName:`${descriptor.h5Wechat.project}-candidate-h5-core`}),role});
+ document=extendPasswordCoreTopology(document,{role});
  document=extendWechatMultichannelTopology(document,{certificateFile,
    configurationFile:descriptor.wechat.configFile,fixtureImage:descriptor.wechat.image,
    privateKeyFile,receiptFile:descriptor.wechat.receiptFile,role,script:multichannelScript});
@@ -2336,7 +2354,7 @@ COMPLETION_TOPOLOGY
   wait_for_script_host_serving || { failure_stage='script-host-readiness'; fail; return 1; }
   start_compose_stage candidate core candidate-primary-core candidate-foreign-core || { fail; return 1; }
   start_compose_stage candidate h5-core candidate-h5-core || { fail; return 1; }
-  start_compose_stage candidate smtp candidate-primary-smtp || { fail; return 1; }
+  start_compose_stage candidate smtp candidate-primary-smtp candidate-password-smtp || { fail; return 1; }
   start_compose_stage candidate fixture candidate-fixture-coordinator || { fail; return 1; }
 
   failure_stage='google-provider-create'
@@ -2466,6 +2484,8 @@ COMPLETION_TOPOLOGY
     http_ready "$readiness_port" "$readiness_issuer" || { fail; return 1; }
   done
   wait_for_fixture_socket || { failure_stage='fixture-socket'; fail; return 1; }
+  wait_for_fixture_socket "$ORACLE_SMTP_SOCKET" || { failure_stage='oracle-smtp-socket'; fail; return 1; }
+  wait_for_fixture_socket "$CANDIDATE_PASSWORD_SMTP_SOCKET" || { failure_stage='candidate-password-smtp-socket'; fail; return 1; }
 
   oracle_primary_metadata="$(inspect_service oracle oracle-primary-core)"
   oracle_foreign_metadata="$(inspect_service oracle oracle-foreign-core)"

@@ -9,6 +9,9 @@ const execute = promisify(execFile);
 test('binds public targets to core ports while reserving HTTPS ports for H5', async () => {
   const root = await mkdtemp('/var/tmp/henry-build/common206-descriptor-test.');
   try {
+    const completionRoot = `${root}/completion`;
+    const fixtureDirectory = `${root}/live-fixture`;
+    await mkdir(fixtureDirectory, { recursive: true, mode: 0o700 });
     const sms = `${root}/sms`;
     await Promise.all(['o', 'c'].map(async (role) => {
       await mkdir(`${sms}/${role}`, { recursive: true, mode: 0o700 });
@@ -22,17 +25,18 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
       await writeFile(`${sms}/${role}/input.json`, '{}\n', { mode: 0o600 });
     }));
     const script = new URL('./generate-runtime-descriptors.mjs', import.meta.url).pathname;
-    await execute(process.execPath, [script, root, `sha256:${'a'.repeat(64)}`, 'oracle-project',
+    await execute(process.execPath, [script, completionRoot, `sha256:${'a'.repeat(64)}`, 'oracle-project',
       'candidate-project', `${root}/oracle-google.json`, `${root}/candidate-google.json`,
-      `${root}/oracle-web.json`, `${root}/candidate-web.json`, sms]);
+      `${root}/oracle-web.json`, `${root}/candidate-web.json`, sms, fixtureDirectory]);
     const [oracle, candidate] = await Promise.all(['oracle', 'candidate'].map(async (role) =>
-      JSON.parse(await readFile(`${root}/runtime-common/${role}-descriptor.json`, 'utf8'))));
+      JSON.parse(await readFile(`${completionRoot}/runtime-common/${role}-descriptor.json`, 'utf8'))));
     assert.deepEqual(oracle.target, { label: 'oracle', coreUrl: 'http://localhost:3311/', adminUrl: 'http://localhost:3411/' });
     assert.equal(oracle.h5.listenUrl, 'https://localhost:3351');
     assert.deepEqual(oracle.password, {
       listenUrl: 'https://localhost:3361',
-      caFile: `${root}/runtime-h5/h5-loopback-ca.pem`,
-      spkiFile: `${root}/runtime-h5/h5-loopback-server.spki`,
+      caFile: `${completionRoot}/runtime-h5/h5-loopback-ca.pem`,
+      spkiFile: `${completionRoot}/runtime-h5/h5-loopback-server.spki`,
+      smtpSocket: `${fixtureDirectory}/oracle-smtp.sock`,
     });
     assert.deepEqual(candidate.target, { label: 'candidate', coreUrl: 'http://localhost:3321/', adminUrl: 'http://localhost:3421/' });
     assert.equal(candidate.h5.listenUrl, 'https://localhost:3352');
@@ -40,6 +44,7 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
       listenUrl: 'https://localhost:3352',
       caFile: candidate.h5.caFile,
       spkiFile: candidate.h5.spkiFile,
+      smtpSocket: `${fixtureDirectory}/password-verification-smtp.sock`,
     });
     assert.equal(oracle.wechat.service, 'oracle-wechat-multichannel-provider');
     assert.equal(candidate.wechat.service, 'candidate-wechat-multichannel-provider');

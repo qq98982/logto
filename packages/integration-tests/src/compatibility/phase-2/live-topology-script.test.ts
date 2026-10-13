@@ -1062,6 +1062,7 @@ ASTER_TREE=tree
       'candidate-primary-postgres',
       'candidate-primary-init',
       'candidate-primary-core',
+      'candidate-password-smtp',
       'candidate-foreign-postgres',
       'candidate-foreign-init',
       'candidate-foreign-core',
@@ -1081,6 +1082,12 @@ ASTER_TREE=tree
       expect(source).toContain(binding);
     }
     expect(source).toContain('start_compose_stage');
+    expect(source).toContain(
+      'start_compose_stage candidate smtp candidate-primary-smtp candidate-password-smtp'
+    );
+    expect(source).toContain('document=extendPasswordCoreTopology(document,{role})');
+    expect(source).toContain('candidate|candidate-password-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID');
+    expect(source).toContain("'candidate-password-smtp': '1s'");
     expect(source).toContain('start_loopback_proxy');
     expect(source).toContain('published_port');
     expect(source).toContain('port_state');
@@ -1093,6 +1100,8 @@ ASTER_TREE=tree
     );
     expect(source).not.toContain("printf 'Host: localhost\\r\\nConnection: close\\r\\n\\r\\n'");
     expect(source).toContain('wait_for_fixture_socket');
+    expect(source).toContain('wait_for_fixture_socket "$ORACLE_SMTP_SOCKET"');
+    expect(source).toContain('wait_for_fixture_socket "$CANDIDATE_PASSWORD_SMTP_SOCKET"');
     expect(source).toMatch(/deadline=\$\(\(SECONDS \+ 180\)\)/u);
     expect(source).toMatch(
       /if \[\[ "\$status" == running && -n "\$health" && "\$health" != healthy \]\]; then[\s\S]*--connect-timeout 3 --max-time 3[\s\S]*libpod\/containers\/\$\{id\}\/healthcheck[\s\S]*\/usr\/bin\/sleep 3\n\s*continue/u
