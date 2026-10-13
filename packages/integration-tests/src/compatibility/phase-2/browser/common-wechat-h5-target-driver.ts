@@ -3,7 +3,10 @@ import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
-import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
+import type {
+  Phase1BrowserGroupObserver,
+  Phase1BrowserSession,
+} from '../../phase-1/browser/contracts.js';
 import {
   isPlaywrightBrowserGroupObserver,
   type PlaywrightExternalAuthorizationCapability,
@@ -16,7 +19,10 @@ import {
   type ProvisionedPhase2Fixture,
 } from '../fixtures.js';
 
-import { runCommonWechatH5Registration } from './common-wechat-web-h5.js';
+import {
+  runCommonWechatH5Registration,
+  type CommonWechatBrowserSession,
+} from './common-wechat-web-h5.js';
 import type { CommonEmailPasswordBrowserConfiguration } from './fresh-context-password-controls.js';
 import { adaptPhase1SessionForEmailPassword } from './phase1-session-adapter.js';
 import {
@@ -79,6 +85,46 @@ type Stage =
 const fail = (): never => {
   throw new TypeError('Invalid Common Wechat H5 registration target composition');
 };
+export const createWechatH5Fill =
+  (session: Pick<Phase1BrowserSession, 'fill'>): CommonWechatBrowserSession['fill'] =>
+  async (step, selector, value) => {
+    if (step === 'wechat-h5-phone-input' && selector === 'input[type="tel"]') {
+      return session.fill(step, selector, value, {
+        endpoint: 'core',
+        paths: ['/continue/phone'],
+      });
+    }
+    const stepIndex = /^wechat-h5-passcode-([0-5])$/u.exec(step)?.[1];
+    const selectorIndex = /^input\[name="passcode_([0-5])"\]$/u.exec(selector)?.[1];
+    if (stepIndex && stepIndex === selectorIndex) {
+      return session.fill(step, selector, value, {
+        endpoint: 'core',
+        paths: ['/continue/verification-code'],
+      });
+    }
+    return fail();
+  };
+export const createWechatH5ReadProfile =
+  (
+    session: Pick<Phase1BrowserSession, 'click' | 'clickAndObserveObject'>,
+    rememberSubject: (subject: string) => void
+  ): CommonWechatBrowserSession['readProfile'] =>
+  async () => {
+    await session.click('open-wechat-h5-dev-panel', 'role=button[name="Open dev panel"]');
+    const profile = await session.clickAndObserveObject(
+      'wechat-h5-userinfo',
+      'role=button[name="Fetch user info"]',
+      (body) => ({
+        sub: body.sub ?? null,
+        phone: body.phone ?? null,
+        phoneVerified: body.phone_verified ?? null,
+      })
+    );
+    if (typeof profile.sub === 'string') {
+      rememberSubject(profile.sub);
+    }
+    return profile;
+  };
 const targetFail = (stage: Stage): never => {
   process.stderr.write(`ASTER_WECHAT_TARGET_STAGE=${stage}\n`);
   throw new TypeError(`Common Wechat H5 registration target failed: ${stage}`);
@@ -417,17 +463,10 @@ const executeCommonWechatH5RegistrationForTarget = async (
                       return await runCommonWechatH5Registration({
                         session: {
                           ...adapted,
-                          readProfile: async () => {
-                            const profile = await adapted.readProfile();
-                            if (typeof profile.sub === 'string') {
-                              registeredSubject = profile.sub;
-                            }
-                            return {
-                              sub: profile.sub,
-                              phone: Reflect.get(profile, 'phone'),
-                              phoneVerified: Reflect.get(profile, 'phoneVerified'),
-                            };
-                          },
+                          fill: createWechatH5Fill(session),
+                          readProfile: createWechatH5ReadProfile(session, (subject) => {
+                            registeredSubject = subject;
+                          }),
                           expectCount: async (step, selector, expected) =>
                             session.expectCount(step, selector, expected),
                           consentFailureRoute: async () => {
