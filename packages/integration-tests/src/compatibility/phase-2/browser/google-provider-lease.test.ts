@@ -289,6 +289,9 @@ test('reuses the same owned container across three compensated provider controls
   const shared = createControl();
   for (let cycle = 0; cycle < 3; cycle += 1) {
     const lease = await prepare(shared.control, files, { resetPrivateFilesOnStop: true });
+    const configured = await readFile(files.configFile, 'utf8');
+    expect(configured.length).toBeGreaterThan(0);
+    await writeFile(files.receiptFile, `${JSON.stringify(validReceipt)}\n`, { mode: 0o600 });
     await writeFile(files.healthDiagnosticFile, '{"stage":"healthy"}\n', { mode: 0o600 });
     await lease.stop();
     expect(await readFile(files.configFile, 'utf8')).toBe('');

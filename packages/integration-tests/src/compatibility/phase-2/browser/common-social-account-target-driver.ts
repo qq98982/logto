@@ -190,6 +190,7 @@ const runAccount = async (
         googleSubject: subject,
         originalEmail: provider.originalOwnerEmail,
         changedEmail: provider.changedProviderEmail,
+        resetPrivateFilesOnStop: true,
       });
     };
     return withSelectedAccountSocialConnector({
@@ -383,6 +384,7 @@ const runCollision = async (
           googleSubject: providerConfig.googleSubject,
           originalEmail: providerConfig.originalOwnerEmail,
           changedEmail: providerConfig.changedProviderEmail,
+          resetPrivateFilesOnStop: true,
         }),
       use: async ({ owner: collision, connectorId, redirectUri, provider }) => {
         const takeOccupiedEmailControlCode: unknown = Reflect.get(
@@ -571,6 +573,7 @@ export const withOwnedGoogleSession = async <Result>(
           googleSubject: providerConfig.googleSubject,
           originalEmail: providerConfig.originalOwnerEmail,
           changedEmail: providerConfig.changedProviderEmail,
+          resetPrivateFilesOnStop: true,
         }),
       use: async ({ connectorId, redirectUri, provider }) => {
         let userId: string | undefined;
