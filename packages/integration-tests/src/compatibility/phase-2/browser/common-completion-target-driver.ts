@@ -63,6 +63,33 @@ export const runBoundCommonCompletionScenarios = async (
         responseKind: 'status',
       });
     };
+    const cleanupOwnershipControlApplication = async (applicationId: string): Promise<void> => {
+      if (input.target.label === 'candidate') {
+        await (input.fixture.cleanupManagementOwnershipControlApplication ?? fail())(applicationId);
+        return;
+      }
+      await request({
+        method: 'DELETE',
+        path: `applications/${encodeURIComponent(applicationId)}`,
+        expectedStatuses: [204, 404],
+        responseKind: 'status',
+      });
+    };
+    const removeProvisioningRoleScope = async ({
+      roleId,
+      scopeId,
+    }: Readonly<{ roleId: string; scopeId: string }>): Promise<void> => {
+      if (input.target.label === 'candidate') {
+        await (input.fixture.removeManagementProvisioningRoleScope ?? fail())({ roleId, scopeId });
+        return;
+      }
+      await request({
+        method: 'DELETE',
+        path: `roles/${encodeURIComponent(roleId)}/scopes/${encodeURIComponent(scopeId)}`,
+        expectedStatuses: [204],
+        responseKind: 'status',
+      });
+    };
     let result: Awaited<ReturnType<typeof runCommonCompletionScenariosForTarget>> | undefined;
     let bodyError: unknown;
     try {
@@ -107,6 +134,8 @@ export const runBoundCommonCompletionScenarios = async (
                     bearer,
                     withForeignManagementControls: foreignControls,
                     cleanupProvisioningRows,
+                    cleanupOwnershipControlApplication,
+                    removeProvisioningRoleScope,
                     ...environments,
                   },
                   use

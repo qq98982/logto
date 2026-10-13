@@ -9,6 +9,7 @@ import {
 
 test('binds endpoints and bearer and repairs only the exact China Native relation', async () => {
   const requests: Array<{ method: string; path: string }> = [];
+  const removedRelations: Array<{ roleId: string; scopeId: string }> = [];
   const runtime = createManagementProvisioningFixtureRuntime({
     target: {
       label: 'candidate',
@@ -26,6 +27,9 @@ test('binds endpoints and bearer and repairs only the exact China Native relatio
       }),
     cleanupProvisioningRows: async () => {
       await Promise.resolve();
+    },
+    removeProvisioningRoleScope: async (ids) => {
+      removedRelations.push(ids);
     },
     request: async (request) => {
       requests.push(request);
@@ -73,8 +77,8 @@ test('binds endpoints and bearer and repairs only the exact China Native relatio
   expect(requests.map(({ method, path }) => ({ method, path }))).toEqual([
     { method: 'GET', path: 'roles' },
     { method: 'GET', path: 'roles/role/scopes' },
-    { method: 'DELETE', path: 'roles/role/scopes/scope' },
   ]);
+  expect(removedRelations).toEqual([{ roleId: 'role', scopeId: 'scope' }]);
 });
 test('fails closed when the repair relation is ambiguous', async () => {
   const runtime = createManagementProvisioningFixtureRuntime({
@@ -106,12 +110,25 @@ test('fails closed when the repair relation is ambiguous', async () => {
 });
 test('ownership refusal requires the pinned client refusal, preserved state, and foreign cleanup', async () => {
   let cleanupCompleted = false;
+  let selectedCreateShapeObserved = false;
   const observe = createManagementOwnershipRefusalObserver(
-    async ({ method, path }) => {
+    async ({ method, path, body }) => {
       if (path === 'sign-in-exp') {
         return { signIn: { methods: [] } };
       }
-      if (method === 'POST') {
+      if (method === 'POST' && path === 'applications') {
+        if (
+          JSON.stringify(body) !==
+          JSON.stringify({
+            name: 'Box-AI',
+            description: 'Foreign owner retained by compatibility fixture',
+            type: 'Traditional',
+            oidcClientMetadata: {},
+          })
+        ) {
+          throw new TypeError('selected Traditional application shape rejected');
+        }
+        selectedCreateShapeObserved = true;
         return {
           id: 'foreign-owned-application',
           name: 'Box-AI',
@@ -137,10 +154,14 @@ test('ownership refusal requires the pinned client refusal, preserved state, and
       cleanupCompleted = true;
       return result;
     },
-    async () => true
+    async () => true,
+    async (applicationId) => {
+      expect(applicationId).toBe('foreign-owned-application');
+    }
   );
 
   await expect(observe()).resolves.toBe(true);
+  expect(selectedCreateShapeObserved).toBe(true);
   expect(cleanupCompleted).toBe(true);
 });
 test('lease uses private cleanup only for validated applications and resource and preserves connector state', async () => {

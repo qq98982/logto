@@ -1155,6 +1155,22 @@ describe('Phase 2 fixture lifecycle', () => {
         applicationIds: ['duplicate', 'duplicate'],
       })
     ).rejects.toThrow('Phase 2 fixture operation failed');
+    const cleanupOwnership = fixture.cleanupManagementOwnershipControlApplication ?? fail;
+    await cleanupOwnership('owned-control-application');
+    expect(descriptors.at(-1)).toMatchObject({
+      operation: 'cleanupManagementOwnershipControlApplication',
+      control: { applicationId: 'owned-control-application' },
+    });
+    await expect(cleanupOwnership('unsafe/id')).rejects.toThrow('Phase 2 fixture operation failed');
+    const removeRoleScope = fixture.removeManagementProvisioningRoleScope ?? fail;
+    await removeRoleScope({ roleId: 'owned-role', scopeId: 'owned-scope' });
+    expect(descriptors.at(-1)).toMatchObject({
+      operation: 'removeManagementProvisioningRoleScope',
+      control: { roleId: 'owned-role', scopeId: 'owned-scope' },
+    });
+    await expect(removeRoleScope({ roleId: 'unsafe/id', scopeId: 'owned-scope' })).rejects.toThrow(
+      'Phase 2 fixture operation failed'
+    );
   });
 
   it('leases fixed foreign Management controls and cleans them after a failed observation', async () => {

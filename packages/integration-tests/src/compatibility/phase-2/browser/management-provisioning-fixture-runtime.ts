@@ -32,6 +32,8 @@ export type ManagementProvisioningRuntimeInput = Readonly<{
       applicationIds: readonly [string, string];
     }>
   ): Promise<void>;
+  cleanupOwnershipControlApplication?(applicationId: string): Promise<void>;
+  removeProvisioningRoleScope?(ids: Readonly<{ roleId: string; scopeId: string }>): Promise<void>;
 }>;
 const environment = (
   input: ManagementProvisioningRuntimeInput,
@@ -47,7 +49,8 @@ const environment = (
     BOX_AI_PUBLIC_BASE_URL: input.target.coreUrl,
     BOX_AI_LOGTO_MANAGEMENT_TOKEN: input.bearer,
   });
-const removeNativeRelation = async (request: Phase2AdminRequestFunction): Promise<void> => {
+const removeNativeRelation = async (input: ManagementProvisioningRuntimeInput): Promise<void> => {
+  const { request } = input;
   const roles = array(
     await request({
       method: 'GET',
@@ -73,12 +76,7 @@ const removeNativeRelation = async (request: Phase2AdminRequestFunction): Promis
   if (typeof scopeId !== 'string') {
     return fail();
   }
-  await request({
-    method: 'DELETE',
-    path: `roles/${encodeURIComponent(roleId)}/scopes/${encodeURIComponent(scopeId)}`,
-    expectedStatuses: [204],
-    responseKind: 'status',
-  });
+  await (input.removeProvisioningRoleScope ?? fail())({ roleId, scopeId });
 };
 const exactNotFound = (value: unknown): boolean =>
   typeof value === 'object' &&
@@ -95,7 +93,8 @@ export const createManagementOwnershipRefusalObserver =
     withForeignManagementControls: ManagementProvisioningRuntimeInput['withForeignManagementControls'],
     observeClientRefusal: (
       environment: Readonly<Record<string, string>>
-    ) => Promise<boolean> = observeManagementProvisioningClientRefusal
+    ) => Promise<boolean> = observeManagementProvisioningClientRefusal,
+    cleanupOwnershipControlApplication?: ManagementProvisioningRuntimeInput['cleanupOwnershipControlApplication']
   ): (() => Promise<boolean>) =>
   async () => {
     const previousExperience = record(
@@ -114,6 +113,7 @@ export const createManagementOwnershipRefusalObserver =
           name: 'Box-AI',
           description: 'Foreign owner retained by compatibility fixture',
           type: 'Traditional',
+          oidcClientMetadata: {},
         },
         expectedStatuses: [200],
         responseKind: 'object',
@@ -149,12 +149,7 @@ export const createManagementOwnershipRefusalObserver =
       bodyError = error;
     }
     try {
-      await request({
-        method: 'DELETE',
-        path: `applications/${encodeURIComponent(applicationId)}`,
-        expectedStatuses: [204, 404],
-        responseKind: 'status',
-      });
+      await (cleanupOwnershipControlApplication ?? fail())(applicationId);
     } catch {
       return fail();
     }
@@ -439,12 +434,14 @@ export const createManagementProvisioningFixtureRuntime = (
       if (selected !== china) {
         return fail();
       }
-      await removeNativeRelation(input.request);
+      await removeNativeRelation(input);
     },
     observeOwnershipRefusals: createManagementOwnershipRefusalObserver(
       input.request,
       global,
-      input.withForeignManagementControls
+      input.withForeignManagementControls,
+      observeManagementProvisioningClientRefusal,
+      input.cleanupOwnershipControlApplication
     ),
   });
 };

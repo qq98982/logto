@@ -112,6 +112,10 @@ export type ProvisionedPhase2Fixture = {
       applicationIds: readonly [string, string];
     }>
   ): Promise<void>;
+  cleanupManagementOwnershipControlApplication?(applicationId: string): Promise<void>;
+  removeManagementProvisioningRoleScope?(
+    ids: Readonly<{ roleId: string; scopeId: string }>
+  ): Promise<void>;
 };
 
 export type ForeignManagementControls = Readonly<{
@@ -1994,7 +1998,9 @@ const parseCommandOutput = (
     | 'cleanupManagementMachineClient'
     | 'provisionForeignManagementControls'
     | 'cleanupForeignManagementControls'
-    | 'cleanupManagementProvisioningRows',
+    | 'cleanupManagementProvisioningRows'
+    | 'cleanupManagementOwnershipControlApplication'
+    | 'removeManagementProvisioningRoleScope',
   secrets: readonly string[]
 ): Record<string, unknown> => {
   try {
@@ -2699,6 +2705,49 @@ export const createCandidatePhase2FixtureProvisioner = (
                   applicationIds,
                 },
                 'cleanupManagementProvisioningRows',
+                state.sensitiveValues
+              );
+              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                return fail();
+              }
+            },
+            cleanupManagementOwnershipControlApplication: async (applicationId: string) => {
+              if (state.revoked || !safeIdPattern.test(applicationId)) {
+                return fail();
+              }
+              const cleaned = await run(
+                {
+                  schemaVersion: 1,
+                  operation: 'cleanupManagementOwnershipControlApplication',
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                  control: { applicationId },
+                },
+                'cleanupManagementOwnershipControlApplication',
+                state.sensitiveValues
+              );
+              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                return fail();
+              }
+            },
+            removeManagementProvisioningRoleScope: async ({
+              roleId,
+              scopeId,
+            }: Readonly<{ roleId: string; scopeId: string }>) => {
+              if (state.revoked || !safeIdPattern.test(roleId) || !safeIdPattern.test(scopeId)) {
+                return fail();
+              }
+              const cleaned = await run(
+                {
+                  schemaVersion: 1,
+                  operation: 'removeManagementProvisioningRoleScope',
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                  control: { roleId, scopeId },
+                },
+                'removeManagementProvisioningRoleScope',
                 state.sensitiveValues
               );
               if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
