@@ -14,12 +14,23 @@ const scripts = Object.freeze([
   'provision-wechat-connectors.mjs',
   'provision-client.mjs',
 ]);
-const directory = fileURLToPath(
-  new URL(
-    '../../../../src/compatibility/phase-2/testing/management-provisioning-family/',
-    import.meta.url
-  )
-);
+export const resolveManagementProvisioningDirectory = (moduleUrl: string): string => {
+  const modulePath = fileURLToPath(moduleUrl);
+  const marker = `${path.sep}packages${path.sep}integration-tests${path.sep}`;
+  const markerIndex = modulePath.lastIndexOf(marker);
+  if (markerIndex < 0 || modulePath.indexOf(marker) !== markerIndex) {
+    return fail();
+  }
+  return path.join(
+    modulePath.slice(0, markerIndex + marker.length),
+    'src',
+    'compatibility',
+    'phase-2',
+    'testing',
+    'management-provisioning-family'
+  );
+};
+const directory = resolveManagementProvisioningDirectory(import.meta.url);
 const privateRoot = '/var/tmp/henry-build';
 const allowed = new Set([
   'PATH',

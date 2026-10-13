@@ -551,7 +551,14 @@ describe('Phase 2 fixture lifecycle', () => {
         method: 'POST',
         path: 'applications/application-8/user-consent-scopes',
         body: {
-          userScopes: ['profile', 'email', 'address', 'phone', 'urn:logto:scope:sessions'],
+          userScopes: [
+            'profile',
+            'email',
+            'address',
+            'phone',
+            'identities',
+            'urn:logto:scope:sessions',
+          ],
           resourceScopes: ['scope-4'],
         },
       })
