@@ -344,7 +344,7 @@ export const readCommonCompletionFixtureRuntime = async (
   const passwordBrowser = browserTarget(passwordSource, passwordKeys);
   const passwordSmtpSocket = absolute(passwordSource.smtpSocket);
   const passwordSmtpSocketName =
-    input.target.label === 'oracle' ? 'oracle-smtp.sock' : 'password-verification-smtp.sock';
+    input.target.label === 'oracle' ? 'oracle-smtp.sock' : 'password-smtp.sock';
   if (!passwordSmtpSocket.endsWith(`/${passwordSmtpSocketName}`)) {
     return fail();
   }

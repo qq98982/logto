@@ -60,7 +60,7 @@ test('adds an owned Candidate password SMTP sink in the existing H5 core namespa
     depends_on: { 'candidate-h5-core': { condition: 'service_healthy' } },
     environment: {
       ASTER_SMTP_BIND: '127.0.0.1',
-      ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/password-verification-smtp.sock',
+      ASTER_SMTP_CONTROL_SOCKET: '/run/aster-smtp/password-smtp.sock',
     },
     network_mode: 'service:candidate-h5-core',
     read_only: true,

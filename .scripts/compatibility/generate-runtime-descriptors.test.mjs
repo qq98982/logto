@@ -10,8 +10,8 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
   const root = await mkdtemp('/var/tmp/henry-build/common206-descriptor-test.');
   try {
     const completionRoot = `${root}/completion`;
-    const fixtureDirectory = `${root}/live-fixture`;
-    await mkdir(fixtureDirectory, { recursive: true, mode: 0o700 });
+    const fixtureDirectory =
+      '/var/tmp/henry-build/p6/aster-phase2-client-credentials-live/run.XXXXXX/fixture';
     const sms = `${root}/sms`;
     await Promise.all(['o', 'c'].map(async (role) => {
       await mkdir(`${sms}/${role}`, { recursive: true, mode: 0o700 });
@@ -44,8 +44,10 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
       listenUrl: 'https://localhost:3352',
       caFile: candidate.h5.caFile,
       spkiFile: candidate.h5.spkiFile,
-      smtpSocket: `${fixtureDirectory}/password-verification-smtp.sock`,
+      smtpSocket: `${fixtureDirectory}/password-smtp.sock`,
     });
+    assert.equal(Buffer.byteLength(oracle.password.smtpSocket) <= 100, true);
+    assert.equal(Buffer.byteLength(candidate.password.smtpSocket) <= 100, true);
     assert.equal(oracle.wechat.service, 'oracle-wechat-multichannel-provider');
     assert.equal(candidate.wechat.service, 'candidate-wechat-multichannel-provider');
     assert.match(oracle.wechat.clientId, /^wx[0-9a-f]{16}$/u);

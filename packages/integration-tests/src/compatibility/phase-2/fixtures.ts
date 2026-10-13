@@ -654,7 +654,7 @@ const deliveryFail = (stage: VerificationDeliveryFailure): never => {
 
 export const takePhase2VerificationCode = async (
   socketPath: string,
-  socketName: 'oracle-smtp.sock' | 'password-verification-smtp.sock',
+  socketName: 'oracle-smtp.sock' | 'password-smtp.sock',
   recipient: string
 ): Promise<string> => {
   if (!socketPath.startsWith('/') || !socketPath.endsWith(`/${socketName}`)) {

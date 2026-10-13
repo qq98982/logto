@@ -19,7 +19,7 @@ export const extendPasswordCoreTopology = (raw, options) => {
     delete service.networks;
     delete service.ports;
     service.depends_on = { 'candidate-h5-core': { condition: 'service_healthy' } };
-    service.environment.ASTER_SMTP_CONTROL_SOCKET = '/run/aster-smtp/password-verification-smtp.sock';
+    service.environment.ASTER_SMTP_CONTROL_SOCKET = '/run/aster-smtp/password-smtp.sock';
     service.network_mode = 'service:candidate-h5-core';
     service.restart = 'no';
     service.userns_mode = `container:${h5.container_name}`;

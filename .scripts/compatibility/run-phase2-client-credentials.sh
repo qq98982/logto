@@ -1759,7 +1759,7 @@ main() {
   FOREIGN_CONFIG_FILE="$CONFIG_DIR/candidate-foreign.conf"
   FIXTURE_SOCKET="$FIXTURE_DIRECTORY/aster-fixture.sock"
   ORACLE_SMTP_SOCKET="$FIXTURE_DIRECTORY/oracle-smtp.sock"
-  CANDIDATE_PASSWORD_SMTP_SOCKET="$FIXTURE_DIRECTORY/password-verification-smtp.sock"
+  CANDIDATE_PASSWORD_SMTP_SOCKET="$FIXTURE_DIRECTORY/password-smtp.sock"
   ORACLE_STATE_DRIVER="$HOST_BIN_DIRECTORY/oracle-state-driver"
   CANDIDATE_STATE_DRIVER="$HOST_BIN_DIRECTORY/candidate-state-driver"
   CANDIDATE_INVARIANT_DRIVER="$HOST_BIN_DIRECTORY/candidate-invariant-driver"
