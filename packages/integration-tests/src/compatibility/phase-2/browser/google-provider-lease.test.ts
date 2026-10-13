@@ -284,6 +284,22 @@ test('proves Account association and both provider proofs used distinct configur
   await rm(files.root, { recursive: true, force: true });
 });
 
+test('proves a Google session consumes exactly the stable and changed provider cases', async () => {
+  const files = await createFiles();
+  const { control } = createControl();
+  const lease = await prepare(control, files);
+  await writeFile(files.receiptFile, JSON.stringify(validReceipt), { mode: 0o600 });
+  await expect(lease.assertSessionProviderCase()).resolves.toBeUndefined();
+  await writeFile(
+    files.receiptFile,
+    JSON.stringify({ ...validReceipt, wrongStateControlCodeConsumed: true }),
+    { mode: 0o600 }
+  );
+  await expect(lease.assertSessionProviderCase()).rejects.toThrow('Invalid Google provider lease');
+  await lease.stop();
+  await rm(files.root, { recursive: true, force: true });
+});
+
 test('reuses the same owned container across three compensated provider controls', async () => {
   const files = await createFiles();
   const shared = createControl();

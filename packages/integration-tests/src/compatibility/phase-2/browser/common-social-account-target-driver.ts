@@ -656,7 +656,7 @@ export const withOwnedGoogleSession = async <Result>(
                   ),
               })
             );
-            await provider.assertAccountProviderCase();
+            await (provider.assertSessionProviderCase ?? fail)();
             return result;
           };
           return input.withApplication

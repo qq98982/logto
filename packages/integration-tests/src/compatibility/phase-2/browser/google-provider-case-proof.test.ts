@@ -6,6 +6,7 @@ import {
   assertGoogleChangedEmailProviderReceipt,
   assertGooglePrimaryRegistrationProviderReceipt,
   assertGoogleReplayProviderReceipt,
+  assertGoogleSessionProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
 
@@ -84,6 +85,26 @@ test('accepts only the complete two-case provider receipt', async () => {
   const link = path.join(root, 'link');
   await symlink(file, link);
   await expect(assertGoogleChangedEmailProviderReceipt(link, 'GET')).rejects.toThrow();
+  await rm(root, { recursive: true, force: true });
+});
+
+test('accepts only the two-call Google session receipt without the Account wrong-state control', async () => {
+  const root = await mkdtemp('/var/tmp/henry-build/google-session-proof-');
+  const file = path.join(root, 'receipt');
+  await writeFile(file, JSON.stringify(valid), { mode: 0o600 });
+  await expect(assertGoogleSessionProviderReceipt(file, 'GET')).resolves.toBeUndefined();
+  for (const value of [
+    { ...valid, tokenRequestCount: 3 },
+    { ...valid, userinfoRequestCount: 3 },
+    { ...valid, stableSubjectCaseConsumed: false },
+    { ...valid, changedEmailCaseConsumed: false },
+    { ...valid, wrongStateControlCodeConsumed: true },
+  ]) {
+    await writeFile(file, JSON.stringify(value), { mode: 0o600 });
+    await expect(assertGoogleSessionProviderReceipt(file, 'GET')).rejects.toThrow(
+      'Invalid Google session provider receipt'
+    );
+  }
   await rm(root, { recursive: true, force: true });
 });
 

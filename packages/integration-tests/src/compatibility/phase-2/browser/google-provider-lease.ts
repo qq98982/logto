@@ -12,6 +12,7 @@ import {
   assertGoogleConfiguredCollisionProviderReceipt,
   assertGooglePrimaryRegistrationProviderReceipt,
   assertGoogleReplayProviderReceipt,
+  assertGoogleSessionProviderReceipt,
   assertGoogleWrongStateProviderReceipt,
 } from './google-provider-case-proof.js';
 import type { SelectedGoogleProviderLease } from './selected-google-connector-fixture.js';
@@ -111,6 +112,7 @@ export type GoogleProviderLease = SelectedGoogleProviderLease &
     assertPrimaryRegistrationProviderCase(): Promise<void>;
     assertConfiguredCollisionProviderCase(): Promise<void>;
     assertAccountProviderCase(): Promise<void>;
+    assertSessionProviderCase(): Promise<void>;
   }>;
 
 const defaultHealthTiming: GoogleProviderHealthTiming = Object.freeze({
@@ -769,6 +771,15 @@ export const prepareGoogleProviderLease = async (
           await samePrivateMutableFile(input.configFile, configIdentity);
           await samePrivateMutableFile(input.receiptFile, receiptIdentity);
           await assertGoogleAccountProviderReceipt(input.receiptFile, input.expectedUserinfoMethod);
+        } catch {
+          return fail();
+        }
+      },
+      assertSessionProviderCase: async () => {
+        try {
+          await samePrivateMutableFile(input.configFile, configIdentity);
+          await samePrivateMutableFile(input.receiptFile, receiptIdentity);
+          await assertGoogleSessionProviderReceipt(input.receiptFile, input.expectedUserinfoMethod);
         } catch {
           return fail();
         }

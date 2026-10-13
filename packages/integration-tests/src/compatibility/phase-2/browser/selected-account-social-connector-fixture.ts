@@ -10,6 +10,7 @@ export type AccountSocialProviderLease = Readonly<{
   takeAccountCode(): Promise<string>;
   takeForeignAccountCode(): Promise<string>;
   assertAccountProviderCase(): Promise<void>;
+  assertSessionProviderCase?(): Promise<void>;
   stop(): Promise<void>;
 }>;
 const fail = (): never => {

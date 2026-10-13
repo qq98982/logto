@@ -8,6 +8,7 @@ const wrongStateMessage = 'Invalid Google wrong-state provider receipt';
 const registrationMessage = 'Invalid Google registration provider receipt';
 const configuredCollisionMessage = 'Invalid Google configured-collision provider receipt';
 const accountMessage = 'Invalid Google Account provider receipt';
+const sessionMessage = 'Invalid Google session provider receipt';
 const keys = [
   'tokenRequestCount',
   'userinfoRequestCount',
@@ -208,6 +209,34 @@ export const assertGoogleAccountProviderReceipt = async (
       receiptFail(accountMessage);
   } catch {
     receiptFail(accountMessage);
+  }
+};
+
+export const assertGoogleSessionProviderReceipt = async (
+  path: string,
+  expectedUserinfoMethod: 'GET' | 'POST'
+): Promise<void> => {
+  try {
+    const row = await readGoogleProviderReceipt(path, sessionMessage);
+    if (
+      row.tokenRequestCount !== 2 ||
+      row.userinfoRequestCount !== 2 ||
+      row.userinfoGetObserved !== (expectedUserinfoMethod === 'GET') ||
+      row.userinfoPostObserved !== (expectedUserinfoMethod === 'POST') ||
+      row.grantTypeExact !== true ||
+      row.callbackUriExact !== true ||
+      row.clientAuthenticationExact !== true ||
+      row.issuedBearerObserved !== true ||
+      row.stableSubjectCaseConsumed !== true ||
+      row.changedEmailCaseConsumed !== true ||
+      row.wrongStateControlCodeConsumed !== false ||
+      row.unverifiedEmailControlConsumed !== false ||
+      row.occupiedEmailControlConsumed !== false ||
+      row.replayRejected !== false
+    )
+      receiptFail(sessionMessage);
+  } catch {
+    receiptFail(sessionMessage);
   }
 };
 
