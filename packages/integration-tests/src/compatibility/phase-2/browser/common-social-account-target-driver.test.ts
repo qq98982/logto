@@ -1,7 +1,9 @@
 /* eslint-disable @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- Hostile partial fixtures prove admission occurs before capability use. */
 import {
+  createOwnedGoogleUser,
   runCommonSocialAccountForTarget,
   runIndependentSocialCleanup,
+  withOwnedGoogleCurrentProof,
   withOwnedSocialCollisionUser,
 } from './common-social-account-target-driver.js';
 
@@ -83,5 +85,57 @@ test('always removes its owned social user when provider or policy restoration f
     )
   ).rejects.toThrow('Owned social cleanup failed');
   expect(calls).toEqual(['restore', 'delete-owned-user']);
+});
+
+test('uses the owned Google user password as current Account permission proof', async () => {
+  const requests: Array<
+    Readonly<{ path: string; authorization: string | undefined; body: unknown }>
+  > = [];
+  const result = await withOwnedGoogleCurrentProof(
+    { target, bearer: 'opaque-owner-access', password: 'private-password' },
+    async (proofId) => proofId === 'password-proof',
+    async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      requests.push({
+        path: url.pathname,
+        authorization: new Headers(init?.headers).get('authorization') ?? undefined,
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(JSON.stringify({ verificationRecordId: 'password-proof' }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+  );
+  expect(result).toBe(true);
+  expect(requests).toEqual([
+    {
+      path: '/api/verifications/password',
+      authorization: 'Bearer opaque-owner-access',
+      body: { password: 'private-password' },
+    },
+  ]);
+});
+
+test('creates the owned Google user with its provider email and current-proof password', async () => {
+  const requests: unknown[] = [];
+  const userId = await createOwnedGoogleUser(
+    async (request) => {
+      requests.push(request);
+      return { id: 'owned-google-user' };
+    },
+    'owner@example.invalid',
+    'private-password'
+  );
+  expect(userId).toBe('owned-google-user');
+  expect(requests).toEqual([
+    {
+      method: 'POST',
+      path: 'users',
+      body: { primaryEmail: 'owner@example.invalid', password: 'private-password' },
+      expectedStatuses: [200, 201],
+      responseKind: 'object',
+    },
+  ]);
 });
 /* eslint-enable @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions */

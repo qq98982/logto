@@ -5,6 +5,7 @@ import type { JSONWebKeySet } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
+import { createAccountPasswordProof } from '../clients/account-settings.js';
 import { observeAccountSocialMutation, withAccountSocialProof } from '../clients/account-social.js';
 import { withPhase2AdminManagementBearer } from '../clients/admin-management-bearer.js';
 import {
@@ -74,6 +75,33 @@ export const runIndependentSocialCleanup = async (
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Owned social cleanup failed');
   }
+};
+
+export const withOwnedGoogleCurrentProof = async <Result>(
+  input: Readonly<{ target: TargetConfig; bearer: string; password: string }>,
+  use: (proofId: string) => Promise<Result>,
+  requestFetch: typeof fetch = fetch
+): Promise<Result> =>
+  createAccountPasswordProof(
+    input,
+    async (proof) => use(proof.getVerificationRecordId()),
+    requestFetch
+  );
+export const createOwnedGoogleUser = async (
+  request: Phase2AdminRequestFunction,
+  primaryEmail: string,
+  password: string
+): Promise<string> => {
+  const created = record(
+    await request({
+      method: 'POST',
+      path: 'users',
+      body: { primaryEmail, password },
+      expectedStatuses: [200, 201],
+      responseKind: 'object',
+    })
+  );
+  return typeof created.id === 'string' ? created.id : fail();
 };
 const runtimeFor = (fixture: ProvisionedPhase2Fixture, provider: 'google' | 'wechat'): Runtime => {
   const value: unknown = Reflect.get(
@@ -554,6 +582,7 @@ export const withOwnedGoogleSession = async <Result>(
   const status = input.fixture.status ?? fail();
   const requestFetch = input.fetch ?? fetch;
   const providerConfig = input.runtime.provider;
+  const ownerPassword = input.getPassword();
   return input.runtime.withProviderCredentialLease(async (credentials) => {
     const clientId = credentials.getClientId();
     const clientSecret = credentials.getClientSecret();
@@ -581,16 +610,11 @@ export const withOwnedGoogleSession = async <Result>(
       use: async ({ connectorId, redirectUri, provider }) => {
         let userId: string | undefined;
         try {
-          const created = record(
-            await input.request({
-              method: 'POST',
-              path: 'users',
-              body: {},
-              expectedStatuses: [200, 201],
-              responseKind: 'object',
-            })
+          userId = await createOwnedGoogleUser(
+            input.request,
+            providerConfig.originalOwnerEmail,
+            ownerPassword
           );
-          userId = typeof created.id === 'string' ? created.id : fail();
           await associate(
             input.request,
             userId,
@@ -621,15 +645,13 @@ export const withOwnedGoogleSession = async <Result>(
                 clientId: status.client.id,
                 issuer: input.expectedIssuer,
                 withCurrentProof: async <T>(use: (proofId: string) => Promise<T>) =>
-                  withAccountSocialProof(
+                  withOwnedGoogleCurrentProof(
                     {
                       target: input.target,
                       bearer: session.access,
-                      connectorId,
-                      redirectUri,
-                      takeProviderCode: async () => provider.takeForeignAccountCode(),
+                      password: ownerPassword,
                     },
-                    async (proof) => use(proof.getVerificationRecordId()),
+                    use,
                     requestFetch
                   ),
               })
