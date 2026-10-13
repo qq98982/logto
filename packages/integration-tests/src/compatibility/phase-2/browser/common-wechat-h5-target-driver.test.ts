@@ -72,8 +72,8 @@ test('projects the H5 phone UserInfo claims and remembers the refresh subject', 
       actions.push(`${step}:${selector}`);
       return project({
         sub: 'h5-owner',
-        phone: '13800138019',
-        phone_verified: true,
+        phone_number: '13800138019',
+        phone_number_verified: true,
         email: 'ignored@example.test',
       });
     },
@@ -90,5 +90,32 @@ test('projects the H5 phone UserInfo claims and remembers the refresh subject', 
     'wechat-h5-userinfo:role=button[name="Fetch user info"]',
   ]);
   expect(subjects).toEqual(['h5-owner']);
+});
+
+test('does not accept nonstandard phone aliases as UserInfo claims', async () => {
+  const session = {
+    click: async () => {
+      // The alias rejection assertion concerns the observed UserInfo object.
+    },
+    clickAndObserveObject: async (
+      _step: string,
+      _selector: string,
+      project: (body: Record<string, unknown>) => Record<string, unknown>
+    ) =>
+      project({
+        sub: 'h5-owner',
+        phone: '13800138019',
+        phone_verified: true,
+      }),
+  } as unknown as Pick<Phase1BrowserSession, 'click' | 'clickAndObserveObject'>;
+  const readProfile = createWechatH5ReadProfile(session, () => {
+    // Subject capture is asserted independently above.
+  });
+
+  await expect(readProfile()).resolves.toEqual({
+    sub: 'h5-owner',
+    phone: null,
+    phoneVerified: null,
+  });
 });
 /* eslint-enable @silverhand/fp/no-mutating-methods */

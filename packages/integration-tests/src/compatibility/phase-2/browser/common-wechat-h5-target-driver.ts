@@ -116,8 +116,8 @@ export const createWechatH5ReadProfile =
       'role=button[name="Fetch user info"]',
       (body) => ({
         sub: body.sub ?? null,
-        phone: body.phone ?? null,
-        phoneVerified: body.phone_verified ?? null,
+        phone: body.phone_number ?? null,
+        phoneVerified: body.phone_number_verified ?? null,
       })
     );
     if (typeof profile.sub === 'string') {
