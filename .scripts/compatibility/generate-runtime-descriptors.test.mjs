@@ -1,11 +1,16 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const execute = promisify(execFile);
+const requireFromExperience = createRequire(
+  new URL('../../packages/experience/package.json', import.meta.url)
+);
+const { parsePhoneNumberWithError } = requireFromExperience('libphonenumber-js/mobile');
 
 test('binds public targets to core ports while reserving HTTPS ports for H5', async () => {
   const parent = '/var/tmp/henry-build/p6/aster-phase2-client-credentials-live';
@@ -75,6 +80,16 @@ test('binds public targets to core ports while reserving HTTPS ports for H5', as
     assert.match(oracle.wechat.phone, /^\d+$/u);
     assert.match(candidate.wechat.phone, /^\d+$/u);
     assert.notEqual(oracle.wechat.phone, candidate.wechat.phone);
+    assert.deepEqual(
+      [oracle.wechat.phone, candidate.wechat.phone].map((phone) => {
+        const parsed = parsePhoneNumberWithError(`+${phone}`);
+        return { countryCallingCode: parsed.countryCallingCode, valid: parsed.isValid() };
+      }),
+      [
+        { countryCallingCode: '1', valid: true },
+        { countryCallingCode: '1', valid: true },
+      ]
+    );
     assert.equal(oracle.wechat.smsProviderInput, `${sms}/o/input.json`);
     assert.equal(candidate.wechat.smsProviderInput, `${sms}/c/input.json`);
     assert.deepEqual(
