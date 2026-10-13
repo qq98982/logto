@@ -59,6 +59,11 @@ const compromisePolicy = Object.freeze({
   characterTypes: { min: 1 },
   rejects: { pwned: true, repetitionAndSequence: false, userInfo: false, words: [] },
 });
+export const recoveryUserInfoPassword = (email: string): string => {
+  const local = email.split('@')[0] ?? fail('email');
+
+  return `A9${local}`;
+};
 const selectedOwner = (value: unknown) => {
   const record = object(value);
   return Object.fromEntries(
@@ -315,10 +320,9 @@ export const runCommonPasswordPolicyForTarget = async (
               session,
               input.getPassword()
             );
-            const local = identity.primaryEmail.split('@')[0] ?? fail('email');
             const recoveryUserInfo = await observeExperienceRecoveryPassword(
               session,
-              `Aa9!${local}`
+              recoveryUserInfoPassword(identity.primaryEmail)
             );
             if (
               recoverySamePassword.status !== 422 ||

@@ -1,9 +1,29 @@
 /* eslint-disable @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- Partial fixture doubles are admitted only as the public client required before the failure. */
 import { isDeepStrictEqual } from 'node:util';
 
+import { PasswordPolicyChecker } from '@logto/core-kit';
+
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
-import { runCommonPasswordPolicyForTarget } from './common-password-policy.js';
+import {
+  recoveryUserInfoPassword,
+  runCommonPasswordPolicyForTarget,
+} from './common-password-policy.js';
+
+test('Common recovery user-info password is rejected by the selected policy', async () => {
+  const email = 'common-email-owned@example.invalid';
+  const password = recoveryUserInfoPassword(email);
+  const checker = new PasswordPolicyChecker({
+    length: { min: 12, max: 128 },
+    characterTypes: { min: 3 },
+    rejects: { pwned: false, repetitionAndSequence: false, userInfo: true, words: [] },
+  });
+
+  expect(password).toBe('A9common-email-owned');
+  await expect(checker.check(password, { email })).resolves.toContainEqual({
+    code: 'password_rejected.restricted.user_info',
+  });
+});
 
 test('Common password policy enables email registration and restores exact settings after initialization fails', async () => {
   const previous = {
