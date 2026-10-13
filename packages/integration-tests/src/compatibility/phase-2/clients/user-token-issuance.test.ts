@@ -4,6 +4,7 @@ import { inspect } from 'node:util';
 import type { TargetConfig } from '../../model.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
+import { createEmailCodeIdentityDriver } from './email-code-identity.js';
 import {
   exchangePublicRefresh,
   issueConfidentialUserSession,
@@ -200,6 +201,48 @@ describe('Phase 2 public user token issuance transport', () => {
       )
     ).rejects.toThrow();
     expect(transport.requests).toHaveLength(1);
+  });
+
+  it.each([
+    'Common email code stage failed: passcode-retrieval-not-found',
+    'private identity driver detail',
+  ])('rejects an unowned delegated identity diagnostic (%s)', async (message) => {
+    const transport = flow();
+    await expect(
+      issuePublicIdentitySession(
+        target,
+        fixture,
+        async () => {
+          throw new TypeError(message);
+        },
+        expectedIssuer,
+        transport.fetch
+      )
+    ).rejects.toThrow('Invalid Phase 2 public user token issuance (bootstrap)');
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it('retains the closed stage from the owned email-code identity driver', async () => {
+    const transport = flow();
+    await expect(
+      issuePublicIdentitySession(
+        target,
+        fixture,
+        createEmailCodeIdentityDriver({
+          email: 'owned@example.invalid',
+          takeCode: async () => {
+            throw new TypeError('Phase 2 verification delivery failed: not-found');
+          },
+        }),
+        expectedIssuer,
+        transport.fetch
+      )
+    ).rejects.toThrow('Common email code stage failed: passcode-retrieval-not-found');
+    expect(transport.requests.map(({ url }) => url.pathname)).toEqual([
+      '/oidc/auth',
+      '/api/experience',
+      '/api/experience/verification/verification-code',
+    ]);
   });
 
   it('uses the selected Native client for a bound ordinary social session and offline refresh', async () => {

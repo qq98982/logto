@@ -7,6 +7,15 @@ const json = (value: unknown, status = 200) =>
     headers: { 'content-type': 'application/json' },
   });
 
+const runWithCreatedResponseAndCode = async (created: unknown, code: string): Promise<void> =>
+  createEmailCodeIdentityDriver({
+    email: 'owned@example.invalid',
+    takeCode: async () => code,
+  })({
+    request: async (path) =>
+      path === '/api/experience' ? new Response(null, { status: 204 }) : json(created),
+  });
+
 test('binds the delivered email code to its requested handle before identification', async () => {
   const requests: Array<Readonly<{ path: string; body: unknown }>> = [];
   const recipients: string[] = [];
@@ -62,4 +71,36 @@ test.each(['foreign-private-proof', undefined])(
     expect(paths).not.toContain('/api/experience/identification');
   }
 );
+
+test.each([
+  [
+    new TypeError('Phase 2 verification delivery failed: not-found'),
+    'Common email code stage failed: passcode-retrieval-not-found',
+  ],
+  [new TypeError('private delivery detail'), 'Common email code stage failed: passcode-retrieval'],
+  [new Error('private alternate detail'), 'Common email code stage failed: passcode-retrieval'],
+])('reports only the closed delivery stage (%s)', async (failure, expected) => {
+  await expect(
+    createEmailCodeIdentityDriver({
+      email: 'owned@example.invalid',
+      takeCode: async () => {
+        throw failure;
+      },
+    })({
+      request: async (path) =>
+        path === '/api/experience'
+          ? new Response(null, { status: 204 })
+          : json({ verificationId: 'owned-private-proof' }),
+    })
+  ).rejects.toThrow(expected);
+});
+
+test('distinguishes a malformed request response from an invalid delivered code', async () => {
+  await expect(
+    runWithCreatedResponseAndCode({ verificationId: 'proof', extra: true }, '123456')
+  ).rejects.toThrow('Common email code stage failed: identifier-submit');
+  await expect(
+    runWithCreatedResponseAndCode({ verificationId: 'proof' }, 'private')
+  ).rejects.toThrow('Common email code stage failed: passcode-format');
+});
 /* eslint-enable @silverhand/fp/no-mutating-methods */

@@ -314,7 +314,7 @@ export const withSelectedEmailCodeFixture = async <Result>(
     primaryFailed = true;
     flowStage =
       primaryStage === 'use' && error instanceof Error
-        ? /^Common email code stage failed: (initialization|identifier-submit|verification-route|passcode-retrieval(?:-(?:env-missing|socket-shape|recipient|connect|timeout|not-found|response))?|passcode-format|passcode-fill|consent|callback|profile|refresh|controls(?:-(?:basic|foreign-account|secondary-client))?)$/u.exec(
+        ? /^Common email code stage failed: (initialization|identifier-submit|verification-route|passcode-retrieval(?:-(?:env-missing|socket-shape|recipient|connect|timeout|not-found|response))?|passcode-format|passcode-fill|identification|consent|callback|profile|refresh|controls(?:-(?:basic|foreign-account|secondary-client))?)$/u.exec(
             error.message
           )?.[1]
         : undefined;

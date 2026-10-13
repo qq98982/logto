@@ -6,6 +6,8 @@ import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
 
+import { readEmailCodeIdentityStage } from './email-code-identity.js';
+
 export type IssuedPublicUserTokens = Readonly<{
   access: string;
   refresh: string;
@@ -504,7 +506,11 @@ const issueUserTokens = async (
       });
     }
     return Object.freeze({ access, refresh, toJSON: (): never => fail() });
-  } catch {
+  } catch (error: unknown) {
+    const emailCodeStage = readEmailCodeIdentityStage(error);
+    if (emailCodeStage) {
+      throw new TypeError(`Common email code stage failed: ${emailCodeStage}`);
+    }
     throw new TypeError(diagnostic + ' (' + stage + ')');
   }
 };
