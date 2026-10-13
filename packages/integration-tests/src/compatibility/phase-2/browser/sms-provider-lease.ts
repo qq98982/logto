@@ -79,7 +79,11 @@ const controlRequest = async (
   socket: string,
   request: Readonly<Record<string, string>>
 ): Promise<unknown> => {
-  await admitSocket(socket);
+  try {
+    await admitSocket(socket);
+  } catch {
+    return fail();
+  }
   return new Promise<unknown>((resolve, reject) => {
     const connection = createConnection(socket);
     let body = '';
@@ -144,6 +148,8 @@ export const withSmsProviderLease = async <Result>(
 ): Promise<Result> => {
   let active = true;
   let consumerEntered = false;
+  const armed = new Map<string, Readonly<{ recipient: string; purpose: SmsPurpose }>>();
+  let releaseArmed: (() => Promise<void>) | undefined;
   try {
     if (!safePath(inputFile)) {
       return fail();
@@ -193,12 +199,16 @@ export const withSmsProviderLease = async <Result>(
       ),
       toJSON: fail,
     });
-    const command = async (operation: 'arm' | 'take', recipient: string, purpose: SmsPurpose) => {
+    const command = async (
+      operation: 'arm' | 'take' | 'release',
+      recipient: string,
+      purpose: SmsPurpose
+    ) => {
       if (!active || !/^[0-9]{1,32}$/u.test(recipient) || !purposes.includes(purpose)) {
         return fail();
       }
       const result = await controlRequest(socket, { operation, capability, recipient, purpose });
-      if (operation === 'arm') {
+      if (operation === 'arm' || operation === 'release') {
         if (!exactKeys(result, ['ok']) || result.ok !== true) {
           return fail();
         }
@@ -212,6 +222,14 @@ export const withSmsProviderLease = async <Result>(
       }
       return result;
     };
+    releaseArmed = async () => {
+      await Promise.all(
+        [...armed.values()].map(async ({ recipient, purpose }) =>
+          command('release', recipient, purpose)
+        )
+      );
+      armed.clear();
+    };
     consumerEntered = true;
     return await use(
       Object.freeze({
@@ -219,9 +237,14 @@ export const withSmsProviderLease = async <Result>(
         toJSON: fail,
         arm: async (recipient: string, purpose: SmsPurpose) => {
           await command('arm', recipient, purpose);
+          armed.set(
+            `${recipient.length}:${recipient}${purpose}`,
+            Object.freeze({ recipient, purpose })
+          );
         },
         takeCode: async (recipient: string, purpose: SmsPurpose) => {
           const result = await command('take', recipient, purpose);
+          armed.delete(`${recipient.length}:${recipient}${purpose}`);
           return result.code as string;
         },
       })
@@ -232,7 +255,13 @@ export const withSmsProviderLease = async <Result>(
     }
     return fail();
   } finally {
-    active = false;
+    try {
+      if (consumerEntered && releaseArmed) {
+        await releaseArmed();
+      }
+    } finally {
+      active = false;
+    }
   }
 };
 

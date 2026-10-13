@@ -178,6 +178,37 @@ test('accepts the exact Aliyun HTTPS RPC contract and exposes its code only thro
   }
 });
 
+test('releases an abandoned delivery tuple without weakening active duplicate rejection', async () => {
+  const fixture = await createFixture();
+  let provider;
+  try {
+    provider = await start(fixture);
+    assert.deepEqual(await control(fixture.controlSocket, command('arm')), { ok: true });
+    assert.deepEqual(await control(fixture.controlSocket, command('arm')), { ok: false });
+    assert.deepEqual(
+      await control(fixture.controlSocket, command('arm', '15550000000')),
+      { ok: true }
+    );
+    assert.deepEqual(await control(fixture.controlSocket, command('release')), { ok: true });
+    assert.deepEqual(await control(fixture.controlSocket, command('arm')), { ok: true });
+    assert.equal(
+      (await send(
+        fixture,
+        provider,
+        baseParameters({ recipient: '15550000000', nonce: 'foreign-tuple-nonce' })
+      )).status,
+      200
+    );
+    assert.deepEqual(
+      await control(fixture.controlSocket, command('take', '15550000000')),
+      { ok: true, code: '482901' }
+    );
+  } finally {
+    await provider?.close();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('uses the canonical Aliyun HMAC-SHA1 signing algorithm', () => {
   assert.equal(
     signAliyunSmsParameters(baseParameters(), accessKeySecret),

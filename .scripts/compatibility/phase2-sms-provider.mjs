@@ -293,6 +293,15 @@ export const startSmsProviderFixture = async ({
     if (code !== undefined) deliveries.delete(key);
     return code;
   };
+  const release = (recipient, purpose) => {
+    if (closed || !validRecipient(recipient) || !validPurpose(purpose, configuration.templates)) {
+      return false;
+    }
+    const key = tupleKey(recipient, purpose);
+    armed.delete(key);
+    deliveries.delete(key);
+    return true;
+  };
 
   const control = createNetServer((socket) => {
     socket.setTimeout(2000, () => socket.destroy());
@@ -319,6 +328,9 @@ export const startSmsProviderFixture = async ({
         if (value.operation === 'take') {
           const code = takeCode(value.recipient, value.purpose);
           return answer(code === undefined ? { ok: false } : { ok: true, code });
+        }
+        if (value.operation === 'release') {
+          return answer({ ok: release(value.recipient, value.purpose) });
         }
       } catch {}
       return answer({ ok: false });

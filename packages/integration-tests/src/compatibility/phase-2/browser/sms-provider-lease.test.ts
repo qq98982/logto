@@ -1,5 +1,5 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- Owned socket state models one recipient delivery and one take operation. */
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- Owned socket state models one recipient delivery and one take operation. */
+import { chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
@@ -47,6 +47,9 @@ const withFixture = async (use: (inputFile: string, secretFile: string) => Promi
         request.purpose === 'SignIn';
       if (valid && request.operation === 'arm' && !armed) {
         armed = true;
+        connection.end('{"ok":true}\n');
+      } else if (valid && request.operation === 'release') {
+        armed = false;
         connection.end('{"ok":true}\n');
       } else if (valid && request.operation === 'take' && armed && !taken) {
         taken = true;
@@ -138,4 +141,38 @@ it('preserves consumer failure identity while revoking its escaped retrieval lea
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+it('releases an abandoned tuple after failure while rejecting duplicate arm in the active lease', async () => {
+  const failure = new TypeError('Common H5 flow failed before SMS delivery');
+  await withFixture(async (inputFile) => {
+    await expect(
+      withSmsProviderLease(inputFile, async (lease) => {
+        await lease.arm('8613800000000', 'SignIn');
+        await expect(lease.arm('8613800000000', 'SignIn')).rejects.toThrow(
+          'Invalid SMS provider lease'
+        );
+        throw failure;
+      })
+    ).rejects.toBe(failure);
+    await withSmsProviderLease(inputFile, async (lease) => {
+      await expect(lease.arm('8613800000000', 'SignIn')).resolves.toBeUndefined();
+    });
+  });
+});
+
+it('revokes the escaped lease when abandoned-tuple cleanup cannot reach its control socket', async () => {
+  let escaped: SmsProviderLease | undefined;
+  await withFixture(async (inputFile) => {
+    await expect(
+      withSmsProviderLease(inputFile, async (lease) => {
+        escaped = lease;
+        await lease.arm('8613800000000', 'SignIn');
+        await unlink(JSON.parse(await readFile(inputFile, 'utf8')).controlSocket as string);
+      })
+    ).rejects.toThrow('Invalid SMS provider lease');
+    await expect(escaped?.arm('8613800000000', 'SignIn')).rejects.toThrow(
+      'Invalid SMS provider lease'
+    );
+  });
+});
+
+/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
