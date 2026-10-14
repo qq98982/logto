@@ -379,7 +379,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
-    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179)\)\.\n$/u.test(
+    /^Phase 2 client credentials command failed \((oracle|candidate)-sanitizer-(target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5]))\)\.\n$/u.test(
       stderr
     )
   ) {

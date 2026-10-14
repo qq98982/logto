@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Four channel projections share one exact public-wire contract and raw-provider translation. */
 import type { JSONWebKeySet } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
@@ -105,11 +106,29 @@ const rawProviderProjection = (value: unknown, setupRequests: 0 | 1 = 1) =>
   closedRecord(value, {
     setupRequests,
     browserRequests: 1,
+    providerRedirectExact: true,
+    exchangeExact: true,
+    userinfoExact: true,
+    unionIdStable: true,
+  });
+const projectRawProviderProjection = (value: unknown, setupRequests: 0 | 1 = 1) => {
+  const raw = closedRecord(value, {
+    setupRequests,
+    browserRequests: 1,
     authorizationExact: true,
     tokenExact: true,
     userinfoExact: true,
     unionIdStable: true,
   });
+  return Object.freeze({
+    setupRequests: raw.setupRequests,
+    browserRequests: raw.browserRequests,
+    providerRedirectExact: raw.authorizationExact,
+    exchangeExact: raw.tokenExact,
+    userinfoExact: raw.userinfoExact,
+    unionIdStable: raw.unionIdStable,
+  });
+};
 const providerDenial = (
   value: unknown,
   status: 400 | 401,
@@ -118,10 +137,11 @@ const providerDenial = (
     | 'connector.social_auth_code_invalid'
     | 'connector.invalid_response'
 ) => closedRecord(value, { status, error, accepted: false });
-export const assertCommonWechatFamilyProjection = (
+const projectWechatFamilyProjection = (
   id: CommonWechatFamilyScenarioId,
-  value: unknown
-): void => {
+  value: unknown,
+  rawProvider: boolean
+): Readonly<Record<string, unknown>> => {
   if (id === 'common.wechat.h5') {
     const row = closedRecord(value, {
       channel: 'h5',
@@ -134,8 +154,7 @@ export const assertCommonWechatFamilyProjection = (
       refreshRotated: true,
       provider: undefined,
     });
-    providerProjection(row.provider);
-    return;
+    return Object.freeze({ ...row, provider: providerProjection(row.provider) });
   }
   const positive =
     id === 'common.wechat.mini'
@@ -177,38 +196,84 @@ export const assertCommonWechatFamilyProjection = (
     crossInteraction: undefined,
     provider: undefined,
   });
-  providerDenial(row.noUnionId, 400, 'connector.wechat_unionid_required');
-  providerDenial(row.invalidCode, 401, 'connector.social_auth_code_invalid');
-  providerDenial(row.malformedProvider, 400, 'connector.invalid_response');
-  if (id === 'common.wechat.mini-phone-registration') {
-    closedRecord(row.collision, {
-      status: 422,
-      error: 'user.phone_already_in_use',
-      partialOwnerCreated: false,
-      ownersPreserved: true,
-    });
-  }
-  closedRecord(row.replay, {
+  const noUnionId = providerDenial(row.noUnionId, 400, 'connector.wechat_unionid_required');
+  const invalidCode = providerDenial(row.invalidCode, 401, 'connector.social_auth_code_invalid');
+  const malformedProvider = providerDenial(
+    row.malformedProvider,
+    400,
+    'connector.invalid_response'
+  );
+  const collision =
+    id === 'common.wechat.mini-phone-registration'
+      ? closedRecord(row.collision, {
+          status: 422,
+          error: 'user.phone_already_in_use',
+          partialOwnerCreated: false,
+          ownersPreserved: true,
+        })
+      : undefined;
+  const replay = closedRecord(row.replay, {
     firstStatus: 200,
     status: 401,
     error: 'connector.social_auth_code_invalid',
     accepted: false,
   });
-  closedRecord(row.crossInteraction, {
+  const crossInteraction = closedRecord(row.crossInteraction, {
     status: 404,
     error: 'session.verification_session_not_found',
     accepted: false,
   });
-  if (id === 'common.wechat.native') {
-    closedRecord(row.provider, {
-      authorizationExact: true,
-      tokenExact: true,
-      userinfoExact: true,
-      unionIdStable: true,
-    });
-  } else {
-    rawProviderProjection(row.provider, id === 'common.wechat.mini-phone-registration' ? 0 : 1);
-  }
+  const provider =
+    id === 'common.wechat.native'
+      ? rawProvider
+        ? (() => {
+            const raw = closedRecord(row.provider, {
+              authorizationExact: true,
+              tokenExact: true,
+              userinfoExact: true,
+              unionIdStable: true,
+            });
+            return Object.freeze({
+              providerRedirectExact: raw.authorizationExact,
+              exchangeExact: raw.tokenExact,
+              userinfoExact: raw.userinfoExact,
+              unionIdStable: raw.unionIdStable,
+            });
+          })()
+        : closedRecord(row.provider, {
+            providerRedirectExact: true,
+            exchangeExact: true,
+            userinfoExact: true,
+            unionIdStable: true,
+          })
+      : (rawProvider ? projectRawProviderProjection : rawProviderProjection)(
+          row.provider,
+          id === 'common.wechat.mini-phone-registration' ? 0 : 1
+        );
+  return Object.freeze({
+    ...positive,
+    ...(collision && { collision }),
+    noUnionId,
+    invalidCode,
+    malformedProvider,
+    replay,
+    crossInteraction,
+    provider,
+  });
+};
+export const projectRawCommonWechatFamilyProjection = (
+  id: Exclude<CommonWechatFamilyScenarioId, 'common.wechat.h5'>,
+  value: unknown
+): Readonly<Record<string, unknown>> => projectWechatFamilyProjection(id, value, true);
+export const projectCommonWechatFamilyProjection = (
+  id: CommonWechatFamilyScenarioId,
+  value: unknown
+): Readonly<Record<string, unknown>> => projectWechatFamilyProjection(id, value, false);
+export const assertCommonWechatFamilyProjection = (
+  id: CommonWechatFamilyScenarioId,
+  value: unknown
+): void => {
+  projectCommonWechatFamilyProjection(id, value);
 };
 export const runCommonWechatFamilyScenarioRow = async (
   input: Readonly<{
@@ -251,8 +316,10 @@ export const runCommonWechatFamilyScenarioRow = async (
       createObserver: (capability) =>
         withPlaywrightExternalAuthorizationCapability(input.observer, capability),
     });
-    assertCommonWechatFamilyProjection(input.id, projection);
-    return Object.freeze({ id: input.id, projection });
+    return Object.freeze({
+      id: input.id,
+      projection: projectCommonWechatFamilyProjection(input.id, projection),
+    });
   }
   const miniInput = {
     target: input.target,
@@ -264,15 +331,19 @@ export const runCommonWechatFamilyScenarioRow = async (
     const result = await input.runtime.mini.withSmsProviderLease(async (smsLease) =>
       runCommonWechatMiniScenarioRow({ ...miniInput, smsLease })
     );
-    assertCommonWechatFamilyProjection(input.id, result.projection);
-    return result;
+    return Object.freeze({
+      id: input.id,
+      projection: projectRawCommonWechatFamilyProjection(input.id, result.projection),
+    });
   }
   if (input.id === 'common.wechat.mini-phone-registration') {
     const result = await input.runtime.mini.withSmsProviderLease(async (smsLease) =>
       runCommonWechatMiniPhoneRegistrationScenarioRow({ ...miniInput, smsLease })
     );
-    assertCommonWechatFamilyProjection(input.id, result.projection);
-    return result;
+    return Object.freeze({
+      id: input.id,
+      projection: projectRawCommonWechatFamilyProjection(input.id, result.projection),
+    });
   }
   const result = await runCommonWechatNativeScenarioRow({
     target: input.target,
@@ -281,6 +352,9 @@ export const runCommonWechatFamilyScenarioRow = async (
     ...input.runtime.native,
     ...(input.fetch && { fetch: input.fetch }),
   });
-  assertCommonWechatFamilyProjection(input.id, result.projection);
-  return result;
+  return Object.freeze({
+    id: input.id,
+    projection: projectRawCommonWechatFamilyProjection(input.id, result.projection),
+  });
 };
+/* eslint-enable max-lines */

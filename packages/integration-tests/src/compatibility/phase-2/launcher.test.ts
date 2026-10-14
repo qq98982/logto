@@ -687,6 +687,14 @@ describe('Phase 2 tracked launcher', () => {
         'native-176',
         'email-177',
         'code-178',
+        'registration-179',
+        'password-registration-180',
+        'recovery-181',
+        'google-182',
+        'google-registration-183',
+        'wechat-web-184',
+        'common-completion-192',
+        'common-completion-205',
       ]) {
         const message = `Phase 2 client credentials command failed (${prefix}-sanitizer-${suffix}).\n`;
         expect(diagnosticForPhase2Child(message)).toBe(message);
@@ -702,6 +710,9 @@ describe('Phase 2 tracked launcher', () => {
       'code-177',
       'code-178-private',
       'native-177',
+      'common-completion-191',
+      'common-completion-206',
+      'common-completion-196-private',
       'target-extra',
       'private-value',
     ]) {
