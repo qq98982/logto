@@ -79,6 +79,7 @@ type BaseFailureStage =
   | `runtime-scenario-${number}-${'oracle' | 'candidate' | 'artifact' | 'projection' | 'compare'}`
   | `runtime-scenario-1-compare-step-${number}`
   | `runtime-scenario-1-compare-step-5-field-${number}`
+  | `runtime-scenario-11-compare-field-${number}`
   | 'harness-recheck'
   | 'publish';
 const success = 'Phase 2 base-preservation completed.\n';
@@ -370,6 +371,7 @@ export const runPhase2BasePreservationCli = async (
             .runRuntime(context, profile, closure)
             .catch((error: unknown) => {
               if (isPhase2BaseScenarioFailure(error)) {
+                const { cookieFieldIndex } = error;
                 failureStage =
                   error.scenarioIndex === 1 &&
                   error.stage === 'compare' &&
@@ -377,7 +379,11 @@ export const runPhase2BasePreservationCli = async (
                     ? error.stepIndex === 5 && error.fieldIndex !== undefined
                       ? `runtime-scenario-1-compare-step-5-field-${error.fieldIndex}`
                       : `runtime-scenario-1-compare-step-${error.stepIndex}`
-                    : `runtime-scenario-${error.scenarioIndex}-${error.stage}`;
+                    : error.scenarioIndex === 11 &&
+                        error.stage === 'compare' &&
+                        cookieFieldIndex !== undefined
+                      ? `runtime-scenario-11-compare-field-${cookieFieldIndex}`
+                      : `runtime-scenario-${error.scenarioIndex}-${error.stage}`;
               }
 
               throw error;

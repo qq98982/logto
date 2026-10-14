@@ -175,6 +175,30 @@ describe('Phase 2 base-preservation launcher', () => {
     }
   });
 
+  it.each([0, 1, 12, 21, 29])('maps closed cookie comparison field %i only', (field) => {
+    const message = `Phase 2 base-preservation failed (runtime-scenario-11-compare-field-${field}).\n`;
+    const result = { timedOut: false, code: 1, signal: null, stdout: '', stderr: message };
+    expect(diagnosticForBasePreservationChild(result)).toBe(message);
+    expect(exitCodeForBasePreservationChild(result)).toBe(208 + field);
+    for (const hostile of [
+      { ...result, code: 0 },
+      { ...result, code: 208 + field },
+      { ...result, timedOut: true },
+      { ...result, signal: 'SIGTERM' },
+      { ...result, stdout: 'private credential' },
+      { ...result, stderr: `${message}private credential` },
+      {
+        ...result,
+        stderr: 'Phase 2 base-preservation failed (runtime-scenario-11-compare-field-30).\n',
+      },
+    ]) {
+      expect(diagnosticForBasePreservationChild(hostile)).toBe(
+        'Phase 2 base-preservation launcher failed.\n'
+      );
+      expect(exitCodeForBasePreservationChild(hostile)).toBe(1);
+    }
+  });
+
   it('selects and forwards exactly the four inherited Phase 1 browser runtime values', () => {
     expect(basePreservationBrowserEnvironmentKeys).toEqual([
       'HOME',

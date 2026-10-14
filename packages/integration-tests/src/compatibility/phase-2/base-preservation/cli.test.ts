@@ -534,6 +534,62 @@ describe('Phase 2 base-preservation CLI', () => {
     expect(stderr.join('')).not.toContain('private');
   });
 
+  it.each([
+    ['/steps/admin-start/value/status', 0],
+    ['/steps/data-start/value/headers/set-cookie/0', 3],
+    ['/steps/data-finish/value/cookies/0/name', 12],
+    ['/steps/state/value/semanticState/private', 24],
+    ['/steps/state/value/private', 29],
+  ] as const)('reports cookie comparison field %s as closed index %i', async (path, fieldIndex) => {
+    const stderr: string[] = [];
+    const code = await runPhase2BasePreservationCli(
+      arguments_,
+      'a'.repeat(64),
+      dependencies([], {
+        runRuntime: async () =>
+          runAuthenticScenarioFailure('compare', 11, {
+            path,
+            oracle: 'private oracle value',
+            candidate: 'private candidate value',
+          }),
+        stderr: (message) => {
+          stderr.push(message);
+        },
+      })
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toEqual([
+      `Phase 2 base-preservation failed (runtime-scenario-11-compare-field-${fieldIndex}).\n`,
+    ]);
+    expect(stderr.join('')).not.toContain('private');
+  });
+
+  it.each(['/steps/private/value/status', '/steps/admin-start~2/value/status', '/private'])(
+    'keeps an unknown cookie comparison pointer on the generic stage for %s',
+    async (path) => {
+      const stderr: string[] = [];
+      const code = await runPhase2BasePreservationCli(
+        arguments_,
+        'a'.repeat(64),
+        dependencies([], {
+          runRuntime: async () =>
+            runAuthenticScenarioFailure('compare', 11, {
+              path,
+              oracle: 'private oracle value',
+            }),
+          stderr: (message) => {
+            stderr.push(message);
+          },
+        })
+      );
+
+      expect(code).toBe(1);
+      expect(stderr).toEqual(['Phase 2 base-preservation failed (runtime-scenario-11-compare).\n']);
+      expect(stderr.join('')).not.toContain('private');
+    }
+  );
+
   it('accepts only the closed command and fixed private output path', () => {
     expect(parsePhase2BasePreservationArguments(arguments_)).toMatchObject({
       outputPath: path.join(root, 'phase-2-base-preservation.json'),

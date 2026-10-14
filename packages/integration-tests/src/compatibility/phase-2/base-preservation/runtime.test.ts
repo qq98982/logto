@@ -339,6 +339,73 @@ describe('Phase 2 base-preservation runtime', () => {
   });
 
   it.each([
+    ['/steps/admin-start/value/status', 0],
+    ['/steps/data-start/value/headers/set-cookie/0', 3],
+    ['/steps/admin-finish/value/headers/private', 9],
+    ['/steps/data-finish/value/cookies/0/name', 12],
+    ['/steps/data-start-reverse/value/cookies/0/domain', 13],
+    ['/steps/admin-start-reverse/value/cookies/0/path', 14],
+    ['/steps/data-finish-reverse/value/cookies/0/sameSite', 15],
+    ['/steps/admin-finish-reverse/value/cookies/0/secure', 16],
+    ['/steps/state/value/semanticState/private', 24],
+    ['/steps/state/value/private', 29],
+  ] as const)('classifies cookie comparison path %s as field %i', async (path, fieldIndex) => {
+    const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+    const dependencies = createDependencies(calls);
+    let comparisonIndex = 0;
+
+    await expect(
+      runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+        ...dependencies,
+        compare: (oracle, candidate) => {
+          const differences =
+            comparisonIndex === 11
+              ? Object.freeze([{ path, expected: 'private oracle', actual: 'private candidate' }])
+              : dependencies.compare(oracle, candidate);
+          comparisonIndex += 1;
+
+          return differences;
+        },
+      })
+    ).rejects.toMatchObject({
+      scenarioIndex: 11,
+      stage: 'compare',
+      cookieFieldIndex: fieldIndex,
+      message: 'Phase 2 base-preservation scenario failed',
+    });
+  });
+
+  it.each(['/steps/private/value/status', '/steps/admin-start~2/value/status', '/private'])(
+    'does not retain an unknown cookie comparison path %s',
+    async (path) => {
+      const calls: Array<Readonly<{ scenarioId: string; target: string; projected: boolean }>> = [];
+      const dependencies = createDependencies(calls);
+      let comparisonIndex = 0;
+
+      let captured: unknown;
+      try {
+        await runPhase2BasePreservationRuntime(runtimeContext, phase2Profile, sourceClosure, {
+          ...dependencies,
+          compare: (oracle, candidate) => {
+            const differences =
+              comparisonIndex === 11
+                ? Object.freeze([{ path, expected: 'private oracle', actual: 'private candidate' }])
+                : dependencies.compare(oracle, candidate);
+            comparisonIndex += 1;
+
+            return differences;
+          },
+        });
+      } catch (error: unknown) {
+        captured = error;
+      }
+      expect(captured).toMatchObject({ scenarioIndex: 11, stage: 'compare' });
+      expect(typeof captured === 'object' && captured !== null).toBe(true);
+      expect(Object.hasOwn(captured as Record<string, unknown>, 'cookieFieldIndex')).toBe(false);
+    }
+  );
+
+  it.each([
     ['authorize', 0],
     ['experience-bootstrap', 1],
     ['password', 2],

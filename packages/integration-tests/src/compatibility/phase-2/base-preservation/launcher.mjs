@@ -22,6 +22,8 @@ const scenarioOneStepFailurePattern =
   /^Phase 2 base-preservation failed \(runtime-scenario-1-compare-step-([0-9])\)\.\n$/u;
 const consentFieldFailurePattern =
   /^Phase 2 base-preservation failed \(runtime-scenario-1-compare-step-5-field-(0|[1-9]|1[0-9]|2[0-7])\)\.\n$/u;
+const cookieFieldFailurePattern =
+  /^Phase 2 base-preservation failed \(runtime-scenario-11-compare-field-(0|[1-9]|1[0-9]|2[0-9])\)\.\n$/u;
 const scenarioStages = Object.freeze(['oracle', 'candidate', 'artifact', 'projection', 'compare']);
 const childFailureExitCodes = Object.freeze({
   arguments: 40,
@@ -54,6 +56,10 @@ const parseBasePreservationChildFailure = (result) => {
   const exitCode = childFailureExitCodes[stage];
   if (Number.isSafeInteger(exitCode)) {
     return Object.freeze({ diagnostic: result.stderr, exitCode });
+  }
+  const cookieField = cookieFieldFailurePattern.exec(result.stderr);
+  if (cookieField) {
+    return Object.freeze({ diagnostic: result.stderr, exitCode: 208 + Number(cookieField[1]) });
   }
   const consentField = consentFieldFailurePattern.exec(result.stderr);
   if (consentField) {

@@ -103,6 +103,7 @@ export type Phase2BaseScenarioFailure = Error &
     stage: Phase2BaseScenarioStage;
     stepIndex?: number;
     fieldIndex?: number;
+    cookieFieldIndex?: number;
   }>;
 
 class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScenarioFailure {
@@ -110,12 +111,14 @@ class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScen
   readonly stage: Phase2BaseScenarioStage;
   readonly stepIndex?: number;
   readonly fieldIndex?: number;
+  readonly cookieFieldIndex?: number;
 
   constructor(
     scenarioIndex: number,
     stage: Phase2BaseScenarioStage,
     stepIndex?: number,
-    fieldIndex?: number
+    fieldIndex?: number,
+    cookieFieldIndex?: number
   ) {
     super(scenarioFailureMessage);
     if (
@@ -135,7 +138,13 @@ class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScen
           stepIndex !== 5 ||
           !Number.isInteger(fieldIndex) ||
           fieldIndex < 0 ||
-          fieldIndex > 27))
+          fieldIndex > 27)) ||
+      (cookieFieldIndex !== undefined &&
+        (scenarioIndex !== 11 ||
+          stage !== 'compare' ||
+          !Number.isInteger(cookieFieldIndex) ||
+          cookieFieldIndex < 0 ||
+          cookieFieldIndex > 29))
     ) {
       throw new TypeError(scenarioFailureMessage);
     }
@@ -147,6 +156,9 @@ class AuthenticPhase2BaseScenarioFailure extends Error implements Phase2BaseScen
     }
     if (fieldIndex !== undefined) {
       this.fieldIndex = fieldIndex;
+    }
+    if (cookieFieldIndex !== undefined) {
+      this.cookieFieldIndex = cookieFieldIndex;
     }
     phase2BaseScenarioFailures.add(this);
     Object.freeze(this);
@@ -317,6 +329,84 @@ const scenarioOneConsentGetFieldIndex = (
     : consentGetRootFields.length +
         (rootIndex === 0 ? 0 : consentGetBodyFields.length) +
         childIndex;
+};
+
+const cookieScenarioStepIds = new Set([
+  'admin-start',
+  'data-start',
+  'admin-finish',
+  'data-finish',
+  'data-start-reverse',
+  'admin-start-reverse',
+  'data-finish-reverse',
+  'admin-finish-reverse',
+  'state',
+]);
+const cookieRootFieldIndexes = new Map<string, number>([
+  ['status', 0],
+  ['mediaType', 1],
+  ['error', 2],
+  ['body', 10],
+  ['redirect', 11],
+  ['generatedIds', 22],
+  ['persistedState', 23],
+  ['semanticState', 24],
+  ['sideEffects', 25],
+  ['outcomes', 26],
+  ['urls', 27],
+  ['tokens', 28],
+]);
+const cookieHeaderFieldIndexes = new Map<string, number>([
+  ['set-cookie', 3],
+  ['cache-control', 4],
+  ['etag', 5],
+  ['content-length', 6],
+  ['content-type', 7],
+  ['location', 8],
+]);
+const cookieMetadataFieldIndexes = new Map<string, number>([
+  ['name', 12],
+  ['domain', 13],
+  ['path', 14],
+  ['sameSite', 15],
+  ['secure', 16],
+  ['httpOnly', 17],
+  ['expires', 18],
+  ['maxAge', 19],
+  ['extensions', 20],
+]);
+
+const cookieScenarioDifferenceFieldIndex = (
+  difference: Difference | undefined
+): number | undefined => {
+  if (!difference?.path.startsWith('/')) {
+    return undefined;
+  }
+  const segments = difference.path
+    .slice(1)
+    .split('/')
+    .map((segment) => decodeJsonPointerSegment(segment));
+
+  if (
+    segments.includes(undefined) ||
+    segments[0] !== 'steps' ||
+    !cookieScenarioStepIds.has(segments[1] ?? '') ||
+    segments[2] !== 'value'
+  ) {
+    return undefined;
+  }
+  const rootField = segments[3];
+
+  if (rootField === 'headers') {
+    return cookieHeaderFieldIndexes.get(segments[4] ?? '') ?? 9;
+  }
+  if (rootField === 'cookies') {
+    const metadataField = segments[5];
+
+    return metadataField === undefined ? 12 : (cookieMetadataFieldIndexes.get(metadataField) ?? 21);
+  }
+
+  return rootField === undefined ? undefined : (cookieRootFieldIndexes.get(rootField) ?? 29);
 };
 
 const assertRawDiscoveryControl = (
@@ -658,7 +748,8 @@ export const runPhase2BasePreservationRuntime = async (
             scenarioIndex,
             'compare',
             stepIndex,
-            stepIndex === 5 ? scenarioOneConsentGetFieldIndex(result[0]) : undefined
+            stepIndex === 5 ? scenarioOneConsentGetFieldIndex(result[0]) : undefined,
+            scenarioIndex === 11 ? cookieScenarioDifferenceFieldIndex(result[0]) : undefined
           );
         }
 
