@@ -567,8 +567,6 @@ export const withSelectedWechatConnectorFixture = async <Result>(
       previousSignInMode !== undefined &&
       previousSignUp !== undefined
     ) {
-      // The enclosing Phase2 fixture owns the full SIE snapshot, including registration signUp.
-      // This inner fixture restores only its branding and social-target edits.
       let restored = false;
       try {
         const restoredAck = (await input.request({
@@ -577,6 +575,7 @@ export const withSelectedWechatConnectorFixture = async <Result>(
           body: {
             branding: previousBranding,
             socialSignInConnectorTargets: previousTargets,
+            signUp: previousSignUp,
           },
           expectedStatuses: [200],
           responseKind: 'object',
@@ -603,7 +602,9 @@ export const withSelectedWechatConnectorFixture = async <Result>(
           isDeepStrictEqual(restoredAck.branding, previousBranding) &&
           isDeepStrictEqual(restoredRead.branding, previousBranding) &&
           restoredAck.signInMode === previousSignInMode &&
-          restoredRead.signInMode === previousSignInMode;
+          restoredRead.signInMode === previousSignInMode &&
+          isDeepStrictEqual(restoredAck.signUp, previousSignUp) &&
+          isDeepStrictEqual(restoredRead.signUp, previousSignUp);
       } catch {
         restored = false;
       }
