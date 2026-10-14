@@ -2627,6 +2627,7 @@ describe('Phase 2 CLI', () => {
     'authority',
     'google-accepted-rp-session-preparation',
     'email-code-rejected-rp-observation',
+    'email-code-account-session-preparation/email-http-verification-code-send-429/email-smtp-none',
     'wechat-native-account-cleanup',
   ])('reports the exact logout-preservation phase %s through CLI main', async (phase) => {
     const calls: string[] = [];
@@ -2644,6 +2645,26 @@ describe('Phase 2 CLI', () => {
     expect(calls).toContain(
       `stderr:Phase 2 client credentials command failed (oracle/common.session.logout-preservation/${phase}).`
     );
+  });
+
+  it.each([
+    'email-code-account-session-preparation/email-http-verification-code-send-999/email-smtp-none',
+    'email-code-account-session-preparation/email-http-private-429/email-smtp-none',
+    'email-code-account-session-preparation/email-http-verification-code-send-429/email-smtp-failure-timeout/private',
+  ])('rejects a non-closed logout email preparation fact %s', async (phase) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      executeOracle: async () => {
+        throw new TypeError(
+          `Phase 2 scenario failed: oracle/common.session.logout-preservation/${phase}`
+        );
+      },
+    });
+    expect(code).toBe(1);
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-execution).');
+    expect(calls.every((call) => !call.includes(phase))).toBe(true);
   });
 
   it('preserves a candidate logout phase through differential execution', async () => {

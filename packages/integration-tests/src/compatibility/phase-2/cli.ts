@@ -593,7 +593,7 @@ const scenarioFailurePattern =
 const passwordPolicyScenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(common\.password\.policy)\/(initialization|local-policy(?:-(?:write|read|readback))?|compromise-compromised|compromise-clear|compromise-unavailable|recovery|cleanup-policy)$/u;
 const logoutPreservationScenarioFailurePattern =
-  /^Phase 2 scenario failed: (oracle|candidate)\/(common\.session\.logout-preservation)\/(discovery|authority|(?:google|email-code|wechat-native)-(?:accepted-rp|rejected-rp|account)-(?:session-preparation|observation|cleanup))$/u;
+  /^Phase 2 scenario failed: (oracle|candidate)\/(common\.session\.logout-preservation)\/(discovery|authority|(?:google|email-code|wechat-native)-(?:accepted-rp|rejected-rp|account)-(?:session-preparation|observation|cleanup)|email-code-(?:accepted-rp|rejected-rp|account)-session-preparation\/email-http-(?:none|experience-initialize|verification-code-send|verification-code-verify|identification|other)-(?:none|[1-5][0-9]{2})\/email-smtp-(?:none|entered|completed|failure-(?:env-missing|socket-shape|recipient|connect|timeout|not-found|response|unknown)))$/u;
 const isClosedScenarioFailure = (message: string): boolean =>
   scenarioFailurePattern.test(message) ||
   passwordPolicyScenarioFailurePattern.test(message) ||

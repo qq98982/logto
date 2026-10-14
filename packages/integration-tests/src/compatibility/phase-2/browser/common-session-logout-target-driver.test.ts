@@ -1,9 +1,61 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The metadata model records persisted before/after state. */
 import {
   getCommonSessionLogoutFailurePhase,
+  observeEmailSessionPreparation,
   runCommonSessionLogoutForTarget,
   withOwnedBackchannelApplication,
 } from './common-session-logout-target-driver.js';
+
+test('observes existing email preparation calls once without replacing responses or errors', async () => {
+  const response = new Response('{}', { status: 429 });
+  const deliveryError = new Error('Phase 2 verification delivery failed: not-found');
+  let fetchCalls = 0;
+  let takeCalls = 0;
+  const observed = observeEmailSessionPreparation(
+    async () => {
+      fetchCalls += 1;
+      return response;
+    },
+    async () => {
+      takeCalls += 1;
+      throw deliveryError;
+    }
+  );
+
+  const returned = await observed.fetch(
+    'https://core.example/api/experience/verification/verification-code'
+  );
+  const thrown = await observed.takeCode('owned@example.invalid').catch((error: unknown) => error);
+  expect(returned).toBe(response);
+  expect(thrown).toBe(deliveryError);
+  expect(fetchCalls).toBe(1);
+  expect(takeCalls).toBe(1);
+  expect(observed.facts).toEqual({
+    route: 'verification-code-send',
+    status: 429,
+    smtp: 'failure-not-found',
+  });
+});
+
+test('does not invoke arbitrary delivery error getters', async () => {
+  let getterCalls = 0;
+  // eslint-disable-next-line @silverhand/fp/no-mutating-methods
+  const error = Object.defineProperty(new Error('private delivery'), 'message', {
+    get: () => {
+      getterCalls += 1;
+      throw new Error('private');
+    },
+  });
+  const observed = observeEmailSessionPreparation(fetch, async () => {
+    throw error;
+  });
+  const thrown = await observed
+    .takeCode('owned@example.invalid')
+    .catch((error_: unknown) => error_);
+  expect(thrown).toBe(error);
+  expect(getterCalls).toBe(0);
+  expect(observed.facts.smtp).toBe('failure-unknown');
+});
 
 test('sets backchannel metadata before the identity entry and restores all original metadata after failure', async () => {
   const previous = {

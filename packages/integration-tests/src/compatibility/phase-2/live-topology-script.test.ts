@@ -2047,6 +2047,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
             'authority',
             'google-accepted-rp-session-preparation',
             'email-code-rejected-rp-observation',
+            'email-code-account-session-preparation/email-http-verification-code-send-429/email-smtp-none',
             'wechat-native-account-cleanup',
           ].map(async (phase) =>
             grepMatches(
@@ -2056,7 +2057,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           )
         )
       )
-    ).resolves.toEqual(Array.from({ length: 10 }, () => true));
+    ).resolves.toEqual(Array.from({ length: 12 }, () => true));
     await expect(
       Promise.all(
         targets.map(async (target) =>
@@ -2111,6 +2112,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (oracle-completion-owned-app-cleanup/common.password.policy:private).',
       'Phase 2 client credentials command failed (oracle/common.session.logout-preservation/private).',
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-account-cleanup-secret).',
+      'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-private-429/email-smtp-none).',
+      'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-verification-code-send-999/email-smtp-none).',
     ];
     await expect(
       Promise.all(

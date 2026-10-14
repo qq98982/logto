@@ -53,6 +53,36 @@ const fail = (): never => {
 const logoutMethods = ['google', 'email-code', 'wechat-native'] as const;
 const logoutAttempts = ['accepted-rp', 'rejected-rp', 'account'] as const;
 const logoutBoundaries = ['session-preparation', 'observation', 'cleanup'] as const;
+const emailRoutes = [
+  'none',
+  'experience-initialize',
+  'verification-code-send',
+  'verification-code-verify',
+  'identification',
+  'other',
+] as const;
+type EmailRoute = (typeof emailRoutes)[number];
+const emailSmtpStates = [
+  'none',
+  'entered',
+  'completed',
+  'failure-env-missing',
+  'failure-socket-shape',
+  'failure-recipient',
+  'failure-connect',
+  'failure-timeout',
+  'failure-not-found',
+  'failure-response',
+  'failure-unknown',
+] as const;
+type EmailSmtpState = (typeof emailSmtpStates)[number];
+type EmailPreparationFacts = {
+  route: EmailRoute;
+  status?: number;
+  smtp: EmailSmtpState;
+};
+type EmailPreparationFailurePhase =
+  `email-code-${(typeof logoutAttempts)[number]}-session-preparation/email-http-${EmailRoute}-${number | 'none'}/email-smtp-${EmailSmtpState}`;
 export const commonSessionLogoutFailurePhases = Object.freeze([
   'discovery',
   'authority',
@@ -62,7 +92,9 @@ export const commonSessionLogoutFailurePhases = Object.freeze([
     )
   ),
 ]);
-export type CommonSessionLogoutFailurePhase = (typeof commonSessionLogoutFailurePhases)[number];
+export type CommonSessionLogoutFailurePhase =
+  | (typeof commonSessionLogoutFailurePhases)[number]
+  | EmailPreparationFailurePhase;
 const logoutFailures = new WeakMap<WeakKey, CommonSessionLogoutFailurePhase>();
 const errorKey = (error: unknown): WeakKey | undefined =>
   (typeof error === 'object' && error !== null) || typeof error === 'function' ? error : undefined;
@@ -83,6 +115,104 @@ const object = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : fail();
+
+const emailRoute = (resource: string | URL | Request): EmailRoute => {
+  const raw =
+    typeof resource === 'string'
+      ? resource
+      : resource instanceof URL
+        ? resource.href
+        : resource.url;
+  const { pathname } = new URL(raw);
+  if (pathname === '/api/experience') {
+    return 'experience-initialize';
+  }
+  if (pathname === '/api/experience/verification/verification-code') {
+    return 'verification-code-send';
+  }
+  if (pathname === '/api/experience/verification/verification-code/verify') {
+    return 'verification-code-verify';
+  }
+  if (pathname === '/api/experience/identification') {
+    return 'identification';
+  }
+  return 'other';
+};
+
+const smtpFailure = (error: unknown): EmailSmtpState => {
+  try {
+    if (!(error instanceof Error)) {
+      return 'failure-unknown';
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(error, 'message');
+    if (
+      !descriptor ||
+      !Object.hasOwn(descriptor, 'value') ||
+      typeof descriptor.value !== 'string'
+    ) {
+      return 'failure-unknown';
+    }
+    const match =
+      /^Phase 2 verification delivery failed: (env-missing|socket-shape|recipient|connect|timeout|not-found|response)$/u.exec(
+        descriptor.value
+      );
+    switch (match?.[1]) {
+      case 'env-missing':
+      case 'socket-shape':
+      case 'recipient':
+      case 'connect':
+      case 'timeout':
+      case 'not-found':
+      case 'response': {
+        return `failure-${match[1]}`;
+      }
+      default: {
+        return 'failure-unknown';
+      }
+    }
+  } catch {
+    return 'failure-unknown';
+  }
+};
+
+export const observeEmailSessionPreparation = (
+  requestFetch: typeof fetch,
+  takeCode: (recipient: string) => Promise<string>
+) => {
+  const facts: EmailPreparationFacts = { route: 'none', smtp: 'none' };
+  const observedFetch: typeof fetch = async (resource, init) => {
+    try {
+      facts.route = emailRoute(resource);
+    } catch {
+      facts.route = 'other';
+    }
+    const response = await requestFetch(resource, init);
+    try {
+      facts.status = response.status >= 100 && response.status <= 599 ? response.status : undefined;
+    } catch {
+      facts.status = undefined;
+    }
+    return response;
+  };
+  const observedTakeCode = async (recipient: string): Promise<string> => {
+    facts.smtp = 'entered';
+    try {
+      const result = await takeCode(recipient);
+      facts.smtp = 'completed';
+      return result;
+    } catch (error: unknown) {
+      facts.smtp = smtpFailure(error);
+      throw error;
+    }
+  };
+  return Object.freeze({ fetch: observedFetch, takeCode: observedTakeCode, facts });
+};
+
+const emailPreparationPhase = (
+  attempt: (typeof logoutAttempts)[number],
+  facts: EmailPreparationFacts
+): EmailPreparationFailurePhase =>
+  `email-code-${attempt}-session-preparation/email-http-${facts.route}-${facts.status ?? 'none'}/email-smtp-${facts.smtp}`;
 
 /** Restores the complete metadata object; this operation precedes session creation. */
 export const withOwnedBackchannelApplication = async <Result>(
@@ -195,8 +325,10 @@ export const runCommonSessionLogoutForTarget = async (
         fetch: requestFetch,
         runtime: {
           withAttempt: async ({ method, delivery, operation }, use) => {
-            const attempt = operation === 'account' ? 'account' : `${delivery}-rp`;
+            const attempt: (typeof logoutAttempts)[number] =
+              operation === 'account' ? 'account' : `${delivery}-rp`;
             let phase = `${method}-${attempt}-session-preparation`;
+            let emailFacts: EmailPreparationFacts | undefined;
             try {
               return await input.runtime.withReceiver(
                 delivery,
@@ -245,12 +377,17 @@ export const runCommonSessionLogoutForTarget = async (
                     use: async (identity) =>
                       configureApplication(status.client.id, async () => {
                         const takeCode = lease.takeVerificationCode ?? fail();
+                        const observed = observeEmailSessionPreparation(requestFetch, takeCode);
+                        emailFacts = observed.facts;
                         const session = await issuePublicIdentitySession(
                           input.target,
                           fixture,
-                          createEmailCodeIdentityDriver({ email: identity.primaryEmail, takeCode }),
+                          createEmailCodeIdentityDriver({
+                            email: identity.primaryEmail,
+                            takeCode: observed.takeCode,
+                          }),
                           issuer,
-                          requestFetch,
+                          observed.fetch,
                           { scope }
                         );
                         return observe(
@@ -269,7 +406,7 @@ export const runCommonSessionLogoutForTarget = async (
                               };
                               const requested = await requestAccountEmailProof(
                                 inputProof,
-                                requestFetch
+                                observed.fetch
                               );
                               if (
                                 requested.observation.status !== 201 ||
@@ -281,10 +418,10 @@ export const runCommonSessionLogoutForTarget = async (
                               const verified = await verifyAccountEmailProof(
                                 {
                                   ...inputProof,
-                                  code: await takeCode(identity.primaryEmail),
+                                  code: await observed.takeCode(identity.primaryEmail),
                                   verificationRecordId: proofId,
                                 },
-                                requestFetch
+                                observed.fetch
                               );
                               if (verified.status !== 200 || verified.error !== 'none') {
                                 return fail();
@@ -298,6 +435,9 @@ export const runCommonSessionLogoutForTarget = async (
                 }
               );
             } catch (error: unknown) {
+              if (method === 'email-code' && phase.endsWith('-session-preparation') && emailFacts) {
+                phase = emailPreparationPhase(attempt, emailFacts);
+              }
               throw recordLogoutFailure(error, phase);
             }
           },
