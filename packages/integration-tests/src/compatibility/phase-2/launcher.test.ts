@@ -167,6 +167,9 @@ describe('Phase 2 tracked launcher', () => {
     for (const phase of [
       'initialization',
       'local-policy',
+      'local-policy-write',
+      'local-policy-read',
+      'local-policy-readback',
       'compromise-compromised',
       'compromise-clear',
       'compromise-unavailable',
@@ -183,6 +186,7 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (oracle/common.password.unknown).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy:private).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy/private).\n',
+      'Phase 2 client credentials command failed (candidate/common.password.policy/local-policy-read-secret).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy/recovery/private).\n',
       'prefix Phase 2 client credentials command failed (oracle/common.password.policy).\n',
       'Phase 2 client credentials command failed (oracle/common.password.policy).\nprivate',

@@ -122,6 +122,82 @@ test.each([
   }
 );
 
+test.each([
+  ['local-policy-write', 'write'],
+  ['local-policy-read', 'read'],
+  ['local-policy-readback', 'readback'],
+] as const)(
+  'Common password policy reports %s and restores persisted settings',
+  async (expectedPhase, failedOperation) => {
+    const previous = { length: { min: 9, max: 128 } };
+    const previousSignUp = { identifiers: ['username'], password: true, verify: false };
+    const state = { policy: previous as unknown, signUp: previousSignUp as unknown };
+    let awaitingLocalRead = false;
+    const request: Phase2AdminRequestFunction = async (input) => {
+      if (input.path === 'users') {
+        return [];
+      }
+      if (input.method === 'PATCH') {
+        const passwordPolicy: unknown = Reflect.get(input.body ?? {}, 'passwordPolicy');
+        const signUp: unknown = Reflect.get(input.body ?? {}, 'signUp');
+        if (
+          typeof passwordPolicy === 'object' &&
+          passwordPolicy !== null &&
+          Reflect.get(Reflect.get(passwordPolicy, 'length') ?? {}, 'min') === 12
+        ) {
+          if (failedOperation === 'write') {
+            throw new Error('private local policy write failure');
+          }
+          state.policy = passwordPolicy;
+          awaitingLocalRead = true;
+        } else if (passwordPolicy !== undefined) {
+          state.policy = passwordPolicy;
+        }
+        if (signUp !== undefined) {
+          state.signUp = signUp;
+        }
+      } else if (awaitingLocalRead) {
+        awaitingLocalRead = false;
+        if (failedOperation === 'read') {
+          throw new Error('private local policy read failure');
+        }
+        if (failedOperation === 'readback') {
+          return { passwordPolicy: previous, signUp: state.signUp };
+        }
+      }
+      return { passwordPolicy: state.policy, signUp: state.signUp };
+    };
+    const fixture = {
+      status: { client: { id: 'owned-client', redirectUri: 'https://client.example/callback' } },
+    } as ProvisionedPhase2Fixture;
+    const failure = await runCommonPasswordPolicyForTarget({
+      target: {
+        label: 'candidate',
+        coreUrl: 'https://core.example/',
+        adminUrl: 'https://admin.example/',
+      },
+      fixture,
+      request,
+      signal: AbortSignal.timeout(10_000),
+      fetch: async () => {
+        throw new Error('HTTP flow must not start');
+      },
+      getPassword: () => 'private-password',
+      takeRecoveryCode: async () => '123456',
+      compromiseFixture: {
+        withAttempt: async () => {
+          throw new Error('compromise fixture must not start');
+        },
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(TypeError);
+    expect(getCommonPasswordPolicyFailurePhase(failure)).toBe(expectedPhase);
+    expect(state.policy).toEqual(previous);
+    expect(state.signUp).toEqual(previousSignUp);
+  }
+);
+
 test('Common recovery user-info password is rejected by the selected policy', async () => {
   const email = 'common-email-owned@example.invalid';
   const password = recoveryUserInfoPassword(email);

@@ -2581,6 +2581,9 @@ describe('Phase 2 CLI', () => {
       [
         'initialization',
         'local-policy',
+        'local-policy-write',
+        'local-policy-read',
+        'local-policy-readback',
         'compromise-compromised',
         'compromise-clear',
         'compromise-unavailable',
@@ -2607,6 +2610,9 @@ describe('Phase 2 CLI', () => {
   it.each([
     'initialization',
     'local-policy',
+    'local-policy-write',
+    'local-policy-read',
+    'local-policy-readback',
     'compromise-compromised',
     'compromise-clear',
     'compromise-unavailable',
@@ -2653,6 +2659,7 @@ describe('Phase 2 CLI', () => {
 
   it.each([
     'oracle/common.password.policy/private',
+    'oracle/common.password.policy/local-policy-read-secret',
     'candidate/common.password.policy/recovery/private',
     'oracle/common.account.google-link/recovery',
     'candidate/common.password.policy/cleanup-policy:private',

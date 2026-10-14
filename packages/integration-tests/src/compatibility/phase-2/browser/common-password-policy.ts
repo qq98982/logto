@@ -40,6 +40,9 @@ export type CommonPasswordPolicyProjection = Readonly<{
 export const commonPasswordPolicyFailurePhases = [
   'initialization',
   'local-policy',
+  'local-policy-write',
+  'local-policy-read',
+  'local-policy-readback',
   'compromise-compromised',
   'compromise-clear',
   'compromise-unavailable',
@@ -173,7 +176,17 @@ export const runCommonPasswordPolicyForTarget = async (
   if (previous === undefined || previousSignUp === undefined) {
     return fail('policy-authority');
   }
-  const setPolicy = async (policy: unknown) => {
+  const setPolicy = async (
+    policy: unknown,
+    phases?: Readonly<{
+      write: CommonPasswordPolicyFailurePhase;
+      read: CommonPasswordPolicyFailurePhase;
+      readback: CommonPasswordPolicyFailurePhase;
+    }>
+  ) => {
+    if (phases) {
+      failurePhase = phases.write;
+    }
     await input.request({
       method: 'PATCH',
       path: 'sign-in-exp',
@@ -181,6 +194,9 @@ export const runCommonPasswordPolicyForTarget = async (
       expectedStatuses: [200],
       responseKind: 'object',
     });
+    if (phases) {
+      failurePhase = phases.read;
+    }
     const read = object(
       await input.request({
         method: 'GET',
@@ -189,6 +205,9 @@ export const runCommonPasswordPolicyForTarget = async (
         responseKind: 'object',
       })
     );
+    if (phases) {
+      failurePhase = phases.readback;
+    }
     if (!isDeepStrictEqual(read.passwordPolicy, policy)) {
       return fail('policy-readback');
     }
@@ -241,7 +260,12 @@ export const runCommonPasswordPolicyForTarget = async (
   try {
     await setRegistration({ identifiers: ['email'], password: true, verify: true });
     failurePhase = 'local-policy';
-    await setPolicy(localPolicy);
+    await setPolicy(localPolicy, {
+      write: 'local-policy-write',
+      read: 'local-policy-read',
+      readback: 'local-policy-readback',
+    });
+    failurePhase = 'local-policy';
     const registration = async (password: string) =>
       withInteraction(
         {
