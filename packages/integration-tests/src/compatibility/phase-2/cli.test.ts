@@ -3241,7 +3241,33 @@ describe('Phase 2 CLI', () => {
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('uses the mode-specific cleanup stage when no earlier fixed diagnostic exists', async () => {
+  it.each(['profile', 'harness'] as const)(
+    'preserves the original %s boundary error object',
+    async (boundary) => {
+      const calls: string[] = [];
+      const failure = new Error('private boundary credential');
+      const base = dependencies(calls);
+      await expect(
+        runPhase2Cli(oracleArguments(), {
+          ...base,
+          ...(boundary === 'profile'
+            ? {
+                loadProfile: async () => {
+                  throw failure;
+                },
+              }
+            : {
+                inspectHarness: async () => {
+                  throw failure;
+                },
+              }),
+        })
+      ).rejects.toBe(failure);
+      expect(calls.join(' ')).not.toContain('private boundary credential');
+    }
+  );
+
+  it('preserves the harness boundary when cleanup also fails', async () => {
     const calls: string[] = [];
     const base = dependencies(calls);
     const code = await runPhase2CliMain(oracleArguments(), undefined, {
@@ -3254,7 +3280,7 @@ describe('Phase 2 CLI', () => {
       },
     });
     expect(code).toBe(1);
-    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-cleanup).');
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-harness).');
     expect(calls.join(' ')).not.toContain('private');
   });
 });

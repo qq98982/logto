@@ -101,6 +101,10 @@ const smsProviderEnvironmentKeys = Object.freeze([
   'ASTER_PHASE2_ORACLE_SMS_PROVIDER_INPUT',
   'ASTER_PHASE2_CANDIDATE_SMS_PROVIDER_INPUT',
 ]);
+const completionEnvironmentKeys = Object.freeze([
+  'ASTER_PHASE2_ORACLE_COMPLETION_INPUT',
+  'ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT',
+]);
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -352,12 +356,15 @@ export const inspectLaunchedPhase2HarnessSource = async (
   const hasWechatProvider = wechatProviderPaths.some((value) => value !== undefined);
   const smsProviderPaths = smsProviderEnvironmentKeys.map((key) => environment[key]);
   const hasSmsProvider = smsProviderPaths.some((value) => value !== undefined);
+  const completionPaths = completionEnvironmentKeys.map((key) => environment[key]);
+  const hasCompletion = completionPaths.some((value) => value !== undefined);
   const expectedKeys = [
     ...launcherEnvironmentKeys,
     ...(oracleSmtpSocket === undefined ? [] : ['ASTER_PHASE2_ORACLE_SMTP_SOCKET']),
     ...(hasGoogleProvider ? googleProviderEnvironmentKeys : []),
     ...(hasWechatProvider ? wechatProviderEnvironmentKeys : []),
     ...(hasSmsProvider ? smsProviderEnvironmentKeys : []),
+    ...(hasCompletion ? completionEnvironmentKeys : []),
   ].toSorted();
   if (
     keys.length !== expectedKeys.length ||
@@ -374,6 +381,32 @@ export const inspectLaunchedPhase2HarnessSource = async (
     return fail();
   }
   await validateBrowserEnvironment(environment);
+  if (hasCompletion) {
+    await Promise.all(
+      completionPaths.map(async (value) => {
+        if (
+          typeof value !== 'string' ||
+          !path.isAbsolute(value) ||
+          path.normalize(value) !== value
+        ) {
+          return fail();
+        }
+        const [metadata, resolved] = await Promise.all([lstat(value), realpath(value)]).catch(fail);
+        if (
+          resolved !== value ||
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          metadata.uid !== process.getuid?.() ||
+          (metadata.mode & 0o777) !== 0o600 ||
+          metadata.nlink !== 1 ||
+          metadata.size < 2 ||
+          metadata.size > 65_536
+        ) {
+          fail();
+        }
+      })
+    );
+  }
   for (const [provider, paths, present] of [
     ['google', googleProviderPaths, hasGoogleProvider],
     ['wechat', wechatProviderPaths, hasWechatProvider],

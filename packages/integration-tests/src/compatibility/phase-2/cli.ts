@@ -371,6 +371,20 @@ type TargetScenarioEvidence = Readonly<{
 
 const invalidArguments = 'Invalid Phase 2 arguments.\n';
 const runFailure = 'Phase 2 client credentials command failed.\n';
+type CliBoundaryFailure = `${'oracle' | 'candidate' | 'differential'}-harness`;
+const cliBoundaryFailures = new WeakMap<WeakKey, CliBoundaryFailure>();
+
+const recordCliBoundaryFailure = <T>(error: T, boundary: CliBoundaryFailure): T => {
+  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+    cliBoundaryFailures.set(error, boundary);
+  }
+  return error;
+};
+
+const getCliBoundaryFailure = (error: unknown): CliBoundaryFailure | undefined =>
+  (typeof error === 'object' && error !== null) || typeof error === 'function'
+    ? cliBoundaryFailures.get(error)
+    : undefined;
 const deviceProjectionDifferenceFields = Object.freeze([
   'status',
   'contentType',
@@ -3485,8 +3499,20 @@ export const runPhase2Cli = async (
   let evidence: ReturnType<typeof createPhase2EvidenceEnvelope> | undefined;
   let executionError: unknown;
   try {
-    const profile = await dependencies.loadProfile({ profilePath, schemaPath });
-    const harness = await dependencies.inspectHarness(runtimeCapability);
+    const role =
+      command.mode === 'oracle'
+        ? 'oracle'
+        : command.mode === 'differential'
+          ? 'differential'
+          : 'candidate';
+    const profile = await dependencies
+      .loadProfile({ profilePath, schemaPath })
+      .catch((error: unknown) => {
+        throw recordCliBoundaryFailure(error, `${role}-harness`);
+      });
+    const harness = await dependencies.inspectHarness(runtimeCapability).catch((error: unknown) => {
+      throw recordCliBoundaryFailure(error, `${role}-harness`);
+    });
     const execution = await (async () => {
       if (command.mode === 'differential') {
         const [oracleEvidencePath, candidateTargetPath] = await Promise.all([
@@ -3698,6 +3724,7 @@ export const runPhase2CliMain = async (
       original instanceof Error ? commandFailurePattern.exec(original.message) : null;
     const cleanupStage =
       cleanup instanceof Error ? commandFailurePattern.exec(cleanup.message) : null;
+    const boundaryStage = getCliBoundaryFailure(original);
     const structuralDiagnostic =
       original instanceof DeviceScenarioProjectionFailure
         ? original.structuralDiagnostic
@@ -3716,9 +3743,11 @@ export const runPhase2CliMain = async (
                 ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
                 : commandStage?.[1] && commandStage[2]
                   ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
-                  : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
-                    ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
-                    : runFailure
+                  : boundaryStage
+                    ? `Phase 2 client credentials command failed (${boundaryStage}).\n`
+                    : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
+                      ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
+                      : runFailure
     );
     return 1;
   }

@@ -1,6 +1,6 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The test owns an isolated Git repository and installs one global capability to prove clean-source and hook fencing. */
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -328,4 +328,67 @@ it.each(['google', 'wechat', 'sms'] as const)(
     ).rejects.toThrow('Invalid Phase 2 provenance');
   }
 );
+
+it('admits only paired private Common completion inputs without reading their payloads', async () => {
+  const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
+  const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
+  const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
+  const capability = 'e'.repeat(64);
+  const oraclePath = path.join(browserRunDirectory, 'completion', 'oracle.json');
+  const candidatePath = path.join(browserRunDirectory, 'completion', 'candidate.json');
+  await mkdir(path.dirname(oraclePath), { recursive: true, mode: 0o700 });
+  await Promise.all([
+    writeFile(oraclePath, '{not-json', { mode: 0o600 }),
+    writeFile(candidatePath, 'opaque', { mode: 0o600 }),
+  ]);
+  const environment = {
+    ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
+    ASTER_PHASE2_ORACLE_COMPLETION_INPUT: oraclePath,
+    ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT: candidatePath,
+  };
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+
+  const invalidEnvironments = [
+    { ...environment, ASTER_PHASE2_ORACLE_COMPLETION_INPUT: undefined },
+    { ...environment, ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT: undefined },
+    { ...environment, ASTER_PHASE2_ORACLE_COMPLETION_INPUT: 'oracle.json' },
+    {
+      ...environment,
+      ASTER_PHASE2_ORACLE_COMPLETION_INPUT: `${path.dirname(oraclePath)}/../completion/oracle.json`,
+    },
+    { ...environment, ASTER_PHASE2_UNEXPECTED: 'present' },
+  ];
+  await invalidEnvironments.reduce(async (previous, invalidEnvironment) => {
+    await previous;
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  }, Promise.resolve());
+
+  await chmod(candidatePath, 0o640);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).rejects.toThrow('Invalid Phase 2 provenance');
+  await chmod(candidatePath, 0o600);
+
+  const hardLink = path.join(browserRunDirectory, 'completion', 'candidate-linked.json');
+  await link(candidatePath, hardLink);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).rejects.toThrow('Invalid Phase 2 provenance');
+  await rm(hardLink);
+
+  await rm(candidatePath);
+  await symlink(oraclePath, candidatePath);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).rejects.toThrow('Invalid Phase 2 provenance');
+});
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
