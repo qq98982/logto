@@ -1,4 +1,6 @@
 /* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Fake Management state records setup and compensation. */
+import { createHash } from 'node:crypto';
+
 import type { TargetConfig } from '../../model.js';
 import {
   createReferencePhase2AdminRequest,
@@ -37,6 +39,12 @@ const fixture = {
   },
 } as unknown as ProvisionedPhase2Fixture;
 
+const namespaceMarker = (namespace: string) =>
+  `common-email-code-${createHash('sha256')
+    .update(`allocation:${namespace}`)
+    .digest('hex')
+    .slice(0, 16)}`;
+
 const createRequest = (
   options: Readonly<{
     initialGetFails?: boolean;
@@ -50,15 +58,17 @@ const createRequest = (
     userCreateFails?: boolean;
     userDeleteFails?: boolean;
     userRoles?: readonly unknown[];
+    marker?: string;
   }> = {}
 ) => {
   const calls: Phase2AdminRequest[] = [];
   let methods: unknown = previousMethods;
   let branding: unknown = previousBranding;
   let patchCount = 0;
+  const marker = options.marker ?? 'common-email-code-allocation';
   const role = {
     id: 'email-code-role',
-    name: 'common-email-code-allocation',
+    name: marker,
     type: 'User',
     isDefault: false,
   };
@@ -130,7 +140,7 @@ const createRequest = (
         id: 'email-code-user',
         primaryEmail: options.malformedCreate
           ? 'wrong@example.invalid'
-          : 'common-email-code-allocation@example.invalid',
+          : `${marker}@example.invalid`,
         hasPassword: false,
         isSuspended: false,
       };
@@ -183,6 +193,52 @@ test('enables ordered email code sign-in while preserving signup and cleans owne
   expect(calls.at(-2)).toMatchObject({ method: 'DELETE', path: 'users/email-code-user' });
   expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'roles/email-code-role' });
 });
+
+test('isolates admitted namespaces while preserving captured cleanup and body errors', async () => {
+  const observed: string[] = [];
+  for (const namespace of ['logout-accepted-rp', 'logout-rejected-rp', 'logout-account']) {
+    const selected = namespaceMarker(namespace);
+    const { calls, request } = createRequest({ marker: selected });
+    const bodyError = new Error(`owned-${namespace}`);
+    // eslint-disable-next-line no-await-in-loop
+    const thrown = await withSelectedEmailCodeFixture({
+      fixture,
+      request,
+      namespace,
+      use: async (identity) => {
+        observed.push(identity.primaryEmail);
+        throw bodyError;
+      },
+    }).catch((error: unknown) => error);
+    expect(thrown).toMatchObject({
+      message: 'Common email code fixture failed: primary-use;cleanup-none',
+    });
+    expect(calls.find(({ method, path }) => method === 'POST' && path === 'roles')).toMatchObject({
+      body: { name: selected },
+    });
+    expect(calls).toContainEqual({
+      method: 'POST',
+      path: 'users',
+      body: { primaryEmail: `${selected}@example.invalid` },
+      expectedStatuses: [200],
+      responseKind: 'object',
+    });
+    expect(calls.at(-2)).toMatchObject({ method: 'DELETE', path: 'users/email-code-user' });
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: 'roles/email-code-role' });
+  }
+  expect(new Set(observed).size).toBe(3);
+});
+
+test.each(['', 'UPPER', 'starts_with', 'a'.repeat(65)])(
+  'rejects invalid namespace %s before Management use',
+  async (namespace) => {
+    const { calls, request } = createRequest();
+    await expect(
+      withSelectedEmailCodeFixture({ fixture, request, namespace, use: async () => true })
+    ).rejects.toThrow('Invalid selected email code fixture');
+    expect(calls).toEqual([]);
+  }
+);
 
 test('accepts inherited roles while requiring one valid owned role', async () => {
   const inheritedRoles = [

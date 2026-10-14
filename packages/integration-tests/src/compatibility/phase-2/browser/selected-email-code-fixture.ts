@@ -1,4 +1,5 @@
 /* eslint-disable complexity, max-lines, no-restricted-syntax, unicorn/error-message, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/no-throw-literal, @typescript-eslint/no-unsafe-assignment -- Ordered setup and independent compensation remain in one fixture scope. */
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
@@ -39,10 +40,21 @@ export const withSelectedEmailCodeFixture = async <Result>(
     fixture: ProvisionedPhase2Fixture;
     request: Phase2AdminRequestFunction;
     browser?: Readonly<{ clientId: string; redirectUri: string }>;
+    namespace?: string;
     use(identity: SelectedEmailCodeIdentity): Promise<Result>;
   }>
 ): Promise<Result> => {
   const status = input.fixture.status ?? fail();
+  if (input.namespace !== undefined && !/^[a-z][a-z0-9-]{0,63}$/u.test(input.namespace)) {
+    return fail();
+  }
+  const marker =
+    input.namespace === undefined
+      ? `common-email-code-${input.fixture.public.allocationId}`
+      : `common-email-code-${createHash('sha256')
+          .update(`${input.fixture.public.allocationId}:${input.namespace}`)
+          .digest('hex')
+          .slice(0, 16)}`;
   let previousMethods: unknown;
   let previousSignUp: unknown;
   let previousBranding: unknown;
@@ -182,7 +194,7 @@ export const withSelectedEmailCodeFixture = async <Result>(
       method: 'POST',
       path: 'roles',
       body: {
-        name: `common-email-code-${input.fixture.public.allocationId}`,
+        name: marker,
         description: 'Common email code selected-user authority',
         type: 'User',
         isDefault: false,
@@ -196,7 +208,7 @@ export const withSelectedEmailCodeFixture = async <Result>(
     }
     if (
       !roleId ||
-      createdRole.name !== `common-email-code-${input.fixture.public.allocationId}` ||
+      createdRole.name !== marker ||
       createdRole.type !== 'User' ||
       createdRole.isDefault !== false
     ) {
@@ -234,7 +246,7 @@ export const withSelectedEmailCodeFixture = async <Result>(
     ) {
       return fail();
     }
-    const primaryEmail = `common-email-code-${input.fixture.public.allocationId}@example.invalid`;
+    const primaryEmail = `${marker}@example.invalid`;
     primaryStage = 'create-user';
     const created = (await input.request({
       method: 'POST',

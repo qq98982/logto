@@ -52,6 +52,11 @@ const fail = (): never => {
 };
 const logoutMethods = ['google', 'email-code', 'wechat-native'] as const;
 const logoutAttempts = ['accepted-rp', 'rejected-rp', 'account'] as const;
+export const commonSessionLogoutEmailNamespaces = Object.freeze({
+  'accepted-rp': 'logout-accepted-rp',
+  'rejected-rp': 'logout-rejected-rp',
+  account: 'logout-account',
+} satisfies Record<(typeof logoutAttempts)[number], string>);
 const logoutBoundaries = ['session-preparation', 'observation', 'cleanup'] as const;
 const emailRoutes = [
   'none',
@@ -373,6 +378,7 @@ export const runCommonSessionLogoutForTarget = async (
                   return withSelectedEmailCodeFixture({
                     fixture,
                     request,
+                    namespace: commonSessionLogoutEmailNamespaces[attempt],
                     browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
                     use: async (identity) =>
                       configureApplication(status.client.id, async () => {

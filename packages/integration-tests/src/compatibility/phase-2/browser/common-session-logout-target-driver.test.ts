@@ -1,10 +1,20 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The metadata model records persisted before/after state. */
 import {
+  commonSessionLogoutEmailNamespaces,
   getCommonSessionLogoutFailurePhase,
   observeEmailSessionPreparation,
   runCommonSessionLogoutForTarget,
   withOwnedBackchannelApplication,
 } from './common-session-logout-target-driver.js';
+
+test('assigns one fixed isolated selected-email namespace to each logout attempt', () => {
+  expect(commonSessionLogoutEmailNamespaces).toEqual({
+    'accepted-rp': 'logout-accepted-rp',
+    'rejected-rp': 'logout-rejected-rp',
+    account: 'logout-account',
+  });
+  expect(new Set(Object.values(commonSessionLogoutEmailNamespaces)).size).toBe(3);
+});
 
 test('observes existing email preparation calls once without replacing responses or errors', async () => {
   const response = new Response('{}', { status: 429 });
