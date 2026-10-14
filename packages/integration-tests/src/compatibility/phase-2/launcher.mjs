@@ -933,6 +933,46 @@ export const readPhase2WechatProviderEnvironment = (browserEnvironment) =>
   readPhase2ProviderEnvironment(browserEnvironment, 'wechat');
 export const readPhase2SmsProviderEnvironment = (browserEnvironment) =>
   readPhase2ProviderEnvironment(browserEnvironment, 'sms');
+export const readPhase2CompletionEnvironment = async () => {
+  const keys = ['ASTER_PHASE2_ORACLE_COMPLETION_INPUT', 'ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT'];
+  const values = keys.map((key) => process.env[key]);
+  if (values.every((value) => value === undefined)) {
+    return Object.freeze({});
+  }
+  if (values.some((value) => value === undefined)) {
+    return fail();
+  }
+  const accepted = await Promise.all(
+    values.map(async (value, index) => {
+      try {
+        if (
+          typeof value !== 'string' ||
+          !path.isAbsolute(value) ||
+          path.normalize(value) !== value
+        ) {
+          return fail();
+        }
+        const [metadata, resolved] = await Promise.all([lstat(value), realpath(value)]);
+        if (
+          resolved !== value ||
+          !metadata.isFile() ||
+          metadata.isSymbolicLink() ||
+          metadata.uid !== process.getuid?.() ||
+          (metadata.mode & 0o777) !== 0o600 ||
+          metadata.nlink !== 1 ||
+          metadata.size < 2 ||
+          metadata.size > 65_536
+        ) {
+          return fail();
+        }
+        return [keys[index], value];
+      } catch {
+        return fail();
+      }
+    })
+  );
+  return Object.freeze(Object.fromEntries(accepted));
+};
 
 const manifestsEqual = (left, right) => {
   if (
@@ -988,6 +1028,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     ...(await readPhase2GoogleProviderEnvironment(browserEnvironment)),
     ...(await readPhase2WechatProviderEnvironment(browserEnvironment)),
     ...(await readPhase2SmsProviderEnvironment(browserEnvironment)),
+    ...(await readPhase2CompletionEnvironment()),
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

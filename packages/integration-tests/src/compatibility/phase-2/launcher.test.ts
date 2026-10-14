@@ -1,7 +1,17 @@
 /* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, closed diagnostics, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -15,6 +25,7 @@ import {
   diagnosticForPhase2ChildResult,
   diagnosticForPhase2Batch,
   readPhase2GoogleProviderEnvironment,
+  readPhase2CompletionEnvironment,
   readPhase2SmsProviderEnvironment,
   readPhase2WechatProviderEnvironment,
   launchPhase2,
@@ -1037,6 +1048,112 @@ describe('Phase 2 tracked launcher', () => {
         }
       }
       await rm(path.join(runDirectory, 's'), { recursive: true, force: true });
+    }
+  });
+
+  it('forwards both validated Common completion inputs into the isolated child environment', async () => {
+    const keys = [
+      'ASTER_PHASE2_ORACLE_COMPLETION_INPUT',
+      'ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT',
+    ] as const;
+    const previous = keys.map((key) => process.env[key]);
+    const root = await mkdtemp('/var/tmp/henry-build/phase2-completion-inputs-');
+    const paths = keys.map((_key, index) => path.join(root, `${index}.json`));
+    let childEnvironment: Record<string, string> | undefined;
+    try {
+      await Promise.all(paths.map(async (file) => writeFile(file, '{}', { mode: 0o600 })));
+      for (const [index, key] of keys.entries()) {
+        process.env[key] = paths[index];
+      }
+      await expect(
+        launchPhase2(['oracle'], {
+          inspect: async () => ({ head: 'a'.repeat(40), tree: 'b'.repeat(40) }),
+          build: async (): Promise<undefined> => undefined,
+          identity: async () => ({
+            sha256: 'c'.repeat(64),
+            moduleCount: 1,
+            entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+            libraryRootUrl: 'file:///private/lib/',
+            modules: { 'file:///private/lib/compatibility/phase-2/cli.js': 'c'.repeat(64) },
+          }),
+          execute: async (
+            _entry: string,
+            _arguments: readonly string[],
+            environment: Record<string, string>
+          ) => {
+            childEnvironment = environment;
+            return 0;
+          },
+        })
+      ).resolves.toBe(0);
+      expect(childEnvironment).toMatchObject(
+        Object.fromEntries(keys.map((key, index) => [key, paths[index]]))
+      );
+      expect(
+        Object.keys(childEnvironment ?? {}).filter((key) => key.includes('COMPLETION'))
+      ).toEqual(keys);
+    } finally {
+      for (const [index, key] of keys.entries()) {
+        const value = previous[index];
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, key);
+        } else {
+          process.env[key] = value;
+        }
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects partial or non-private Common completion input pairs', async () => {
+    const keys = [
+      'ASTER_PHASE2_ORACLE_COMPLETION_INPUT',
+      'ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT',
+    ] as const;
+    const previous = keys.map((key) => process.env[key]);
+    const root = await mkdtemp('/var/tmp/henry-build/phase2-completion-input-controls-');
+    const oracle = path.join(root, 'oracle.json');
+    const candidate = path.join(root, 'candidate.json');
+    const linked = path.join(root, 'linked.json');
+    try {
+      await writeFile(oracle, '{}', { mode: 0o600 });
+      await writeFile(candidate, '{}', { mode: 0o600 });
+      Reflect.deleteProperty(process.env, keys[0]);
+      Reflect.deleteProperty(process.env, keys[1]);
+      await expect(readPhase2CompletionEnvironment()).resolves.toEqual({});
+
+      process.env[keys[0]] = oracle;
+      Reflect.deleteProperty(process.env, keys[1]);
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+
+      process.env[keys[1]] = 'candidate.json';
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+
+      process.env[keys[1]] = path.join(root, 'missing.json');
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+
+      process.env[keys[1]] = candidate;
+      await chmod(candidate, 0o640);
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+
+      await chmod(candidate, 0o600);
+      await link(candidate, linked);
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+
+      await rm(linked);
+      await symlink(candidate, linked);
+      process.env[keys[1]] = linked;
+      await expect(readPhase2CompletionEnvironment()).rejects.toThrow('Invalid Phase 2 launcher');
+    } finally {
+      for (const [index, key] of keys.entries()) {
+        const value = previous[index];
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, key);
+        } else {
+          process.env[key] = value;
+        }
+      }
+      await rm(root, { recursive: true, force: true });
     }
   });
 
