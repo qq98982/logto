@@ -15,7 +15,10 @@ import { createPlaywrightBrowserGroupObserver } from '../phase-1/browser/playwri
 import { runPhase1FixtureCommand } from '../phase-1/clients/command-provisioner.js';
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
-import { runBoundCommonCompletionScenarios } from './browser/common-completion-target-driver.js';
+import {
+  getCommonCompletionBoundaryFailure,
+  runBoundCommonCompletionScenarios,
+} from './browser/common-completion-target-driver.js';
 import { readCommonGoogleExistingOwnerFixtureRuntime } from './browser/common-google-existing-owner-fixture-runtime.js';
 import { readCommonGoogleRegistrationFixtureRuntime } from './browser/common-google-registration-fixture-runtime.js';
 import { readCommonWechatWebFixtureRuntime } from './browser/common-wechat-web-fixture-runtime.js';
@@ -139,7 +142,6 @@ import {
   runCommonAccountPhoneChangeScenarioRow,
   type CommonAccountPhoneChangeScenarioResult,
 } from './scenarios/common-account-phone-change.js';
-import { CommonCompletionScenarioFailure } from './scenarios/common-completion-runner.js';
 import {
   commonCompletionScenarioIds,
   compareCommonCompletionProjections,
@@ -610,7 +612,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|completion-fixture|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|completion-(?:fixture|machine-authority|runtime-read|required-controls|scenarios|owned-app-cleanup|machine-cleanup-result|(?:owned-app-cleanup|machine-cleanup-result)\/(?:common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation)))|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 export const commonEmailPasswordScenarioFailure = (
@@ -632,6 +634,20 @@ export const commonEmailPasswordScenarioFailure = (
     throw new Error(`Phase 2 stage failed: candidate-admin-bearer-${adminStage}`);
   }
   throw new Error(`Phase 2 scenario failed: ${kind}/${commonEmailPasswordScenarioIds[0]}`);
+};
+export const commonCompletionFailure = (kind: 'oracle' | 'candidate', error: unknown): never => {
+  const boundary = getCommonCompletionBoundaryFailure(error);
+  if (boundary?.scenarioId && boundary.phase === 'scenarios') {
+    throw new TypeError(`Phase 2 scenario failed: ${kind}/${boundary.scenarioId}`);
+  }
+  if (boundary) {
+    throw new Error(
+      `Phase 2 stage failed: ${kind}-completion-${boundary.phase}${
+        boundary.scenarioId ? `/${boundary.scenarioId}` : ''
+      }`
+    );
+  }
+  throw new Error(`Phase 2 stage failed: ${kind}-completion-fixture`);
 };
 export const commonEmailCodeScenarioFailure = (
   kind: 'oracle' | 'candidate',
@@ -2452,10 +2468,7 @@ const runTargetScenarios = async (
         signal: AbortSignal.timeout(1_620_000),
       });
     })().catch((error: unknown) => {
-      if (error instanceof CommonCompletionScenarioFailure) {
-        throw new TypeError(`Phase 2 scenario failed: ${descriptor.kind}/${error.scenarioId}`);
-      }
-      throw new Error(`Phase 2 stage failed: ${descriptor.kind}-completion-fixture`);
+      return commonCompletionFailure(descriptor.kind, error);
     });
     return Object.freeze([
       ...results,

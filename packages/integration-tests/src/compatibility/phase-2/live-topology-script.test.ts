@@ -2001,9 +2001,15 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     const completionPattern = patterns.find((pattern) =>
       pattern?.includes('common\\.password\\.policy')
     );
-    const fixturePattern = patterns.find((pattern) => pattern?.includes('completion-fixture'));
+    const fixturePattern = patterns.find((pattern) =>
+      pattern?.includes('completion-(fixture|machine-authority')
+    );
+    const cleanupPattern = patterns.find((pattern) =>
+      pattern?.includes('completion-(owned-app-cleanup|machine-cleanup-result)/')
+    );
     expect(completionPattern).toBeDefined();
     expect(fixturePattern).toBeDefined();
+    expect(cleanupPattern).toBeDefined();
     const completionIds = [
       'common.password.policy',
       'common.google.configured-collision',
@@ -2043,20 +2049,58 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         )
       )
     ).resolves.toEqual([true, true]);
+    const phases = [
+      'machine-authority',
+      'runtime-read',
+      'required-controls',
+      'scenarios',
+      'owned-app-cleanup',
+      'machine-cleanup-result',
+    ];
+    await expect(
+      Promise.all(
+        targets.flatMap((target) =>
+          phases.map(async (phase) =>
+            grepMatches(
+              fixturePattern ?? '',
+              `Phase 2 client credentials command failed (${target}-completion-${phase}).`
+            )
+          )
+        )
+      )
+    ).resolves.toEqual(Array.from({ length: 12 }, () => true));
+    await expect(
+      Promise.all(
+        targets.flatMap((target) =>
+          ['owned-app-cleanup', 'machine-cleanup-result'].flatMap((phase) =>
+            completionIds.map(async (id) =>
+              grepMatches(
+                cleanupPattern ?? '',
+                `Phase 2 client credentials command failed (${target}-completion-${phase}/${id}).`
+              )
+            )
+          )
+        )
+      )
+    ).resolves.toEqual(Array.from({ length: 56 }, () => true));
     const rejected = [
       'Phase 2 client credentials command failed (oracle/common.password.policy:private).',
       'Phase 2 client credentials command failed (candidate/common.management.unknown).',
       'Phase 2 client credentials command failed (oracle-completion-fixture-private).',
       'Phase 2 client credentials command failed (candidate/completion-fixture).',
+      'Phase 2 client credentials command failed (oracle-completion-runtime-read/common.password.policy).',
+      'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).',
+      'Phase 2 client credentials command failed (oracle-completion-owned-app-cleanup/common.password.policy:private).',
     ];
     await expect(
       Promise.all(
         rejected.flatMap((line) => [
           grepMatches(completionPattern ?? '', line),
           grepMatches(fixturePattern ?? '', line),
+          grepMatches(cleanupPattern ?? '', line),
         ])
       )
-    ).resolves.toEqual(Array.from({ length: 8 }, () => false));
+    ).resolves.toEqual(Array.from({ length: 21 }, () => false));
   });
 
   it('allows only closed device candidate-invariant stages in final output', async () => {

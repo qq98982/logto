@@ -114,6 +114,31 @@ describe('Phase 2 tracked launcher', () => {
     }
   });
 
+  it('passes only finite Common completion boundary diagnostics', () => {
+    for (const suffix of [
+      'oracle-completion-machine-authority',
+      'candidate-completion-runtime-read',
+      'oracle-completion-required-controls',
+      'candidate-completion-scenarios',
+      'oracle-completion-owned-app-cleanup',
+      'candidate-completion-machine-cleanup-result',
+      'oracle-completion-owned-app-cleanup/common.management.provisioning-convergence',
+      'candidate-completion-machine-cleanup-result/common.account.google-link',
+    ]) {
+      const stderr = `Phase 2 client credentials command failed (${suffix}).\n`;
+      expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+    }
+    for (const stderr of [
+      'Phase 2 client credentials command failed (oracle-completion-runtime-read/private).\n',
+      'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).\n',
+      'Phase 2 client credentials command failed (candidate-completion-runtime-read/common.account.google-link).\n',
+    ]) {
+      expect(diagnosticForPhase2Child(stderr)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+    }
+  });
+
   it('identifies only closed batch failure modes', async () => {
     expect(diagnosticForPhase2Batch(new Error('differential'))).toBe(
       'Phase 2 client credentials batch failed (differential).\n'

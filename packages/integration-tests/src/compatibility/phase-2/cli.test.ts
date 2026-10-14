@@ -14,6 +14,7 @@ import path from 'node:path';
 
 import { writeSecureJsonArtifact } from '../phase-1/secure-evidence-sink.js';
 
+import { recordCommonCompletionBoundaryFailure } from './browser/common-completion-target-driver.js';
 import { commonEmailCodeRegistrationExpectedProjection } from './browser/common-email-code-registration-target-driver.js';
 import { commonEmailCodeExpectedProjection } from './browser/common-email-code-sign-in.js';
 import { commonEmailPasswordRegistrationExpectedProjection } from './browser/common-email-password-registration-target-driver.js';
@@ -50,6 +51,7 @@ import {
   commonReadyScenarioFailure,
   commonGoogleProjectionScenarioFailure,
   commonAdditionProjectionScenarioFailure,
+  commonCompletionFailure,
   commonEmailPasswordScenarioFailure,
   commonManagementScenarioFailure,
   deviceIdClaimKeysDifferenceDiagnostic,
@@ -71,11 +73,46 @@ import {
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
 import { phase2ExpectedBaseAcceptance, type Phase2ProfileRegistries } from './profile.js';
 import { validatePhase2TargetDescriptor } from './runtime.js';
+import { CommonCompletionScenarioFailure } from './scenarios/common-completion-runner.js';
 import { commonCompletionScenarioIds } from './scenarios/common-completion.js';
 import { commonEmailPasswordExpectedProjection } from './scenarios/common-email-password.js';
 import { commonGoogleExistingOwnerExpectedProjection } from './scenarios/common-google-existing-owner.js';
 import { commonWechatWebExpectedProjection } from './scenarios/common-wechat-web.js';
 import { commonGoogleRegistrationTestProjection } from './testing/common-google-registration-projection.js';
+
+describe('Common completion boundary diagnostics', () => {
+  it('keeps an ordinary scenario failure on the existing row diagnostic', () => {
+    expect(() =>
+      commonCompletionFailure(
+        'oracle',
+        new CommonCompletionScenarioFailure('common.management.connectors-experience')
+      )
+    ).toThrow('Phase 2 scenario failed: oracle/common.management.connectors-experience');
+  });
+
+  it('reports cleanup masking with both its finite phase and known row', () => {
+    const error = recordCommonCompletionBoundaryFailure(
+      new AggregateError([new TypeError('private row and credential detail')], 'cleanup failed'),
+      'owned-app-cleanup',
+      'common.account.wechat-link'
+    );
+    expect(() => commonCompletionFailure('candidate', error)).toThrow(
+      'Phase 2 stage failed: candidate-completion-owned-app-cleanup/common.account.wechat-link'
+    );
+  });
+
+  it('collapses an unclassified error without reading its message', () => {
+    const error = new Error('placeholder');
+    Object.defineProperty(error, 'message', {
+      get: () => {
+        throw new Error('message must not be read');
+      },
+    });
+    expect(() => commonCompletionFailure('oracle', error)).toThrow(
+      'Phase 2 stage failed: oracle-completion-fixture'
+    );
+  });
+});
 
 describe('Common Management scenario failure diagnostics', () => {
   it('preserves the exact mutation status and error through the target and CLI path', () => {
