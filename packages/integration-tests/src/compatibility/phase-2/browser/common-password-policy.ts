@@ -37,6 +37,33 @@ export type CommonPasswordPolicyProjection = Readonly<{
   oldPasswordAccepted: true;
   policyRestored: true;
 }>;
+export const commonPasswordPolicyFailurePhases = [
+  'initialization',
+  'local-policy',
+  'compromise-compromised',
+  'compromise-clear',
+  'compromise-unavailable',
+  'recovery',
+  'cleanup-policy',
+] as const;
+export type CommonPasswordPolicyFailurePhase = (typeof commonPasswordPolicyFailurePhases)[number];
+const passwordPolicyFailures = new WeakMap<WeakKey, CommonPasswordPolicyFailurePhase>();
+const errorKey = (error: unknown): WeakKey | undefined =>
+  (typeof error === 'object' && error !== null) || typeof error === 'function' ? error : undefined;
+export const getCommonPasswordPolicyFailurePhase = (
+  error: unknown
+): CommonPasswordPolicyFailurePhase | undefined => {
+  const key = errorKey(error);
+  return key ? passwordPolicyFailures.get(key) : undefined;
+};
+export const createCommonPasswordPolicyExecutionFailure = (
+  phase: CommonPasswordPolicyFailurePhase,
+  stage: 'execution' | 'cleanup-policy'
+): TypeError => {
+  const error = new TypeError(`Invalid Common password policy flow (${stage})`);
+  passwordPolicyFailures.set(error, phase);
+  return error;
+};
 
 const fail = (stage: string): never => {
   throw new TypeError(`Invalid Common password policy flow (${stage})`);
@@ -131,6 +158,7 @@ export const runCommonPasswordPolicyForTarget = async (
     takeRecoveryCode(email: string): Promise<string>;
   }>
 ): Promise<CommonPasswordPolicyProjection> => {
+  let failurePhase: CommonPasswordPolicyFailurePhase = 'initialization';
   const status = input.fixture.status ?? fail('fixture');
   const previousExperience = object(
     await input.request({
@@ -209,8 +237,10 @@ export const runCommonPasswordPolicyForTarget = async (
   const before = await userSnapshot();
   let projection: CommonPasswordPolicyProjection | undefined;
   let bodyFailure: unknown;
+  let bodyFailurePhase: CommonPasswordPolicyFailurePhase | undefined;
   try {
     await setRegistration({ identifiers: ['email'], password: true, verify: true });
+    failurePhase = 'local-policy';
     await setPolicy(localPolicy);
     const registration = async (password: string) =>
       withInteraction(
@@ -246,8 +276,11 @@ export const runCommonPasswordPolicyForTarget = async (
         registration(password)
       );
     };
+    failurePhase = 'compromise-compromised';
     const compromised = await compromise('compromised');
+    failurePhase = 'compromise-clear';
     const compromiseClear = await compromise('clear');
+    failurePhase = 'compromise-unavailable';
     const lookupUnavailable = await compromise('unavailable');
     if (
       compromised.status !== 422 ||
@@ -260,6 +293,7 @@ export const runCommonPasswordPolicyForTarget = async (
     if (!isDeepStrictEqual(await userSnapshot(), before)) {
       return fail('registration-state');
     }
+    failurePhase = 'recovery';
     await setPolicy(localPolicy);
     const recovery = await withSelectedEmailRecoveryFixture({
       fixture: input.fixture,
@@ -364,7 +398,13 @@ export const runCommonPasswordPolicyForTarget = async (
     });
   } catch (error: unknown) {
     bodyFailure = error;
+    bodyFailurePhase = failurePhase;
+    const key = errorKey(error);
+    if (key) {
+      passwordPolicyFailures.set(key, failurePhase);
+    }
   }
+  failurePhase = 'cleanup-policy';
   try {
     await input.request({
       method: 'PATCH',
@@ -388,7 +428,7 @@ export const runCommonPasswordPolicyForTarget = async (
       return fail('policy-readback');
     }
   } catch {
-    return fail('cleanup-policy');
+    throw createCommonPasswordPolicyExecutionFailure('cleanup-policy', 'cleanup-policy');
   }
   if (bodyFailure) {
     if (
@@ -397,7 +437,10 @@ export const runCommonPasswordPolicyForTarget = async (
     ) {
       throw bodyFailure;
     }
-    return fail('execution');
+    throw createCommonPasswordPolicyExecutionFailure(
+      bodyFailurePhase ?? 'initialization',
+      'execution'
+    );
   }
   return projection ?? fail('result');
 };

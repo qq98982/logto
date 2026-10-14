@@ -164,12 +164,26 @@ describe('Phase 2 tracked launcher', () => {
       const stderr = `Phase 2 client credentials command failed (${suffix}).\n`;
       expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
     }
+    for (const phase of [
+      'initialization',
+      'local-policy',
+      'compromise-compromised',
+      'compromise-clear',
+      'compromise-unavailable',
+      'recovery',
+      'cleanup-policy',
+    ]) {
+      const stderr = `Phase 2 client credentials command failed (oracle/common.password.policy/${phase}).\n`;
+      expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+    }
     for (const stderr of [
       'Phase 2 client credentials command failed (oracle-completion-runtime-read/private).\n',
       'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).\n',
       'Phase 2 client credentials command failed (candidate-completion-runtime-read/common.account.google-link).\n',
       'Phase 2 client credentials command failed (oracle/common.password.unknown).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy:private).\n',
+      'Phase 2 client credentials command failed (candidate/common.password.policy/private).\n',
+      'Phase 2 client credentials command failed (candidate/common.password.policy/recovery/private).\n',
       'prefix Phase 2 client credentials command failed (oracle/common.password.policy).\n',
       'Phase 2 client credentials command failed (oracle/common.password.policy).\nprivate',
     ]) {

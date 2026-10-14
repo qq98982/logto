@@ -220,6 +220,8 @@ const closedCommonCompletionScenarioIds = new Set([
   'common.management.provisioning-convergence',
   'common.session.logout-preservation',
 ]);
+const commonPasswordPolicyPhasePattern =
+  /^(?:initialization|local-policy|compromise-(?:compromised|clear|unavailable)|recovery|cleanup-policy)$/u;
 const deviceIdClaimKeysDifferencePattern = new RegExp(
   `^Phase 2 client credentials command failed \\((oracle|candidate)\\/(device-(?:authorization|verification|consent|token|token-status|discovery)\\.[a-z-]+):projection-id-claimKeys\\)\\.\\nPhase 2 device ID claimKeys differ \\(only on oracle: ${closedIdClaimSet}; only on candidate: ${closedIdClaimSet}\\)\\.\\n$`,
   'u'
@@ -244,6 +246,13 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (commonCompletionMatch && closedCommonCompletionScenarioIds.has(commonCompletionMatch[2])) {
+    return stderr;
+  }
+  const passwordPolicyMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(common\.password\.policy)\/([a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (passwordPolicyMatch && commonPasswordPolicyPhasePattern.test(passwordPolicyMatch[3])) {
     return stderr;
   }
   const statusMatch =

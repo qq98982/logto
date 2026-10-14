@@ -38,6 +38,20 @@ describe('Common completion boundary diagnostics', () => {
     expect(cleanupError.errors[0]).toBe(bodyError);
   });
 
+  it('retains the direct password-policy phase across the target scenario boundary', () => {
+    const error = new CommonCompletionScenarioFailure(
+      'common.password.policy',
+      'compromise-unavailable'
+    );
+
+    expect(recordCommonCompletionBoundaryFailure(error, 'scenarios')).toBe(error);
+    expect(getCommonCompletionBoundaryFailure(error)).toEqual({
+      phase: 'scenarios',
+      scenarioId: 'common.password.policy',
+      passwordPolicyPhase: 'compromise-unavailable',
+    });
+  });
+
   it('does not derive diagnostics from arbitrary aggregate members', () => {
     const error = new AggregateError(
       [new CommonCompletionScenarioFailure('common.account.wechat-link')],

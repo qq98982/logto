@@ -4,7 +4,9 @@ import type { JSONWebKeySet } from 'jose';
 import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
 import {
+  getCommonPasswordPolicyFailurePhase,
   runCommonPasswordPolicyForTarget,
+  type CommonPasswordPolicyFailurePhase,
   type PasswordCompromiseFixture,
 } from '../browser/common-password-policy.js';
 import {
@@ -63,7 +65,10 @@ export type CommonCompletionFixtureRuntime = Readonly<{
   takePasswordRecoveryCode(recipient: string): Promise<string>;
 }>;
 export class CommonCompletionScenarioFailure extends Error {
-  constructor(readonly scenarioId: CommonCompletionScenarioId) {
+  constructor(
+    readonly scenarioId: CommonCompletionScenarioId,
+    readonly passwordPolicyPhase?: CommonPasswordPolicyFailurePhase
+  ) {
     super(`Common completion scenario failed: ${scenarioId}`);
     this.name = 'CommonCompletionScenarioFailure';
   }
@@ -180,8 +185,13 @@ export const runCommonCompletionScenariosForTarget = async (
       }
       assertCommonCompletionProjection(id, projection);
       results.push(Object.freeze({ id, projection }));
-    } catch {
-      throw new CommonCompletionScenarioFailure(id);
+    } catch (error: unknown) {
+      throw new CommonCompletionScenarioFailure(
+        id,
+        id === 'common.password.policy'
+          ? (getCommonPasswordPolicyFailurePhase(error) ?? 'initialization')
+          : undefined
+      );
     }
   }
   return Object.freeze(results);

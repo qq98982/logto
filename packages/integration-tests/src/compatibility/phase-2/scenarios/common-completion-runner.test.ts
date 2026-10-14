@@ -30,6 +30,7 @@ test('reports the failed approved row without exposing its private fixture error
   await expect(result).rejects.toBeInstanceOf(CommonCompletionScenarioFailure);
   await expect(result).rejects.toMatchObject({
     scenarioId: 'common.password.policy',
+    passwordPolicyPhase: 'initialization',
     message: 'Common completion scenario failed: common.password.policy',
   });
 });

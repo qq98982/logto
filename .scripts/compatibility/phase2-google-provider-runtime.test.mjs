@@ -135,6 +135,7 @@ test('runner forwards exact Common failures and ignores other diagnostic text', 
         (target) => `Phase 2 client credentials command failed (${target}/${id}).`
       )
     );
+    accepted.push('Phase 2 client credentials command failed (oracle/common.password.policy/compromise-clear).');
     accepted.push('Phase 2 client credentials command failed (candidate-completion-fixture).');
     accepted.push('Phase 2 client credentials command failed (oracle-completion-runtime-read).');
     accepted.push('Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.account.wechat-link).');
@@ -146,6 +147,7 @@ test('runner forwards exact Common failures and ignores other diagnostic text', 
         'Phase 2 client credentials command failed (candidate/common.google.existing-owner): private-secret.',
         'Phase 2 client credentials command failed (oracle-completion-runtime-read/private-secret).',
         'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).',
+        'Phase 2 client credentials command failed (oracle/common.password.policy/private).',
       ].join('\n')}\n`,
       { mode: 0o600 }
     );

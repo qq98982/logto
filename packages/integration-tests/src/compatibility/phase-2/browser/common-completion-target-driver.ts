@@ -13,6 +13,7 @@ import {
 import type { CommonCompletionScenarioId } from '../scenarios/common-completion.js';
 
 import { readCommonCompletionFixtureRuntime } from './common-completion-fixture-runtime.js';
+import type { CommonPasswordPolicyFailurePhase } from './common-password-policy.js';
 import { withManagementProvisioningFixtureRuntime } from './management-provisioning-fixture-runtime.js';
 
 const fail = (): never => {
@@ -31,6 +32,7 @@ export type CommonCompletionBoundaryPhase = (typeof commonCompletionBoundaryPhas
 type CommonCompletionBoundaryFailure = Readonly<{
   phase: CommonCompletionBoundaryPhase;
   scenarioId?: CommonCompletionScenarioId;
+  passwordPolicyPhase?: CommonPasswordPolicyFailurePhase;
 }>;
 const boundaryFailures = new WeakMap<WeakKey, CommonCompletionBoundaryFailure>();
 
@@ -48,7 +50,11 @@ const directBoundaryFailure = (error: unknown): CommonCompletionBoundaryFailure 
       return recorded;
     }
     if (error instanceof CommonCompletionScenarioFailure) {
-      return Object.freeze({ phase: 'scenarios', scenarioId: error.scenarioId });
+      return Object.freeze({
+        phase: 'scenarios',
+        scenarioId: error.scenarioId,
+        ...(error.passwordPolicyPhase ? { passwordPolicyPhase: error.passwordPolicyPhase } : {}),
+      });
     }
   } catch {
     return undefined;
@@ -67,9 +73,15 @@ export const recordCommonCompletionBoundaryFailure = <T>(
   }
   const direct = directBoundaryFailure(error);
   const selectedScenarioId = scenarioId ?? direct?.scenarioId;
+  const passwordPolicyPhase =
+    selectedScenarioId === 'common.password.policy' ? direct?.passwordPolicyPhase : undefined;
   boundaryFailures.set(
     key,
-    Object.freeze({ phase, ...(selectedScenarioId ? { scenarioId: selectedScenarioId } : {}) })
+    Object.freeze({
+      phase,
+      ...(selectedScenarioId ? { scenarioId: selectedScenarioId } : {}),
+      ...(passwordPolicyPhase ? { passwordPolicyPhase } : {}),
+    })
   );
   return error;
 };

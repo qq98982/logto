@@ -90,6 +90,15 @@ describe('Common completion boundary diagnostics', () => {
     ).toThrow('Phase 2 scenario failed: oracle/common.management.connectors-experience');
   });
 
+  it('reports the finite password-policy phase without exposing the original failure', () => {
+    expect(() =>
+      commonCompletionFailure(
+        'oracle',
+        new CommonCompletionScenarioFailure('common.password.policy', 'compromise-unavailable')
+      )
+    ).toThrow('Phase 2 scenario failed: oracle/common.password.policy/compromise-unavailable');
+  });
+
   it('reports cleanup masking with both its finite phase and known row', () => {
     const error = recordCommonCompletionBoundaryFailure(
       new AggregateError([new TypeError('private row and credential detail')], 'cleanup failed'),
@@ -2566,6 +2575,134 @@ describe('Phase 2 CLI', () => {
       await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
     }
   );
+
+  it.each(
+    (['oracle', 'candidate'] as const).flatMap((target) =>
+      [
+        'initialization',
+        'local-policy',
+        'compromise-compromised',
+        'compromise-clear',
+        'compromise-unavailable',
+        'recovery',
+        'cleanup-policy',
+      ].map((phase) => [target, phase] as const)
+    )
+  )('reports the exact %s password-policy phase %s through CLI main', async (target, phase) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      executeOracle: async () => {
+        throw new TypeError(`Phase 2 scenario failed: ${target}/common.password.policy/${phase}`);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      `stderr:Phase 2 client credentials command failed (${target}/common.password.policy/${phase}).`
+    );
+  });
+
+  it.each([
+    'initialization',
+    'local-policy',
+    'compromise-compromised',
+    'compromise-clear',
+    'compromise-unavailable',
+    'recovery',
+    'cleanup-policy',
+  ])(
+    'preserves candidate password-policy phase %s through differential execution',
+    async (phase) => {
+      const calls: string[] = [];
+      const base = dependencies(calls);
+      const code = await runPhase2CliMain(
+        [
+          'differential',
+          '--profile',
+          profilePath,
+          '--schema',
+          schemaPath,
+          '--oracle-evidence',
+          oracleTargetPath,
+          '--candidate-target',
+          candidateTargetPath,
+          '--output',
+          path.join(root, 'phase-2-client-credentials-differential.json'),
+          '--temp-root',
+          root,
+        ],
+        undefined,
+        {
+          ...base,
+          executeDifferential: async () => {
+            throw new TypeError(
+              `Phase 2 scenario failed: candidate/common.password.policy/${phase}`
+            );
+          },
+        }
+      );
+
+      expect(code).toBe(1);
+      expect(calls).toContain(
+        `stderr:Phase 2 client credentials command failed (candidate/common.password.policy/${phase}).`
+      );
+    }
+  );
+
+  it.each([
+    'oracle/common.password.policy/private',
+    'candidate/common.password.policy/recovery/private',
+    'oracle/common.account.google-link/recovery',
+    'candidate/common.password.policy/cleanup-policy:private',
+  ])('rejects a non-approved phased scenario diagnostic %s', async (detail) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      executeOracle: async () => {
+        throw new TypeError(`Phase 2 scenario failed: ${detail}`);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-execution).');
+  });
+
+  it('rejects a private password-policy phase through differential execution', async () => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        path.join(root, 'phase-2-client-credentials-differential.json'),
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...base,
+        executeDifferential: async () => {
+          throw new TypeError('Phase 2 scenario failed: candidate/common.password.policy/private');
+        },
+      }
+    );
+
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (differential-execution).'
+    );
+  });
 
   it('preserves an exact closed verification-code scenario failure for the launcher', async () => {
     const output = path.join(root, 'phase-2-client-credentials-differential.json');
