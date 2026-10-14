@@ -457,15 +457,19 @@ export const withSelectedNativeFixture = async <Result>(
           : new AggregateError([bodyError, restoreError], diagnostic);
     }
   }
-  if (target.label === 'oracle') {
-    try {
-      await cleanupSelectedNative(options.request, cleanup);
-    } catch (cleanupError: unknown) {
-      if (bodyError !== undefined) {
-        throw new AggregateError([bodyError, cleanupError], diagnostic);
-      }
-      throw cleanupError;
+  // Releasing the owned user also releases its provider identity before the next Native attempt.
+  // Candidate application/resource deletion belongs to the enclosing allocation teardown.
+  const supportedCleanup =
+    target.label === 'oracle'
+      ? cleanup
+      : cleanup.filter(({ path }) => path.startsWith('users/') || path.startsWith('roles/'));
+  try {
+    await cleanupSelectedNative(options.request, supportedCleanup);
+  } catch (cleanupError: unknown) {
+    if (bodyError !== undefined) {
+      throw new AggregateError([bodyError, cleanupError], diagnostic);
     }
+    throw cleanupError;
   }
   if (bodyError !== undefined) {
     throw bodyError instanceof Error ? bodyError : new Error(diagnostic);

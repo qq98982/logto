@@ -131,11 +131,12 @@ const management = (
     malformedPolicyResponse?: boolean;
     throwAfterPolicyMutation?: boolean;
     allowNamespaced?: boolean;
+    identityId?: string;
     observeMethods?(methods: ReadonlyArray<Readonly<Record<string, unknown>>>): void;
   }> = {}
 ): Phase2AdminRequestFunction => {
   let selectedResource = resource;
-  let selectedIdentity = identity;
+  let selectedIdentity = { ...identity, id: options.identityId ?? identity.id };
   let methods = [
     {
       identifier: 'username',
@@ -190,6 +191,7 @@ const management = (
       if (options.allowNamespaced) {
         selectedIdentity = {
           ...identity,
+          id: options.identityId ?? identity.id,
           primaryEmail: String(Reflect.get(body ?? {}, 'primaryEmail')),
         };
       }
@@ -285,7 +287,7 @@ describe('selected Native public Management fixture', () => {
     expect(operations).toContain('GET applications/native-client');
   });
 
-  it('creates candidate metadata without unsupported DELETEs or changing coordinator public', async () => {
+  it('releases Candidate owners and roles while enclosing teardown owns applications and resources', async () => {
     const base = fixture();
     const requests: Phase2AdminRequest[] = [];
     await withSelectedNativeFixture(
@@ -328,6 +330,8 @@ describe('selected Native public Management fixture', () => {
       'GET roles/native-role/scopes',
       'GET users',
       'PATCH sign-in-exp',
+      'DELETE users/native-user',
+      'DELETE roles/native-role',
     ]);
     expect(requests[1]?.body).toEqual({
       signIn: {
@@ -347,7 +351,101 @@ describe('selected Native public Management fixture', () => {
         ],
       },
     });
-    expect(requests.some(({ method }) => method === 'DELETE')).toBe(false);
+    expect(requests.filter(({ method }) => method === 'DELETE').map(({ path }) => path)).toEqual([
+      'users/native-user',
+      'roles/native-role',
+    ]);
+  });
+
+  it('releases a prior Native provider owner before another scoped attempt and preserves foreign owners', async () => {
+    const owners = new Map([['foreign-provider-subject', 'foreign-owner']]);
+    const associateOwner = async (selected: ProvisionedPhase2Fixture) => {
+      const { selectedNative } = selected.public;
+      if (!selectedNative) {
+        throw new Error('missing selected Native');
+      }
+      expect(owners.has('selected-native-provider-subject')).toBe(false);
+      owners.set('selected-native-provider-subject', selectedNative.identity.id);
+    };
+    for (const [index, namespace] of ['wechat-native', 'logout-wechat-native-0'].entries()) {
+      const requests: Phase2AdminRequest[] = [];
+      const request = management(requests, {
+        allowNamespaced: true,
+        identityId: `native-owner-${index}`,
+      });
+      // eslint-disable-next-line no-await-in-loop -- Provider ownership must be released between the real scoped fixture boundaries.
+      await withSelectedNativeFixture(
+        fixture(),
+        {
+          target: candidate,
+          namespace,
+          request: async (input) => {
+            const result = await request(input);
+            if (input.method === 'DELETE' && input.path.startsWith('users/')) {
+              for (const [subject, owner] of owners) {
+                if (input.path === `users/${owner}`) {
+                  owners.delete(subject);
+                }
+              }
+            }
+            return result;
+          },
+        },
+        associateOwner
+      );
+      expect([...owners]).toEqual([['foreign-provider-subject', 'foreign-owner']]);
+    }
+  });
+
+  it('compensates Candidate owners and roles after a body failure without replacing that failure', async () => {
+    const requests: Phase2AdminRequest[] = [];
+    const failure = new Error('selected Native body failed');
+    await expect(
+      withSelectedNativeFixture(
+        fixture(),
+        { request: management(requests), target: candidate },
+        async () => {
+          throw failure;
+        }
+      )
+    ).rejects.toBe(failure);
+    expect(requests.filter(({ method }) => method === 'DELETE').map(({ path }) => path)).toEqual([
+      'users/native-user',
+      'roles/native-role',
+    ]);
+  });
+
+  it('attempts the remaining Candidate role cleanup and preserves body and owner-cleanup errors', async () => {
+    const requests: Phase2AdminRequest[] = [];
+    const request = management(requests);
+    const bodyFailure = new Error('selected Native body failed');
+    const cleanupFailure = new Error('selected Native owner cleanup failed');
+    const failure = await withSelectedNativeFixture(
+      fixture(),
+      {
+        target: candidate,
+        request: async (input) => {
+          const result = await request(input);
+          if (input.method === 'DELETE' && input.path === 'users/native-user') {
+            throw cleanupFailure;
+          }
+          return result;
+        },
+      },
+      async () => {
+        throw bodyFailure;
+      }
+    ).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors[0]).toBe(bodyFailure);
+    expect((failure as AggregateError).errors[1]).toBeInstanceOf(AggregateError);
+    expect(((failure as AggregateError).errors[1] as AggregateError).errors).toEqual([
+      cleanupFailure,
+    ]);
+    expect(requests.filter(({ method }) => method === 'DELETE').map(({ path }) => path)).toEqual([
+      'users/native-user',
+      'roles/native-role',
+    ]);
   });
 
   it('reuses one active password lease and revokes its getter after the Admin callback', async () => {
