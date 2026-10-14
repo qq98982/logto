@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Mutable in-memory catalogs make cleanup order observable. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The cohesive catalog lease tests keep ownership, preservation, and cleanup assertions together. */
 import type { Phase2AdminRequest } from '../fixtures.js';
 
 import {
@@ -160,15 +160,23 @@ test('ownership refusal requires the pinned client refusal, preserved state, and
       expect(applicationId).toBe('foreign-owned-application');
     }
   );
-
   await expect(observe()).resolves.toBe(true);
   expect(selectedCreateShapeObserved).toBe(true);
   expect(cleanupCompleted).toBe(true);
 });
-test('lease uses private cleanup only for validated applications and resource and preserves connector state', async () => {
+test('lease preserves unrelated same-named resource scopes and cleans only validated owned rows', async () => {
   const rows: Record<string, Array<Record<string, unknown>>> = {
     roles: [{ id: 'old-role' }],
-    resources: [{ id: 'old-resource' }],
+    resources: [
+      {
+        id: 'old-resource',
+        name: 'Unrelated Native resource',
+        indicator: 'https://another.example/api',
+        scopes: [
+          { id: 'old-scope', name: 'session:exchange', description: 'Unrelated application scope' },
+        ],
+      },
+    ],
     applications: [{ id: 'old-application' }],
     connectors: [{ id: 'old-connector', config: { clientId: 'before' } }],
   };
@@ -217,7 +225,7 @@ test('lease uses private cleanup only for validated applications and resource an
     },
     bearer: 'private-management-bearer',
     globalEnvironment: {},
-    chinaNativeEnvironment: {},
+    chinaNativeEnvironment: { BOX_AI_WECHAT_CHANNELS: 'native' },
     withForeignManagementControls: async <Result>(
       use: (controls: {
         userId: string;
@@ -297,7 +305,6 @@ test('lease uses private cleanup only for validated applications and resource an
       responseKind: 'object',
     },
   ]);
-
   mutations.splice(0);
   await expect(
     withManagementProvisioningFixtureRuntime(input, async () => {
@@ -340,46 +347,60 @@ test('lease uses private cleanup only for validated applications and resource an
     ])
   );
 });
-test('refuses a preexisting selected provisioning namespace before running the lease body', async () => {
-  let bodyCalled = false;
-  // This fake is local so the test's occupied namespace remains explicit.
-  // eslint-disable-next-line unicorn/consistent-function-scoping
-  const request = async ({ path }: Phase2AdminRequest): Promise<unknown> => {
-    if (path === 'applications') {
-      return [{ id: 'existing', name: 'Box-AI' }];
-    }
-    if (path === 'sign-in-exp') {
-      return { signIn: { methods: [] } };
-    }
-    return [];
-  };
-  await expect(
-    withManagementProvisioningFixtureRuntime(
-      {
-        target: {
-          label: 'candidate',
-          coreUrl: 'https://core.example/',
-          adminUrl: 'https://admin.example/',
-        },
-        bearer: 'private-management-bearer',
-        globalEnvironment: { BOX_AI_GOOGLE_CLIENT_ID: 'configured' },
-        chinaNativeEnvironment: {},
-        withForeignManagementControls: async (use) =>
-          use({
-            userId: 'foreign-user',
-            connectorId: 'foreign-connector',
-            applicationId: 'foreign-application',
-          }),
-        cleanupProvisioningRows: async () => {
-          await Promise.resolve();
-        },
-        request,
-      },
-      async () => {
-        bodyCalled = true;
+test.each([
+  { path: 'applications', row: { id: 'existing', name: 'Box-AI' } },
+  {
+    path: 'applications',
+    row: { id: 'existing', description: 'Managed by the Box-AI deployment' },
+  },
+  { path: 'resources', row: { id: 'existing', name: 'Box-AI Native Session API' } },
+  { path: 'resources', row: { id: 'existing', indicator: 'https://core.example/api' } },
+  { path: 'roles', row: { id: 'existing', name: 'Box-AI Native Session User' } },
+  { path: 'connectors', row: { id: 'existing', connectorId: 'google-universal' } },
+])(
+  'refuses a preexisting selected provisioning namespace before running the lease body: $path $row',
+  async ({ path: occupiedPath, row }) => {
+    let bodyCalled = false;
+    const request = async ({ path }: Phase2AdminRequest): Promise<unknown> => {
+      if (path === occupiedPath) {
+        return [row];
       }
-    )
-  ).rejects.toThrow('Invalid Management provisioning fixture runtime');
-  expect(bodyCalled).toBe(false);
-});
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+      if (path === 'connectors/existing') {
+        return row;
+      }
+      if (path === 'sign-in-exp') {
+        return { signIn: { methods: [] } };
+      }
+      return [];
+    };
+    await expect(
+      withManagementProvisioningFixtureRuntime(
+        {
+          target: {
+            label: 'candidate',
+            coreUrl: 'https://core.example/',
+            adminUrl: 'https://admin.example/',
+          },
+          bearer: 'private-management-bearer',
+          globalEnvironment: { BOX_AI_GOOGLE_CLIENT_ID: 'configured' },
+          chinaNativeEnvironment: { BOX_AI_WECHAT_CHANNELS: 'native' },
+          withForeignManagementControls: async (use) =>
+            use({
+              userId: 'foreign-user',
+              connectorId: 'foreign-connector',
+              applicationId: 'foreign-application',
+            }),
+          cleanupProvisioningRows: async () => {
+            await Promise.resolve();
+          },
+          request,
+        },
+        async () => {
+          bodyCalled = true;
+        }
+      )
+    ).rejects.toThrow('Invalid Management provisioning fixture runtime');
+    expect(bodyCalled).toBe(false);
+  }
+);
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

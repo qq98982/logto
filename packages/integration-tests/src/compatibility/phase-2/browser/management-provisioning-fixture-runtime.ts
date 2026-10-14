@@ -279,14 +279,11 @@ const assertEmptyManagedNamespace = (
       const description = field(row, 'description');
       const indicator = field(row, 'indicator');
       const connectorId = field(row, 'connectorId');
-      const scopes = field(row, 'scopes');
       return (
         (typeof name === 'string' && managedNames.has(name)) ||
         (typeof description === 'string' && managedDescriptions.has(description)) ||
         (provisionsNativeResource && indicator === nativeResourceIndicator) ||
-        (typeof connectorId === 'string' && managedFactories.has(connectorId)) ||
-        (Array.isArray(scopes) &&
-          scopes.some((scope) => field(scope, 'name') === 'session:exchange'))
+        (typeof connectorId === 'string' && managedFactories.has(connectorId))
       );
     })
   );
