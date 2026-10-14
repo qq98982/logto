@@ -2041,6 +2041,24 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toEqual(Array.from({ length: 28 }, () => true));
     await expect(
       Promise.all(
+        targets.flatMap((target) =>
+          [
+            'discovery',
+            'authority',
+            'google-accepted-rp-session-preparation',
+            'email-code-rejected-rp-observation',
+            'wechat-native-account-cleanup',
+          ].map(async (phase) =>
+            grepMatches(
+              completionPattern ?? '',
+              `Phase 2 client credentials command failed (${target}/common.session.logout-preservation/${phase}).`
+            )
+          )
+        )
+      )
+    ).resolves.toEqual(Array.from({ length: 10 }, () => true));
+    await expect(
+      Promise.all(
         targets.map(async (target) =>
           grepMatches(
             fixturePattern ?? '',
@@ -2091,6 +2109,8 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (oracle-completion-runtime-read/common.password.policy).',
       'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).',
       'Phase 2 client credentials command failed (oracle-completion-owned-app-cleanup/common.password.policy:private).',
+      'Phase 2 client credentials command failed (oracle/common.session.logout-preservation/private).',
+      'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-account-cleanup-secret).',
     ];
     await expect(
       Promise.all(
@@ -2100,7 +2120,7 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           grepMatches(cleanupPattern ?? '', line),
         ])
       )
-    ).resolves.toEqual(Array.from({ length: 21 }, () => false));
+    ).resolves.toEqual(Array.from({ length: rejected.length * 3 }, () => false));
   });
 
   it('allows only closed device candidate-invariant stages in final output', async () => {

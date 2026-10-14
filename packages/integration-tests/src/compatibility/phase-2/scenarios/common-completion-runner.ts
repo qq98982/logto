@@ -10,7 +10,9 @@ import {
   type PasswordCompromiseFixture,
 } from '../browser/common-password-policy.js';
 import {
+  getCommonSessionLogoutFailurePhase,
   runCommonSessionLogoutForTarget,
+  type CommonSessionLogoutFailurePhase,
   type CommonSessionLogoutFixtureRuntime,
 } from '../browser/common-session-logout-target-driver.js';
 import { runCommonSocialAccountForTarget } from '../browser/common-social-account-target-driver.js';
@@ -67,7 +69,8 @@ export type CommonCompletionFixtureRuntime = Readonly<{
 export class CommonCompletionScenarioFailure extends Error {
   constructor(
     readonly scenarioId: CommonCompletionScenarioId,
-    readonly passwordPolicyPhase?: CommonPasswordPolicyFailurePhase
+    readonly passwordPolicyPhase?: CommonPasswordPolicyFailurePhase,
+    readonly logoutPhase?: CommonSessionLogoutFailurePhase
   ) {
     super(`Common completion scenario failed: ${scenarioId}`);
     this.name = 'CommonCompletionScenarioFailure';
@@ -190,6 +193,9 @@ export const runCommonCompletionScenariosForTarget = async (
         id,
         id === 'common.password.policy'
           ? (getCommonPasswordPolicyFailurePhase(error) ?? 'initialization')
+          : undefined,
+        id === 'common.session.logout-preservation'
+          ? (getCommonSessionLogoutFailurePhase(error) ?? 'authority')
           : undefined
       );
     }

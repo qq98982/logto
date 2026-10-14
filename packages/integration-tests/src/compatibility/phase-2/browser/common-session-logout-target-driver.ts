@@ -1,4 +1,4 @@
-/* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- Three existing identity entries share one owned application and receiver boundary. */
+/* eslint-disable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation -- Three existing identity entries share one owned application and receiver boundary. */
 import { isDeepStrictEqual } from 'node:util';
 
 import type { JSONWebKeySet } from 'jose';
@@ -49,6 +49,35 @@ export type CommonSessionLogoutFixtureRuntime = Readonly<{
 }>;
 const fail = (): never => {
   throw new TypeError('Invalid Common logout target composition');
+};
+const logoutMethods = ['google', 'email-code', 'wechat-native'] as const;
+const logoutAttempts = ['accepted-rp', 'rejected-rp', 'account'] as const;
+const logoutBoundaries = ['session-preparation', 'observation', 'cleanup'] as const;
+export const commonSessionLogoutFailurePhases = Object.freeze([
+  'discovery',
+  'authority',
+  ...logoutMethods.flatMap((method) =>
+    logoutAttempts.flatMap((attempt) =>
+      logoutBoundaries.map((boundary) => `${method}-${attempt}-${boundary}` as const)
+    )
+  ),
+]);
+export type CommonSessionLogoutFailurePhase = (typeof commonSessionLogoutFailurePhases)[number];
+const logoutFailures = new WeakMap<WeakKey, CommonSessionLogoutFailurePhase>();
+const errorKey = (error: unknown): WeakKey | undefined =>
+  (typeof error === 'object' && error !== null) || typeof error === 'function' ? error : undefined;
+const recordLogoutFailure = <T>(error: T, phase: CommonSessionLogoutFailurePhase): T => {
+  const key = errorKey(error);
+  if (key) {
+    logoutFailures.set(key, phase);
+  }
+  return error;
+};
+export const getCommonSessionLogoutFailurePhase = (
+  error: unknown
+): CommonSessionLogoutFailurePhase | undefined => {
+  const key = errorKey(error);
+  return key ? logoutFailures.get(key) : undefined;
 };
 const object = (value: unknown): Readonly<Record<string, unknown>> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -147,6 +176,8 @@ export const runCommonSessionLogoutForTarget = async (
       return fail();
     }
     issuer = parsed.href.replace(/\/$/u, '');
+  } catch (error: unknown) {
+    throw recordLogoutFailure(error, 'discovery');
   } finally {
     discovery.close();
   }
@@ -163,113 +194,136 @@ export const runCommonSessionLogoutForTarget = async (
         jwks: input.jwks,
         fetch: requestFetch,
         runtime: {
-          withAttempt: async ({ method, delivery, operation }, use) =>
-            input.runtime.withReceiver(delivery, operation === 'rp', async (receiver) => {
-              const observe = async (owner: OwnedLogoutSession) => use(owner, receiver);
-              if (method === 'google') {
-                return withOwnedGoogleSession({
-                  target: input.target,
-                  fixture,
-                  request,
-                  runtime: input.runtime.google,
-                  expectedIssuer: issuer,
-                  scope,
-                  fetch: requestFetch,
-                  getPassword: () => lease.getSubjectPassword?.() ?? fail(),
-                  withApplication: configureApplication,
-                  use: observe,
-                });
-              }
-              if (method === 'wechat-native') {
-                const namespace = `logout-wechat-native-${nativeAttempt.value++}`;
-                return withOwnedWechatNativeSession(
-                  {
-                    target: input.target,
-                    fixture,
-                    managementRequest: request,
-                    expectedIssuer: issuer,
-                    fetch: requestFetch,
-                    ...input.runtime.native,
-                    namespace,
-                    configureApplication,
-                  },
-                  observe
-                );
-              }
-              return withSelectedEmailCodeFixture({
-                fixture,
-                request,
-                browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
-                use: async (identity) =>
-                  configureApplication(status.client.id, async () => {
-                    const takeCode = lease.takeVerificationCode ?? fail();
-                    const session = await issuePublicIdentitySession(
-                      input.target,
+          withAttempt: async ({ method, delivery, operation }, use) => {
+            const attempt = operation === 'account' ? 'account' : `${delivery}-rp`;
+            let phase = `${method}-${attempt}-session-preparation`;
+            try {
+              return await input.runtime.withReceiver(
+                delivery,
+                operation === 'rp',
+                async (receiver) => {
+                  const observe = async (owner: OwnedLogoutSession) => {
+                    phase = `${method}-${attempt}-observation`;
+                    const result = await use(owner, receiver);
+                    phase = `${method}-${attempt}-cleanup`;
+                    return result;
+                  };
+                  if (method === 'google') {
+                    return withOwnedGoogleSession({
+                      target: input.target,
                       fixture,
-                      createEmailCodeIdentityDriver({ email: identity.primaryEmail, takeCode }),
-                      issuer,
-                      requestFetch,
-                      { scope }
+                      request,
+                      runtime: input.runtime.google,
+                      expectedIssuer: issuer,
+                      scope,
+                      fetch: requestFetch,
+                      getPassword: () => lease.getSubjectPassword?.() ?? fail(),
+                      withApplication: configureApplication,
+                      use: observe,
+                    });
+                  }
+                  if (method === 'wechat-native') {
+                    const namespace = `logout-wechat-native-${nativeAttempt.value++}`;
+                    return withOwnedWechatNativeSession(
+                      {
+                        target: input.target,
+                        fixture,
+                        managementRequest: request,
+                        expectedIssuer: issuer,
+                        fetch: requestFetch,
+                        ...input.runtime.native,
+                        namespace,
+                        configureApplication,
+                      },
+                      observe
                     );
-                    return observe(
-                      Object.freeze({
-                        session,
-                        subject: identity.id,
-                        clientId: status.client.id,
-                        issuer,
-                        withCurrentProof: async <Result>(
-                          useProof: (proofId: string) => Promise<Result>
-                        ) => {
-                          const inputProof = {
-                            target: input.target,
-                            bearer: session.access,
-                            email: identity.primaryEmail,
-                          };
-                          const requested = await requestAccountEmailProof(
-                            inputProof,
-                            requestFetch
-                          );
-                          if (
-                            requested.observation.status !== 201 ||
-                            requested.observation.error !== 'none'
-                          ) {
-                            return fail();
-                          }
-                          const proofId = requested.lease.getVerificationRecordId();
-                          const verified = await verifyAccountEmailProof(
-                            {
-                              ...inputProof,
-                              code: await takeCode(identity.primaryEmail),
-                              verificationRecordId: proofId,
+                  }
+                  return withSelectedEmailCodeFixture({
+                    fixture,
+                    request,
+                    browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
+                    use: async (identity) =>
+                      configureApplication(status.client.id, async () => {
+                        const takeCode = lease.takeVerificationCode ?? fail();
+                        const session = await issuePublicIdentitySession(
+                          input.target,
+                          fixture,
+                          createEmailCodeIdentityDriver({ email: identity.primaryEmail, takeCode }),
+                          issuer,
+                          requestFetch,
+                          { scope }
+                        );
+                        return observe(
+                          Object.freeze({
+                            session,
+                            subject: identity.id,
+                            clientId: status.client.id,
+                            issuer,
+                            withCurrentProof: async <Result>(
+                              useProof: (proofId: string) => Promise<Result>
+                            ) => {
+                              const inputProof = {
+                                target: input.target,
+                                bearer: session.access,
+                                email: identity.primaryEmail,
+                              };
+                              const requested = await requestAccountEmailProof(
+                                inputProof,
+                                requestFetch
+                              );
+                              if (
+                                requested.observation.status !== 201 ||
+                                requested.observation.error !== 'none'
+                              ) {
+                                return fail();
+                              }
+                              const proofId = requested.lease.getVerificationRecordId();
+                              const verified = await verifyAccountEmailProof(
+                                {
+                                  ...inputProof,
+                                  code: await takeCode(identity.primaryEmail),
+                                  verificationRecordId: proofId,
+                                },
+                                requestFetch
+                              );
+                              if (verified.status !== 200 || verified.error !== 'none') {
+                                return fail();
+                              }
+                              return useProof(proofId);
                             },
-                            requestFetch
-                          );
-                          if (verified.status !== 200 || verified.error !== 'none') {
-                            return fail();
-                          }
-                          return useProof(proofId);
-                        },
-                      })
-                    );
-                  }),
-              });
-            }),
+                          })
+                        );
+                      }),
+                  });
+                }
+              );
+            } catch (error: unknown) {
+              throw recordLogoutFailure(error, phase);
+            }
+          },
         },
       });
     } finally {
       delegated.revoke();
     }
   };
-  return input.target.label === 'candidate'
-    ? withPhase2AdminManagementBearer(
-        input.target,
-        input.fixture,
-        async (bearer, lease) =>
-          execute(createBearerPhase2AdminRequest(input.target, bearer, requestFetch), lease),
-        { fetch: requestFetch }
-      )
-    : input.fixture.withSecretLease(async (lease) =>
-        execute(createReferencePhase2AdminRequest(input.target, requestFetch), lease)
-      );
+  try {
+    return input.target.label === 'candidate'
+      ? await withPhase2AdminManagementBearer(
+          input.target,
+          input.fixture,
+          async (bearer, lease) =>
+            execute(createBearerPhase2AdminRequest(input.target, bearer, requestFetch), lease),
+          { fetch: requestFetch }
+        )
+      : await input.fixture.withSecretLease(async (lease) =>
+          execute(createReferencePhase2AdminRequest(input.target, requestFetch), lease)
+        );
+  } catch (error: unknown) {
+    if (getCommonSessionLogoutFailurePhase(error)) {
+      throw error;
+    }
+    throw recordLogoutFailure(error, 'authority');
+  }
 };
-/* eslint-enable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation */
+/* eslint-enable complexity, max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

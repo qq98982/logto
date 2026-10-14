@@ -99,6 +99,21 @@ describe('Common completion boundary diagnostics', () => {
     ).toThrow('Phase 2 scenario failed: oracle/common.password.policy/compromise-unavailable');
   });
 
+  it('reports the finite logout phase without exposing the original failure', () => {
+    expect(() =>
+      commonCompletionFailure(
+        'oracle',
+        new CommonCompletionScenarioFailure(
+          'common.session.logout-preservation',
+          undefined,
+          'email-code-account-observation'
+        )
+      )
+    ).toThrow(
+      'Phase 2 scenario failed: oracle/common.session.logout-preservation/email-code-account-observation'
+    );
+  });
+
   it('reports cleanup masking with both its finite phase and known row', () => {
     const error = recordCommonCompletionBoundaryFailure(
       new AggregateError([new TypeError('private row and credential detail')], 'cleanup failed'),
@@ -2605,6 +2620,82 @@ describe('Phase 2 CLI', () => {
     expect(calls).toContain(
       `stderr:Phase 2 client credentials command failed (${target}/common.password.policy/${phase}).`
     );
+  });
+
+  it.each([
+    'discovery',
+    'authority',
+    'google-accepted-rp-session-preparation',
+    'email-code-rejected-rp-observation',
+    'wechat-native-account-cleanup',
+  ])('reports the exact logout-preservation phase %s through CLI main', async (phase) => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...base,
+      executeOracle: async () => {
+        throw new TypeError(
+          `Phase 2 scenario failed: oracle/common.session.logout-preservation/${phase}`
+        );
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      `stderr:Phase 2 client credentials command failed (oracle/common.session.logout-preservation/${phase}).`
+    );
+  });
+
+  it('preserves a candidate logout phase through differential execution', async () => {
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(
+      [
+        'differential',
+        '--profile',
+        profilePath,
+        '--schema',
+        schemaPath,
+        '--oracle-evidence',
+        oracleTargetPath,
+        '--candidate-target',
+        candidateTargetPath,
+        '--output',
+        path.join(root, 'phase-2-client-credentials-differential.json'),
+        '--temp-root',
+        root,
+      ],
+      undefined,
+      {
+        ...dependencies(calls),
+        executeDifferential: async () => {
+          throw new TypeError(
+            'Phase 2 scenario failed: candidate/common.session.logout-preservation/google-accepted-rp-observation'
+          );
+        },
+      }
+    );
+
+    expect(code).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-accepted-rp-observation).'
+    );
+  });
+
+  it.each([
+    'oracle/common.session.logout-preservation/private',
+    'oracle/common.session.logout-preservation/google-accepted-rp-observation-secret',
+    'candidate/common.account.google-link/google-accepted-rp-observation',
+  ])('rejects a non-approved logout phase diagnostic %s', async (detail) => {
+    const calls: string[] = [];
+    const code = await runPhase2CliMain(oracleArguments(), undefined, {
+      ...dependencies(calls),
+      executeOracle: async () => {
+        throw new TypeError(`Phase 2 scenario failed: ${detail}`);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(calls).toContain('stderr:Phase 2 client credentials command failed (oracle-execution).');
   });
 
   it.each([

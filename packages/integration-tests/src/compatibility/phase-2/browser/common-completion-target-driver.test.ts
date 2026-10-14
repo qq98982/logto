@@ -52,6 +52,21 @@ describe('Common completion boundary diagnostics', () => {
     });
   });
 
+  it('retains the direct logout phase across the target scenario boundary', () => {
+    const error = new CommonCompletionScenarioFailure(
+      'common.session.logout-preservation',
+      undefined,
+      'wechat-native-rejected-rp-cleanup'
+    );
+
+    expect(recordCommonCompletionBoundaryFailure(error, 'scenarios')).toBe(error);
+    expect(getCommonCompletionBoundaryFailure(error)).toEqual({
+      phase: 'scenarios',
+      scenarioId: 'common.session.logout-preservation',
+      logoutPhase: 'wechat-native-rejected-rp-cleanup',
+    });
+  });
+
   it('does not derive diagnostics from arbitrary aggregate members', () => {
     const error = new AggregateError(
       [new CommonCompletionScenarioFailure('common.account.wechat-link')],

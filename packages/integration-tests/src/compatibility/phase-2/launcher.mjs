@@ -222,6 +222,8 @@ const closedCommonCompletionScenarioIds = new Set([
 ]);
 const commonPasswordPolicyPhasePattern =
   /^(?:initialization|local-policy(?:-(?:write|read|readback))?|compromise-(?:compromised|clear|unavailable)|recovery|cleanup-policy)$/u;
+const commonLogoutPreservationPhasePattern =
+  /^(?:discovery|authority|(?:google|email-code|wechat-native)-(?:accepted-rp|rejected-rp|account)-(?:session-preparation|observation|cleanup))$/u;
 const deviceIdClaimKeysDifferencePattern = new RegExp(
   `^Phase 2 client credentials command failed \\((oracle|candidate)\\/(device-(?:authorization|verification|consent|token|token-status|discovery)\\.[a-z-]+):projection-id-claimKeys\\)\\.\\nPhase 2 device ID claimKeys differ \\(only on oracle: ${closedIdClaimSet}; only on candidate: ${closedIdClaimSet}\\)\\.\\n$`,
   'u'
@@ -253,6 +255,16 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (passwordPolicyMatch && commonPasswordPolicyPhasePattern.test(passwordPolicyMatch[3])) {
+    return stderr;
+  }
+  const logoutPreservationMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(common\.session\.logout-preservation)\/([a-z-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (
+    logoutPreservationMatch &&
+    commonLogoutPreservationPhasePattern.test(logoutPreservationMatch[3])
+  ) {
     return stderr;
   }
   const statusMatch =

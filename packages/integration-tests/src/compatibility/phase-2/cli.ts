@@ -592,8 +592,12 @@ const scenarioFailurePattern =
   /^(?!.*common\.(?:email\.(?:code-sign-in|code-registration|password-registration)|password\.recovery|google\.existing-owner):)Phase 2 scenario failed: (oracle|candidate)\/(client-credentials\.[a-z-]+|token-status\.[a-z-]+|logout\.[a-z-]+|account-sessions\.[a-z-]+|verification-code\.[a-z-]+|common\.native\.code-pkce|common\.email\.(?:password-sign-in|code-sign-in|code-registration|password-registration)|common\.password\.recovery|common\.google\.existing-owner|common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation)|device-(?:authorization|verification|consent|token|token-status|discovery)\.[a-z-]+)(?::(lifecycle-request|lifecycle-response|token-response|credential-lease|projection|scenario|approval(?:-(?:authorize|capture|verify|experience-open|password|identification|experience-submit|resume-initial|consent-read|consent-write|resume-final))?|transition|verification-get|verification-post|projection-(?:(?:firstIssued|consent|completion)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|sequence-(?:before|action|after|siblingBefore|siblingAfter)-(?:status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)|id-(?:claimKeys|claimTypes-(?:aud|created_at|email|email_verified|exp|iat|iss|name|picture|preferred_username|sub|updated_at|username|auth_time|acr|amr|sid)|header|signature|format|issuer|audience|subject|issuedAt|lifetimeSeconds|other)|status|contentType|headers|keys|cookies|challenge|location|oauthError|userCodeShape|deviceCodeShape|expiresIn|interval|tokenType|verificationUri|verificationUriComplete|experience|kind|facts|access|id|refresh|redirect|terminal|other)))?$/u;
 const passwordPolicyScenarioFailurePattern =
   /^Phase 2 scenario failed: (oracle|candidate)\/(common\.password\.policy)\/(initialization|local-policy(?:-(?:write|read|readback))?|compromise-compromised|compromise-clear|compromise-unavailable|recovery|cleanup-policy)$/u;
+const logoutPreservationScenarioFailurePattern =
+  /^Phase 2 scenario failed: (oracle|candidate)\/(common\.session\.logout-preservation)\/(discovery|authority|(?:google|email-code|wechat-native)-(?:accepted-rp|rejected-rp|account)-(?:session-preparation|observation|cleanup))$/u;
 const isClosedScenarioFailure = (message: string): boolean =>
-  scenarioFailurePattern.test(message) || passwordPolicyScenarioFailurePattern.test(message);
+  scenarioFailurePattern.test(message) ||
+  passwordPolicyScenarioFailurePattern.test(message) ||
+  logoutPreservationScenarioFailurePattern.test(message);
 const deviceFailureStagePattern =
   /^Invalid Phase 2 device authorization transport \((lifecycle-request|lifecycle-response|token-response|credential-lease)\)$/u;
 const usedCodeFailureStagePattern =
@@ -658,7 +662,11 @@ export const commonCompletionFailure = (kind: 'oracle' | 'candidate', error: unk
   if (boundary?.scenarioId && boundary.phase === 'scenarios') {
     throw new TypeError(
       `Phase 2 scenario failed: ${kind}/${boundary.scenarioId}${
-        boundary.passwordPolicyPhase ? `/${boundary.passwordPolicyPhase}` : ''
+        boundary.passwordPolicyPhase
+          ? `/${boundary.passwordPolicyPhase}`
+          : boundary.logoutPhase
+            ? `/${boundary.logoutPhase}`
+            : ''
       }`
     );
   }
@@ -3714,6 +3722,10 @@ export const runPhase2CliMain = async (
       original instanceof Error
         ? passwordPolicyScenarioFailurePattern.exec(original.message)
         : null;
+    const logoutPreservationMatch =
+      original instanceof Error
+        ? logoutPreservationScenarioFailurePattern.exec(original.message)
+        : null;
     const customJwtStage =
       original instanceof Error ? customJwtStageFailurePattern.exec(original.message) : null;
     const stage =
@@ -3747,21 +3759,23 @@ export const runPhase2CliMain = async (
         ? invalidArguments
         : passwordPolicyMatch?.[1] && passwordPolicyMatch[2] && passwordPolicyMatch[3]
           ? `Phase 2 client credentials command failed (${passwordPolicyMatch[1]}/${passwordPolicyMatch[2]}/${passwordPolicyMatch[3]}).\n`
-          : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
-            ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n${structuralDiagnostic ? `${structuralDiagnostic}\n` : ''}`
-            : customJwtStage?.[1] && customJwtStage[2]
-              ? `Phase 2 client credentials command failed (${customJwtStage[1]}-${customJwtStage[2]}).\n`
-              : candidateInvariantStage?.[1] && candidateInvariantStage[2]
-                ? `Phase 2 client credentials command failed (${candidateInvariantStage[1]}-${candidateInvariantStage[2]}).\n`
-                : stage?.[1] && stage[2]
-                  ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
-                  : commandStage?.[1] && commandStage[2]
-                    ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
-                    : boundaryStage
-                      ? `Phase 2 client credentials command failed (${boundaryStage}).\n`
-                      : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
-                        ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
-                        : runFailure
+          : logoutPreservationMatch?.[1] && logoutPreservationMatch[2] && logoutPreservationMatch[3]
+            ? `Phase 2 client credentials command failed (${logoutPreservationMatch[1]}/${logoutPreservationMatch[2]}/${logoutPreservationMatch[3]}).\n`
+            : match?.[1] && match[2] && profileScenarioIdIsClosed(match[2])
+              ? `Phase 2 client credentials command failed (${match[1]}/${match[2]}${match[3] ? `:${match[3]}` : ''}).\n${structuralDiagnostic ? `${structuralDiagnostic}\n` : ''}`
+              : customJwtStage?.[1] && customJwtStage[2]
+                ? `Phase 2 client credentials command failed (${customJwtStage[1]}-${customJwtStage[2]}).\n`
+                : candidateInvariantStage?.[1] && candidateInvariantStage[2]
+                  ? `Phase 2 client credentials command failed (${candidateInvariantStage[1]}-${candidateInvariantStage[2]}).\n`
+                  : stage?.[1] && stage[2]
+                    ? `Phase 2 client credentials command failed (${stage[1]}-${stage[2]}).\n`
+                    : commandStage?.[1] && commandStage[2]
+                      ? `Phase 2 client credentials command failed (${commandStage[1]}-${commandStage[2]}).\n`
+                      : boundaryStage
+                        ? `Phase 2 client credentials command failed (${boundaryStage}).\n`
+                        : cleanupStage?.[1] && cleanupStage[2] === 'cleanup'
+                          ? `Phase 2 client credentials command failed (${cleanupStage[1]}-cleanup).\n`
+                          : runFailure
     );
     return 1;
   }

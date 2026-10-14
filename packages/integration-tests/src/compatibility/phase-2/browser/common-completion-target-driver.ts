@@ -14,6 +14,7 @@ import type { CommonCompletionScenarioId } from '../scenarios/common-completion.
 
 import { readCommonCompletionFixtureRuntime } from './common-completion-fixture-runtime.js';
 import type { CommonPasswordPolicyFailurePhase } from './common-password-policy.js';
+import type { CommonSessionLogoutFailurePhase } from './common-session-logout-target-driver.js';
 import { withManagementProvisioningFixtureRuntime } from './management-provisioning-fixture-runtime.js';
 
 const fail = (): never => {
@@ -33,6 +34,7 @@ type CommonCompletionBoundaryFailure = Readonly<{
   phase: CommonCompletionBoundaryPhase;
   scenarioId?: CommonCompletionScenarioId;
   passwordPolicyPhase?: CommonPasswordPolicyFailurePhase;
+  logoutPhase?: CommonSessionLogoutFailurePhase;
 }>;
 const boundaryFailures = new WeakMap<WeakKey, CommonCompletionBoundaryFailure>();
 
@@ -54,6 +56,7 @@ const directBoundaryFailure = (error: unknown): CommonCompletionBoundaryFailure 
         phase: 'scenarios',
         scenarioId: error.scenarioId,
         ...(error.passwordPolicyPhase ? { passwordPolicyPhase: error.passwordPolicyPhase } : {}),
+        ...(error.logoutPhase ? { logoutPhase: error.logoutPhase } : {}),
       });
     }
   } catch {
@@ -75,12 +78,15 @@ export const recordCommonCompletionBoundaryFailure = <T>(
   const selectedScenarioId = scenarioId ?? direct?.scenarioId;
   const passwordPolicyPhase =
     selectedScenarioId === 'common.password.policy' ? direct?.passwordPolicyPhase : undefined;
+  const logoutPhase =
+    selectedScenarioId === 'common.session.logout-preservation' ? direct?.logoutPhase : undefined;
   boundaryFailures.set(
     key,
     Object.freeze({
       phase,
       ...(selectedScenarioId ? { scenarioId: selectedScenarioId } : {}),
       ...(passwordPolicyPhase ? { passwordPolicyPhase } : {}),
+      ...(logoutPhase ? { logoutPhase } : {}),
     })
   );
   return error;

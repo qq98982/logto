@@ -280,6 +280,16 @@ describe('Phase 2 tracked launcher', () => {
       const stderr = `Phase 2 client credentials command failed (oracle/common.password.policy/${phase}).\n`;
       expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
     }
+    for (const phase of [
+      'discovery',
+      'authority',
+      'google-accepted-rp-session-preparation',
+      'email-code-rejected-rp-observation',
+      'wechat-native-account-cleanup',
+    ]) {
+      const stderr = `Phase 2 client credentials command failed (candidate/common.session.logout-preservation/${phase}).\n`;
+      expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+    }
     for (const stderr of [
       'Phase 2 client credentials command failed (oracle-completion-runtime-read/private).\n',
       'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).\n',
@@ -289,6 +299,8 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (candidate/common.password.policy/private).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy/local-policy-read-secret).\n',
       'Phase 2 client credentials command failed (candidate/common.password.policy/recovery/private).\n',
+      'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/private).\n',
+      'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-account-cleanup-secret).\n',
       'prefix Phase 2 client credentials command failed (oracle/common.password.policy).\n',
       'Phase 2 client credentials command failed (oracle/common.password.policy).\nprivate',
     ]) {
