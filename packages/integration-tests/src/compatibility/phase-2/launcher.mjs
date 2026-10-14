@@ -1025,7 +1025,7 @@ export const readPhase2H5CaEnvironment = async (browserEnvironment) => {
       !metadata.isFile() ||
       metadata.isSymbolicLink() ||
       metadata.uid !== process.getuid?.() ||
-      (metadata.mode & 0o777) !== 0o600 ||
+      (metadata.mode & 0o777) !== 0o400 ||
       metadata.nlink !== 1 ||
       metadata.size === 0 ||
       metadata.size > 65_536

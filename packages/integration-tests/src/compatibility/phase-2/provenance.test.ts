@@ -399,7 +399,7 @@ it('admits only the canonical owned H5 CA file in the launched environment', asy
   const capability = 'f'.repeat(64);
   const caFile = path.join(browserRunDirectory, 'common-completion/runtime-h5/h5-loopback-ca.pem');
   await mkdir(path.dirname(caFile), { recursive: true, mode: 0o700 });
-  await writeFile(caFile, 'fixture-ca', { mode: 0o600 });
+  await writeFile(caFile, 'fixture-ca', { mode: 0o400 });
   const environment = {
     ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
     NODE_EXTRA_CA_CERTS: caFile,
@@ -418,12 +418,12 @@ it('admits only the canonical owned H5 CA file in the launched environment', asy
       inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
     ).rejects.toThrow('Invalid Phase 2 provenance');
   }
-  await chmod(caFile, 0o644);
+  await chmod(caFile, 0o600);
   installCapability(capability);
   await expect(
     inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
   ).rejects.toThrow('Invalid Phase 2 provenance');
-  await chmod(caFile, 0o600);
+  await chmod(caFile, 0o400);
   const linked = path.join(path.dirname(caFile), 'linked-ca.pem');
   await link(caFile, linked);
   installCapability(capability);

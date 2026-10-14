@@ -15,6 +15,7 @@ import {
 } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
@@ -83,35 +84,19 @@ it('forwards only the canonical owned H5 CA and preserves child TLS validation',
   const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
   const tlsRoot = path.join(runDirectory, 'common-completion/runtime-h5');
   const caFile = path.join(tlsRoot, 'h5-loopback-ca.pem');
-  const keyFile = path.join(tlsRoot, 'server.key');
+  const certificateFile = path.join(tlsRoot, 'h5-loopback-server.pem');
+  const keyFile = path.join(tlsRoot, 'h5-loopback-server.key');
+  const generator = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../../../.scripts/compatibility/generate-h5-pki.sh'
+  );
   const previous = process.env.NODE_EXTRA_CA_CERTS;
   let server: ReturnType<typeof createServer> | undefined;
   await mkdir(tlsRoot, { recursive: true, mode: 0o700 });
   try {
-    await executeFile(
-      '/usr/bin/openssl',
-      [
-        'req',
-        '-x509',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-keyout',
-        keyFile,
-        '-out',
-        caFile,
-        '-days',
-        '1',
-        '-subj',
-        '/CN=localhost',
-        '-addext',
-        'subjectAltName=DNS:localhost',
-      ],
-      { timeout: 10_000 }
-    );
-    await chmod(caFile, 0o600);
+    await executeFile(generator, ['generate', tlsRoot], { timeout: 10_000 });
     server = createServer(
-      { cert: await readFile(caFile), key: await readFile(keyFile) },
+      { cert: await readFile(certificateFile), key: await readFile(keyFile) },
       (_request, response) => response.end('ok')
     );
     server.listen(0, '127.0.0.1');
@@ -167,6 +152,11 @@ it('forwards only the canonical owned H5 CA and preserves child TLS validation',
     expect(absent).toEqual([undefined]);
 
     process.env.NODE_EXTRA_CA_CERTS = path.join(runDirectory, 'unowned-ca.pem');
+    await expect(readPhase2H5CaEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+      'Invalid Phase 2 launcher'
+    );
+    process.env.NODE_EXTRA_CA_CERTS = caFile;
+    await chmod(caFile, 0o600);
     await expect(readPhase2H5CaEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
       'Invalid Phase 2 launcher'
     );
