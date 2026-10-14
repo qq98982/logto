@@ -204,6 +204,22 @@ const closedDeviceScenarioIds = new Set([
 const closedIdClaimName =
   '(?:iss|aud|sub|iat|exp|nbf|auth_time|sid|jti|client_id|acr|amr|name|picture|username|email|email_verified|phone_number|phone_number_verified|family_name|given_name|middle_name|nickname|preferred_username|profile|website|gender|birthdate|zoneinfo|locale|address|created_at|updated_at|roles|organizations|organization_roles|organization_id|permissions)';
 const closedIdClaimSet = `(?:none|${closedIdClaimName}(?:,${closedIdClaimName})*)`;
+const closedCommonCompletionScenarioIds = new Set([
+  'common.password.policy',
+  'common.google.configured-collision',
+  'common.account.google-link',
+  'common.wechat.h5',
+  'common.wechat.mini',
+  'common.wechat.mini-phone-registration',
+  'common.wechat.native',
+  'common.account.wechat-link',
+  'common.management.applications-secrets',
+  'common.management.native-resource-role',
+  'common.management.connectors-experience',
+  'common.management.user-suspend-delete',
+  'common.management.provisioning-convergence',
+  'common.session.logout-preservation',
+]);
 const deviceIdClaimKeysDifferencePattern = new RegExp(
   `^Phase 2 client credentials command failed \\((oracle|candidate)\\/(device-(?:authorization|verification|consent|token|token-status|discovery)\\.[a-z-]+):projection-id-claimKeys\\)\\.\\nPhase 2 device ID claimKeys differ \\(only on oracle: ${closedIdClaimSet}; only on candidate: ${closedIdClaimSet}\\)\\.\\n$`,
   'u'
@@ -221,6 +237,13 @@ export const diagnosticForPhase2Child = (stderr) => {
       stderr
     );
   if (match && closedScenarioIds.has(match[2])) {
+    return stderr;
+  }
+  const commonCompletionMatch =
+    /^Phase 2 client credentials command failed \((oracle|candidate)\/(common\.[a-z0-9.-]+)\)\.\n$/u.exec(
+      stderr
+    );
+  if (commonCompletionMatch && closedCommonCompletionScenarioIds.has(commonCompletionMatch[2])) {
     return stderr;
   }
   const statusMatch =
@@ -939,7 +962,7 @@ export const readPhase2CompletionEnvironment = async () => {
   if (values.every((value) => value === undefined)) {
     return Object.freeze({});
   }
-  if (values.some((value) => value === undefined)) {
+  if (values.includes(undefined)) {
     return fail();
   }
   const accepted = await Promise.all(

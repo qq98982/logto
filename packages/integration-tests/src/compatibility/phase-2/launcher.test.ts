@@ -126,6 +126,31 @@ describe('Phase 2 tracked launcher', () => {
   });
 
   it('passes only finite Common completion boundary diagnostics', () => {
+    const scenarioIds = [
+      'common.password.policy',
+      'common.google.configured-collision',
+      'common.account.google-link',
+      'common.wechat.h5',
+      'common.wechat.mini',
+      'common.wechat.mini-phone-registration',
+      'common.wechat.native',
+      'common.account.wechat-link',
+      'common.management.applications-secrets',
+      'common.management.native-resource-role',
+      'common.management.connectors-experience',
+      'common.management.user-suspend-delete',
+      'common.management.provisioning-convergence',
+      'common.session.logout-preservation',
+    ];
+    for (const target of ['oracle', 'candidate']) {
+      for (const scenarioId of scenarioIds) {
+        const stderr = `Phase 2 client credentials command failed (${target}/${scenarioId}).\n`;
+        expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+        expect(
+          diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
+        ).toBe(stderr);
+      }
+    }
     for (const suffix of [
       'oracle-completion-machine-authority',
       'candidate-completion-runtime-read',
@@ -143,6 +168,10 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (oracle-completion-runtime-read/private).\n',
       'Phase 2 client credentials command failed (candidate-completion-owned-app-cleanup/common.unknown).\n',
       'Phase 2 client credentials command failed (candidate-completion-runtime-read/common.account.google-link).\n',
+      'Phase 2 client credentials command failed (oracle/common.password.unknown).\n',
+      'Phase 2 client credentials command failed (candidate/common.password.policy:private).\n',
+      'prefix Phase 2 client credentials command failed (oracle/common.password.policy).\n',
+      'Phase 2 client credentials command failed (oracle/common.password.policy).\nprivate',
     ]) {
       expect(diagnosticForPhase2Child(stderr)).toBe(
         'Phase 2 client credentials launcher failed.\n'
