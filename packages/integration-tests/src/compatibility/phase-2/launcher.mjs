@@ -1006,6 +1006,38 @@ export const readPhase2CompletionEnvironment = async () => {
   return Object.freeze(Object.fromEntries(accepted));
 };
 
+export const readPhase2H5CaEnvironment = async (browserEnvironment) => {
+  const value = process.env.NODE_EXTRA_CA_CERTS;
+  if (value === undefined) {
+    return Object.freeze({});
+  }
+  const expected = path.join(
+    path.dirname(browserEnvironment.HOME),
+    'common-completion/runtime-h5/h5-loopback-ca.pem'
+  );
+  if (value !== expected) {
+    return fail();
+  }
+  try {
+    const [metadata, resolved] = await Promise.all([lstat(value), realpath(value)]);
+    if (
+      resolved !== value ||
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.uid !== process.getuid?.() ||
+      (metadata.mode & 0o777) !== 0o600 ||
+      metadata.nlink !== 1 ||
+      metadata.size === 0 ||
+      metadata.size > 65_536
+    ) {
+      return fail();
+    }
+  } catch {
+    return fail();
+  }
+  return Object.freeze({ NODE_EXTRA_CA_CERTS: value });
+};
+
 const manifestsEqual = (left, right) => {
   if (
     typeof left !== 'object' ||
@@ -1061,6 +1093,7 @@ const prepareNewPhase2Runtime = async (dependencies, repositoryRoot, entryPath) 
     ...(await readPhase2WechatProviderEnvironment(browserEnvironment)),
     ...(await readPhase2SmsProviderEnvironment(browserEnvironment)),
     ...(await readPhase2CompletionEnvironment()),
+    ...(await readPhase2H5CaEnvironment(browserEnvironment)),
     ...(oracleSmtpSocket === undefined
       ? {}
       : { ASTER_PHASE2_ORACLE_SMTP_SOCKET: oracleSmtpSocket }),

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines, max-params, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The tracked JavaScript launcher is intentionally exercised through its native ESM exports, closed diagnostics, five-part execution dependency, and mutable call-order controls. */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import {
   chmod,
   link,
@@ -12,6 +13,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
+import { createServer } from 'node:https';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -26,6 +28,7 @@ import {
   diagnosticForPhase2Batch,
   readPhase2GoogleProviderEnvironment,
   readPhase2CompletionEnvironment,
+  readPhase2H5CaEnvironment,
   readPhase2SmsProviderEnvironment,
   readPhase2WechatProviderEnvironment,
   launchPhase2,
@@ -74,6 +77,114 @@ afterAll(async () => {
     }
   }
   await rm(browserEnvironmentRoot, { force: true, recursive: true });
+});
+
+it('forwards only the canonical owned H5 CA and preserves child TLS validation', async () => {
+  const runDirectory = path.dirname(process.env.HOME ?? '/missing-home');
+  const tlsRoot = path.join(runDirectory, 'common-completion/runtime-h5');
+  const caFile = path.join(tlsRoot, 'h5-loopback-ca.pem');
+  const keyFile = path.join(tlsRoot, 'server.key');
+  const previous = process.env.NODE_EXTRA_CA_CERTS;
+  let server: ReturnType<typeof createServer> | undefined;
+  await mkdir(tlsRoot, { recursive: true, mode: 0o700 });
+  try {
+    await executeFile(
+      '/usr/bin/openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        keyFile,
+        '-out',
+        caFile,
+        '-days',
+        '1',
+        '-subj',
+        '/CN=localhost',
+        '-addext',
+        'subjectAltName=DNS:localhost',
+      ],
+      { timeout: 10_000 }
+    );
+    await chmod(caFile, 0o600);
+    server = createServer(
+      { cert: await readFile(caFile), key: await readFile(keyFile) },
+      (_request, response) => response.end('ok')
+    );
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new TypeError('HTTPS fixture did not bind a TCP port.');
+    }
+    const childScript =
+      "import https from 'node:https';https.get(process.argv[1],r=>{r.resume();r.on('end',()=>process.exit(r.statusCode===200?0:2));}).on('error',()=>process.exit(3));";
+    const dependencies = (observed: Array<string | undefined>) => ({
+      inspect: async () => ({ head: 'a'.repeat(40), tree: 'b'.repeat(40) }),
+      build: async (): Promise<undefined> => undefined,
+      identity: async () => ({
+        sha256: 'c'.repeat(64),
+        moduleCount: 1,
+        entryUrl: 'file:///private/lib/compatibility/phase-2/cli.js',
+        libraryRootUrl: 'file:///private/lib/',
+        modules: { 'file:///private/lib/compatibility/phase-2/cli.js': 'c'.repeat(64) },
+      }),
+      execute: async (
+        _entry: string,
+        _args: readonly string[],
+        environment: Record<string, string>
+      ) => {
+        observed.push(environment.NODE_EXTRA_CA_CERTS);
+        try {
+          await executeFile(
+            process.execPath,
+            ['--input-type=module', '-e', childScript, `https://localhost:${address.port}/`],
+            {
+              env: environment,
+              timeout: 5000,
+            }
+          );
+          return 0;
+        } catch {
+          return 3;
+        }
+      },
+    });
+    process.env.NODE_EXTRA_CA_CERTS = caFile;
+    await expect(readPhase2H5CaEnvironment({ HOME: process.env.HOME })).resolves.toEqual({
+      NODE_EXTRA_CA_CERTS: caFile,
+    });
+    const admitted: Array<string | undefined> = [];
+    await expect(launchPhase2(['oracle'], dependencies(admitted))).resolves.toBe(0);
+    expect(admitted).toEqual([caFile]);
+
+    Reflect.deleteProperty(process.env, 'NODE_EXTRA_CA_CERTS');
+    const absent: Array<string | undefined> = [];
+    await expect(launchPhase2(['oracle'], dependencies(absent))).rejects.toThrow('oracle');
+    expect(absent).toEqual([undefined]);
+
+    process.env.NODE_EXTRA_CA_CERTS = path.join(runDirectory, 'unowned-ca.pem');
+    await expect(readPhase2H5CaEnvironment({ HOME: process.env.HOME })).rejects.toThrow(
+      'Invalid Phase 2 launcher'
+    );
+  } finally {
+    if (server?.listening) {
+      await new Promise<void>((resolve) => {
+        server?.close(() => {
+          resolve();
+        });
+      });
+    }
+    if (previous === undefined) {
+      Reflect.deleteProperty(process.env, 'NODE_EXTRA_CA_CERTS');
+    } else {
+      process.env.NODE_EXTRA_CA_CERTS = previous;
+    }
+    await rm(tlsRoot, { recursive: true, force: true });
+  }
 });
 
 describe('Phase 2 tracked launcher', () => {

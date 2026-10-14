@@ -1,4 +1,4 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The test owns an isolated Git repository and installs one global capability to prove clean-source and hook fencing. */
+/* eslint-disable max-lines, no-await-in-loop, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The test owns an isolated Git repository and installs one global capability to prove clean-source and hook fencing. */
 import { execFile } from 'node:child_process';
 import { chmod, link, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -391,4 +391,45 @@ it('admits only paired private Common completion inputs without reading their pa
     inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
   ).rejects.toThrow('Invalid Phase 2 provenance');
 });
+
+it('admits only the canonical owned H5 CA file in the launched environment', async () => {
+  const runtime = await computePhase2RuntimeBundleIdentity(runtimeEntry);
+  const { stdout: headOutput } = await run('git', ['rev-parse', 'HEAD'], { cwd: root });
+  const { stdout: treeOutput } = await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root });
+  const capability = 'f'.repeat(64);
+  const caFile = path.join(browserRunDirectory, 'common-completion/runtime-h5/h5-loopback-ca.pem');
+  await mkdir(path.dirname(caFile), { recursive: true, mode: 0o700 });
+  await writeFile(caFile, 'fixture-ca', { mode: 0o600 });
+  const environment = {
+    ...launcherEnvironment(headOutput.trim(), treeOutput.trim(), runtime.sha256),
+    NODE_EXTRA_CA_CERTS: caFile,
+  };
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).resolves.toMatchObject({ public: { runtimeBundleSha256: runtime.sha256 } });
+
+  for (const invalidEnvironment of [
+    { ...environment, NODE_EXTRA_CA_CERTS: path.join(browserRunDirectory, 'other-ca.pem') },
+    { ...environment, NODE_EXTRA_CA_CERTS: `${path.dirname(caFile)}/../h5-loopback-ca.pem` },
+  ]) {
+    installCapability(capability);
+    await expect(
+      inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, invalidEnvironment)
+    ).rejects.toThrow('Invalid Phase 2 provenance');
+  }
+  await chmod(caFile, 0o644);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).rejects.toThrow('Invalid Phase 2 provenance');
+  await chmod(caFile, 0o600);
+  const linked = path.join(path.dirname(caFile), 'linked-ca.pem');
+  await link(caFile, linked);
+  installCapability(capability);
+  await expect(
+    inspectLaunchedPhase2HarnessSource(root, runtimeEntry, capability, environment)
+  ).rejects.toThrow('Invalid Phase 2 provenance');
+});
+/* eslint-enable max-lines, no-await-in-loop */
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

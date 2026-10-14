@@ -105,6 +105,7 @@ const completionEnvironmentKeys = Object.freeze([
   'ASTER_PHASE2_ORACLE_COMPLETION_INPUT',
   'ASTER_PHASE2_CANDIDATE_COMPLETION_INPUT',
 ]);
+const h5CaEnvironmentKey = 'NODE_EXTRA_CA_CERTS';
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -358,6 +359,7 @@ export const inspectLaunchedPhase2HarnessSource = async (
   const hasSmsProvider = smsProviderPaths.some((value) => value !== undefined);
   const completionPaths = completionEnvironmentKeys.map((key) => environment[key]);
   const hasCompletion = completionPaths.some((value) => value !== undefined);
+  const h5CaPath = environment[h5CaEnvironmentKey];
   const expectedKeys = [
     ...launcherEnvironmentKeys,
     ...(oracleSmtpSocket === undefined ? [] : ['ASTER_PHASE2_ORACLE_SMTP_SOCKET']),
@@ -365,6 +367,7 @@ export const inspectLaunchedPhase2HarnessSource = async (
     ...(hasWechatProvider ? wechatProviderEnvironmentKeys : []),
     ...(hasSmsProvider ? smsProviderEnvironmentKeys : []),
     ...(hasCompletion ? completionEnvironmentKeys : []),
+    ...(h5CaPath === undefined ? [] : [h5CaEnvironmentKey]),
   ].toSorted();
   if (
     keys.length !== expectedKeys.length ||
@@ -381,6 +384,30 @@ export const inspectLaunchedPhase2HarnessSource = async (
     return fail();
   }
   await validateBrowserEnvironment(environment);
+  if (h5CaPath !== undefined) {
+    const expected = path.join(
+      path.dirname(environment.HOME ?? ''),
+      'common-completion/runtime-h5/h5-loopback-ca.pem'
+    );
+    if (h5CaPath !== expected) {
+      return fail();
+    }
+    const [metadata, resolved] = await Promise.all([lstat(h5CaPath), realpath(h5CaPath)]).catch(
+      fail
+    );
+    if (
+      resolved !== h5CaPath ||
+      !metadata.isFile() ||
+      metadata.isSymbolicLink() ||
+      metadata.uid !== process.getuid?.() ||
+      (metadata.mode & 0o777) !== 0o600 ||
+      metadata.nlink !== 1 ||
+      metadata.size === 0 ||
+      metadata.size > 65_536
+    ) {
+      return fail();
+    }
+  }
   if (hasCompletion) {
     await Promise.all(
       completionPaths.map(async (value) => {
