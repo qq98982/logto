@@ -5,7 +5,11 @@ import type { JSONWebKeySet } from 'jose';
 import type { TargetConfig } from '../../model.js';
 import { createPlaywrightBrowserGroupObserver } from '../../phase-1/browser/playwright-session.js';
 import { withCommonManagementMachineBearer } from '../clients/common-management-machine-bearer.js';
-import { createBearerPhase2AdminRequest, type ProvisionedPhase2Fixture } from '../fixtures.js';
+import {
+  createBearerPhase2AdminRequest,
+  type Phase2AdminRequestFunction,
+  type ProvisionedPhase2Fixture,
+} from '../fixtures.js';
 import {
   CommonCompletionScenarioFailure,
   runCommonCompletionScenariosForTarget,
@@ -95,6 +99,30 @@ export const recordCommonCompletionBoundaryFailure = <T>(
 export const getCommonCompletionBoundaryFailure = (
   error: unknown
 ): CommonCompletionBoundaryFailure | undefined => directBoundaryFailure(error);
+
+export const cleanupCommonCompletionOwnedApplications = async (
+  target: Pick<TargetConfig, 'label'>,
+  request: Phase2AdminRequestFunction,
+  applications: ReadonlySet<string>
+): Promise<TypeError[]> => {
+  // Candidate application deletion is outside this phase; its real fixture teardown owns it.
+  const failures: TypeError[] = [];
+  if (target.label === 'oracle') {
+    for (const id of applications) {
+      try {
+        await request({
+          method: 'DELETE',
+          path: `applications/${encodeURIComponent(id)}`,
+          expectedStatuses: [204, 404],
+          responseKind: 'status',
+        });
+      } catch {
+        failures.push(new TypeError('Owned Common completion application cleanup failed'));
+      }
+    }
+  }
+  return failures;
+};
 
 export const runBoundCommonCompletionScenarios = async (
   input: Readonly<{
@@ -239,19 +267,11 @@ export const runBoundCommonCompletionScenarios = async (
       scenarioId = getCommonCompletionBoundaryFailure(error)?.scenarioId;
     }
     phase = 'owned-app-cleanup';
-    const failures: TypeError[] = [];
-    for (const id of applications) {
-      try {
-        await request({
-          method: 'DELETE',
-          path: `applications/${encodeURIComponent(id)}`,
-          expectedStatuses: [204, 404],
-          responseKind: 'status',
-        });
-      } catch {
-        failures.push(new TypeError('Owned Common completion application cleanup failed'));
-      }
-    }
+    const failures = await cleanupCommonCompletionOwnedApplications(
+      input.target,
+      request,
+      applications
+    );
     if (failures.length > 0) {
       throw recordCommonCompletionBoundaryFailure(
         new AggregateError(
