@@ -2427,6 +2427,11 @@ export const createCandidatePhase2FixtureProvisioner = (
         revoked: false,
       };
       const phase2 = Object.freeze({
+        organization: Object.freeze({
+          id: 'phase2-org',
+          name: `Phase 2 ${markerPrefix}${allocationId} organization`,
+          description: null,
+        }),
         subjectPrimaryEmail: null,
         subjectResourceScopeIds: Object.freeze(['read-scope']),
         machineClients: Object.freeze([

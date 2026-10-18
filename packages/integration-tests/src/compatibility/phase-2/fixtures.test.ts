@@ -1506,6 +1506,11 @@ describe('Phase 2 fixture lifecycle', () => {
             },
           },
           phase2: {
+            organization: {
+              id: 'phase2-org',
+              name: 'Phase 2 phase2-client-credentials-candidate-fixture organization',
+              description: null,
+            },
             subjectPrimaryEmail: null,
             subjectResourceScopeIds: ['read-scope'],
             machineClients: [
@@ -1731,6 +1736,11 @@ describe('Phase 2 fixture lifecycle', () => {
       profile: {
         fixtures: {
           phase2: {
+            organization: {
+              id: 'phase2-org',
+              name: 'Phase 2 phase2-client-credentials-candidate-invariants-fixture organization',
+              description: null,
+            },
             verificationCode: {
               smtpPort: 2525,
               peerAccount: {
