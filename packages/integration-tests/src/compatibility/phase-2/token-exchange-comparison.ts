@@ -51,10 +51,26 @@ export const runBoundTokenExchangeComparisonTargets = async (
   ) {
     return fail();
   }
-  const [oracleProjection, candidateProjection] = await Promise.all([
+  const [oracleResult, candidateResult] = await Promise.allSettled([
     execute({ target: oracle.descriptor.target, fixture: oracle.fixture, signal }),
     execute({ target: candidate.descriptor.target, fixture: candidate.fixture, signal }),
   ]);
+  if (oracleResult.status === 'rejected' && candidateResult.status === 'rejected') {
+    throw new AggregateError(
+      [oracleResult.reason, candidateResult.reason],
+      'Token-exchange comparison targets failed'
+    );
+  }
+  if (oracleResult.status === 'rejected') {
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal -- Preserve the executor's original rejection reason.
+    throw oracleResult.reason;
+  }
+  if (candidateResult.status === 'rejected') {
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal -- Preserve the executor's original rejection reason.
+    throw candidateResult.reason;
+  }
+  const oracleProjection = oracleResult.value;
+  const candidateProjection = candidateResult.value;
   return Object.freeze([
     Object.freeze({ target: oracle, projection: oracleProjection }),
     Object.freeze({ target: candidate, projection: candidateProjection }),
@@ -133,7 +149,8 @@ export const assertTokenExchangeComparisonEvidence = (
       !target.projection.opaque.revokedActorRejected.sourcePreserved ||
       !target.projection.opaque.priorOpaqueOutputRemainsActive ||
       target.projection.admissionGrammar.disabled.error !== 'invalid_request' ||
-      target.projection.admissionGrammar.disabled.errorDescription !== 'grant request is invalid' ||
+      target.projection.admissionGrammar.disabled.errorDescription !==
+        'requested grant type is not allowed for this client' ||
       target.projection.admissionGrammar.unknownClientMasksMissingSubject.error !==
         'invalid_client' ||
       target.projection.admissionGrammar.unknownClientMasksMissingSubject.errorDescription !==

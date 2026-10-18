@@ -1,11 +1,26 @@
-/* eslint-disable @typescript-eslint/consistent-type-assertions -- These negative tests deliberately forge invalid capabilities and extra runtime input. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/consistent-type-assertions -- These tests own temporary prepared-target capabilities, deferred execution state, and deliberate invalid capabilities. */
+import { createHash } from 'node:crypto';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer, type Server } from 'node:net';
+import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
+
 import type { ProvisionedPhase2Fixture } from './fixtures.js';
+import {
+  preparePhase2TargetForExecution,
+  validatePhase2TargetDescriptor,
+  verifyPhase2Target,
+  type Phase2TargetDescriptor,
+} from './runtime.js';
+import type { runTokenExchangeUserJwtForTarget } from './scenarios/token-exchange-target-driver.js';
 import {
   assertTokenExchangeComparisonEvidence,
   createTokenExchangeComparisonTarget,
+  runBoundTokenExchangeComparisonTargets,
   runTokenExchangeComparison,
 } from './token-exchange-comparison.js';
 
+type TargetDriverInput = Parameters<typeof runTokenExchangeUserJwtForTarget>[0];
 const projection = Object.freeze({
   responseKeys: ['access_token', 'expires_in', 'scope', 'token_type'],
   tokenType: 'Bearer',
@@ -52,7 +67,7 @@ const projection = Object.freeze({
     disabled: {
       status: 400,
       error: 'invalid_request',
-      errorDescription: 'grant request is invalid',
+      errorDescription: 'requested grant type is not allowed for this client',
     },
     unknownClientMasksMissingSubject: {
       status: 400,
@@ -151,7 +166,7 @@ const projection = Object.freeze({
       lifetimeSeconds: 3600,
     },
   },
-});
+} as const);
 const evidence = Object.freeze({
   schemaVersion: 1,
   kind: 'aster-token-exchange-supplemental-comparison',
@@ -284,12 +299,182 @@ it('validates serialized publication evidence and rejects a nested lifecycle mis
   ).toThrow('Invalid token-exchange supplemental comparison');
 });
 
+const rootPrefix = '/var/tmp/henry-build/token-exchange-comparison-';
+const unavailableRelease = (): never => {
+  throw new TypeError('Deferred release unavailable');
+};
+let root = '';
+let driverPath = '';
+let receiptPath = '';
+let servers: Server[] = [];
 const fixture = Object.freeze({
   public: Object.freeze({}) as ProvisionedPhase2Fixture['public'],
   withSecretLease: async () => {
     throw new Error('unused');
   },
 }) satisfies ProvisionedPhase2Fixture;
+
+const listen = async (socketPath: string): Promise<Server> =>
+  new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(socketPath, () => {
+      server.removeListener('error', reject);
+      servers = [...servers, server];
+      resolve(server);
+    });
+  });
+
+const closeServer = async (server: Server): Promise<void> =>
+  new Promise((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+
+const descriptor = (
+  kind: 'oracle' | 'candidate',
+  socketPath: string,
+  driverSha256: string
+): Phase2TargetDescriptor =>
+  validatePhase2TargetDescriptor({
+    schemaVersion: 1,
+    kind,
+    sourceCommit: kind === 'oracle' ? '6'.repeat(40) : 'a'.repeat(40),
+    imageDigest: `sha256:${kind === 'oracle' ? '7'.repeat(64) : 'b'.repeat(64)}`,
+    projectName: 'aster-phase2-client-credentials-0123456789abcdef',
+    primaryContainerId: kind === 'oracle' ? '1'.repeat(64) : '3'.repeat(64),
+    foreignContainerId: kind === 'oracle' ? '2'.repeat(64) : '4'.repeat(64),
+    target: {
+      label: kind,
+      coreUrl: kind === 'oracle' ? 'http://localhost:3311/' : 'http://localhost:3321/',
+      adminUrl: kind === 'oracle' ? 'http://localhost:3411/' : 'http://localhost:3421/',
+    },
+    foreignTarget: {
+      label: kind,
+      coreUrl: kind === 'oracle' ? 'http://localhost:3312/' : 'http://localhost:3322/',
+      adminUrl: kind === 'oracle' ? 'http://localhost:3412/' : 'http://localhost:3422/',
+    },
+    stateDriver: { path: driverPath, sha256: driverSha256, controlSocket: socketPath },
+    fetchObserverReceiptFile: receiptPath,
+    ...(kind === 'candidate'
+      ? {
+          fixtureExecutable: { path: driverPath, sha256: driverSha256 },
+          fixtureSocket: path.join(root, 'candidate-fixture.sock'),
+          invariantDriver: {
+            path: driverPath,
+            sha256: driverSha256,
+            controlSocket: path.join(root, 'candidate-invariant.sock'),
+          },
+        }
+      : {}),
+  });
+
+beforeAll(async () => {
+  root = await mkdtemp(rootPrefix);
+  await chmod(root, 0o700);
+  driverPath = path.join(root, 'state-driver');
+  receiptPath = path.join(root, 'receipts.ndjson');
+  await Promise.all([
+    writeFile(driverPath, '#!/bin/sh\nexit 0\n', { mode: 0o700 }),
+    writeFile(receiptPath, '', { mode: 0o600 }),
+  ]);
+  await Promise.all([
+    listen(path.join(root, 'oracle.sock')),
+    listen(path.join(root, 'candidate.sock')),
+    listen(path.join(root, 'candidate-fixture.sock')),
+    listen(path.join(root, 'candidate-invariant.sock')),
+  ]);
+  await Promise.all([
+    chmod(path.join(root, 'oracle.sock'), 0o600),
+    chmod(path.join(root, 'candidate.sock'), 0o600),
+    chmod(path.join(root, 'candidate-fixture.sock'), 0o600),
+    chmod(path.join(root, 'candidate-invariant.sock'), 0o600),
+  ]);
+});
+
+afterAll(async () => {
+  await Promise.all(servers.map(async (server) => closeServer(server)));
+  servers = [];
+  await rm(root, { force: true, recursive: true });
+});
+
+const prepareTarget = async (kind: 'oracle' | 'candidate') => {
+  const driverSha256 = createHash('sha256')
+    .update(await readFile(driverPath))
+    .digest('hex');
+  const source = descriptor(kind, path.join(root, `${kind}.sock`), driverSha256);
+  const verified = await verifyPhase2Target(source);
+  const sessionRoot = await mkdtemp(path.join(root, `${kind}-session-`));
+  await chmod(sessionRoot, 0o700);
+  const prepared = await preparePhase2TargetForExecution(verified, sessionRoot, kind);
+  return createTokenExchangeComparisonTarget(prepared, fixture);
+};
+
+it('waits for the sibling target before preserving one target failure', async () => {
+  const oracle = await prepareTarget('oracle');
+  const candidate = await prepareTarget('candidate');
+  const oracleError = new Error('oracle failed');
+  let releaseCandidate: () => void = unavailableRelease;
+  const candidateGate = new Promise<void>((resolve) => {
+    releaseCandidate = resolve;
+  });
+  let candidateStarted = false;
+  let candidateFinished = false;
+  let comparisonSettled = false;
+  const execute = async ({ target }: TargetDriverInput) => {
+    if (target.label === 'oracle') {
+      throw oracleError;
+    }
+    candidateStarted = true;
+    await candidateGate;
+    candidateFinished = true;
+    return projection;
+  };
+  const comparison = runBoundTokenExchangeComparisonTargets(
+    { oracle, candidate, signal: new AbortController().signal },
+    execute
+  );
+  void (async () => {
+    try {
+      await comparison;
+    } catch {
+      comparisonSettled = true;
+      return;
+    }
+    comparisonSettled = true;
+  })();
+  try {
+    await setImmediate();
+    expect(candidateStarted).toBe(true);
+    expect(candidateFinished).toBe(false);
+    expect(comparisonSettled).toBe(false);
+  } finally {
+    releaseCandidate();
+  }
+  await expect(comparison).rejects.toBe(oracleError);
+  expect(candidateFinished).toBe(true);
+});
+
+it('preserves two target failures in oracle and candidate order', async () => {
+  const oracle = await prepareTarget('oracle');
+  const candidate = await prepareTarget('candidate');
+  const oracleError = new Error('oracle failed');
+  const candidateError = new Error('candidate failed');
+  let caught: unknown;
+  try {
+    await runBoundTokenExchangeComparisonTargets(
+      { oracle, candidate, signal: new AbortController().signal },
+      async ({ target }) => {
+        throw target.label === 'oracle' ? oracleError : candidateError;
+      }
+    );
+  } catch (error: unknown) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(AggregateError);
+  expect((caught as AggregateError).errors).toEqual([oracleError, candidateError]);
+});
 
 it('rejects caller-forged prepared targets before executing evidence', async () => {
   const forged = Object.freeze({ descriptor: Object.freeze({}) }) as never;
@@ -310,4 +495,4 @@ it('rejects extra authoritative execution properties', async () => {
     } as never)
   ).rejects.toThrow('Invalid token-exchange supplemental comparison');
 });
-/* eslint-enable @typescript-eslint/consistent-type-assertions */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @typescript-eslint/consistent-type-assertions */

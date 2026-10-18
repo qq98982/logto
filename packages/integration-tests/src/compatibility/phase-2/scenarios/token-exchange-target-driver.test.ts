@@ -317,7 +317,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
       grammarDispatches.push({ entries, authentication });
       const index = grammarDispatches.length - 1;
       const descriptions = [
-        'grant request is invalid',
+        'requested grant type is not allowed for this client',
         'invalid client unknown-client',
         "missing required parameter 'subject_token'",
         "missing required parameter 'subject_token_type'",
@@ -573,7 +573,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
       disabled: {
         status: 400,
         error: 'invalid_request',
-        errorDescription: 'grant request is invalid',
+        errorDescription: 'requested grant type is not allowed for this client',
       },
       unknownClientMasksMissingSubject: {
         status: 400,
@@ -804,6 +804,29 @@ it('attempts PAT cleanup after an intermediate failure and retains both failures
   });
   expect(operationCalls).toBe(1);
   expect(cleanupCalls).toBe(1);
+});
+
+it('requires the measured disabled-grant admission description', async () => {
+  const expected = 'requested grant type is not allowed for this client';
+  await expectTokenExchangeGrammarError(
+    new Response(JSON.stringify({ error: 'invalid_request', error_description: expected }), {
+      status: 400,
+    }),
+    400,
+    'invalid_request',
+    expected
+  );
+  await expect(
+    expectTokenExchangeGrammarError(
+      new Response(
+        JSON.stringify({ error: 'invalid_request', error_description: 'grant request is invalid' }),
+        { status: 400 }
+      ),
+      400,
+      'invalid_request',
+      expected
+    )
+  ).rejects.toThrow('Invalid Phase 2 token-exchange user JWT comparison');
 });
 
 it('requires exact ordered token grammar diagnostics', async () => {

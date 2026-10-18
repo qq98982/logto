@@ -101,7 +101,7 @@ export const runBoundAccountExpiryComparisonTargets = async (
   ) {
     return fail();
   }
-  const [oracleProjection, candidateProjection] = await Promise.all([
+  const [oracleResult, candidateResult] = await Promise.allSettled([
     executeTarget({
       target: oracle.descriptor.target,
       fixture: oracle.fixture,
@@ -117,6 +117,22 @@ export const runBoundAccountExpiryComparisonTargets = async (
       fetch: requestFetch,
     }),
   ]);
+  if (oracleResult.status === 'rejected' && candidateResult.status === 'rejected') {
+    throw new AggregateError(
+      [oracleResult.reason, candidateResult.reason],
+      'Account expiry comparison targets failed'
+    );
+  }
+  if (oracleResult.status === 'rejected') {
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal -- Preserve the executor's original rejection reason.
+    throw oracleResult.reason;
+  }
+  if (candidateResult.status === 'rejected') {
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal -- Preserve the executor's original rejection reason.
+    throw candidateResult.reason;
+  }
+  const oracleProjection = oracleResult.value;
+  const candidateProjection = candidateResult.value;
   return [
     Object.freeze({ target: oracle, projection: oracleProjection }),
     Object.freeze({ target: candidate, projection: candidateProjection }),

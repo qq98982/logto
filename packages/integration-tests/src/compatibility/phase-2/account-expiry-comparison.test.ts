@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:net';
 import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 
 import type { ProvisionedPhase2Fixture } from './fixtures.js';
 import {
@@ -41,6 +42,9 @@ const {
 } = await import('./account-expiry-comparison.js');
 
 const rootPrefix = '/var/tmp/henry-build/account-expiry-comparison-';
+const unavailableRelease = (): never => {
+  throw new TypeError('Deferred release unavailable');
+};
 let root = '';
 let driverPath = '';
 let receiptPath = '';
@@ -219,6 +223,72 @@ it('runs the target-driver boundary for both bound prepared targets', async () =
     accountPasswordProofExpiryExpectedProjection,
     accountPasswordProofExpiryExpectedProjection,
   ]);
+});
+
+it('waits for the sibling target before preserving one target failure', async () => {
+  const oracle = await prepareTarget('oracle');
+  const candidate = await prepareTarget('candidate');
+  const oracleError = new Error('oracle failed');
+  let releaseCandidate: () => void = unavailableRelease;
+  const candidateGate = new Promise<void>((resolve) => {
+    releaseCandidate = resolve;
+  });
+  let candidateStarted = false;
+  let candidateFinished = false;
+  let comparisonSettled = false;
+  runTarget.mockImplementation(async ({ target }: TargetDriverInput) => {
+    if (target.label === 'oracle') {
+      throw oracleError;
+    }
+    candidateStarted = true;
+    await candidateGate;
+    candidateFinished = true;
+    return accountPasswordProofExpiryExpectedProjection;
+  });
+  const comparison = runBoundAccountExpiryComparisonTargets(
+    { oracle, candidate, signal: new AbortController().signal },
+    runTarget
+  );
+  void (async () => {
+    try {
+      await comparison;
+    } catch {
+      comparisonSettled = true;
+      return;
+    }
+    comparisonSettled = true;
+  })();
+  try {
+    await setImmediate();
+    expect(candidateStarted).toBe(true);
+    expect(candidateFinished).toBe(false);
+    expect(comparisonSettled).toBe(false);
+  } finally {
+    releaseCandidate();
+  }
+  await expect(comparison).rejects.toBe(oracleError);
+  expect(candidateFinished).toBe(true);
+});
+
+it('preserves two target failures in oracle and candidate order', async () => {
+  const oracle = await prepareTarget('oracle');
+  const candidate = await prepareTarget('candidate');
+  const oracleError = new Error('oracle failed');
+  const candidateError = new Error('candidate failed');
+  runTarget.mockImplementation(async ({ target }: TargetDriverInput) => {
+    throw target.label === 'oracle' ? oracleError : candidateError;
+  });
+  let caught: unknown;
+  try {
+    await runBoundAccountExpiryComparisonTargets(
+      { oracle, candidate, signal: new AbortController().signal },
+      runTarget
+    );
+  } catch (error: unknown) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(AggregateError);
+  expect((caught as AggregateError).errors).toEqual([oracleError, candidateError]);
 });
 
 it('rejects a forged descriptor/state cross-pair before target execution', async () => {

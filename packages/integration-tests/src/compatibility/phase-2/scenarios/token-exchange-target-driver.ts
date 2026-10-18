@@ -61,7 +61,7 @@ export type TokenExchangeUserJwtProjection = Readonly<{
     disabled: Readonly<{
       status: 400;
       error: 'invalid_request';
-      errorDescription: 'grant request is invalid';
+      errorDescription: 'requested grant type is not allowed for this client';
     }>;
     unknownClientMasksMissingSubject: Readonly<{
       status: 400;
@@ -489,7 +489,7 @@ export const observeTokenExchangeUserJwtMatrix = async (
           ),
           400,
           'invalid_request',
-          'grant request is invalid'
+          'requested grant type is not allowed for this client'
         );
         await setEnabled(true);
         const projections = [] as Array<Readonly<{ scope: string; lifetime: number }>>;
@@ -1321,7 +1321,7 @@ export const observeTokenExchangeUserJwtMatrix = async (
             disabled: Object.freeze({
               status: 400,
               error: 'invalid_request',
-              errorDescription: 'grant request is invalid',
+              errorDescription: 'requested grant type is not allowed for this client',
             }),
             unknownClientMasksMissingSubject: Object.freeze({
               status: 400,
