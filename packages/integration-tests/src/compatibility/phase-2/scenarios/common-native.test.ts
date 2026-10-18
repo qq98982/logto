@@ -193,6 +193,9 @@ const selectedNativeManagement = (): Phase2AdminRequestFunction => {
     if (method === 'GET' && path === 'users') {
       return [identity];
     }
+    if (method === 'DELETE' && (path === `users/${subject}` || path === `roles/${role.id}`)) {
+      return 204;
+    }
     throw new Error('unexpected selected Native Management request');
   };
 };
