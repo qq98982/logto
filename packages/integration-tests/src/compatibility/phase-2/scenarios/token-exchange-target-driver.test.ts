@@ -30,6 +30,9 @@ const fixture = Object.freeze({
       },
     },
     organization: { id: 'org', scopeName: 'organization:read' },
+    resources: {
+      primary: { id: 'resource-primary', indicator: 'https://primary-api.test/' },
+    },
   } as ProvisionedPhase2Fixture['public'],
   status: Object.freeze({
     user: Object.freeze({ id: 'user-1', username: 'user' }),
@@ -464,7 +467,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
   );
   expect(grammarDispatches[11]?.entries.filter(([key]) => key === 'resource')).toEqual([
     ['resource', 'https://api.test/'],
-    ['resource', 'https://second-resource.invalid/'],
+    ['resource', 'https://primary-api.test/'],
   ]);
   expect(grammarDispatches[12]?.entries.at(-1)).toEqual([
     'requested_token_type',

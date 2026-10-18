@@ -942,7 +942,7 @@ export const observeTokenExchangeUserJwtMatrix = async (
             [
               ...validPublic,
               ['resource', status.resource.indicator],
-              ['resource', 'https://second-resource.invalid/'],
+              ['resource', input.fixture.public.resources.primary.indicator],
             ],
             'none'
           )
