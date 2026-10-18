@@ -58,6 +58,10 @@ it('publishes the exact closed live-driver wire contract', () => {
     'ok',
     'attestation',
   ]);
+  expect(phase2DriverProtocol.state.requests.accountProofBegin.at(-1)).toBe('userId');
+  expect(phase2DriverProtocol.state.requests.accountProofMutation.at(-1)).toBe('handle');
+  expect(phase2DriverProtocol.state.terminals.accountProofBegin.at(-2)).toBe('handle');
+  expect(phase2DriverProtocol.state.terminals.accountProofMutation.at(-2)).toBe('ok');
   expect(phase2DriverProtocol.invariant.terminal).toEqual([
     'schemaVersion',
     'kind',

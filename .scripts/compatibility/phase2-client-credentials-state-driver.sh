@@ -140,7 +140,9 @@ try:
         "finish":["handle","responseStatus","tokenIssued","responseError","signingKeyId"],
         "abort":["handle"], "set-default-resource":["enabled"],
         "device-capture":["handle"], "device-transition":["handle","action"],
-        "device-abort":["handle"]
+        "device-abort":["handle"], "account-proof-begin":["userId"],
+        "account-proof-capture":["handle"], "account-proof-expire":["handle"],
+        "account-proof-abort":["handle"]
     }
     exact(value, ["schemaVersion", "kind", "operation", "scenarioId", "target", "foreignTarget", "fixture"] + extras.get(value.get("operation"), []))
     if value["schemaVersion"] != 1 or value["kind"] != "phase2-client-credentials-state-request": raise ValueError()
@@ -152,13 +154,16 @@ try:
         "device-token.session-bound-expiry":"expire-session"
     }
     scenarios = legacy_scenarios | set(device_actions)
+    account_scenario = "supplemental.account.password-proof-expiry"
+    scenarios.add(account_scenario)
     if value["scenarioId"] not in scenarios: raise ValueError()
     operation = value["operation"]
-    if operation not in ("begin","finish","abort","set-default-resource","device-begin","device-capture","device-transition","device-abort"): raise ValueError()
+    if operation not in ("begin","finish","abort","set-default-resource","device-begin","device-capture","device-transition","device-abort","account-proof-begin","account-proof-capture","account-proof-expire","account-proof-abort"): raise ValueError()
     scenario = value["scenarioId"]
     if operation in ("begin", "finish", "abort") and scenario not in legacy_scenarios: raise ValueError()
     if operation == "set-default-resource" and scenario != "client-credentials.missing-target": raise ValueError()
     if operation in ("device-begin", "device-capture", "device-transition", "device-abort") and scenario not in device_actions: raise ValueError()
+    if operation.startswith("account-proof-") and scenario != account_scenario: raise ValueError()
     label = value["target"].get("label") if type(value["target"]) is dict else None
     if label == "oracle":
         target(value["target"], label, "http://localhost:3311/", "http://localhost:3411/")
@@ -181,6 +186,12 @@ try:
         text(value["handle"], r"^[0-9a-f]{32}$")
         if value["action"] not in ("expire", "consume", "expire-session"): raise ValueError()
         if value["action"] != device_actions[value["scenarioId"]]: raise ValueError()
+    elif operation == "account-proof-begin":
+        text(value["userId"], r"^[A-Za-z0-9._~-]{1,128}$")
+    elif operation in ("account-proof-capture", "account-proof-expire"):
+        text(value["handle"], r"^[0-9a-f]{32}$")
+    elif operation == "account-proof-abort":
+        if value["handle"] is not None: text(value["handle"], r"^[0-9a-f]{32}$")
     elif operation == "set-default-resource":
         if type(value["enabled"]) is not bool: raise ValueError()
     sys.stdout.write(json.dumps(value, separators=(",",":"), ensure_ascii=True))
@@ -804,6 +815,48 @@ load_device_handle() {
   device_handle_document=$saved
 }
 
+account_proof_ids() {
+  local user_id=$1
+  if [[ "$target_kind" == oracle ]]; then
+    run_primary_sql --set="user_id=$user_id" <<'SQL'
+SELECT COALESCE(jsonb_agg(id ORDER BY id),'[]'::jsonb)
+FROM verification_records
+WHERE tenant_id='default' AND user_id=:'user_id'
+  AND data->>'type'='Password' AND data->>'verified'='true'
+  AND expires_at>now();
+SQL
+  else
+    run_primary_sql --set="user_id=$user_id" <<'SQL'
+SELECT COALESCE(jsonb_agg(encode(verification_digest,'hex') ORDER BY encode(verification_digest,'hex')),'[]'::jsonb)
+FROM aster_tenant.account_verification_records
+WHERE tenant_id='default' AND account_id=:'user_id'
+  AND verification_method='password'
+  AND expires_at>floor(extract(epoch from now()))::bigint;
+SQL
+  fi
+}
+
+load_account_proof_handle() {
+  local handle=$1 saved
+  lock_handle_file "$handle" || die
+  saved="$(read_locked_handle)" || die
+  printf '%s' "$saved" | "$JQ_BIN" -e \
+    --arg kind "$target_kind" --arg scenarioId "$scenario_id" \
+    --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" '
+      (keys==["allocationId","expired","handle","kind","projectName","scenarioId","schemaVersion","selectedId","snapshot","userId"] or
+       keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","selectedId","snapshot","userId"] or
+       keys==["allocationId","handle","kind","projectName","scenarioId","schemaVersion","snapshot","userId"]) and
+      .schemaVersion==1 and .kind==$kind and .scenarioId==$scenarioId and
+      .handle==$handle and .allocationId==$allocationId and .projectName==$projectName and
+      (.userId|type)=="string" and (.userId|test("^[A-Za-z0-9._~-]{1,128}$")) and
+      (.snapshot|type)=="array" and (.snapshot|all(type=="string" and test("^[A-Za-z0-9._~-]{1,128}$"))) and
+      (.selectedId == null or (.selectedId|type)=="string" and (.selectedId|test("^[A-Za-z0-9._~-]{1,128}$"))) and
+      (.expired == null or .expired == true)
+    ' >/dev/null 2>&1 || die
+  remove_handle_on_failure=true
+  account_proof_handle_document=$saved
+}
+
 case "$operation" in
   begin)
     baseline="$(snapshot)" || die
@@ -1073,6 +1126,88 @@ SQL
         lock_status=$?
         [[ "$lock_status" == 2 ]] || die
       fi
+    fi
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  account-proof-begin)
+    user_id="$(fixture_value '.userId')" || die
+    account_snapshot="$(account_proof_ids "$user_id")" || die
+    account_snapshot="$(printf '%s' "$account_snapshot" | "$JQ_BIN" -ce 'if type=="array" and all(type=="string" and test("^[A-Za-z0-9._~-]{1,128}$")) then . else error("closed") end')" || die
+    new_handle_value=''
+    new_handle || die
+    handle=$new_handle_value
+    remove_handle_on_failure=true
+    handle_document="$($JQ_BIN -cn --arg kind "$target_kind" --arg scenarioId "$scenario_id" \
+      --arg allocationId "$allocation_id" --arg projectName "$project_name" --arg handle "$handle" \
+      --arg userId "$user_id" --argjson snapshot "$account_snapshot" \
+      '{schemaVersion:1,kind:$kind,scenarioId:$scenarioId,allocationId:$allocationId,projectName:$projectName,handle:$handle,userId:$userId,snapshot:$snapshot}')" || die
+    write_locked_handle "$handle_document"
+    remove_handle_on_failure=false
+    terminal_base "$($JQ_BIN -cn --arg handle "$handle" '{handle:$handle}')" | /usr/bin/tr -d '\n'
+    ;;
+  account-proof-capture)
+    handle="$(fixture_value '.handle')" || die
+    load_account_proof_handle "$handle"
+    printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -e 'has("expired")|not' >/dev/null 2>&1 || die
+    printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -e 'has("selectedId")|not' >/dev/null 2>&1 || die
+    user_id="$(printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -er '.userId')" || die
+    current_ids="$(account_proof_ids "$user_id")" || die
+    current_ids="$(printf '%s' "$current_ids" | "$JQ_BIN" -ce 'if type=="array" and all(type=="string" and test("^[A-Za-z0-9._~-]{1,128}$")) then . else error("closed") end')" || die
+    selected_id="$(printf '%s\n%s' "$account_proof_handle_document" "$current_ids" | "$JQ_BIN" -ser '
+      .[0].snapshot as $before | .[1] as $after |
+      if (($before-$after)|length)==0 and (($after-$before)|length)==1
+      then ($after-$before)[0] else error("not-one-new-account-proof") end' 2>/dev/null)" || die
+    captured_document="$(printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -ce --arg selectedId "$selected_id" '. + {selectedId:$selectedId}')" || die
+    write_locked_handle "$captured_document"
+    close_handle_file
+    remove_handle_on_failure=false
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  account-proof-expire)
+    handle="$(fixture_value '.handle')" || die
+    load_account_proof_handle "$handle"
+    printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -e 'has("expired")|not' >/dev/null 2>&1 || die
+    user_id="$(printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -er '.userId')" || die
+    selected_id="$(printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -er '.selectedId')" || die
+    if [[ "$target_kind" == oracle ]]; then
+      transition_result="$(run_primary_sql --set="user_id=$user_id" --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE verification_records SET expires_at=to_timestamp(0)
+  WHERE tenant_id='default' AND user_id=:'user_id' AND id=:'selected_id'
+    AND data->>'type'='Password' AND data->>'verified'='true'
+  RETURNING expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at<now()) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    else
+      transition_result="$(run_primary_sql --set="user_id=$user_id" --set="selected_id=$selected_id" <<'SQL'
+WITH changed AS (
+  UPDATE aster_tenant.account_verification_records
+  SET issued_at=GREATEST(0,floor(extract(epoch from now()))::bigint-700),
+      expires_at=GREATEST(0,floor(extract(epoch from now()))::bigint-700)+600
+  WHERE tenant_id='default' AND account_id=:'user_id'
+    AND verification_digest=decode(:'selected_id','hex') AND verification_method='password'
+  RETURNING issued_at,expires_at
+)
+SELECT CASE WHEN count(*)=1 AND bool_and(expires_at=issued_at+600 AND expires_at<floor(extract(epoch from now()))::bigint) THEN 'ok' ELSE 'invalid' END FROM changed;
+SQL
+      )" || die
+    fi
+    [[ "$transition_result" == ok ]] || die
+    expired_document="$(printf '%s' "$account_proof_handle_document" | "$JQ_BIN" -ce '. + {expired:true}')" || die
+    write_locked_handle "$expired_document"
+    close_handle_file
+    remove_handle_on_failure=false
+    terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
+    ;;
+  account-proof-abort)
+    handle="$(printf '%s' "$request" | "$JQ_BIN" -er '.handle // empty' 2>/dev/null || true)"
+    if [[ -n "$handle" ]]; then
+      load_account_proof_handle "$handle"
+      unlink_locked_handle
+      close_handle_file
+      remove_handle_on_failure=false
     fi
     terminal_base '{"ok":true}' | /usr/bin/tr -d '\n'
     ;;

@@ -261,6 +261,7 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const fakeJq = path.join(root, 'jq');
   const fakeCurl = path.join(root, 'curl');
   const fakePython = path.join(root, 'python');
+  const accountProofRow = path.join(root, 'account-proof-row.json');
   const dockerScript = `#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker:' >>'${calls}'
@@ -340,6 +341,22 @@ if [[ "$1" == exec ]]; then
   fi
   if [[ "$input" == *'UPDATE resources SET is_default'* || "$input" == *'UPDATE aster_tenant.api_resources SET is_default'* ]]; then
     printf '%s' ok
+    exit 0
+  fi
+  if [[ "$input" == *'SELECT COALESCE(jsonb_agg(id ORDER BY id)'*'FROM verification_records'* || "$input" == *"jsonb_agg(encode(verification_digest,'hex') ORDER BY encode(verification_digest,'hex'))"* ]]; then
+    if [[ "$input" == *'FROM verification_records'* ]]; then
+      discriminator="$(/usr/bin/jq -er '.data.type' '${accountProofRow}')"
+      if [[ "$input" != *"data->>'type'='$discriminator'"* ]]; then
+        printf '%s' '[]'
+        exit 0
+      fi
+    fi
+    if [[ -f '${root}/account-proof-ids-seen' ]]; then
+      printf '%s' '["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]'
+    else
+      printf '%s' one >'${root}/account-proof-ids-seen'
+      printf '%s' '[]'
+    fi
     exit 0
   fi
   if [[ "$input" == *'jsonb_agg(id ORDER BY id)'* || "$input" == *'jsonb_agg(device_uid ORDER BY device_uid)'* ]]; then
@@ -507,6 +524,15 @@ if [[ "$1" == exec ]]; then
     printf '%s' ok
     exit 0
   fi
+  if [[ "$input" == *'UPDATE verification_records SET expires_at=to_timestamp(0)'* ]]; then
+    discriminator="$(/usr/bin/jq -er '.data.type' '${accountProofRow}')"
+    if [[ "$input" == *"data->>'type'='$discriminator'"* ]]; then printf '%s' ok; else printf '%s' invalid; fi
+    exit 0
+  fi
+  if [[ "$input" == *'UPDATE aster_tenant.account_verification_records'* && "$input" == *'SET issued_at=GREATEST'* ]]; then
+    printf '%s' ok
+    exit 0
+  fi
   general=10
   [[ -f '${usage}' ]] && general=20
   users=u
@@ -617,6 +643,11 @@ exec /usr/bin/python3.12 "$@"
     writeFile(fakeJq, jqScript, { mode: 0o700 }),
     writeFile(fakeCurl, curlScript, { mode: 0o700 }),
     writeFile(fakePython, pythonScript, { mode: 0o700 }),
+    writeFile(
+      accountProofRow,
+      JSON.stringify({ data: { type: 'Password', verified: true }, expiresAt: 'active' }),
+      { mode: 0o600 }
+    ),
   ]);
   await Promise.all([
     chmod(fakeDocker, 0o700),
@@ -1171,6 +1202,85 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       typedPayload: true,
       bothExpiriesChecked: true,
     });
+  });
+
+  it.each(['oracle', 'candidate'] as const)(
+    'captures and expires exactly one private Account password proof for %s',
+    async (kind) => {
+      const harness = await createHarness(kind);
+      const scenarioId = 'supplemental.account.password-proof-expiry';
+      const begun = await invoke(
+        harness.state,
+        JSON.stringify(
+          stateRequest('account-proof-begin', { scenarioId, userId: 'owned-user' }, kind)
+        ),
+        harness.env
+      );
+      expect(begun).toMatchObject({ code: 0, stderr: '' });
+      expect(begun.stdout).not.toContain('owned-user');
+      const { handle } = JSON.parse(begun.stdout) as { handle: string };
+      for (const operation of ['account-proof-capture', 'account-proof-expire'] as const) {
+        const result = await invoke(
+          harness.state,
+          JSON.stringify(stateRequest(operation, { scenarioId, handle }, kind)),
+          harness.env
+        );
+        expect(result).toMatchObject({ code: 0, stderr: '' });
+        expect(JSON.parse(result.stdout)).toMatchObject({ operation, ok: true });
+        expect(result.stdout).not.toContain('owned-user');
+      }
+      const aborted = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('account-proof-abort', { scenarioId, handle }, kind)),
+        harness.env
+      );
+      expect(aborted).toMatchObject({ code: 0, stderr: '' });
+      const replayedAbort = await invoke(
+        harness.state,
+        JSON.stringify(stateRequest('account-proof-abort', { scenarioId, handle }, kind)),
+        harness.env
+      );
+      expect(replayedAbort.code).not.toBe(0);
+      const sql = await readFile(harness.sql, 'utf8');
+      expect(sql).toContain("tenant_id='default'");
+      if (kind === 'oracle') {
+        expect(sql).toContain("data->>'type'='Password'");
+        expect(sql).toContain("id=:'selected_id'");
+      } else {
+        expect(sql).toContain("verification_method='password'");
+        expect(sql).toContain("verification_digest=decode(:'selected_id','hex')");
+        expect(sql).toContain(
+          'expires_at=GREATEST(0,floor(extract(epoch from now()))::bigint-700)+600'
+        );
+      }
+    }
+  );
+
+  it('rejects an oracle Account proof query with the wrong serialized discriminator', async () => {
+    const harness = await createHarness('oracle');
+    const incorrectDriver = path.join(harness.root, 'state-driver-lowercase-password');
+    const source = await readFile(harness.state, 'utf8');
+    await writeFile(
+      incorrectDriver,
+      source.replaceAll("data->>'type'='Password'", "data->>'type'='password'"),
+      { mode: 0o700 }
+    );
+    const scenarioId = 'supplemental.account.password-proof-expiry';
+    const begun = await invoke(
+      incorrectDriver,
+      JSON.stringify(
+        stateRequest('account-proof-begin', { scenarioId, userId: 'owned-user' }, 'oracle')
+      ),
+      harness.env
+    );
+    expect(begun).toMatchObject({ code: 0, stderr: '' });
+    const { handle } = JSON.parse(begun.stdout) as { handle: string };
+    const captured = await invoke(
+      incorrectDriver,
+      JSON.stringify(stateRequest('account-proof-capture', { scenarioId, handle }, 'oracle')),
+      harness.env
+    );
+    expect(captured.code).not.toBe(0);
   });
 
   it.each(['oracle', 'candidate'] as const)(
@@ -1884,6 +1994,20 @@ describe('Phase 2 live client-credentials shell drivers', () => {
       JSON.stringify(stateRequest('begin', { scenarioId: 'device-verification.expired-code' })),
     ],
     ['device operation with legacy scenario', JSON.stringify(stateRequest('device-begin'))],
+    [
+      'account operation with legacy scenario',
+      JSON.stringify(stateRequest('account-proof-begin', { userId: 'owned-user' })),
+    ],
+    [
+      'account operation with unknown field',
+      JSON.stringify(
+        stateRequest('account-proof-begin', {
+          scenarioId: 'supplemental.account.password-proof-expiry',
+          userId: 'owned-user',
+          proofId: 'forbidden',
+        })
+      ),
+    ],
     [
       'wrong device transition action',
       JSON.stringify(

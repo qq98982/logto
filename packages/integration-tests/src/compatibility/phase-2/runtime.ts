@@ -29,6 +29,11 @@ import type {
   Phase2TopologyIdentity,
 } from './provenance.js';
 import type {
+  AccountPasswordProofScenarioId,
+  AccountPasswordProofStateDriver,
+  AccountPasswordProofStateHandle,
+} from './scenarios/account-password-proof-expiry.js';
+import type {
   Phase2ScenarioStateDriver,
   Phase2ScenarioStateObservation,
 } from './scenarios/client-credentials.js';
@@ -107,12 +112,14 @@ const maximumProcessBytes = 65_536;
 const processTimeoutMs = 120_000;
 const privateJwkMembers = new Set(['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']);
 const handlePattern = /^[0-9a-f]{32}$/u;
+const accountIdPattern = /^[A-Za-z0-9._~-]{1,128}$/u;
 const signingKeyIdPattern = /^[A-Za-z0-9._~-]{1,256}$/u;
 const commitPattern = /^[0-9a-f]{40}$/u;
 const imagePattern = /^sha256:[0-9a-f]{64}$/u;
 const containerPattern = /^[0-9a-f]{64}$/u;
 const projectPattern = /^aster-phase2-client-credentials-[0-9a-f]{16}$/u;
 const shaPattern = /^[0-9a-f]{64}$/u;
+const preparedTargetCapabilities = new WeakSet<object>();
 
 const fail = (): never => {
   throw new TypeError(diagnostic);
@@ -764,13 +771,19 @@ export const preparePhase2TargetForExecution = async (
       originalFence.run(async () => copiedFence.run(operation)),
   });
   await fence.assertStable();
-  return Object.freeze({
+  const prepared = Object.freeze({
     descriptor,
     topology: verified.topology,
     fence,
     fetchObserverReceiptFile: copied.fetchObserverReceiptFile,
   });
+  preparedTargetCapabilities.add(prepared);
+  return prepared;
 };
+
+export const assertPreparedPhase2TargetCapability = (
+  value: PreparedPhase2Target
+): PreparedPhase2Target => (preparedTargetCapabilities.has(value) ? value : fail());
 
 export const verifyPhase2Target = async (
   descriptor: Phase2TargetDescriptor
@@ -1042,15 +1055,19 @@ const parseTerminal = (
     | 'device-begin'
     | 'device-capture'
     | 'device-transition'
-    | 'device-abort',
-  scenarioId: Phase2DifferentialScenarioId,
+    | 'device-abort'
+    | 'account-proof-begin'
+    | 'account-proof-capture'
+    | 'account-proof-expire'
+    | 'account-proof-abort',
+  scenarioId: Phase2DifferentialScenarioId | AccountPasswordProofScenarioId,
   topology: Phase2TopologyIdentity
 ): Record<string, unknown> => {
   if (stdout.length === 0 || /[\r\n]/u.test(stdout)) {
     return fail();
   }
   const expectedKeys =
-    operation === 'begin' || operation === 'device-begin'
+    operation === 'begin' || operation === 'device-begin' || operation === 'account-proof-begin'
       ? ['schemaVersion', 'kind', 'operation', 'scenarioId', 'handle', 'attestation']
       : operation === 'finish'
         ? [
@@ -1197,7 +1214,9 @@ const parseSideEffects = (value: unknown): Phase2SideEffectFacts => {
 
 export const createCommandPhase2ScenarioStateDriver = async (
   options: StateDriverOptions
-): Promise<Phase2ScenarioStateDriver & DeviceScenarioStateDriver> => {
+): Promise<
+  Phase2ScenarioStateDriver & DeviceScenarioStateDriver & AccountPasswordProofStateDriver
+> => {
   const verified = await verifyPhase2Target(options.descriptor);
   const executable = verified.stateDriver.path;
   const runner = options.runner ?? runPhase1FixtureCommand;
@@ -1214,8 +1233,12 @@ export const createCommandPhase2ScenarioStateDriver = async (
       | 'device-begin'
       | 'device-capture'
       | 'device-transition'
-      | 'device-abort',
-    scenarioId: Phase2DifferentialScenarioId,
+      | 'device-abort'
+      | 'account-proof-begin'
+      | 'account-proof-capture'
+      | 'account-proof-expire'
+      | 'account-proof-abort',
+    scenarioId: Phase2DifferentialScenarioId | AccountPasswordProofScenarioId,
     fixture: ProvisionedPhase2Fixture,
     extra: Readonly<Record<string, unknown>> = {}
   ): Promise<Record<string, unknown>> => {
@@ -1360,6 +1383,67 @@ export const createCommandPhase2ScenarioStateDriver = async (
       let cleanupFailed = false;
       try {
         const terminal = await run('device-abort', scenarioId, fixture, {
+          handle: handle ?? null,
+        });
+        if (own(terminal, 'ok') !== true) {
+          fail();
+        }
+      } catch (error: unknown) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+      if (callbackFailed && cleanupFailed) {
+        throw new AggregateError([callbackError, cleanupError], diagnostic);
+      }
+      if (callbackFailed) {
+        throw callbackError;
+      }
+      if (cleanupFailed) {
+        throw cleanupError;
+      }
+      return outcome as Result;
+    },
+    withAccountPasswordProofHandle: async <Result>(
+      scenarioId: AccountPasswordProofScenarioId,
+      fixture: ProvisionedPhase2Fixture,
+      userId: string,
+      use: (handle: AccountPasswordProofStateHandle) => Result | Promise<Result>
+    ): Promise<Result> => {
+      if (!accountIdPattern.test(userId)) {
+        return fail();
+      }
+      let handle: string | undefined;
+      let outcome: Result | undefined;
+      let callbackError: unknown;
+      let callbackFailed = false;
+      try {
+        const begin = await run('account-proof-begin', scenarioId, fixture, { userId });
+        const rawHandle = own(begin, 'handle');
+        handle =
+          typeof rawHandle === 'string' && handlePattern.test(rawHandle) ? rawHandle : fail();
+        const controls: AccountPasswordProofStateHandle = Object.freeze({
+          capture: async () => {
+            const terminal = await run('account-proof-capture', scenarioId, fixture, { handle });
+            if (own(terminal, 'ok') !== true) {
+              fail();
+            }
+          },
+          expire: async () => {
+            const terminal = await run('account-proof-expire', scenarioId, fixture, { handle });
+            if (own(terminal, 'ok') !== true) {
+              fail();
+            }
+          },
+        });
+        outcome = await use(controls);
+      } catch (error: unknown) {
+        callbackFailed = true;
+        callbackError = error;
+      }
+      let cleanupError: unknown;
+      let cleanupFailed = false;
+      try {
+        const terminal = await run('account-proof-abort', scenarioId, fixture, {
           handle: handle ?? null,
         });
         if (own(terminal, 'ok') !== true) {

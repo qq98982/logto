@@ -21,6 +21,7 @@ import type {
 
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from './fixtures.js';
 import {
+  assertPreparedPhase2TargetCapability,
   createCommandPhase2ScenarioStateDriver,
   fetchPhase2Discovery,
   fetchPhase2PublicJwks,
@@ -544,6 +545,10 @@ describe('Phase 2 runtime adapters', () => {
     expect(await readFile(prepared.descriptor.stateDriver.path)).toEqual(
       await readFile(driverPath)
     );
+    expect(assertPreparedPhase2TargetCapability(prepared)).toBe(prepared);
+    expect(() => assertPreparedPhase2TargetCapability({ ...prepared })).toThrow(
+      'Invalid Phase 2 runtime'
+    );
 
     for (let attempt = 0; attempt < 30; attempt += 1) {
       const artifactBackup = `${driverPath}.original-${attempt}`;
@@ -586,7 +591,11 @@ describe('Phase 2 runtime adapters', () => {
       calls.push(input);
       const { operation } = input;
       const { scenarioId } = input;
-      if (operation === 'begin' || operation === 'device-begin') {
+      if (
+        operation === 'begin' ||
+        operation === 'device-begin' ||
+        operation === 'account-proof-begin'
+      ) {
         return result(
           JSON.stringify({
             schemaVersion: 1,
@@ -673,6 +682,36 @@ describe('Phase 2 runtime adapters', () => {
       action: 'expire-session',
       handle: 'a'.repeat(32),
     });
+    await state.withAccountPasswordProofHandle(
+      'supplemental.account.password-proof-expiry',
+      fixture,
+      'owned-user',
+      async (handle) => {
+        await handle.capture();
+        await handle.expire();
+      }
+    );
+    expect(calls.slice(-4).map(({ operation }) => operation)).toEqual([
+      'account-proof-begin',
+      'account-proof-capture',
+      'account-proof-expire',
+      'account-proof-abort',
+    ]);
+    expect(calls.at(-4)).toMatchObject({ userId: 'owned-user' });
+    expect(Object.keys(calls.at(-4) ?? {}).sort()).toEqual(
+      [
+        'fixture',
+        'foreignTarget',
+        'kind',
+        'operation',
+        'scenarioId',
+        'schemaVersion',
+        'target',
+        'userId',
+      ].sort()
+    );
+    expect(calls.slice(-3).every((call) => !Object.hasOwn(call, 'userId'))).toBe(true);
+    expect(JSON.stringify(calls.slice(-4))).not.toMatch(/verificationRecordId|digest|selectedId/u);
 
     await expect(
       state.observe('client-credentials.unknown-resource', fixture, async () => {
@@ -680,6 +719,49 @@ describe('Phase 2 runtime adapters', () => {
       })
     ).rejects.toThrow('request failed');
     expect(calls.at(-1)).toMatchObject({ operation: 'abort', handle: 'a'.repeat(32) });
+  });
+
+  it('aborts the Account proof handle after callback failure and rejects invalid account ids', async () => {
+    const operations: string[] = [];
+    const runner = async (request: CommandRunnerRequest): Promise<CommandRunnerResult> => {
+      const input = JSON.parse(request.stdin) as Record<string, unknown>;
+      operations.push(String(input.operation));
+      return result(
+        JSON.stringify({
+          schemaVersion: 1,
+          kind: 'phase2-client-credentials-state',
+          operation: input.operation,
+          scenarioId: input.scenarioId,
+          ...(input.operation === 'account-proof-begin'
+            ? { handle: 'a'.repeat(32) }
+            : { ok: true }),
+          attestation: topology(),
+        })
+      );
+    };
+    const state = await createCommandPhase2ScenarioStateDriver({
+      descriptor: descriptor(),
+      runner,
+    });
+    await expect(
+      state.withAccountPasswordProofHandle(
+        'supplemental.account.password-proof-expiry',
+        fixture,
+        'owned-user',
+        async () => {
+          throw new Error('account request failed');
+        }
+      )
+    ).rejects.toThrow('account request failed');
+    expect(operations).toEqual(['account-proof-begin', 'account-proof-abort']);
+    await expect(
+      state.withAccountPasswordProofHandle(
+        'supplemental.account.password-proof-expiry',
+        fixture,
+        'invalid user id',
+        async () => null
+      )
+    ).rejects.toThrow('Invalid Phase 2 runtime');
   });
 
   it('forwards the actual closed OAuth error to finish without descriptions or credentials', async () => {
