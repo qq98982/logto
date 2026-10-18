@@ -1,4 +1,6 @@
 /* eslint-disable max-lines, complexity, no-await-in-loop, @typescript-eslint/consistent-type-assertions, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The test models a secret lease and counts sequential exchanges. */
+import { setImmediate as nextTurn } from 'node:timers/promises';
+
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 
 import type { ProvisionedPhase2Fixture } from '../fixtures.js';
@@ -32,6 +34,7 @@ const fixture = Object.freeze({
     organization: { id: 'org', scopeName: 'organization:read' },
     resources: {
       primary: { id: 'resource-primary', indicator: 'https://primary-api.test/' },
+      default: { id: 'resource-default', indicator: 'https://default-api.test/' },
     },
   } as ProvisionedPhase2Fixture['public'],
   status: Object.freeze({
@@ -90,6 +93,12 @@ it('exchanges one source twice and projects only verified stable semantics', asy
   let customizerMode: 'absent' | 'context' | 'deny' = 'absent';
   let rejectedPatCreateName: string | undefined;
   let rejectedPatDeleteName: string | undefined;
+  let defaultResourceEnabled = true;
+  let repeatedResourceError: Error | undefined;
+  let restoreDefaultError: Error | undefined;
+  let restoreGate: Promise<void> | undefined;
+  let repeatedResourceStarted: (() => void) | undefined;
+  let restoreStarted: (() => void) | undefined;
   const signed = async (
     clientId: string,
     actor?: string,
@@ -144,6 +153,18 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           if (request.path === 'subject-tokens') {
             subjects += 1;
             return { expiresIn: 600, subjectToken: `managed-${subjects}` };
+          }
+          if (request.path === 'resources/resource-default/is-default') {
+            const body = request.body as Readonly<{ isDefault: boolean }>;
+            if (body.isDefault) {
+              restoreStarted?.();
+              await restoreGate;
+              if (restoreDefaultError) {
+                throw restoreDefaultError;
+              }
+            }
+            defaultResourceEnabled = body.isDefault;
+            return { id: 'resource-default', isDefault: body.isDefault };
           }
           if (request.method === 'POST' && request.path.endsWith('personal-access-tokens')) {
             const body = request.body as Readonly<{ name: string }>;
@@ -347,6 +368,21 @@ it('exchanges one source twice and projects only verified stable semantics', asy
         );
       }
       if (index === 11) {
+        expect(defaultResourceEnabled).toBe(true);
+        return new Response(
+          JSON.stringify({
+            error: 'invalid_target',
+            error_description: 'resource indicator is missing, or unknown',
+          }),
+          { status: 400 }
+        );
+      }
+      if (index === 12) {
+        expect(defaultResourceEnabled).toBe(false);
+        repeatedResourceStarted?.();
+        if (repeatedResourceError) {
+          throw repeatedResourceError;
+        }
         return new Response(
           JSON.stringify({
             access_token: 'grammar-opaque',
@@ -357,7 +393,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           { status: 200 }
         );
       }
-      if (index === 13) {
+      if (index === 14) {
         return new Response(
           JSON.stringify({
             access_token: await signed('first-party-public', undefined, {
@@ -372,7 +408,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           { status: 200 }
         );
       }
-      if (index === 15) {
+      if (index === 16) {
         return new Response(
           JSON.stringify({
             access_token: 'scope-canonical-opaque',
@@ -383,7 +419,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           { status: 200 }
         );
       }
-      if (index === 17) {
+      if (index === 18) {
         return new Response(
           JSON.stringify({
             access_token: await signed('first-party-public', undefined, {
@@ -398,7 +434,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           { status: 200 }
         );
       }
-      if (index === 18) {
+      if (index === 19) {
         return new Response(
           JSON.stringify({
             access_token: await signed('first-party-confidential', undefined, {
@@ -416,7 +452,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
           access_token: await signed(
             'first-party-public',
             undefined,
-            index === 14 ? { organizationId: 'org' } : {}
+            index === 15 ? { organizationId: 'org' } : {}
           ),
           expires_in: 3600,
           scope: 'read:fixture',
@@ -456,7 +492,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
   expect(resourceRequestScopes).toEqual(['read:fixture', 'read:fixture']);
   expect(leaseCount).toBe(1);
   expect(enabledTransitions).toEqual([false, true]);
-  expect(grammarDispatches).toHaveLength(19);
+  expect(grammarDispatches).toHaveLength(20);
   expect(grammarDispatches[7]?.entries.filter(([key]) => key === 'subject_token')).toHaveLength(2);
   expect(
     grammarDispatches[8]?.entries.filter(([key]) => key === 'subject_token_type')
@@ -469,22 +505,23 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     ['resource', 'https://api.test/'],
     ['resource', 'https://primary-api.test/'],
   ]);
-  expect(grammarDispatches[12]?.entries.at(-1)).toEqual([
+  expect(grammarDispatches[12]?.entries).toEqual(grammarDispatches[11]?.entries);
+  expect(grammarDispatches[13]?.entries.at(-1)).toEqual([
     'requested_token_type',
     'urn:example:ignored',
   ]);
-  expect(grammarDispatches[13]?.entries.at(-1)).toEqual(['organization_id', 'org']);
-  expect(grammarDispatches[14]?.entries.slice(-3)).toEqual([
+  expect(grammarDispatches[14]?.entries.at(-1)).toEqual(['organization_id', 'org']);
+  expect(grammarDispatches[15]?.entries.slice(-3)).toEqual([
     ['resource', 'https://api.test/'],
     ['scope', 'read:fixture'],
     ['organization_id', 'org'],
   ]);
-  expect(grammarDispatches.slice(15, 18).map(({ entries }) => entries.at(-1))).toEqual([
+  expect(grammarDispatches.slice(16, 19).map(({ entries }) => entries.at(-1))).toEqual([
     ['scope', 'openid openid profile profile unknown unknown'],
     ['scope', 'read:fixture read:fixture unknown unknown'],
     ['scope', 'organization:read organization:read unknown unknown'],
   ]);
-  expect(grammarDispatches[18]?.authentication).toBe('correct');
+  expect(grammarDispatches[19]?.authentication).toBe('correct');
   expect(tokenUses.slice(-3)).toEqual([
     { token: 'opaque-openid', kind: 'revocation' },
     { token: 'opaque-child', kind: 'introspection' },
@@ -500,6 +537,8 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     'POST subject-tokens',
     'POST subject-tokens',
     'POST subject-tokens',
+    'PATCH resources/resource-default/is-default',
+    'PATCH resources/resource-default/is-default',
     'GET configs/jwt-customizer/access-token',
     'PUT configs/jwt-customizer/access-token',
     'POST subject-tokens',
@@ -684,6 +723,12 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     customizerMode = 'absent';
     rejectedPatCreateName = undefined;
     rejectedPatDeleteName = undefined;
+    defaultResourceEnabled = true;
+    repeatedResourceError = undefined;
+    restoreDefaultError = undefined;
+    restoreGate = undefined;
+    repeatedResourceStarted = undefined;
+    restoreStarted = undefined;
     managedDispatches.length = 0;
     managementDispatches.length = 0;
     managementRequests.length = 0;
@@ -718,6 +763,65 @@ it('exchanges one source twice and projects only verified stable semantics', asy
   await expectCommittedCreateCleanup('phase2-token-exchange-pat');
   await expectCommittedCreateCleanup('phase2-token-exchange-context-pat');
   await expectCommittedCreateCleanup('phase2-token-exchange-pat', true);
+
+  resetMatrixState();
+  repeatedResourceError = new Error('repeated resource failed');
+  // eslint-disable-next-line no-use-extend-native/no-use-extend-native -- Standard ES2024 deferred primitive.
+  const repeatedStarted = Promise.withResolvers<void>();
+  // eslint-disable-next-line no-use-extend-native/no-use-extend-native -- Standard ES2024 deferred primitive.
+  const restorationStarted = Promise.withResolvers<void>();
+  // eslint-disable-next-line no-use-extend-native/no-use-extend-native -- Standard ES2024 deferred primitive.
+  const restorationGate = Promise.withResolvers<void>();
+  repeatedResourceStarted = repeatedStarted.resolve;
+  restoreStarted = restorationStarted.resolve;
+  restoreGate = restorationGate.promise;
+  const pendingObservation = runMatrix();
+  let settled = false;
+  void (async () => {
+    try {
+      await pendingObservation;
+    } catch {
+      // The assertion below owns the rejection; this observer only records settlement timing.
+    } finally {
+      settled = true;
+    }
+  })();
+  try {
+    await repeatedStarted.promise;
+    await restorationStarted.promise;
+    await nextTurn();
+    expect(settled).toBe(false);
+  } finally {
+    restorationGate.resolve();
+  }
+  await expect(pendingObservation).rejects.toThrow(
+    'Invalid Phase 2 token-exchange user JWT comparison'
+  );
+  expect(defaultResourceEnabled).toBe(true);
+
+  resetMatrixState();
+  repeatedResourceError = new Error('repeated resource failed');
+  restoreDefaultError = new Error('default restoration failed');
+  await expect(runMatrix()).rejects.toMatchObject({
+    errors: [
+      expect.objectContaining({ message: 'repeated resource failed' }),
+      expect.objectContaining({ message: 'default restoration failed' }),
+    ],
+  });
+  expect(
+    managementRequests.filter(({ path }) => path === 'resources/resource-default/is-default')
+  ).toEqual([
+    {
+      method: 'PATCH',
+      path: 'resources/resource-default/is-default',
+      body: { isDefault: false },
+    },
+    {
+      method: 'PATCH',
+      path: 'resources/resource-default/is-default',
+      body: { isDefault: true },
+    },
+  ]);
 });
 
 it('selects first-party requester roles and enables only their applications', async () => {

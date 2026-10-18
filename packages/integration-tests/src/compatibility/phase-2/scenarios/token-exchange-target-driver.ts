@@ -226,7 +226,7 @@ const record = (value: unknown): Readonly<Record<string, unknown>> =>
 export const expectTokenExchangeGrammarError = async (
   response: Response,
   statusCode: 400 | 401,
-  error: 'invalid_request' | 'invalid_client',
+  error: 'invalid_request' | 'invalid_client' | 'invalid_target',
   errorDescription?: string
 ): Promise<void> => {
   if (response.status !== statusCode || response.redirected) {
@@ -936,16 +936,40 @@ export const observeTokenExchangeUserJwtMatrix = async (
             errorDescription
           );
         }
-        const repeatedResource = await readJson(
-          await adapters.grammarRequest(
-            input,
-            [
-              ...validPublic,
-              ['resource', status.resource.indicator],
-              ['resource', input.fixture.public.resources.primary.indicator],
-            ],
-            'none'
-          )
+        const repeatedResourceEntries = [
+          ...validPublic,
+          ['resource', status.resource.indicator] as const,
+          ['resource', input.fixture.public.resources.primary.indicator] as const,
+        ];
+        await expectTokenExchangeGrammarError(
+          await adapters.grammarRequest(input, repeatedResourceEntries, 'none'),
+          400,
+          'invalid_target',
+          'resource indicator is missing, or unknown'
+        );
+        const defaultResourcePath = `resources/${encodeURIComponent(
+          input.fixture.public.resources.default.id
+        )}/is-default`;
+        const repeatedResource = await withRequiredCleanup(
+          async () => {
+            await managementRequest({
+              method: 'PATCH',
+              path: defaultResourcePath,
+              body: { isDefault: false },
+              expectedStatuses: [200],
+              responseKind: 'object',
+            });
+            return readJson(await adapters.grammarRequest(input, repeatedResourceEntries, 'none'));
+          },
+          async () => {
+            await managementRequest({
+              method: 'PATCH',
+              path: defaultResourcePath,
+              body: { isDefault: true },
+              expectedStatuses: [200],
+              responseKind: 'object',
+            });
+          }
         );
         if (
           JSON.stringify(Object.keys(repeatedResource).sort()) !==
