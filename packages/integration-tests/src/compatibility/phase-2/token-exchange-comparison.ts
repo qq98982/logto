@@ -202,6 +202,8 @@ export const assertTokenExchangeComparisonEvidence = (
       !target.projection.customizer.managedApplicationContext ||
       !target.projection.customizer.managedOrganizationContext ||
       !target.projection.customizer.managedSubjectTokenContext ||
+      !target.projection.customizer.managedActorOverridden ||
+      !target.projection.customizer.throwingFailOpenConsumedSource ||
       !target.projection.customizer.ordinaryJwtSubjectTokenContextAbsent ||
       !target.projection.customizer.personalAccessTokenSubjectTokenContextAbsent ||
       target.projection.customizer.deny.error !== 'access_denied' ||

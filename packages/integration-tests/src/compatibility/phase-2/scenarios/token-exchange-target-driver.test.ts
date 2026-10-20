@@ -90,7 +90,15 @@ it('exchanges one source twice and projects only verified stable semantics', asy
   let leaseCount = 0;
   let subjects = 0;
   let revoked = false;
-  let customizerMode: 'absent' | 'context' | 'deny' = 'absent';
+  let customizerMode: 'absent' | 'context' | 'throwing' | 'deny' = 'absent';
+  let installedCustomizerScript = '';
+  let invalidCustomizerReadback: 'script' | 'block' | undefined;
+  let customizerActorClaims: Readonly<Record<string, unknown>> = Object.freeze({
+    sub: 'phase2-customizer-actor',
+  });
+  let throwingCustomizerFailsOpen = true;
+  let throwingReplayAccepted = false;
+  const throwingConsumedSubjects = new Set<string>();
   let rejectedPatCreateName: string | undefined;
   let rejectedPatDeleteName: string | undefined;
   let defaultResourceEnabled = true;
@@ -138,11 +146,20 @@ it('exchanges one source twice and projects only verified stable semantics', asy
             if (request.method === 'GET') {
               return customizerMode === 'absent'
                 ? { code: 'entity.not_exists_with_id' }
-                : { script: customizerMode, blockIssuanceOnError: true };
+                : {
+                    script: invalidCustomizerReadback === 'script' ? '' : installedCustomizerScript,
+                    blockIssuanceOnError: invalidCustomizerReadback !== 'block',
+                  };
             }
             if (String(request.method) === 'PUT') {
               const body = request.body as Readonly<Record<string, unknown>>;
-              customizerMode = String(body.script).includes('denyAccess') ? 'deny' : 'context';
+              const script = String(body.script);
+              installedCustomizerScript = script;
+              customizerMode = script.includes('denyAccess')
+                ? 'deny'
+                : script.includes('throw new Error')
+                  ? 'throwing'
+                  : 'context';
               return { script: customizerMode, blockIssuanceOnError: true };
             }
             if (request.method === 'DELETE') {
@@ -270,6 +287,12 @@ it('exchanges one source twice and projects only verified stable semantics', asy
       if (customizerMode === 'deny') {
         return new Response(JSON.stringify({ error: 'access_denied' }), { status: 400 });
       }
+      if (customizerMode === 'throwing' && !throwingCustomizerFailsOpen) {
+        return new Response(JSON.stringify({ error: 'server_error' }), { status: 500 });
+      }
+      if (throwingConsumedSubjects.has(source) && !throwingReplayAccepted) {
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
+      }
       if (index === 1) {
         return new Response(JSON.stringify({ error: 'invalid_target' }), { status: 400 });
       }
@@ -282,11 +305,16 @@ it('exchanges one source twice and projects only verified stable semantics', asy
       ) {
         return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
       }
+      if (customizerMode === 'throwing') {
+        throwingConsumedSubjects.add(source);
+      }
       return new Response(
         JSON.stringify({
           access_token: await signed(
             'first-party-confidential',
-            options.actor === 'opaque-openid' ? 'user-1' : undefined,
+            options.actor === 'opaque-openid' || options.actor === 'opaque-child'
+              ? 'user-1'
+              : undefined,
             customizerMode === 'context'
               ? {
                   claims:
@@ -297,6 +325,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
                           phase2_application_context: true,
                           phase2_organization_context: true,
                           phase2_subject_context: true,
+                          act: customizerActorClaims,
                         }
                       : { phase2_subject_context_absent: true },
                 }
@@ -527,7 +556,7 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     { token: 'opaque-child', kind: 'introspection' },
     { token: 'opaque-child', kind: 'userinfo' },
   ]);
-  expect(subjects).toBe(7);
+  expect(subjects).toBe(8);
   expect(managementDispatches).toEqual([
     'POST subject-tokens',
     'POST subject-tokens',
@@ -541,10 +570,16 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     'PATCH resources/resource-default/is-default',
     'GET configs/jwt-customizer/access-token',
     'PUT configs/jwt-customizer/access-token',
+    'GET configs/jwt-customizer/access-token',
     'POST subject-tokens',
     'POST users/user-1/personal-access-tokens',
     'POST users/user-1/personal-access-tokens/delete',
     'PUT configs/jwt-customizer/access-token',
+    'GET configs/jwt-customizer/access-token',
+    'POST subject-tokens',
+    'DELETE configs/jwt-customizer/access-token',
+    'PUT configs/jwt-customizer/access-token',
+    'GET configs/jwt-customizer/access-token',
     'POST subject-tokens',
     'DELETE configs/jwt-customizer/access-token',
     'GET configs/jwt-customizer/access-token',
@@ -564,10 +599,17 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     { source: 'managed-4', kind: 'managed', target: 'https://api.test/' },
     { source: 'managed-5', kind: 'managed', target: 'https://api.test/', actor: 'opaque-openid' },
     { source: 'managed-5', kind: 'managed', target: 'https://api.test/' },
-    { source: 'managed-6', kind: 'managed', target: 'https://api.test/' },
+    {
+      source: 'managed-6',
+      kind: 'managed',
+      target: 'https://api.test/',
+      actor: 'opaque-child',
+    },
     { source: 'pat-secret', kind: 'pat', target: 'https://api.test/' },
     { source: 'managed-7', kind: 'managed', target: 'https://api.test/' },
     { source: 'managed-7', kind: 'managed', target: 'https://api.test/' },
+    { source: 'managed-8', kind: 'managed', target: 'https://api.test/' },
+    { source: 'managed-8', kind: 'managed', target: 'https://api.test/' },
   ]);
   expect(projection).toEqual({
     responseKeys: ['access_token', 'expires_in', 'scope', 'token_type'],
@@ -691,6 +733,8 @@ it('exchanges one source twice and projects only verified stable semantics', asy
       managedApplicationContext: true,
       managedOrganizationContext: true,
       managedSubjectTokenContext: true,
+      managedActorOverridden: true,
+      throwingFailOpenConsumedSource: true,
       ordinaryJwtSubjectTokenContextAbsent: true,
       personalAccessTokenSubjectTokenContextAbsent: true,
       deny: { status: 400, error: 'access_denied', sourcePreserved: true },
@@ -721,6 +765,12 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     subjects = 0;
     revoked = false;
     customizerMode = 'absent';
+    installedCustomizerScript = '';
+    invalidCustomizerReadback = undefined;
+    customizerActorClaims = Object.freeze({ sub: 'phase2-customizer-actor' });
+    throwingCustomizerFailsOpen = true;
+    throwingReplayAccepted = false;
+    throwingConsumedSubjects.clear();
     rejectedPatCreateName = undefined;
     rejectedPatDeleteName = undefined;
     defaultResourceEnabled = true;
@@ -736,6 +786,26 @@ it('exchanges one source twice and projects only verified stable semantics', asy
     grammarDispatches.length = 0;
     tokenUses.length = 0;
   };
+  for (const invalidReadback of ['script', 'block'] as const) {
+    resetMatrixState();
+    invalidCustomizerReadback = invalidReadback;
+    await expect(runMatrix()).rejects.toThrow('Invalid Phase 2 token-exchange user JWT comparison');
+  }
+  for (const invalidActorClaims of [
+    { sub: 'user-1' },
+    { sub: 'wrong-customizer-actor' },
+    { sub: 'phase2-customizer-actor', unexpected: true },
+  ]) {
+    resetMatrixState();
+    customizerActorClaims = Object.freeze(invalidActorClaims);
+    await expect(runMatrix()).rejects.toThrow('Invalid Phase 2 token-exchange user JWT comparison');
+  }
+  resetMatrixState();
+  throwingCustomizerFailsOpen = false;
+  await expect(runMatrix()).rejects.toThrow('Invalid Phase 2 token-exchange user JWT comparison');
+  resetMatrixState();
+  throwingReplayAccepted = true;
+  await expect(runMatrix()).rejects.toThrow('Invalid Phase 2 token-exchange user JWT comparison');
   const expectCommittedCreateCleanup = async (name: string, deleteFails = false) => {
     resetMatrixState();
     rejectedPatCreateName = name;

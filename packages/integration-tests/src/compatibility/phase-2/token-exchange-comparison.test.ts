@@ -143,6 +143,8 @@ const projection = Object.freeze({
     managedApplicationContext: true,
     managedOrganizationContext: true,
     managedSubjectTokenContext: true,
+    managedActorOverridden: true,
+    throwingFailOpenConsumedSource: true,
     ordinaryJwtSubjectTokenContextAbsent: true,
     personalAccessTokenSubjectTokenContextAbsent: true,
     deny: { status: 400, error: 'access_denied', sourcePreserved: true },
@@ -202,6 +204,44 @@ it('validates serialized publication evidence and rejects a nested lifecycle mis
         projection: {
           ...projection,
           managedSubject: { ...projection.managedSubject, successAfterBadActor: false },
+        },
+      },
+    })
+  ).toThrow('Invalid token-exchange supplemental comparison');
+  expect(() =>
+    assertTokenExchangeComparisonEvidence({
+      ...evidence,
+      oracle: {
+        ...evidence.oracle,
+        projection: {
+          ...projection,
+          customizer: { ...projection.customizer, throwingFailOpenConsumedSource: false },
+        },
+      },
+      candidate: {
+        ...evidence.candidate,
+        projection: {
+          ...projection,
+          customizer: { ...projection.customizer, throwingFailOpenConsumedSource: false },
+        },
+      },
+    })
+  ).toThrow('Invalid token-exchange supplemental comparison');
+  expect(() =>
+    assertTokenExchangeComparisonEvidence({
+      ...evidence,
+      oracle: {
+        ...evidence.oracle,
+        projection: {
+          ...projection,
+          customizer: { ...projection.customizer, managedActorOverridden: false },
+        },
+      },
+      candidate: {
+        ...evidence.candidate,
+        projection: {
+          ...projection,
+          customizer: { ...projection.customizer, managedActorOverridden: false },
         },
       },
     })

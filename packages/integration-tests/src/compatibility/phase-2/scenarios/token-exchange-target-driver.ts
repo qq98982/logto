@@ -137,6 +137,8 @@ export type TokenExchangeUserJwtProjection = Readonly<{
     managedApplicationContext: true;
     managedOrganizationContext: true;
     managedSubjectTokenContext: true;
+    managedActorOverridden: true;
+    throwingFailOpenConsumedSource: true;
     ordinaryJwtSubjectTokenContextAbsent: true;
     personalAccessTokenSubjectTokenContextAbsent: true;
     deny: Readonly<{ status: 400; error: 'access_denied'; sourcePreserved: true }>;
@@ -1125,6 +1127,13 @@ export const observeTokenExchangeUserJwtMatrix = async (
             responseKind: 'object',
           });
           await adapters.settleCustomizer();
+          const installedCustomizer = await readCustomizer();
+          if (
+            installedCustomizer.script !== script ||
+            installedCustomizer.blockIssuanceOnError !== true
+          ) {
+            return fail();
+          }
         };
         const deleteCustomizer = async () => {
           await customizerManagementRequest({
@@ -1136,6 +1145,9 @@ export const observeTokenExchangeUserJwtMatrix = async (
           await adapters.settleCustomizer();
         };
         const contextScript = `const getCustomJwtClaims = async ({ token, context }) => ({
+          ...(token.extra.act?.sub !== ${JSON.stringify(status.user.id)}
+            ? {}
+            : { act: { sub: 'phase2-customizer-actor' } }),
           phase2_token_shape: token.kind === 'AccessToken' && typeof token.gty === 'string' &&
             typeof token.accountId === 'string' && typeof token.clientId === 'string' &&
             (typeof token.aud === 'string' || Array.isArray(token.aud)) && typeof token.jti === 'string' &&
@@ -1147,6 +1159,9 @@ export const observeTokenExchangeUserJwtMatrix = async (
           phase2_subject_context: context?.grant?.subjectTokenContext?.kind === 'management-context',
           phase2_subject_context_absent: context?.grant?.subjectTokenContext === undefined
         });`;
+        const throwingScript = `const getCustomJwtClaims = async () => {
+          throw new Error('phase2-customizer-error');
+        };`;
         const denyScript = `const getCustomJwtClaims = async ({ api }) => api.denyAccess('blocked');`;
         const readCustomizerClaims = async (token: string) => {
           const verified = await jwtVerify(token, createLocalJWKSet(jwks), {
@@ -1165,15 +1180,20 @@ export const observeTokenExchangeUserJwtMatrix = async (
             await adapters.managedRequest(input, contextManaged, secret, {
               kind: 'managed',
               target: status.resource.indicator,
+              actor: childOpaque,
             })
           );
           const managedClaims = await readCustomizerClaims(managedCustomized);
+          const managedActor = record(managedClaims.act);
           if (
             managedClaims.phase2_token_shape !== true ||
             managedClaims.phase2_user_context !== true ||
             managedClaims.phase2_application_context !== true ||
             managedClaims.phase2_organization_context !== true ||
-            managedClaims.phase2_subject_context !== true
+            managedClaims.phase2_subject_context !== true ||
+            !isDeepStrictEqual(Object.keys(managedActor).sort(), ['sub']) ||
+            managedActor.sub !== 'phase2-customizer-actor' ||
+            managedActor.sub === status.user.id
           ) {
             return fail();
           }
@@ -1230,6 +1250,24 @@ export const observeTokenExchangeUserJwtMatrix = async (
                 fail();
               }
             }
+          );
+          // This comparison fixture disables development features while retaining the stored flag.
+          await putCustomizer(throwingScript);
+          const throwingManaged = await createManaged({ kind: 'throwing-fail-open' });
+          const throwingCustomized = await expectSuccess(
+            await adapters.managedRequest(input, throwingManaged, secret, {
+              kind: 'managed',
+              target: status.resource.indicator,
+            })
+          );
+          await readCustomizerClaims(throwingCustomized);
+          await deleteCustomizer();
+          await expectError(
+            await adapters.managedRequest(input, throwingManaged, secret, {
+              kind: 'managed',
+              target: status.resource.indicator,
+            }),
+            'invalid_grant'
           );
           await putCustomizer(denyScript);
           const deniedManaged = await createManaged({ kind: 'deny-preservation' });
@@ -1422,6 +1460,8 @@ export const observeTokenExchangeUserJwtMatrix = async (
             managedApplicationContext: true,
             managedOrganizationContext: true,
             managedSubjectTokenContext: true,
+            managedActorOverridden: true,
+            throwingFailOpenConsumedSource: true,
             ordinaryJwtSubjectTokenContextAbsent: true,
             personalAccessTokenSubjectTokenContextAbsent: true,
             deny: Object.freeze({ status: 400, error: 'access_denied', sourcePreserved: true }),
