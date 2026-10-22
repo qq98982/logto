@@ -6,6 +6,8 @@ import svgr from 'vite-plugin-svgr';
 
 import { defaultConfig, manualChunks } from '../../vite.shared.config';
 
+import { hasExperienceModuleSideEffects } from './src/utils/bundle-module-side-effects';
+
 const buildConfig = (mode: string): UserConfig => ({
   server: {
     port: 5001,
@@ -43,6 +45,7 @@ const buildConfig = (mode: string): UserConfig => ({
     // Consider using the esbuild target directly in the future.
     target: browserslistToEsbuild('> 0.5%, last 2 versions, Firefox ESR, not dead'),
     rollupOptions: {
+      treeshake: { moduleSideEffects: hasExperienceModuleSideEffects },
       output: {
         // Tip: You can use `pnpx vite-bundle-visualizer` to analyze the bundle size
         manualChunks: (id, meta) => {
