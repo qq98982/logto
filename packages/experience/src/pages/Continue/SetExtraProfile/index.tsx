@@ -1,9 +1,10 @@
-import { CustomProfileFieldType, type FieldPart } from '@logto/schemas';
+import { type FieldPart } from '@logto/schemas';
 import { useContext, useMemo } from 'react';
 
 import SecondaryPageLayout from '@/Layout/SecondaryPageLayout';
 import PageContext from '@/Providers/PageContextProvider/PageContext';
 import { type ContinueFlowInteractionEvent } from '@/types';
+import { CustomProfileFieldType } from '@/types/profile-field-constants';
 
 import ExtraProfileForm from '../ExtraProfileForm';
 

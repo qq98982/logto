@@ -1,7 +1,12 @@
-import { CustomProfileFieldType, type FieldOption, Gender, type FieldPart } from '@logto/schemas';
+import { type FieldOption, type FieldPart } from '@logto/schemas';
 import { useTranslation } from 'react-i18next';
 
 import InputField from '@/shared/components/InputFields/InputField';
+import {
+  CustomProfileFieldType,
+  Gender,
+  type ProfileGender,
+} from '@/types/profile-field-constants';
 
 import CheckboxField from '../CheckboxField';
 import DateField from '../DateField';
@@ -16,7 +21,7 @@ type Props = Partial<Omit<FieldPart, 'enabled'>> & {
   readonly onChange: (value: string) => void;
 };
 
-const isGenderOptionKey = (key: string): key is Gender =>
+const isGenderOptionKey = (key: string): key is ProfileGender =>
   Object.values<string>(Gender).includes(key);
 
 const PrimitiveProfileInputField = ({

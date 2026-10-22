@@ -1,4 +1,3 @@
-import { SupportedDateFormat } from '@logto/schemas';
 import { cond, condString } from '@silverhand/essentials';
 import classNames from 'classnames';
 import type { FormEventHandler, KeyboardEventHandler, ClipboardEventHandler } from 'react';
@@ -7,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import InputField from '@/shared/components/InputFields/InputField';
 import NotchedBorder from '@/shared/components/InputFields/InputField/NotchedBorder';
+import { SupportedDateFormat } from '@/types/profile-field-constants';
 
 import styles from './index.module.scss';
 

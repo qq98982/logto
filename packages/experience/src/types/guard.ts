@@ -1,11 +1,9 @@
 import {
-  CustomProfileFieldType,
   InteractionEvent,
   MfaFactor,
   MissingProfile,
   SignInIdentifier,
   type SsoConnectorMetadata,
-  SupportedDateFormat,
   VerificationType,
 } from '@logto/schemas';
 import * as s from 'superstruct';
@@ -13,6 +11,7 @@ import * as s from 'superstruct';
 import { type IdentifierInputValue } from '@/shared/components/InputFields/SmartInputField';
 
 import { UserFlow } from '.';
+import { CustomProfileFieldType, SupportedDateFormat } from './profile-field-constants';
 
 export const userFlowGuard = s.enums([
   UserFlow.SignIn,

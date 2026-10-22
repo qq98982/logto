@@ -1,4 +1,4 @@
-import { CustomProfileFieldType, type CustomProfileField } from '@logto/schemas';
+import { type CustomProfileField } from '@logto/schemas';
 import { condString } from '@silverhand/essentials';
 import { useState } from 'react';
 import { Controller, FormProvider, useForm } from 'react-hook-form';
@@ -7,6 +7,7 @@ import * as s from 'superstruct';
 import AvatarUploadField from '@/components/InputFields/AvatarUploadField';
 import PrimitiveProfileInputField from '@/components/InputFields/PrimitiveProfileInputField';
 import Button from '@/shared/components/Button';
+import { CustomProfileFieldType } from '@/types/profile-field-constants';
 
 import AddressSubForm from './AddressSubForm';
 import FullnameSubForm from './FullnameSubForm';
