@@ -154,6 +154,9 @@ type Harness = Readonly<{
   verificationSchemaFailure: string;
   verificationCodeLeak: string;
   verificationCiphertextFailure: string;
+  primaryActualImage: string;
+  foreignActualImage: string;
+  configuredImage: string;
   env: Readonly<Record<string, string>>;
 }>;
 
@@ -253,6 +256,14 @@ const createHarness = async (kind: 'candidate' | 'oracle' = 'candidate'): Promis
   const verificationSchemaFailure = path.join(root, 'verification-schema-failure');
   const verificationCodeLeak = path.join(root, 'verification-code-leak');
   const verificationCiphertextFailure = path.join(root, 'verification-ciphertext-failure');
+  const primaryActualImage = path.join(root, 'primary-actual-image');
+  const foreignActualImage = path.join(root, 'foreign-actual-image');
+  const configuredImage = path.join(root, 'configured-image');
+  await Promise.all([
+    writeFile(primaryActualImage, rawImageId),
+    writeFile(foreignActualImage, rawImageId),
+    writeFile(configuredImage, 'docker.io/example/aster-reference:registered'),
+  ]);
   const primaryCoreService = `${kind}-primary-core`;
   const foreignCoreService = `${kind}-foreign-core`;
   const primaryPostgresService = `${kind}-primary-postgres`;
@@ -297,8 +308,16 @@ fi
     '${ids.foreignPostgres}') service='${foreignPostgresService}' ;;
     *) exit 1 ;;
   esac
-  if [[ "$*" == *'.Config.Image'* ]]; then
-    printf '%s|%s|%s|%s|running' "$id" "$service" '${projectName}' '${rawImageId}'
+  if [[ "$*" == *'{{.Image}}'* && "$*" == *'.Config.Image'* ]]; then
+    actual_image=''
+    case "$id" in
+      '${ids.primaryCore}') IFS= read -r actual_image <'${primaryActualImage}' || true ;;
+      '${ids.foreignCore}') IFS= read -r actual_image <'${foreignActualImage}' || true ;;
+      *) exit 1 ;;
+    esac
+    configured_image=''
+    IFS= read -r configured_image <'${configuredImage}' || true
+    printf '%s|%s|%s|%s|%s|running' "$id" "$actual_image" "$service" '${projectName}' "$configured_image"
   else
     printf '%s|%s|%s|running' "$id" "$service" '${projectName}'
   fi
@@ -675,6 +694,9 @@ exec /usr/bin/python3.12 "$@"
     verificationSchemaFailure,
     verificationCodeLeak,
     verificationCiphertextFailure,
+    primaryActualImage,
+    foreignActualImage,
+    configuredImage,
     env: {
       ASTER_PHASE2_CONTROL_SOCKET: socket,
       ASTER_CORE_URL: candidateTarget.coreUrl,
@@ -733,6 +755,21 @@ const invariantRequest = (invariantId: string) => ({
   fixture: candidateFixture,
   credentials: { basic: basicSecret, post: postSecret },
 });
+
+const imageIdentityDriverCases = [
+  {
+    label: 'state',
+    executable: (harness: Harness) => harness.state,
+    request: () => JSON.stringify(stateRequest('begin')),
+    failure: 'Phase 2 client credentials state driver failed.\n',
+  },
+  {
+    label: 'invariant',
+    executable: (harness: Harness) => harness.invariant,
+    request: () => JSON.stringify(invariantRequest('client-credentials.user-authority-unchanged')),
+    failure: 'Phase 2 client credentials invariant driver failed.\n',
+  },
+] as const;
 
 const deviceInvariantRequest = (
   invariantId: string,
@@ -821,6 +858,67 @@ describe('Phase 2 live client-credentials shell drivers', () => {
     expect(invariantResult.stdout).toBe('');
     expect(invariantResult.stderr).toBe('Phase 2 client credentials invariant driver failed.\n');
   });
+
+  it.each(imageIdentityDriverCases)(
+    '$label accepts registered descriptive image names while attesting the immutable actual image',
+    async ({ executable, request }) => {
+      const harness = await createHarness();
+
+      const result = await invoke(executable(harness), request(), harness.env);
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        attestation: {
+          primary: { imageDigest },
+          foreign: { imageDigest },
+        },
+      });
+    }
+  );
+
+  it.each(
+    imageIdentityDriverCases.flatMap((driver) =>
+      ['docker.io/example/aster-reference:registered', imageDigest].map((configuredImage) => ({
+        ...driver,
+        configuredImage,
+      }))
+    )
+  )(
+    '$label rejects a wrong immutable actual image when Config.Image is $configuredImage',
+    async ({ executable, request, failure, configuredImage }) => {
+      const harness = await createHarness();
+      await writeFile(harness.foreignActualImage, 'f'.repeat(64));
+      await writeFile(harness.configuredImage, configuredImage);
+
+      const result = await invoke(executable(harness), request(), harness.env);
+
+      expect(result.code).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(failure);
+    }
+  );
+
+  it.each(
+    imageIdentityDriverCases.flatMap((driver) =>
+      ['', 'contains space', 'x'.repeat(513)].map((configuredImage) => ({
+        ...driver,
+        configuredImage,
+      }))
+    )
+  )(
+    '$label rejects an empty or malformed descriptive Config.Image: $configuredImage',
+    async ({ executable, request, failure, configuredImage }) => {
+      const harness = await createHarness();
+      await writeFile(harness.configuredImage, configuredImage);
+
+      const result = await invoke(executable(harness), request(), harness.env);
+
+      expect(result.code).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toBe(failure);
+    }
+  );
 
   it('reads real oracle and candidate state instead of emitting scenario constants', async () => {
     const source = await readFile(stateDriver, 'utf8');

@@ -243,19 +243,20 @@ discover_core() {
   local service=$1 ids identity
   ids="$(bounded_engine ps --no-trunc -q --filter "label=com.docker.compose.service=$service")" || die
   [[ "$ids" =~ ^[0-9a-f]{64}$ ]] || die
-  identity="$(bounded_engine inspect --format '{{.Id}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.docker.compose.project"}}|{{.Config.Image}}|{{.State.Status}}' "$ids")" || die
+  identity="$(bounded_engine inspect --format '{{.Id}}|{{.Image}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.docker.compose.project"}}|{{.Config.Image}}|{{.State.Status}}' "$ids")" || die
   printf '%s' "$identity"
 }
 
 primary_identity="$(discover_core "$primary_core_service")" || die
 foreign_identity="$(discover_core "$foreign_core_service")" || die
-IFS='|' read -r primary_core_id primary_service project_name primary_image primary_status <<<"$primary_identity"
-IFS='|' read -r foreign_core_id foreign_service foreign_project foreign_image foreign_status <<<"$foreign_identity"
+IFS='|' read -r primary_core_id primary_image primary_service project_name primary_configured_image primary_status <<<"$primary_identity"
+IFS='|' read -r foreign_core_id foreign_image foreign_service foreign_project foreign_configured_image foreign_status <<<"$foreign_identity"
 primary_image="$(normalize_image_id "$primary_image")" || die
 foreign_image="$(normalize_image_id "$foreign_image")" || die
 [[ "$primary_core_id" =~ ^[0-9a-f]{64}$ && "$foreign_core_id" =~ ^[0-9a-f]{64}$ && "$primary_core_id" != "$foreign_core_id" ]] || die
 [[ "$primary_service" == "$primary_core_service" && "$foreign_service" == "$foreign_core_service" ]] || die
 [[ "$project_name" =~ ^aster-phase2-client-credentials-[0-9a-f]{16}$ && "$foreign_project" == "$project_name" ]] || die
+[[ "$primary_configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ && "$foreign_configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ ]] || die
 [[ "$foreign_image" == "$primary_image" ]] || die
 [[ "$primary_status" == running && "$foreign_status" == running ]] || die
 
