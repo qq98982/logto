@@ -1163,7 +1163,6 @@ assert_google_provider_state() {
     --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
     --arg mac "$expected_mac" '
     length==1 and .[0].Id==$id and .[0].Image==$image
-    and (.[0].Config.Image==$image or .[0].Config.Image==($image|sub("^sha256:";"")))
     and .[0].Config.Labels["com.docker.compose.project"]==$project
     and .[0].Config.Labels["com.docker.compose.service"]==$service
     and .[0].State.Status==$status and .[0].State.Running==$running
@@ -1260,7 +1259,6 @@ assert_wechat_provider_state() {
     --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
     --arg mac "$expected_mac" '
     length==1 and .[0].Id==$id and .[0].Image==$image
-    and (.[0].Config.Image==$image or .[0].Config.Image==($image|sub("^sha256:";"")))
     and .[0].Config.Labels["com.docker.compose.project"]==$project
     and .[0].Config.Labels["com.docker.compose.service"]==$service
     and .[0].State.Status==$status and .[0].State.Running==$running

@@ -400,23 +400,29 @@ describe('Phase 2 client-credentials live topology runner', () => {
     ['wechat', 'oracle', '172.30.231.53', '02:42:ac:1e:e7:35'],
     ['wechat', 'candidate', '172.30.241.53', '02:42:ac:1e:f1:35'],
   ] as const)(
-    'requires the stable provider network identity on every running %s/%s restart',
+    'requires the pinned provider image and stable network identity on every running %s/%s restart',
     async (provider, role, ip, mac) => {
       const id = 'a'.repeat(64);
       const image = `sha256:${'b'.repeat(64)}`;
+      const registeredImageReference = 'ghcr.io/logto-io/logto:fixture';
       const service = `${role}-${provider}-provider`;
       const project = `aster-test-${role}`;
       const metadataPath = path.join(temporaryRoot, 'provider-inspect.json');
       const scriptPath = path.join(temporaryRoot, 'provider-network-proof.sh');
-      const verify = async (actualMac: string, running: boolean): Promise<number> => {
+      const verify = async (
+        actualMac: string,
+        running: boolean,
+        actualImage = image,
+        configuredImage = registeredImageReference
+      ): Promise<number> => {
         await writeFile(
           metadataPath,
           JSON.stringify([
             {
               Id: id,
-              Image: image,
+              Image: actualImage,
               Config: {
-                Image: image,
+                Image: configuredImage,
                 Labels: {
                   'com.docker.compose.project': project,
                   'com.docker.compose.service': service,
@@ -453,6 +459,7 @@ assert_${provider}_provider_state '${role}' '${service}' '${running ? 'running' 
         return result.code;
       };
       expect(await verify(mac, true)).toBe(0);
+      expect(await verify(mac, true, `sha256:${'c'.repeat(64)}`, image)).toBe(1);
       expect(await verify('02:42:00:00:00:01', true)).toBe(1);
       expect(await verify('', true)).toBe(1);
       expect(await verify('', false)).toBe(0);
