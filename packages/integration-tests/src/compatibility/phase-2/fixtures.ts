@@ -1,6 +1,8 @@
 /* eslint-disable max-lines, complexity, max-params, no-await-in-loop, no-restricted-syntax, no-constant-condition, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/ban-types, @typescript-eslint/no-unnecessary-condition -- This boundary owns two real fixture protocols, reverse compensation, reconciliation, secret leases, and hostile command/API results. */
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { closeSync, lstatSync, openSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
+import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
 import { validateTargetConfig } from '../config.js';
@@ -202,6 +204,27 @@ type ReferenceProvisionerOptions = Readonly<{
 
 export type Phase2CandidateFixtureRecipe = 'fullPhase1' | 'phase2CandidateInvariants';
 
+type CandidateProvisionDiagnostic = Readonly<{
+  schemaVersion: 1;
+  target: 'candidate';
+  operation: 'fixture-provision';
+  attempt: 'first' | 'compensation' | 'retry' | 'projection';
+  failureClass:
+    | 'pre-invocation'
+    | 'transport'
+    | 'timeout'
+    | 'signal'
+    | 'nonzero'
+    | 'malformed-process-result'
+    | 'response'
+    | 'public-projection'
+    | 'unknown';
+  firstAttempted: boolean;
+  compensationAttempted: boolean;
+  retryAttempted: boolean;
+  projectionAttempted: boolean;
+}>;
+
 type CandidateProvisionerOptions = Readonly<{
   target: TargetConfig;
   foreignTarget: TargetConfig;
@@ -213,7 +236,35 @@ type CandidateProvisionerOptions = Readonly<{
   createSecret?: () => string;
   createSelectedNativePassword?: () => string;
   recipe?: Phase2CandidateFixtureRecipe;
+  diagnosticSink?: (diagnostic: CandidateProvisionDiagnostic) => void;
 }>;
+
+const candidateProvisionDiagnosticPath =
+  '/var/tmp/henry-build/aster-console-experience-social-20261027/common-candidate-fixture-provision-diagnostic-r2/candidate-fixture-provision-failure-r2.json';
+
+const writeCandidateProvisionDiagnostic = (diagnostic: CandidateProvisionDiagnostic): void => {
+  if (!path.isAbsolute(candidateProvisionDiagnosticPath)) {
+    return fail();
+  }
+  const parent = candidateProvisionDiagnosticPath.slice(
+    0,
+    candidateProvisionDiagnosticPath.lastIndexOf('/')
+  );
+  const parentMetadata = lstatSync(parent);
+  if (
+    !parentMetadata.isDirectory() ||
+    parentMetadata.isSymbolicLink() ||
+    parentMetadata.mode % 0o1000 !== 0o700
+  ) {
+    return;
+  }
+  const descriptor = openSync(candidateProvisionDiagnosticPath, 'wx', 0o600);
+  try {
+    writeFileSync(descriptor, `${JSON.stringify(diagnostic)}\n`, { encoding: 'utf8' });
+  } finally {
+    closeSync(descriptor);
+  }
+};
 
 type FixtureState = {
   allocationId: string;
@@ -2184,14 +2235,53 @@ export const createCandidatePhase2FixtureProvisioner = (
     options.createSelectedNativePassword ?? (() => `${randomBytes(20).toString('base64url')}A1!`);
   const recipe = options.recipe ?? 'fullPhase1';
   const states = new WeakMap<object, FixtureState>();
+  const diagnosticSink = options.diagnosticSink ?? writeCandidateProvisionDiagnostic;
+  let diagnosticState = {
+    firstAttempted: false,
+    compensationAttempted: false,
+    retryAttempted: false,
+    projectionAttempted: false,
+  };
+  let diagnosticAttempt: CandidateProvisionDiagnostic['attempt'] = 'first';
+  let diagnosticFailureClass: CandidateProvisionDiagnostic['failureClass'] = 'pre-invocation';
+  const resetProvisionDiagnostic = (): void => {
+    diagnosticState = {
+      firstAttempted: false,
+      compensationAttempted: false,
+      retryAttempted: false,
+      projectionAttempted: false,
+    };
+    diagnosticAttempt = 'first';
+    diagnosticFailureClass = 'pre-invocation';
+  };
+  const publishProvisionDiagnostic = (): void => {
+    diagnosticSink({
+      schemaVersion: 1,
+      target: 'candidate',
+      operation: 'fixture-provision',
+      attempt: diagnosticAttempt,
+      failureClass: diagnosticFailureClass,
+      ...diagnosticState,
+    });
+  };
 
   const run = async (
     descriptor: Readonly<Record<string, unknown>>,
     operation: Parameters<typeof parseCommandOutput>[1],
-    secrets: readonly string[]
+    secrets: readonly string[],
+    provisionAttempt?: 'first' | 'retry'
   ): Promise<Record<string, unknown>> => {
+    if (provisionAttempt) {
+      diagnosticAttempt = provisionAttempt;
+      diagnosticState[provisionAttempt === 'first' ? 'firstAttempted' : 'retryAttempted'] = true;
+      diagnosticFailureClass = 'pre-invocation';
+    }
+    let invokeCompleted = false;
     const invoke = async () => {
       let raw;
+      if (provisionAttempt) {
+        diagnosticFailureClass = 'transport';
+      }
       try {
         raw = await runner({
           command: options.executablePath,
@@ -2204,12 +2294,24 @@ export const createCandidatePhase2FixtureProvisioner = (
           shell: false,
         });
       } catch {
+        if (provisionAttempt) {
+          diagnosticFailureClass = 'transport';
+        }
         if (operation === 'cleanup') {
           throw new Error('Phase 2 fixture cleanup command transport failed');
         }
         throw new Error(failure);
       }
       try {
+        if (provisionAttempt) {
+          diagnosticFailureClass = raw.timedOut
+            ? 'timeout'
+            : raw.signal !== null || raw.killed
+              ? 'signal'
+              : raw.exitCode === 0
+                ? 'malformed-process-result'
+                : 'nonzero';
+        }
         if (operation === 'cleanup' && raw.timedOut) {
           throw new Error('Phase 2 fixture cleanup command timeout failed');
         }
@@ -2219,7 +2321,9 @@ export const createCandidatePhase2FixtureProvisioner = (
         if (operation === 'cleanup' && raw.exitCode !== 0) {
           throw new Error('Phase 2 fixture cleanup command nonzero failed');
         }
-        return requireCommandResult(raw);
+        const commandResult = requireCommandResult(raw);
+        invokeCompleted = true;
+        return commandResult;
       } catch {
         if (operation === 'cleanup') {
           throw new Error(
@@ -2235,8 +2339,19 @@ export const createCandidatePhase2FixtureProvisioner = (
         throw new Error(failure);
       }
     };
-    const result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
+    let result: CommandRunnerResult;
     try {
+      result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
+    } catch (error: unknown) {
+      if (provisionAttempt && invokeCompleted) {
+        diagnosticFailureClass = 'unknown';
+      }
+      throw error;
+    }
+    try {
+      if (provisionAttempt) {
+        diagnosticFailureClass = 'response';
+      }
       return parseCommandOutput(result, operation, secrets);
     } catch {
       if (operation === 'cleanup') {
@@ -2333,529 +2448,547 @@ export const createCandidatePhase2FixtureProvisioner = (
 
   return Object.freeze({
     provision: async (): Promise<ProvisionedPhase2Fixture> => {
-      const allocationId = safeAllocationId(createAllocationId());
-      const adminAllocationId = adminAllocationIdFor(allocationId);
-      const basic = createSecret();
-      const post = createSecret();
-      const statusConfidential = createSecret();
-      const subjectPassword = createSecret();
-      const adminPassword = createSecret();
-      const selectedNativePassword = createSelectedNativePassword();
-      const selectedEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
-      const invalidEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
-      const verificationPeerPassword =
-        recipe === 'phase2CandidateInvariants'
-          ? createHash('sha256')
-              .update(`verification-peer:${adminPassword}`)
-              .digest('hex')
-              .slice(0, 32)
-          : undefined;
-      const secrets = Object.freeze({
-        basic,
-        post,
-        statusConfidential,
-        subjectPassword,
-        adminPassword,
-        verificationPeerPassword,
-        selectedNativePassword,
-        selectedEmailPassword,
-        invalidEmailPassword,
-      });
-      if (
-        secrets.basic === secrets.post ||
-        statusConfidential === secrets.basic ||
-        statusConfidential === secrets.post ||
-        subjectPassword === secrets.basic ||
-        subjectPassword === secrets.post ||
-        subjectPassword === statusConfidential ||
-        adminPassword === secrets.basic ||
-        adminPassword === secrets.post ||
-        adminPassword === statusConfidential ||
-        adminPassword === subjectPassword ||
-        selectedNativePassword === secrets.basic ||
-        selectedNativePassword === secrets.post ||
-        selectedNativePassword === statusConfidential ||
-        selectedNativePassword === subjectPassword ||
-        selectedNativePassword === adminPassword ||
-        selectedEmailPassword === selectedNativePassword ||
-        selectedEmailPassword === secrets.basic ||
-        selectedEmailPassword === secrets.post ||
-        selectedEmailPassword === statusConfidential ||
-        selectedEmailPassword === subjectPassword ||
-        selectedEmailPassword === adminPassword ||
-        invalidEmailPassword === selectedEmailPassword ||
-        invalidEmailPassword === selectedNativePassword ||
-        invalidEmailPassword === secrets.basic ||
-        invalidEmailPassword === secrets.post ||
-        invalidEmailPassword === statusConfidential ||
-        invalidEmailPassword === subjectPassword ||
-        invalidEmailPassword === adminPassword ||
-        (verificationPeerPassword !== undefined &&
-          (verificationPeerPassword === secrets.basic ||
-            verificationPeerPassword === secrets.post ||
-            verificationPeerPassword === statusConfidential ||
-            verificationPeerPassword === subjectPassword ||
-            verificationPeerPassword === adminPassword)) ||
-        !/^[a-z0-9]{32}$/u.test(secrets.basic) ||
-        !/^[a-z0-9]{32}$/u.test(secrets.post) ||
-        !/^[a-z0-9]{32}$/u.test(statusConfidential) ||
-        !/^[a-z0-9]{32}$/u.test(subjectPassword) ||
-        !/^[a-z0-9]{32}$/u.test(adminPassword) ||
-        !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedNativePassword) ||
-        !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedEmailPassword) ||
-        !/^[A-Za-z0-9_-]{27}A1!$/u.test(invalidEmailPassword) ||
-        (verificationPeerPassword !== undefined &&
-          !/^[a-z0-9]{32}$/u.test(verificationPeerPassword))
-      ) {
-        return fail();
-      }
-      const state: FixtureState = {
-        allocationId,
-        adminAllocationId,
-        secrets,
-        sensitiveValues: Object.freeze([
-          secrets.basic,
-          secrets.post,
+      resetProvisionDiagnostic();
+      try {
+        const allocationId = safeAllocationId(createAllocationId());
+        const adminAllocationId = adminAllocationIdFor(allocationId);
+        const basic = createSecret();
+        const post = createSecret();
+        const statusConfidential = createSecret();
+        const subjectPassword = createSecret();
+        const adminPassword = createSecret();
+        const selectedNativePassword = createSelectedNativePassword();
+        const selectedEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
+        const invalidEmailPassword = `${randomBytes(20).toString('base64url')}A1!`;
+        const verificationPeerPassword =
+          recipe === 'phase2CandidateInvariants'
+            ? createHash('sha256')
+                .update(`verification-peer:${adminPassword}`)
+                .digest('hex')
+                .slice(0, 32)
+            : undefined;
+        const secrets = Object.freeze({
+          basic,
+          post,
           statusConfidential,
           subjectPassword,
           adminPassword,
+          verificationPeerPassword,
           selectedNativePassword,
           selectedEmailPassword,
           invalidEmailPassword,
-          ...(verificationPeerPassword === undefined ? [] : [verificationPeerPassword]),
-        ]),
-        revoked: false,
-      };
-      const phase2 = Object.freeze({
-        subjectPrimaryEmail: null,
-        subjectResourceScopeIds: Object.freeze(['read-scope']),
-        machineClients: Object.freeze([
-          Object.freeze({
-            clientId: logicalClientIds.basic,
-            grantTypes: Object.freeze(['client_credentials']),
-            resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
-            organizations: Object.freeze([
-              Object.freeze({
-                organizationId: 'phase2-org',
-                scopeNames: Object.freeze(['organization:read']),
-                resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
+        });
+        if (
+          secrets.basic === secrets.post ||
+          statusConfidential === secrets.basic ||
+          statusConfidential === secrets.post ||
+          subjectPassword === secrets.basic ||
+          subjectPassword === secrets.post ||
+          subjectPassword === statusConfidential ||
+          adminPassword === secrets.basic ||
+          adminPassword === secrets.post ||
+          adminPassword === statusConfidential ||
+          adminPassword === subjectPassword ||
+          selectedNativePassword === secrets.basic ||
+          selectedNativePassword === secrets.post ||
+          selectedNativePassword === statusConfidential ||
+          selectedNativePassword === subjectPassword ||
+          selectedNativePassword === adminPassword ||
+          selectedEmailPassword === selectedNativePassword ||
+          selectedEmailPassword === secrets.basic ||
+          selectedEmailPassword === secrets.post ||
+          selectedEmailPassword === statusConfidential ||
+          selectedEmailPassword === subjectPassword ||
+          selectedEmailPassword === adminPassword ||
+          invalidEmailPassword === selectedEmailPassword ||
+          invalidEmailPassword === selectedNativePassword ||
+          invalidEmailPassword === secrets.basic ||
+          invalidEmailPassword === secrets.post ||
+          invalidEmailPassword === statusConfidential ||
+          invalidEmailPassword === subjectPassword ||
+          invalidEmailPassword === adminPassword ||
+          (verificationPeerPassword !== undefined &&
+            (verificationPeerPassword === secrets.basic ||
+              verificationPeerPassword === secrets.post ||
+              verificationPeerPassword === statusConfidential ||
+              verificationPeerPassword === subjectPassword ||
+              verificationPeerPassword === adminPassword)) ||
+          !/^[a-z0-9]{32}$/u.test(secrets.basic) ||
+          !/^[a-z0-9]{32}$/u.test(secrets.post) ||
+          !/^[a-z0-9]{32}$/u.test(statusConfidential) ||
+          !/^[a-z0-9]{32}$/u.test(subjectPassword) ||
+          !/^[a-z0-9]{32}$/u.test(adminPassword) ||
+          !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedNativePassword) ||
+          !/^[A-Za-z0-9_-]{27}A1!$/u.test(selectedEmailPassword) ||
+          !/^[A-Za-z0-9_-]{27}A1!$/u.test(invalidEmailPassword) ||
+          (verificationPeerPassword !== undefined &&
+            !/^[a-z0-9]{32}$/u.test(verificationPeerPassword))
+        ) {
+          return fail();
+        }
+        const state: FixtureState = {
+          allocationId,
+          adminAllocationId,
+          secrets,
+          sensitiveValues: Object.freeze([
+            secrets.basic,
+            secrets.post,
+            statusConfidential,
+            subjectPassword,
+            adminPassword,
+            selectedNativePassword,
+            selectedEmailPassword,
+            invalidEmailPassword,
+            ...(verificationPeerPassword === undefined ? [] : [verificationPeerPassword]),
+          ]),
+          revoked: false,
+        };
+        const phase2 = Object.freeze({
+          subjectPrimaryEmail: null,
+          subjectResourceScopeIds: Object.freeze(['read-scope']),
+          machineClients: Object.freeze([
+            Object.freeze({
+              clientId: logicalClientIds.basic,
+              grantTypes: Object.freeze(['client_credentials']),
+              resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
+              organizations: Object.freeze([
+                Object.freeze({
+                  organizationId: 'phase2-org',
+                  scopeNames: Object.freeze(['organization:read']),
+                  resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
+                }),
+              ]),
+            }),
+            Object.freeze({
+              clientId: logicalClientIds.post,
+              grantTypes: Object.freeze(['client_credentials']),
+              resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
+              organizations: Object.freeze([]),
+            }),
+          ]),
+          defaultResourceId: 'phase2-resource',
+          statusClient: Object.freeze({
+            clientId: statusConfidentialClientId,
+            redirectUri: statusRedirectUri,
+            authenticationMethod: 'client_secret_basic',
+            userConsentScopes: Object.freeze([
+              'profile',
+              'email',
+              'address',
+              'phone',
+              'urn:aster:scope:sessions',
+            ]),
+            resourceScopeIds: Object.freeze(['phase1-read-profile']),
+          }),
+          verificationCode: Object.freeze({
+            smtpPort: 2525 as const,
+            ...(recipe === 'phase2CandidateInvariants' && {
+              peerAccount: Object.freeze({
+                userId: 'vcode-peer',
+                username: 'phase2-verification-peer',
               }),
+            }),
+          }),
+          deviceClients: Object.freeze([
+            Object.freeze({
+              clientId: logicalDeviceClientIds.firstParty,
+              applicationType: 'Native',
+              authenticationMethod: 'none',
+              isThirdParty: false,
+              grantTypes: Object.freeze([deviceGrant]),
+              userConsentScopes: candidateDeviceUserConsentScopes,
+              resourceScopeIds: deviceResourceScopeIds,
+            }),
+            Object.freeze({
+              clientId: logicalDeviceClientIds.thirdParty,
+              applicationType: 'Native',
+              authenticationMethod: 'none',
+              isThirdParty: true,
+              grantTypes: Object.freeze([deviceGrant]),
+              userConsentScopes: candidateDeviceUserConsentScopes,
+              resourceScopeIds: deviceResourceScopeIds,
+            }),
+            Object.freeze({
+              clientId: logicalDeviceClientIds.missingGrant,
+              applicationType: 'Native',
+              authenticationMethod: 'none',
+              isThirdParty: false,
+              grantTypes: Object.freeze([]),
+              userConsentScopes: candidateDeviceUserConsentScopes,
+              resourceScopeIds: deviceResourceScopeIds,
+            }),
+            Object.freeze({
+              clientId: logicalDeviceClientIds.ineligibleWeb,
+              applicationType: 'SPA',
+              authenticationMethod: 'none',
+              isThirdParty: false,
+              grantTypes: Object.freeze([]),
+              userConsentScopes: candidateDeviceUserConsentScopes,
+              resourceScopeIds: deviceResourceScopeIds,
+            }),
+          ]),
+        });
+        const descriptor = Object.freeze({
+          schemaVersion: 1,
+          operation: 'provision',
+          recipe,
+          allocationId,
+          profile: Object.freeze({
+            fixtures: Object.freeze({ ...phase2CandidateFixtures, phase2 }),
+          }),
+          seeds: Object.freeze({
+            passwords: Object.freeze([
+              Object.freeze({ logicalId: 'phase1-user', value: subjectPassword }),
+              Object.freeze({ logicalId: 'phase1-admin', value: adminPassword }),
+              ...(recipe === 'phase2CandidateInvariants'
+                ? [
+                    Object.freeze({
+                      logicalId: 'phase2-verification-peer',
+                      value: verificationPeerPassword ?? fail(),
+                    }),
+                  ]
+                : []),
+            ]),
+            clientSecrets: Object.freeze([
+              Object.freeze({ logicalId: logicalClientIds.basic, value: secrets.basic }),
+              Object.freeze({ logicalId: logicalClientIds.post, value: secrets.post }),
+              Object.freeze({ logicalId: statusConfidentialClientId, value: statusConfidential }),
             ]),
           }),
-          Object.freeze({
-            clientId: logicalClientIds.post,
-            grantTypes: Object.freeze(['client_credentials']),
-            resourceScopeIds: Object.freeze(['read-scope', 'write-scope']),
-            organizations: Object.freeze([]),
-          }),
-        ]),
-        defaultResourceId: 'phase2-resource',
-        statusClient: Object.freeze({
-          clientId: statusConfidentialClientId,
-          redirectUri: statusRedirectUri,
-          authenticationMethod: 'client_secret_basic',
-          userConsentScopes: Object.freeze([
-            'profile',
-            'email',
-            'address',
-            'phone',
-            'urn:aster:scope:sessions',
-          ]),
-          resourceScopeIds: Object.freeze(['phase1-read-profile']),
-        }),
-        verificationCode: Object.freeze({
-          smtpPort: 2525 as const,
-          ...(recipe === 'phase2CandidateInvariants' && {
-            peerAccount: Object.freeze({
-              userId: 'vcode-peer',
-              username: 'phase2-verification-peer',
-            }),
-          }),
-        }),
-        deviceClients: Object.freeze([
-          Object.freeze({
-            clientId: logicalDeviceClientIds.firstParty,
-            applicationType: 'Native',
-            authenticationMethod: 'none',
-            isThirdParty: false,
-            grantTypes: Object.freeze([deviceGrant]),
-            userConsentScopes: candidateDeviceUserConsentScopes,
-            resourceScopeIds: deviceResourceScopeIds,
-          }),
-          Object.freeze({
-            clientId: logicalDeviceClientIds.thirdParty,
-            applicationType: 'Native',
-            authenticationMethod: 'none',
-            isThirdParty: true,
-            grantTypes: Object.freeze([deviceGrant]),
-            userConsentScopes: candidateDeviceUserConsentScopes,
-            resourceScopeIds: deviceResourceScopeIds,
-          }),
-          Object.freeze({
-            clientId: logicalDeviceClientIds.missingGrant,
-            applicationType: 'Native',
-            authenticationMethod: 'none',
-            isThirdParty: false,
-            grantTypes: Object.freeze([]),
-            userConsentScopes: candidateDeviceUserConsentScopes,
-            resourceScopeIds: deviceResourceScopeIds,
-          }),
-          Object.freeze({
-            clientId: logicalDeviceClientIds.ineligibleWeb,
-            applicationType: 'SPA',
-            authenticationMethod: 'none',
-            isThirdParty: false,
-            grantTypes: Object.freeze([]),
-            userConsentScopes: candidateDeviceUserConsentScopes,
-            resourceScopeIds: deviceResourceScopeIds,
-          }),
-        ]),
-      });
-      const descriptor = Object.freeze({
-        schemaVersion: 1,
-        operation: 'provision',
-        recipe,
-        allocationId,
-        profile: Object.freeze({
-          fixtures: Object.freeze({ ...phase2CandidateFixtures, phase2 }),
-        }),
-        seeds: Object.freeze({
-          passwords: Object.freeze([
-            Object.freeze({ logicalId: 'phase1-user', value: subjectPassword }),
-            Object.freeze({ logicalId: 'phase1-admin', value: adminPassword }),
-            ...(recipe === 'phase2CandidateInvariants'
-              ? [
-                  Object.freeze({
-                    logicalId: 'phase2-verification-peer',
-                    value: verificationPeerPassword ?? fail(),
-                  }),
-                ]
-              : []),
-          ]),
-          clientSecrets: Object.freeze([
-            Object.freeze({ logicalId: logicalClientIds.basic, value: secrets.basic }),
-            Object.freeze({ logicalId: logicalClientIds.post, value: secrets.post }),
-            Object.freeze({ logicalId: statusConfidentialClientId, value: statusConfidential }),
-          ]),
-        }),
-      });
-      const failures: unknown[] = [];
-      try {
-        let result: Record<string, unknown>;
+        });
+        const failures: unknown[] = [];
         try {
-          result = await run(descriptor, 'provision', state.sensitiveValues);
+          let result: Record<string, unknown>;
+          try {
+            result = await run(descriptor, 'provision', state.sensitiveValues, 'first');
+          } catch (error: unknown) {
+            failures.push(error);
+            diagnosticAttempt = 'compensation';
+            diagnosticState.compensationAttempted = true;
+            diagnosticFailureClass = 'unknown';
+            await cleanupAllocation(state, { allocationId, recipe });
+            result = await run(descriptor, 'provision', state.sensitiveValues, 'retry');
+          }
+          diagnosticAttempt = 'projection';
+          diagnosticState.projectionAttempted = true;
+          diagnosticFailureClass = 'public-projection';
+          state.coordinatorPublic = validateCoordinatorPublic(
+            own(result, 'public'),
+            allocationId,
+            recipe
+          );
+          const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
+          const baseFixture = createFixture(
+            publicFixture,
+            secrets,
+            state,
+            {
+              user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
+              client: Object.freeze({
+                id: 'phase1-browser',
+                name: getPhase1FixtureRuntimeText('Phase 1 Consent Client', allocationId),
+                redirectUri: statusRedirectUri,
+              }),
+              confidentialClient: Object.freeze({
+                id: statusConfidentialClientId,
+                redirectUri: statusRedirectUri,
+              }),
+              resource: Object.freeze({
+                id: 'phase1-api',
+                indicator: candidateStatusIndicator(allocationId),
+                scopeName: `read:profile_a_${allocationSuffix(allocationId)}`,
+              }),
+            },
+            async (recipient) => {
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) || recipient.length > 256) {
+                return fail();
+              }
+              const result = await run(
+                Object.freeze({
+                  schemaVersion: 1,
+                  operation: 'takeVerificationDelivery',
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                  recipient,
+                }),
+                'takeVerificationDelivery',
+                state.sensitiveValues
+              );
+              const code = own(result, 'code');
+              if (
+                Object.keys(result).length !== 3 ||
+                !['schemaVersion', 'operation', 'code'].every((key) =>
+                  Object.hasOwn(result, key)
+                ) ||
+                typeof code !== 'string' ||
+                !/^\d{6}$/u.test(code)
+              ) {
+                return fail();
+              }
+              return code;
+            },
+            recipe === 'phase2CandidateInvariants'
+              ? Object.freeze({
+                  id: 'vcode-peer',
+                  username: 'phase2-verification-peer',
+                })
+              : undefined
+          );
+          let machineClientActive = false;
+          let foreignControlsActive = false;
+          const fixture: ProvisionedPhase2Fixture = Object.freeze({
+            ...baseFixture,
+            ...(recipe === 'fullPhase1' && {
+              withCandidateManagementMachineClient: async <Result>(
+                clientSecret: string,
+                use: (client: CandidateManagementMachineClient) => Promise<Result>
+              ): Promise<Result> => {
+                if (
+                  state.revoked ||
+                  machineClientActive ||
+                  typeof use !== 'function' ||
+                  typeof clientSecret !== 'string' ||
+                  Buffer.byteLength(clientSecret) < 12 ||
+                  Buffer.byteLength(clientSecret) > 1024
+                ) {
+                  return fail();
+                }
+                machineClientActive = true;
+                state.sensitiveValues = Object.freeze([...state.sensitiveValues, clientSecret]);
+                const descriptor = Object.freeze({
+                  schemaVersion: 1,
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                });
+                let bodyError: unknown;
+                let value: Result | undefined;
+                let cleanupFailed = false;
+                try {
+                  const response = await run(
+                    { ...descriptor, operation: 'provisionManagementMachineClient', clientSecret },
+                    'provisionManagementMachineClient',
+                    state.sensitiveValues
+                  );
+                  const expected = candidateManagementMachineClient;
+                  const actual = exactRecord(own(response, 'public'), Object.keys(expected));
+                  if (
+                    Object.keys(response).length !== 3 ||
+                    Object.entries(expected).some(([key, value]) => own(actual, key) !== value)
+                  ) {
+                    return fail();
+                  }
+                  value = await use(expected);
+                } catch (error: unknown) {
+                  bodyError = error;
+                } finally {
+                  try {
+                    const cleaned = await run(
+                      { ...descriptor, operation: 'cleanupManagementMachineClient' },
+                      'cleanupManagementMachineClient',
+                      state.sensitiveValues
+                    );
+                    if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                      fail();
+                    }
+                  } catch {
+                    cleanupFailed = true;
+                  } finally {
+                    machineClientActive = false;
+                  }
+                }
+                if (cleanupFailed) {
+                  throw new AggregateError(
+                    [
+                      ...(bodyError === undefined ? [] : [new Error(failure)]),
+                      new Error(cleanupFailure),
+                    ],
+                    cleanupFailure
+                  );
+                }
+                if (bodyError !== undefined) {
+                  throw new Error(failure);
+                }
+                return value as Result;
+              },
+              cleanupManagementProvisioningRows: async ({
+                resourceId,
+                applicationIds,
+              }: Readonly<{
+                resourceId: string;
+                applicationIds: readonly [string, string];
+              }>) => {
+                if (
+                  state.revoked ||
+                  !safeIdPattern.test(resourceId) ||
+                  applicationIds.length !== 2 ||
+                  applicationIds[0] === applicationIds[1] ||
+                  applicationIds.some((id) => !safeIdPattern.test(id))
+                ) {
+                  return fail();
+                }
+                const cleaned = await run(
+                  {
+                    schemaVersion: 1,
+                    operation: 'cleanupManagementProvisioningRows',
+                    recipe,
+                    allocationId,
+                    public: state.coordinatorPublic ?? fail(),
+                    resourceId,
+                    applicationIds,
+                  },
+                  'cleanupManagementProvisioningRows',
+                  state.sensitiveValues
+                );
+                if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                  return fail();
+                }
+              },
+              cleanupManagementOwnershipControlApplication: async (applicationId: string) => {
+                if (state.revoked || !safeIdPattern.test(applicationId)) {
+                  return fail();
+                }
+                const cleaned = await run(
+                  {
+                    schemaVersion: 1,
+                    operation: 'cleanupManagementOwnershipControlApplication',
+                    recipe,
+                    allocationId,
+                    public: state.coordinatorPublic ?? fail(),
+                    control: { applicationId },
+                  },
+                  'cleanupManagementOwnershipControlApplication',
+                  state.sensitiveValues
+                );
+                if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                  return fail();
+                }
+              },
+              removeManagementProvisioningRoleScope: async ({
+                roleId,
+                scopeId,
+              }: Readonly<{ roleId: string; scopeId: string }>) => {
+                if (state.revoked || !safeIdPattern.test(roleId) || !safeIdPattern.test(scopeId)) {
+                  return fail();
+                }
+                const cleaned = await run(
+                  {
+                    schemaVersion: 1,
+                    operation: 'removeManagementProvisioningRoleScope',
+                    recipe,
+                    allocationId,
+                    public: state.coordinatorPublic ?? fail(),
+                    control: { roleId, scopeId },
+                  },
+                  'removeManagementProvisioningRoleScope',
+                  state.sensitiveValues
+                );
+                if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
+                  return fail();
+                }
+              },
+              withForeignManagementControls: async <Result>(
+                use: (controls: ForeignManagementControls) => Promise<Result>
+              ): Promise<Result> => {
+                if (state.revoked || foreignControlsActive || typeof use !== 'function') {
+                  return fail();
+                }
+                foreignControlsActive = true;
+                const descriptor = Object.freeze({
+                  schemaVersion: 1,
+                  recipe,
+                  allocationId,
+                  public: state.coordinatorPublic ?? fail(),
+                });
+                let bodyError: unknown;
+                let value: Result | undefined;
+                let cleanupFailed = false;
+                try {
+                  const response = await run(
+                    { ...descriptor, operation: 'provisionForeignManagementControls' },
+                    'provisionForeignManagementControls',
+                    state.sensitiveValues
+                  );
+                  const controls = exactRecord(own(response, 'public'), [
+                    'userId',
+                    'connectorId',
+                    'applicationId',
+                  ]);
+                  if (
+                    Object.keys(response).length !== 3 ||
+                    own(controls, 'userId') !== 'aster-mgmt-u' ||
+                    own(controls, 'connectorId') !== 'aster-mgmt-google' ||
+                    own(controls, 'applicationId') !== 'aster-mgmt-app'
+                  ) {
+                    return fail();
+                  }
+                  value = await use(
+                    Object.freeze({
+                      userId: 'aster-mgmt-u',
+                      connectorId: 'aster-mgmt-google',
+                      applicationId: 'aster-mgmt-app',
+                    })
+                  );
+                } catch (error: unknown) {
+                  bodyError = error;
+                } finally {
+                  try {
+                    const cleaned = await run(
+                      { ...descriptor, operation: 'cleanupForeignManagementControls' },
+                      'cleanupForeignManagementControls',
+                      state.sensitiveValues
+                    );
+                    if (
+                      Object.keys(cleaned).length !== 4 ||
+                      own(cleaned, 'ok') !== true ||
+                      own(cleaned, 'preserved') !== true
+                    ) {
+                      fail();
+                    }
+                  } catch {
+                    cleanupFailed = true;
+                  } finally {
+                    foreignControlsActive = false;
+                  }
+                }
+                if (cleanupFailed) {
+                  throw new AggregateError(
+                    [
+                      ...(bodyError === undefined ? [] : [new Error(failure)]),
+                      new Error(cleanupFailure),
+                    ],
+                    cleanupFailure
+                  );
+                }
+                if (bodyError !== undefined) {
+                  throw new Error(failure);
+                }
+                return value as Result;
+              },
+            }),
+          });
+          states.set(fixture as object, state);
+          return fixture;
         } catch (error: unknown) {
           failures.push(error);
-          await cleanupAllocation(state, { allocationId, recipe });
-          result = await run(descriptor, 'provision', state.sensitiveValues);
+          try {
+            await cleanupState(state);
+          } catch (cleanupError: unknown) {
+            failures.push(cleanupError);
+          }
+          if (failures.length > 1) {
+            throw new AggregateError(failures, failure);
+          }
+          throw new Error(failure);
         }
-        state.coordinatorPublic = validateCoordinatorPublic(
-          own(result, 'public'),
-          allocationId,
-          recipe
-        );
-        const publicFixture = candidatePublicFixture(allocationId, adminAllocationId);
-        const baseFixture = createFixture(
-          publicFixture,
-          secrets,
-          state,
-          {
-            user: Object.freeze({ id: 'zdata-user', username: statusUsername(allocationId) }),
-            client: Object.freeze({
-              id: 'phase1-browser',
-              name: getPhase1FixtureRuntimeText('Phase 1 Consent Client', allocationId),
-              redirectUri: statusRedirectUri,
-            }),
-            confidentialClient: Object.freeze({
-              id: statusConfidentialClientId,
-              redirectUri: statusRedirectUri,
-            }),
-            resource: Object.freeze({
-              id: 'phase1-api',
-              indicator: candidateStatusIndicator(allocationId),
-              scopeName: `read:profile_a_${allocationSuffix(allocationId)}`,
-            }),
-          },
-          async (recipient) => {
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient) || recipient.length > 256) {
-              return fail();
-            }
-            const result = await run(
-              Object.freeze({
-                schemaVersion: 1,
-                operation: 'takeVerificationDelivery',
-                recipe,
-                allocationId,
-                public: state.coordinatorPublic ?? fail(),
-                recipient,
-              }),
-              'takeVerificationDelivery',
-              state.sensitiveValues
-            );
-            const code = own(result, 'code');
-            if (
-              Object.keys(result).length !== 3 ||
-              !['schemaVersion', 'operation', 'code'].every((key) => Object.hasOwn(result, key)) ||
-              typeof code !== 'string' ||
-              !/^\d{6}$/u.test(code)
-            ) {
-              return fail();
-            }
-            return code;
-          },
-          recipe === 'phase2CandidateInvariants'
-            ? Object.freeze({
-                id: 'vcode-peer',
-                username: 'phase2-verification-peer',
-              })
-            : undefined
-        );
-        let machineClientActive = false;
-        let foreignControlsActive = false;
-        const fixture: ProvisionedPhase2Fixture = Object.freeze({
-          ...baseFixture,
-          ...(recipe === 'fullPhase1' && {
-            withCandidateManagementMachineClient: async <Result>(
-              clientSecret: string,
-              use: (client: CandidateManagementMachineClient) => Promise<Result>
-            ): Promise<Result> => {
-              if (
-                state.revoked ||
-                machineClientActive ||
-                typeof use !== 'function' ||
-                typeof clientSecret !== 'string' ||
-                Buffer.byteLength(clientSecret) < 12 ||
-                Buffer.byteLength(clientSecret) > 1024
-              ) {
-                return fail();
-              }
-              machineClientActive = true;
-              state.sensitiveValues = Object.freeze([...state.sensitiveValues, clientSecret]);
-              const descriptor = Object.freeze({
-                schemaVersion: 1,
-                recipe,
-                allocationId,
-                public: state.coordinatorPublic ?? fail(),
-              });
-              let bodyError: unknown;
-              let value: Result | undefined;
-              let cleanupFailed = false;
-              try {
-                const response = await run(
-                  { ...descriptor, operation: 'provisionManagementMachineClient', clientSecret },
-                  'provisionManagementMachineClient',
-                  state.sensitiveValues
-                );
-                const expected = candidateManagementMachineClient;
-                const actual = exactRecord(own(response, 'public'), Object.keys(expected));
-                if (
-                  Object.keys(response).length !== 3 ||
-                  Object.entries(expected).some(([key, value]) => own(actual, key) !== value)
-                ) {
-                  return fail();
-                }
-                value = await use(expected);
-              } catch (error: unknown) {
-                bodyError = error;
-              } finally {
-                try {
-                  const cleaned = await run(
-                    { ...descriptor, operation: 'cleanupManagementMachineClient' },
-                    'cleanupManagementMachineClient',
-                    state.sensitiveValues
-                  );
-                  if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
-                    fail();
-                  }
-                } catch {
-                  cleanupFailed = true;
-                } finally {
-                  machineClientActive = false;
-                }
-              }
-              if (cleanupFailed) {
-                throw new AggregateError(
-                  [
-                    ...(bodyError === undefined ? [] : [new Error(failure)]),
-                    new Error(cleanupFailure),
-                  ],
-                  cleanupFailure
-                );
-              }
-              if (bodyError !== undefined) {
-                throw new Error(failure);
-              }
-              return value as Result;
-            },
-            cleanupManagementProvisioningRows: async ({
-              resourceId,
-              applicationIds,
-            }: Readonly<{
-              resourceId: string;
-              applicationIds: readonly [string, string];
-            }>) => {
-              if (
-                state.revoked ||
-                !safeIdPattern.test(resourceId) ||
-                applicationIds.length !== 2 ||
-                applicationIds[0] === applicationIds[1] ||
-                applicationIds.some((id) => !safeIdPattern.test(id))
-              ) {
-                return fail();
-              }
-              const cleaned = await run(
-                {
-                  schemaVersion: 1,
-                  operation: 'cleanupManagementProvisioningRows',
-                  recipe,
-                  allocationId,
-                  public: state.coordinatorPublic ?? fail(),
-                  resourceId,
-                  applicationIds,
-                },
-                'cleanupManagementProvisioningRows',
-                state.sensitiveValues
-              );
-              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
-                return fail();
-              }
-            },
-            cleanupManagementOwnershipControlApplication: async (applicationId: string) => {
-              if (state.revoked || !safeIdPattern.test(applicationId)) {
-                return fail();
-              }
-              const cleaned = await run(
-                {
-                  schemaVersion: 1,
-                  operation: 'cleanupManagementOwnershipControlApplication',
-                  recipe,
-                  allocationId,
-                  public: state.coordinatorPublic ?? fail(),
-                  control: { applicationId },
-                },
-                'cleanupManagementOwnershipControlApplication',
-                state.sensitiveValues
-              );
-              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
-                return fail();
-              }
-            },
-            removeManagementProvisioningRoleScope: async ({
-              roleId,
-              scopeId,
-            }: Readonly<{ roleId: string; scopeId: string }>) => {
-              if (state.revoked || !safeIdPattern.test(roleId) || !safeIdPattern.test(scopeId)) {
-                return fail();
-              }
-              const cleaned = await run(
-                {
-                  schemaVersion: 1,
-                  operation: 'removeManagementProvisioningRoleScope',
-                  recipe,
-                  allocationId,
-                  public: state.coordinatorPublic ?? fail(),
-                  control: { roleId, scopeId },
-                },
-                'removeManagementProvisioningRoleScope',
-                state.sensitiveValues
-              );
-              if (Object.keys(cleaned).length !== 3 || own(cleaned, 'ok') !== true) {
-                return fail();
-              }
-            },
-            withForeignManagementControls: async <Result>(
-              use: (controls: ForeignManagementControls) => Promise<Result>
-            ): Promise<Result> => {
-              if (state.revoked || foreignControlsActive || typeof use !== 'function') {
-                return fail();
-              }
-              foreignControlsActive = true;
-              const descriptor = Object.freeze({
-                schemaVersion: 1,
-                recipe,
-                allocationId,
-                public: state.coordinatorPublic ?? fail(),
-              });
-              let bodyError: unknown;
-              let value: Result | undefined;
-              let cleanupFailed = false;
-              try {
-                const response = await run(
-                  { ...descriptor, operation: 'provisionForeignManagementControls' },
-                  'provisionForeignManagementControls',
-                  state.sensitiveValues
-                );
-                const controls = exactRecord(own(response, 'public'), [
-                  'userId',
-                  'connectorId',
-                  'applicationId',
-                ]);
-                if (
-                  Object.keys(response).length !== 3 ||
-                  own(controls, 'userId') !== 'aster-mgmt-u' ||
-                  own(controls, 'connectorId') !== 'aster-mgmt-google' ||
-                  own(controls, 'applicationId') !== 'aster-mgmt-app'
-                ) {
-                  return fail();
-                }
-                value = await use(
-                  Object.freeze({
-                    userId: 'aster-mgmt-u',
-                    connectorId: 'aster-mgmt-google',
-                    applicationId: 'aster-mgmt-app',
-                  })
-                );
-              } catch (error: unknown) {
-                bodyError = error;
-              } finally {
-                try {
-                  const cleaned = await run(
-                    { ...descriptor, operation: 'cleanupForeignManagementControls' },
-                    'cleanupForeignManagementControls',
-                    state.sensitiveValues
-                  );
-                  if (
-                    Object.keys(cleaned).length !== 4 ||
-                    own(cleaned, 'ok') !== true ||
-                    own(cleaned, 'preserved') !== true
-                  ) {
-                    fail();
-                  }
-                } catch {
-                  cleanupFailed = true;
-                } finally {
-                  foreignControlsActive = false;
-                }
-              }
-              if (cleanupFailed) {
-                throw new AggregateError(
-                  [
-                    ...(bodyError === undefined ? [] : [new Error(failure)]),
-                    new Error(cleanupFailure),
-                  ],
-                  cleanupFailure
-                );
-              }
-              if (bodyError !== undefined) {
-                throw new Error(failure);
-              }
-              return value as Result;
-            },
-          }),
-        });
-        states.set(fixture as object, state);
-        return fixture;
       } catch (error: unknown) {
-        failures.push(error);
         try {
-          await cleanupState(state);
-        } catch (cleanupError: unknown) {
-          failures.push(cleanupError);
+          publishProvisionDiagnostic();
+        } catch {
+          // Diagnostic publication must not replace the fixture failure or skip cleanup.
         }
-        if (failures.length > 1) {
-          throw new AggregateError(failures, failure);
-        }
-        throw new Error(failure);
+        throw error;
       }
     },
     projectState: async (fixture: ProvisionedPhase2Fixture): Promise<unknown> => {

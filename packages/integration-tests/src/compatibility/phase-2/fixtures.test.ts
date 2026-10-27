@@ -2154,6 +2154,255 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(JSON.parse(requests[5]?.stdin ?? '{}')).toHaveProperty('public');
   });
 
+  it('reports a closed retry transport class without reflecting the private error', async () => {
+    const diagnostics: unknown[] = [];
+    let cleanupCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-diagnostic-transport',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+      runner: async (request) => {
+        const { operation } = JSON.parse(request.stdin) as { operation?: string };
+        if (operation === 'cleanup') {
+          cleanupCalls += 1;
+          return cleanupCalls % 2 === 1
+            ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+            : rejectedCommandResult();
+        }
+        throw new Error('private transport detail must not be reflected');
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(diagnostics).toEqual([
+      {
+        schemaVersion: 1,
+        target: 'candidate',
+        operation: 'fixture-provision',
+        attempt: 'retry',
+        failureClass: 'transport',
+        firstAttempted: true,
+        compensationAttempted: true,
+        retryAttempted: true,
+        projectionAttempted: false,
+      },
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('private transport detail');
+  });
+
+  it('reports public projection failure after one successful command without retrying', async () => {
+    const diagnostics: unknown[] = [];
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-diagnostic-projection',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+      runner: async (request) => {
+        const { operation } = JSON.parse(request.stdin) as { operation?: string };
+        return operation === 'provision'
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'provision', public: {} }))
+          : commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }));
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(diagnostics).toEqual([
+      {
+        schemaVersion: 1,
+        target: 'candidate',
+        operation: 'fixture-provision',
+        attempt: 'projection',
+        failureClass: 'public-projection',
+        firstAttempted: true,
+        compensationAttempted: false,
+        retryAttempted: false,
+        projectionAttempted: true,
+      },
+    ]);
+  });
+
+  it.each<Readonly<[string, CommandRunnerResult, string]>>([
+    ['timeout', { ...commandResult(''), exitCode: null, timedOut: true, killed: true }, 'timeout'],
+    ['signal', { ...commandResult(''), exitCode: null, signal: 'SIGTERM', killed: true }, 'signal'],
+    ['nonzero', rejectedCommandResult(), 'nonzero'],
+    [
+      'malformed process result',
+      { ...commandResult(''), stderr: 'private malformed detail' },
+      'malformed-process-result',
+    ],
+    ['response', commandResult('{}'), 'response'],
+  ])('reports the closed %s retry failure class', async (_name, failedResult, failureClass) => {
+    const diagnostics: unknown[] = [];
+    let cleanupCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-diagnostic-process-result',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+      runner: async (request) => {
+        const { operation } = JSON.parse(request.stdin) as { operation?: string };
+        if (operation !== 'cleanup') {
+          return failedResult;
+        }
+        cleanupCalls += 1;
+        return cleanupCalls % 2 === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 'retry',
+        failureClass,
+        firstAttempted: true,
+        compensationAttempted: true,
+        retryAttempted: true,
+        projectionAttempted: false,
+      }),
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('private malformed detail');
+  });
+
+  it('keeps cleanup and the original fixture failure when diagnostic publication fails', async () => {
+    const operations: string[] = [];
+    let cleanupCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-diagnostic-publication',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: () => {
+        throw new Error('diagnostic sink failure');
+      },
+      runner: async (request) => {
+        const { operation } = JSON.parse(request.stdin) as { operation: string };
+        operations.push(operation);
+        if (operation !== 'cleanup') {
+          return rejectedCommandResult();
+        }
+        cleanupCalls += 1;
+        return cleanupCalls % 2 === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(operations).toEqual([
+      'provision',
+      'cleanup',
+      'cleanup',
+      'provision',
+      'cleanup',
+      'cleanup',
+    ]);
+  });
+
+  it('reports a pre-invocation failure before the first command and resets the diagnostic state', async () => {
+    const diagnostics: unknown[] = [];
+    let runnerCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'INVALID ALLOCATION',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+      runner: async () => {
+        runnerCalls += 1;
+        return rejectedCommandResult();
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow();
+    expect(runnerCalls).toBe(0);
+    expect(diagnostics).toEqual([
+      {
+        schemaVersion: 1,
+        target: 'candidate',
+        operation: 'fixture-provision',
+        attempt: 'first',
+        failureClass: 'pre-invocation',
+        firstAttempted: false,
+        compensationAttempted: false,
+        retryAttempted: false,
+        projectionAttempted: false,
+      },
+    ]);
+  });
+
+  it('does not report a completed command class for a post-command identity-fence failure', async () => {
+    const diagnostics: unknown[] = [];
+    let cleanupCalls = 0;
+    let fenceCalls = 0;
+    const secrets = ['a', 'b', 'c', 'd', 'e'].map((value) => value.repeat(32));
+    const provisioner = createCandidatePhase2FixtureProvisioner({
+      executablePath: '/usr/bin/true',
+      target: candidate,
+      foreignTarget: candidateForeign,
+      environment: { ASTER_FIXTURE_SOCKET: '/tmp/phase2-fixture.sock' },
+      createAllocationId: () => 'candidate-diagnostic-fence',
+      createSecret: () => secrets.shift() ?? 'unexpected',
+      diagnosticSink: (diagnostic) => diagnostics.push(diagnostic),
+      identityFence: {
+        assertStable: async () => {
+          await Promise.resolve();
+        },
+        run: async <Result>(operation: () => Promise<Result>) => {
+          fenceCalls += 1;
+          const result = await operation();
+          if (fenceCalls === 1 || fenceCalls === 4) {
+            throw new Error('private identity change');
+          }
+          return result;
+        },
+      },
+      runner: async (request) => {
+        const { operation } = JSON.parse(request.stdin) as { operation?: string };
+        if (operation === 'provision') {
+          return candidateProvisionResult('candidate-diagnostic-fence');
+        }
+        cleanupCalls += 1;
+        return cleanupCalls % 2 === 1
+          ? commandResult(JSON.stringify({ schemaVersion: 1, operation: 'cleanup', ok: true }))
+          : rejectedCommandResult();
+      },
+    });
+
+    await expect(provisioner.provision()).rejects.toThrow('Phase 2 fixture operation failed');
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        attempt: 'retry',
+        failureClass: 'unknown',
+        firstAttempted: true,
+        compensationAttempted: true,
+        retryAttempted: true,
+        projectionAttempted: false,
+      }),
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('private identity change');
+  });
+
   it('rejects coordinator output that leaks the private subject password', async () => {
     const planted = [
       'a'.repeat(32),
