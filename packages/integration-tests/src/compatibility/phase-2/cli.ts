@@ -1968,7 +1968,54 @@ const runTargetScenarios = async (
             jwtAudit,
           })
         );
-      } catch {
+      } catch (error: unknown) {
+        if (
+          descriptor.kind === 'oracle' &&
+          scenario.id === 'client-credentials.basic-explicit-resource'
+        ) {
+          const primaryError: unknown = error;
+          const phase =
+            primaryError instanceof Error &&
+            primaryError.message === 'Client credentials request rejected'
+              ? 'request-validation'
+              : primaryError instanceof Error &&
+                  primaryError.message === 'Client credentials request failed'
+                ? 'request-transport'
+                : primaryError instanceof Error &&
+                    primaryError.message === 'Client credentials response rejected'
+                  ? 'observation-validation'
+                  : primaryError instanceof Error &&
+                      primaryError.message === 'Client credentials JWT verification failed'
+                    ? 'jwt-verification'
+                    : primaryError instanceof Error &&
+                        primaryError.message === 'Invalid Phase 2 runtime'
+                      ? 'state-protocol-or-facts'
+                      : primaryError instanceof Error &&
+                          primaryError.message === 'Invalid Phase 2 client credentials projection'
+                        ? 'public-projection'
+                        : primaryError instanceof Error &&
+                            primaryError.message === 'Invalid Phase 2 client credentials scenario'
+                          ? 'scenario-or-contract'
+                          : 'unclassified';
+          try {
+            await writeSecureJsonArtifact(
+              '/var/tmp/henry-build/aster-console-experience-social-20261027/common-failure-stage-diagnostic-r13-r3/oracle-basic-explicit-resource-failure-r13-r3.json',
+              Object.freeze({
+                schema: 'aster.oracle-basic-explicit-resource-failure.v1',
+                target: 'oracle',
+                scenario: 'client-credentials.basic-explicit-resource',
+                fixtureAuthorityReady: true,
+                phase,
+                abortOutcome: 'unavailable',
+                statusClass: 'unavailable',
+                rawRuntimeValuesRecorded: false,
+                acceptanceEligible: false,
+              })
+            );
+          } catch {
+            // Diagnostic publication must never replace the canonical failure.
+          }
+        }
         throw new Error(`Phase 2 scenario failed: ${descriptor.kind}/${scenario.id}`);
       }
     }
