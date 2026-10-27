@@ -2449,6 +2449,11 @@ export const createCandidatePhase2FixtureProvisioner = (
             organizations: Object.freeze([]),
           }),
         ]),
+        organization: Object.freeze({
+          id: 'phase2-org',
+          name: `Phase 2 ${markerPrefix}${allocationId} organization`,
+          description: null,
+        }),
         defaultResourceId: 'phase2-resource',
         statusClient: Object.freeze({
           clientId: statusConfidentialClientId,
