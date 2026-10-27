@@ -245,6 +245,16 @@ normalize_image_id() {
   fi
 }
 
+resolve_provider_fixture_image_id() {
+  local fallback=$1 input raw resolved
+  input="${ASTER_PHASE2_PROVIDER_FIXTURE_IMAGE_ID-$fallback}"
+  [[ "$input" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+  raw="$(docker_cli image inspect --format '{{.Id}}' "$input" 2>/dev/null || true)"
+  resolved="$(normalize_image_id "$raw")" || return 1
+  [[ "$resolved" == "$input" ]] || return 1
+  printf '%s' "$resolved"
+}
+
 normalize_configured_image() {
   local value=$1
   if [[ "$value" =~ ^[0-9a-f]{64}$ || "$value" =~ ^sha256:[0-9a-f]{64}$ ]]; then
@@ -1089,8 +1099,9 @@ assert_expected_fixture_images() {
     metadata="$(inspect_service "$role" "$service")" || return 1
     IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
     configured_image="$(normalize_configured_image "$configured_image")" || return 1
-    [[ "$image" == "$expected" && "$configured_image" == "$expected" && "$status" == running && \
-       "$exit_code" == 0 && "$health" == healthy ]] || return 1
+    [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected" && "$configured_image" == "$expected" \
+      && "$project" == "$(project_name_for "$role")" && "$label" == "$service" \
+      && "$status" == running && "$exit_code" == 0 && "$health" == healthy ]] || return 1
   done <<EOF
 oracle|oracle-fetch-observer|$ORACLE_IMAGE_ID
 oracle|oracle-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
@@ -1099,6 +1110,35 @@ candidate|candidate-script-supervisor|$SCRIPT_SUPERVISOR_IMAGE_ID
 candidate|candidate-script-executor|$SCRIPT_EXECUTOR_IMAGE_ID
 candidate|candidate-primary-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
 candidate|candidate-password-smtp|$SCRIPT_SUPERVISOR_IMAGE_ID
+EOF
+
+  while IFS='|' read -r role service; do
+    metadata="$(inspect_service "$role" "$service")" || return 1
+    IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
+    [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$PROVIDER_FIXTURE_IMAGE_ID" \
+      && "$configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ \
+      && "$project" == "$(project_name_for "$role")" && "$label" == "$service" ]] || return 1
+  done <<'EOF'
+oracle|oracle-google-provider
+candidate|candidate-google-provider
+oracle|oracle-wechat-provider
+candidate|candidate-wechat-provider
+oracle|oracle-sms-provider
+candidate|candidate-sms-provider
+oracle|oracle-pwned-clear
+oracle|oracle-pwned-compromised
+oracle|oracle-pwned-unavailable
+candidate|candidate-pwned-clear
+candidate|candidate-pwned-compromised
+candidate|candidate-pwned-unavailable
+oracle|oracle-backchannel-accepted
+oracle|oracle-backchannel-rejected
+candidate|candidate-backchannel-accepted
+candidate|candidate-backchannel-rejected
+oracle|oracle-h5-wechat-provider
+candidate|candidate-h5-wechat-provider
+oracle|oracle-wechat-multichannel-provider
+candidate|candidate-wechat-multichannel-provider
 EOF
 }
 
@@ -1158,7 +1198,7 @@ assert_google_provider_state() {
   document="$(docker_cli inspect "$id")" || return 1
   # The jq program intentionally uses literal container fields.
   # shellcheck disable=SC2016
-  "$JQ_BIN" -e --arg id "$id" --arg image "$ORACLE_IMAGE_ID" \
+  "$JQ_BIN" -e --arg id "$id" --arg image "$PROVIDER_FIXTURE_IMAGE_ID" \
     --arg project "$(project_name_for "$role")" --arg service "$service" \
     --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
     --arg mac "$expected_mac" '
@@ -1254,7 +1294,7 @@ assert_wechat_provider_state() {
   document="$(docker_cli inspect "$id")" || return 1
   # The jq program intentionally uses literal container fields.
   # shellcheck disable=SC2016
-  "$JQ_BIN" -e --arg id "$id" --arg image "$ORACLE_IMAGE_ID" \
+  "$JQ_BIN" -e --arg id "$id" --arg image "$PROVIDER_FIXTURE_IMAGE_ID" \
     --arg project "$(project_name_for "$role")" --arg service "$service" \
     --arg status "$expected_status" --argjson running "$expected_running" --arg ip "$expected_ip" \
     --arg mac "$expected_mac" '
@@ -1869,6 +1909,7 @@ main() {
   raw_oracle_image_id="$(docker_cli image inspect --format '{{.Id}}' "$ORACLE_IMAGE_PIN" 2>/dev/null || true)"
   ORACLE_IMAGE_ID="$(normalize_image_id "$raw_oracle_image_id")" || { fail; return 1; }
   [[ "$ORACLE_IMAGE_ID" == "$ORACLE_IMAGE_PIN" ]] || { fail; return 1; }
+  PROVIDER_FIXTURE_IMAGE_ID="$(resolve_provider_fixture_image_id "$ORACLE_IMAGE_ID")" || { fail; return 1; }
   candidate_metadata="$(docker_cli image inspect --format '{{.Id}}|{{index .Config.Labels "org.opencontainers.image.source"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "io.aster.source.tree"}}' "$ASTER_PHASE2_CANDIDATE_IMAGE" 2>/dev/null || true)"
   IFS='|' read -r raw_candidate_image_id candidate_source candidate_revision candidate_tree <<<"$candidate_metadata"
   CANDIDATE_IMAGE_ID="$(normalize_image_id "$raw_candidate_image_id")" || { fail; return 1; }
@@ -1881,7 +1922,7 @@ main() {
     normalized_image_id="$(validate_script_host_image_metadata "$image_value" "$image_metadata")" || { fail; return 1; }
     printf -v "SCRIPT_${image_role}_IMAGE_ID" '%s' "$normalized_image_id"
   done
-  readonly ORACLE_IMAGE_ID CANDIDATE_IMAGE_ID SCRIPT_SUPERVISOR_IMAGE_ID SCRIPT_EXECUTOR_IMAGE_ID
+  readonly ORACLE_IMAGE_ID PROVIDER_FIXTURE_IMAGE_ID CANDIDATE_IMAGE_ID SCRIPT_SUPERVISOR_IMAGE_ID SCRIPT_EXECUTOR_IMAGE_ID
 
   failure_stage='private-executables'
   /usr/bin/cp --reflink=never -- "$STATE_DRIVER_SOURCE" "$ORACLE_STATE_DRIVER"
@@ -2120,7 +2161,7 @@ NODE
   /usr/bin/rm -f -- "$generated"
   /usr/bin/chmod 0600 "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE"
   "$NODE_BIN" --input-type=module - "$GOOGLE_TOPOLOGY_MODULE" \
-    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$GOOGLE_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
     "$OBSERVER_SERVER_KEY" "$ORACLE_GOOGLE_CONFIG" "$ORACLE_GOOGLE_RECEIPT" \
     "$CANDIDATE_GOOGLE_CONFIG" "$CANDIDATE_GOOGLE_RECEIPT" <<'GOOGLE_TOPOLOGY' \
@@ -2186,7 +2227,7 @@ for (const [destination, value] of [
 }
 GOOGLE_TOPOLOGY
   "$NODE_BIN" --input-type=module - "$WECHAT_TOPOLOGY_MODULE" \
-    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$WECHAT_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
     "$OBSERVER_SERVER_KEY" "$ORACLE_WECHAT_CONFIG" "$ORACLE_WECHAT_RECEIPT" \
     "$CANDIDATE_WECHAT_CONFIG" "$CANDIDATE_WECHAT_RECEIPT" <<'WECHAT_TOPOLOGY' \
@@ -2251,7 +2292,7 @@ for (const [destination, value] of [
 }
 WECHAT_TOPOLOGY
   "$NODE_BIN" --input-type=module - "$SMS_RUNTIME_HELPER" "$SMS_TOPOLOGY_MODULE" \
-    "$SMS_PROVIDER_ROOT" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$ORACLE_IMAGE_ID" \
+    "$SMS_PROVIDER_ROOT" "$ORACLE_COMPOSE" "$CANDIDATE_COMPOSE" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$SMS_PROVIDER_SCRIPT" "$FETCH_OBSERVER_CA" "$OBSERVER_SERVER_CERT" \
     "$OBSERVER_SERVER_KEY" <<'SMS_TOPOLOGY' \
     || { failure_stage='sms-provider-topology'; fail; return 1; }
@@ -2280,7 +2321,7 @@ for (const [destination, value] of [[oraclePath, bound.oracle], [candidatePath, 
 SMS_TOPOLOGY
   failure_stage='completion-runtime-descriptors'
   "$ENV_BIN" -i PATH="$(/usr/bin/dirname -- "$NODE_BIN"):/usr/bin:/bin" HOME="$PRIVATE_HOME" \
-    "$NODE_BIN" "$COMPLETION_DESCRIPTOR_GENERATOR" "$COMPLETION_ROOT" "$ORACLE_IMAGE_ID" \
+    "$NODE_BIN" "$COMPLETION_DESCRIPTOR_GENERATOR" "$COMPLETION_ROOT" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$ORACLE_PROJECT_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_GOOGLE_PROVIDER_INPUT" \
     "$CANDIDATE_GOOGLE_PROVIDER_INPUT" "$ORACLE_WECHAT_PROVIDER_INPUT" \
     "$CANDIDATE_WECHAT_PROVIDER_INPUT" "$SMS_PROVIDER_ROOT" "$FIXTURE_DIRECTORY" || { fail; return 1; }
@@ -2385,8 +2426,8 @@ COMPLETION_TOPOLOGY
     || { fail; return 1; }
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
     "$NODE_BIN" "$GOOGLE_RUNTIME_HELPER" write "$GOOGLE_PROVIDER_ROOT" \
-    "$ORACLE_GOOGLE_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
-    "$CANDIDATE_GOOGLE_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$ORACLE_GOOGLE_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$PROVIDER_FIXTURE_IMAGE_ID" \
+    "$CANDIDATE_GOOGLE_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$PRIVATE_HOME" "$PODMAN_API_VERSION" \
     oracle-google-provider candidate-google-provider \
     || { failure_stage='google-provider-input'; fail; return 1; }
@@ -2425,8 +2466,8 @@ COMPLETION_TOPOLOGY
     || { fail; return 1; }
   "$ENV_BIN" -i PATH='/usr/bin:/bin' HOME="$PRIVATE_HOME" \
     "$NODE_BIN" "$WECHAT_RUNTIME_HELPER" write "$WECHAT_PROVIDER_ROOT" \
-    "$ORACLE_WECHAT_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
-    "$CANDIDATE_WECHAT_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$ORACLE_IMAGE_ID" \
+    "$ORACLE_WECHAT_PROVIDER_NAME" "$ORACLE_PROJECT_NAME" "$PROVIDER_FIXTURE_IMAGE_ID" \
+    "$CANDIDATE_WECHAT_PROVIDER_NAME" "$CANDIDATE_PROJECT_NAME" "$PROVIDER_FIXTURE_IMAGE_ID" \
     "$PRIVATE_HOME" "$PODMAN_API_VERSION" \
     oracle-wechat-provider candidate-wechat-provider \
     || { failure_stage='wechat-provider-input'; fail; return 1; }

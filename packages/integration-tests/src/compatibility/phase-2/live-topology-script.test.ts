@@ -395,6 +395,123 @@ afterAll(async () => {
 
 describe('Phase 2 client-credentials live topology runner', () => {
   it.each([
+    ['fallback', '', false, 'same', 0],
+    ['explicit immutable ID', `sha256:${'c'.repeat(64)}`, true, 'same', 0],
+    ['explicit empty value', '', true, 'same', 1],
+    ['mutable tag', 'node:22', true, 'same', 1],
+    ['missing image', `sha256:${'d'.repeat(64)}`, true, 'missing', 1],
+    ['resolved ID mismatch', `sha256:${'e'.repeat(64)}`, true, 'different', 1],
+  ] as const)(
+    'selects only a locally resolved immutable provider fixture image (%s)',
+    async (_, input, setInput, behavior, expectedCode) => {
+      const fallback = `sha256:${'b'.repeat(64)}`;
+      const harness = path.join(
+        temporaryRoot,
+        `provider-fixture-image-${behavior}-${expectedCode}.sh`
+      );
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash
+set -u
+${shellFunction('normalize_image_id')}
+${shellFunction('resolve_provider_fixture_image_id')}
+docker_cli() {
+  [[ ${JSON.stringify(behavior)} != missing ]] || return 1
+  if [[ ${JSON.stringify(behavior)} == different ]]; then
+    printf 'sha256:%s' '${'f'.repeat(64)}'
+  else
+    printf '%s' "$5"
+  fi
+}
+${setInput ? `ASTER_PHASE2_PROVIDER_FIXTURE_IMAGE_ID=${JSON.stringify(input)}\nexport ASTER_PHASE2_PROVIDER_FIXTURE_IMAGE_ID` : ''}
+[[ "$(resolve_provider_fixture_image_id ${JSON.stringify(fallback)})" == ${JSON.stringify(input || fallback)} ]]
+`,
+        { mode: 0o700 }
+      );
+      const result = await runBash(harness);
+      expect(result.code).toBe(expectedCode);
+    }
+  );
+
+  it('uses one selected fixture image for provider topology, descriptors, and image guards', () => {
+    expect(source).toContain(
+      'PROVIDER_FIXTURE_IMAGE_ID="$(resolve_provider_fixture_image_id "$ORACLE_IMAGE_ID")"'
+    );
+    expect(source).toContain(
+      'readonly ORACLE_IMAGE_ID PROVIDER_FIXTURE_IMAGE_ID CANDIDATE_IMAGE_ID'
+    );
+    expect(source).toContain('--arg id "$id" --arg image "$PROVIDER_FIXTURE_IMAGE_ID"');
+    expect(source).toContain(
+      '"$COMPLETION_DESCRIPTOR_GENERATOR" "$COMPLETION_ROOT" "$PROVIDER_FIXTURE_IMAGE_ID"'
+    );
+  });
+
+  it.each([
+    ['created mock', 'oracle-google-provider', 'created', '', 0, undefined],
+    ['stopped mock', 'oracle-google-provider', 'exited', '', 0, undefined],
+    ['wrong mock image', 'oracle-google-provider', 'created', '', 1, `sha256:${'d'.repeat(64)}`],
+    ['healthy always-running service', 'oracle-fetch-observer', 'running', 'healthy', 0, undefined],
+    ['stopped always-running service', 'oracle-fetch-observer', 'exited', '', 1, undefined],
+    [
+      'unhealthy always-running service',
+      'oracle-fetch-observer',
+      'running',
+      'unhealthy',
+      1,
+      undefined,
+    ],
+  ] as const)(
+    'checks selected fixture image without imposing a new mock lifecycle (%s)',
+    async (_, service, status, health, expectedCode, actualImage) => {
+      const oracleImage = `sha256:${'a'.repeat(64)}`;
+      const fixtureImage = `sha256:${'b'.repeat(64)}`;
+      const supervisorImage = `sha256:${'c'.repeat(64)}`;
+      const id = 'e'.repeat(64);
+      const harness = path.join(
+        temporaryRoot,
+        `fixture-image-guard-${service}-${status}-${health || 'none'}.sh`
+      );
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash
+set -u
+${shellFunction('assert_expected_fixture_images')}
+ORACLE_IMAGE_ID=${JSON.stringify(oracleImage)}
+PROVIDER_FIXTURE_IMAGE_ID=${JSON.stringify(fixtureImage)}
+SCRIPT_SUPERVISOR_IMAGE_ID=${JSON.stringify(supervisorImage)}
+SCRIPT_EXECUTOR_IMAGE_ID=${JSON.stringify(supervisorImage)}
+project_name_for() { printf 'fixture-%s' "$1"; }
+normalize_configured_image() { printf '%s' "$1"; }
+inspect_service() {
+  local role=$1 requested=$2 expected image configured state exit_code health_value
+  case "$requested" in
+    oracle-fetch-observer|candidate-fetch-observer) expected=$ORACLE_IMAGE_ID ;;
+    oracle-primary-smtp|candidate-primary-smtp|candidate-password-smtp|candidate-script-supervisor|candidate-script-executor) expected=$SCRIPT_SUPERVISOR_IMAGE_ID ;;
+    *) expected=$PROVIDER_FIXTURE_IMAGE_ID ;;
+  esac
+  image=$expected
+  configured=$expected
+  state=running
+  exit_code=0
+  health_value=healthy
+  if [[ "$requested" == ${JSON.stringify(service)} ]]; then
+    image=${JSON.stringify(actualImage ?? (service.includes('provider') ? fixtureImage : oracleImage))}
+    [[ "$requested" == *provider* ]] && configured='localhost/fixture:registered'
+    state=${JSON.stringify(status)}
+    health_value=${JSON.stringify(health)}
+  fi
+  printf '%s|%s|%s|fixture-%s|%s|%s|%s|%s' ${JSON.stringify(id)} "$image" "$configured" "$role" "$requested" "$state" "$exit_code" "$health_value"
+}
+assert_expected_fixture_images
+`,
+        { mode: 0o700 }
+      );
+      const result = await runBash(harness);
+      expect(result.code).toBe(expectedCode);
+    }
+  );
+
+  it.each([
     ['google', 'oracle', '172.30.231.52', '02:42:ac:1e:e7:34'],
     ['google', 'candidate', '172.30.241.52', '02:42:ac:1e:f1:34'],
     ['wechat', 'oracle', '172.30.231.53', '02:42:ac:1e:e7:35'],
@@ -403,7 +520,8 @@ describe('Phase 2 client-credentials live topology runner', () => {
     'requires the pinned provider image and stable network identity on every running %s/%s restart',
     async (provider, role, ip, mac) => {
       const id = 'a'.repeat(64);
-      const image = `sha256:${'b'.repeat(64)}`;
+      const oracleImage = `sha256:${'b'.repeat(64)}`;
+      const fixtureImage = `sha256:${'c'.repeat(64)}`;
       const registeredImageReference = 'ghcr.io/logto-io/logto:fixture';
       const service = `${role}-${provider}-provider`;
       const project = `aster-test-${role}`;
@@ -412,7 +530,7 @@ describe('Phase 2 client-credentials live topology runner', () => {
       const verify = async (
         actualMac: string,
         running: boolean,
-        actualImage = image,
+        actualImage = fixtureImage,
         configuredImage = registeredImageReference
       ): Promise<number> => {
         await writeFile(
@@ -446,7 +564,8 @@ describe('Phase 2 client-credentials live topology runner', () => {
           `#!/usr/bin/env bash
 source '${runnerPath}'
 JQ_BIN=/usr/bin/jq
-ORACLE_IMAGE_ID='${image}'
+ORACLE_IMAGE_ID='${oracleImage}'
+PROVIDER_FIXTURE_IMAGE_ID='${fixtureImage}'
 ORACLE_PROJECT_NAME='aster-test-oracle'
 CANDIDATE_PROJECT_NAME='aster-test-candidate'
 compose_for() { /usr/bin/printf '%s' '${id}'; }
@@ -459,7 +578,8 @@ assert_${provider}_provider_state '${role}' '${service}' '${running ? 'running' 
         return result.code;
       };
       expect(await verify(mac, true)).toBe(0);
-      expect(await verify(mac, true, `sha256:${'c'.repeat(64)}`, image)).toBe(1);
+      expect(await verify(mac, true, oracleImage)).toBe(1);
+      expect(await verify(mac, true, `sha256:${'d'.repeat(64)}`)).toBe(1);
       expect(await verify('02:42:00:00:00:01', true)).toBe(1);
       expect(await verify('', true)).toBe(1);
       expect(await verify('', false)).toBe(0);
