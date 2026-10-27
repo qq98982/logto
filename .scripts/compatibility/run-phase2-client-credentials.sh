@@ -255,17 +255,6 @@ resolve_provider_fixture_image_id() {
   printf '%s' "$resolved"
 }
 
-normalize_configured_image() {
-  local value=$1
-  if [[ "$value" =~ ^[0-9a-f]{64}$ || "$value" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-    normalize_image_id "$value"
-  elif [[ "$value" =~ ^[A-Za-z0-9._/:-]+@sha256:[0-9a-f]{64}$ ]]; then
-    printf '%s' "$value"
-  else
-    return 1
-  fi
-}
-
 validate_script_host_image_metadata() {
   local configured_image=$1 metadata=$2 raw_id source revision tree reference image_id
   IFS='|' read -r raw_id source revision tree reference <<<"$metadata"
@@ -1088,8 +1077,10 @@ core_identity() {
   expected_project="$(project_name_for "$role")"
   metadata="$(inspect_service "$role" "$service")" || return 1
   IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
-  configured_image="$(normalize_configured_image "$configured_image")" || return 1
-  [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected_image" && "$configured_image" == "$expected_image" && "$project" == "$expected_project" && "$label" == "$service" && "$status" == running && "$exit_code" == 0 && "$health" == healthy ]] || return 1
+  [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected_image" \
+    && "$configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ \
+    && "$project" == "$expected_project" && "$label" == "$service" \
+    && "$status" == running && "$exit_code" == 0 && "$health" == healthy ]] || return 1
   printf '%s' "$metadata"
 }
 
@@ -1098,8 +1089,8 @@ assert_expected_fixture_images() {
   while IFS='|' read -r role service expected; do
     metadata="$(inspect_service "$role" "$service")" || return 1
     IFS='|' read -r id image configured_image project label status exit_code health <<<"$metadata"
-    configured_image="$(normalize_configured_image "$configured_image")" || return 1
-    [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected" && "$configured_image" == "$expected" \
+    [[ "$id" =~ ^[0-9a-f]{64}$ && "$image" == "$expected" \
+      && "$configured_image" =~ ^[A-Za-z0-9._/@:-]{1,512}$ \
       && "$project" == "$(project_name_for "$role")" && "$label" == "$service" \
       && "$status" == running && "$exit_code" == 0 && "$health" == healthy ]] || return 1
   done <<EOF

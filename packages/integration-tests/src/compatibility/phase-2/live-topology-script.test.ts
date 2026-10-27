@@ -29,6 +29,33 @@ const buildRoot = '/var/tmp/henry-build';
 let source = '';
 let temporaryRoot = '';
 
+type FixtureImageGuardCase = Readonly<{
+  label: string;
+  service: string;
+  status: string;
+  health: string;
+  configuredImage: string;
+  expectedCode: number;
+  actualImage?: string;
+  project?: string;
+  serviceLabel?: string;
+  exitCode?: number;
+  id?: string;
+}>;
+
+type CoreImageGuardCase = Readonly<{
+  label: string;
+  configuredImage: string;
+  expectedCode: number;
+  actualImage?: string;
+  project?: string;
+  serviceLabel?: string;
+  status?: string;
+  health?: string;
+  exitCode?: number;
+  id?: string;
+}>;
+
 const runBash = async (scriptPath: string): Promise<Readonly<{ code: number; stderr: string }>> =>
   new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/bash', [scriptPath], {
@@ -447,29 +474,154 @@ ${setInput ? `ASTER_PHASE2_PROVIDER_FIXTURE_IMAGE_ID=${JSON.stringify(input)}\ne
   });
 
   it.each([
-    ['created mock', 'oracle-google-provider', 'created', '', 0, undefined],
-    ['stopped mock', 'oracle-google-provider', 'exited', '', 0, undefined],
-    ['wrong mock image', 'oracle-google-provider', 'created', '', 1, `sha256:${'d'.repeat(64)}`],
-    ['healthy always-running service', 'oracle-fetch-observer', 'running', 'healthy', 0, undefined],
-    ['stopped always-running service', 'oracle-fetch-observer', 'exited', '', 1, undefined],
-    [
-      'unhealthy always-running service',
-      'oracle-fetch-observer',
-      'running',
-      'unhealthy',
-      1,
-      undefined,
-    ],
-  ] as const)(
-    'checks selected fixture image without imposing a new mock lifecycle (%s)',
-    async (_, service, status, health, expectedCode, actualImage) => {
+    {
+      label: 'created provider mock with tag',
+      service: 'oracle-google-provider',
+      status: 'created',
+      health: '',
+      configuredImage: 'localhost/provider:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'stopped provider mock with tag',
+      service: 'oracle-google-provider',
+      status: 'exited',
+      health: '',
+      configuredImage: 'localhost/provider:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'created non-provider mock with tag',
+      service: 'oracle-pwned-clear',
+      status: 'created',
+      health: '',
+      configuredImage: 'localhost/pwned:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'wrong mock actual image',
+      service: 'oracle-pwned-clear',
+      status: 'created',
+      health: '',
+      configuredImage: 'localhost/pwned:registered',
+      actualImage: `sha256:${'d'.repeat(64)}`,
+      expectedCode: 1,
+    },
+    {
+      label: 'oracle always-running service with tag',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/oracle:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'supervisor always-running service with tag',
+      service: 'candidate-script-supervisor',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/supervisor:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'executor always-running service with tag',
+      service: 'candidate-script-executor',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/executor:registered',
+      expectedCode: 0,
+    },
+    {
+      label: 'wrong always-running actual image',
+      service: 'candidate-script-executor',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/executor:registered',
+      actualImage: `sha256:${'f'.repeat(64)}`,
+      expectedCode: 1,
+    },
+    {
+      label: 'wrong project ownership',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/oracle:registered',
+      project: 'fixture-candidate',
+      expectedCode: 1,
+    },
+    {
+      label: 'wrong service ownership',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/oracle:registered',
+      serviceLabel: 'oracle-primary-core',
+      expectedCode: 1,
+    },
+    {
+      label: 'stopped always-running service',
+      service: 'oracle-fetch-observer',
+      status: 'exited',
+      health: '',
+      configuredImage: 'localhost/oracle:registered',
+      expectedCode: 1,
+    },
+    {
+      label: 'unhealthy always-running service',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'unhealthy',
+      configuredImage: 'localhost/oracle:registered',
+      expectedCode: 1,
+    },
+    {
+      label: 'nonzero always-running exit',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/oracle:registered',
+      exitCode: 7,
+      expectedCode: 1,
+    },
+    {
+      label: 'truncated container identity',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'localhost/oracle:registered',
+      id: 'e'.repeat(12),
+      expectedCode: 1,
+    },
+    {
+      label: 'invalid descriptive image',
+      service: 'oracle-fetch-observer',
+      status: 'running',
+      health: 'healthy',
+      configuredImage: 'invalid image',
+      expectedCode: 1,
+    },
+  ] satisfies readonly FixtureImageGuardCase[])(
+    'checks actual fixture identity without reinterpreting descriptive metadata ($label)',
+    async ({
+      service,
+      status,
+      health,
+      configuredImage,
+      expectedCode,
+      ...overrides
+    }: FixtureImageGuardCase) => {
       const oracleImage = `sha256:${'a'.repeat(64)}`;
       const fixtureImage = `sha256:${'b'.repeat(64)}`;
       const supervisorImage = `sha256:${'c'.repeat(64)}`;
-      const id = 'e'.repeat(64);
+      const executorImage = `sha256:${'d'.repeat(64)}`;
+      expect(new Set([oracleImage, fixtureImage, supervisorImage, executorImage]).size).toBe(4);
+      const id = overrides.id ?? 'e'.repeat(64);
       const harness = path.join(
         temporaryRoot,
-        `fixture-image-guard-${service}-${status}-${health || 'none'}.sh`
+        `fixture-image-guard-${service}-${expectedCode}-${createHash('sha256')
+          .update(JSON.stringify({ status, health, configuredImage, ...overrides }))
+          .digest('hex')
+          .slice(0, 8)}.sh`
       );
       await writeFile(
         harness,
@@ -479,14 +631,15 @@ ${shellFunction('assert_expected_fixture_images')}
 ORACLE_IMAGE_ID=${JSON.stringify(oracleImage)}
 PROVIDER_FIXTURE_IMAGE_ID=${JSON.stringify(fixtureImage)}
 SCRIPT_SUPERVISOR_IMAGE_ID=${JSON.stringify(supervisorImage)}
-SCRIPT_EXECUTOR_IMAGE_ID=${JSON.stringify(supervisorImage)}
+SCRIPT_EXECUTOR_IMAGE_ID=${JSON.stringify(executorImage)}
 project_name_for() { printf 'fixture-%s' "$1"; }
 normalize_configured_image() { printf '%s' "$1"; }
 inspect_service() {
   local role=$1 requested=$2 expected image configured state exit_code health_value
   case "$requested" in
     oracle-fetch-observer|candidate-fetch-observer) expected=$ORACLE_IMAGE_ID ;;
-    oracle-primary-smtp|candidate-primary-smtp|candidate-password-smtp|candidate-script-supervisor|candidate-script-executor) expected=$SCRIPT_SUPERVISOR_IMAGE_ID ;;
+    oracle-primary-smtp|candidate-primary-smtp|candidate-password-smtp|candidate-script-supervisor) expected=$SCRIPT_SUPERVISOR_IMAGE_ID ;;
+    candidate-script-executor) expected=$SCRIPT_EXECUTOR_IMAGE_ID ;;
     *) expected=$PROVIDER_FIXTURE_IMAGE_ID ;;
   esac
   image=$expected
@@ -494,15 +647,110 @@ inspect_service() {
   state=running
   exit_code=0
   health_value=healthy
+  project="fixture-$role"
+  label=$requested
   if [[ "$requested" == ${JSON.stringify(service)} ]]; then
-    image=${JSON.stringify(actualImage ?? (service.includes('provider') ? fixtureImage : oracleImage))}
-    [[ "$requested" == *provider* ]] && configured='localhost/fixture:registered'
+    if [[ -n ${JSON.stringify(overrides.actualImage ?? '')} ]]; then
+      image=${JSON.stringify(overrides.actualImage ?? '')}
+    fi
+    configured=${JSON.stringify(configuredImage)}
     state=${JSON.stringify(status)}
+    exit_code=${JSON.stringify(overrides.exitCode ?? 0)}
     health_value=${JSON.stringify(health)}
+    if [[ -n ${JSON.stringify(overrides.project ?? '')} ]]; then
+      project=${JSON.stringify(overrides.project ?? '')}
+    fi
+    if [[ -n ${JSON.stringify(overrides.serviceLabel ?? '')} ]]; then
+      label=${JSON.stringify(overrides.serviceLabel ?? '')}
+    fi
   fi
-  printf '%s|%s|%s|fixture-%s|%s|%s|%s|%s' ${JSON.stringify(id)} "$image" "$configured" "$role" "$requested" "$state" "$exit_code" "$health_value"
+  printf '%s|%s|%s|%s|%s|%s|%s|%s' ${JSON.stringify(id)} "$image" "$configured" "$project" "$label" "$state" "$exit_code" "$health_value"
 }
 assert_expected_fixture_images
+`,
+        { mode: 0o700 }
+      );
+      const result = await runBash(harness);
+      expect(result.code).toBe(expectedCode);
+    }
+  );
+
+  it.each([
+    { label: 'registered tag', configuredImage: 'localhost/core:registered', expectedCode: 0 },
+    {
+      label: 'wrong actual image',
+      configuredImage: 'localhost/core:registered',
+      actualImage: `sha256:${'b'.repeat(64)}`,
+      expectedCode: 1,
+    },
+    {
+      label: 'wrong project',
+      configuredImage: 'localhost/core:registered',
+      project: 'fixture-candidate',
+      expectedCode: 1,
+    },
+    {
+      label: 'wrong service',
+      configuredImage: 'localhost/core:registered',
+      serviceLabel: 'oracle-foreign-core',
+      expectedCode: 1,
+    },
+    {
+      label: 'stopped',
+      configuredImage: 'localhost/core:registered',
+      status: 'exited',
+      expectedCode: 1,
+    },
+    {
+      label: 'unhealthy',
+      configuredImage: 'localhost/core:registered',
+      health: 'unhealthy',
+      expectedCode: 1,
+    },
+    {
+      label: 'nonzero exit',
+      configuredImage: 'localhost/core:registered',
+      exitCode: 9,
+      expectedCode: 1,
+    },
+    {
+      label: 'truncated ID',
+      configuredImage: 'localhost/core:registered',
+      id: 'e'.repeat(12),
+      expectedCode: 1,
+    },
+    { label: 'invalid descriptive image', configuredImage: 'invalid image', expectedCode: 1 },
+  ] satisfies readonly CoreImageGuardCase[])(
+    'keeps core executable identity and lifecycle strict with descriptive Config.Image ($label)',
+    async ({ configuredImage, expectedCode, ...overrides }: CoreImageGuardCase) => {
+      const expectedImage = `sha256:${'a'.repeat(64)}`;
+      const service = 'oracle-primary-core';
+      const harness = path.join(
+        temporaryRoot,
+        `core-image-guard-${expectedCode}-${createHash('sha256')
+          .update(JSON.stringify({ configuredImage, ...overrides }))
+          .digest('hex')
+          .slice(0, 8)}.sh`
+      );
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash
+set -u
+${shellFunction('core_identity')}
+project_name_for() { printf 'fixture-%s' "$1"; }
+normalize_configured_image() { printf '%s' "$1"; }
+inspect_service() {
+  printf '%s|%s|%s|%s|%s|%s|%s|%s' \
+    ${JSON.stringify(overrides.id ?? 'e'.repeat(64))} \
+    ${JSON.stringify(overrides.actualImage ?? expectedImage)} \
+    ${JSON.stringify(configuredImage)} \
+    ${JSON.stringify(overrides.project ?? 'fixture-oracle')} \
+    ${JSON.stringify(overrides.serviceLabel ?? service)} \
+    ${JSON.stringify(overrides.status ?? 'running')} \
+    ${JSON.stringify(overrides.exitCode ?? 0)} \
+    ${JSON.stringify(overrides.health ?? 'healthy')}
+}
+core_identity oracle ${JSON.stringify(service)} ${JSON.stringify(expectedImage)} >/dev/null
 `,
         { mode: 0o700 }
       );
