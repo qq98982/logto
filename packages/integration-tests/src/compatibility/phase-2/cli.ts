@@ -103,6 +103,7 @@ import {
   fetchPhase2PublicJwks,
   preparePhase2TargetForExecution,
   readAndResetPhase2FetchReceipts,
+  readOracleBasicStateCheckpoint,
   requestPhase2Json,
   validatePhase2TargetDescriptor,
   verifyPhase2Target,
@@ -1973,6 +1974,7 @@ const runTargetScenarios = async (
           descriptor.kind === 'oracle' &&
           scenario.id === 'client-credentials.basic-explicit-resource'
         ) {
+          const stateCheckpoint = readOracleBasicStateCheckpoint();
           const primaryError: unknown = error;
           const phase =
             primaryError instanceof Error &&
@@ -1997,15 +1999,27 @@ const runTargetScenarios = async (
                             primaryError.message === 'Invalid Phase 2 client credentials scenario'
                           ? 'scenario-or-contract'
                           : 'unclassified';
+          const stateSubstage =
+            phase === 'state-protocol-or-facts'
+              ? (stateCheckpoint?.stage ?? 'unclassified')
+              : 'not-applicable';
+          const stateOutcome =
+            phase === 'state-protocol-or-facts'
+              ? stateCheckpoint?.outcome === 'entered'
+                ? 'failed'
+                : (stateCheckpoint?.outcome ?? 'unclassified')
+              : 'not-applicable';
           try {
             await writeSecureJsonArtifact(
-              '/var/tmp/henry-build/aster-console-experience-social-20261027/common-failure-stage-diagnostic-r13-r3/oracle-basic-explicit-resource-failure-r13-r3.json',
+              '/var/tmp/henry-build/aster-console-experience-social-20261027/common-failure-stage-diagnostic-r14/oracle-basic-explicit-resource-failure-r14.json',
               Object.freeze({
-                schema: 'aster.oracle-basic-explicit-resource-failure.v1',
+                schema: 'aster.oracle-basic-explicit-resource-failure.v2',
                 target: 'oracle',
                 scenario: 'client-credentials.basic-explicit-resource',
                 fixtureAuthorityReady: true,
                 phase,
+                stateSubstage,
+                stateOutcome,
                 abortOutcome: 'unavailable',
                 statusClass: 'unavailable',
                 rawRuntimeValuesRecorded: false,

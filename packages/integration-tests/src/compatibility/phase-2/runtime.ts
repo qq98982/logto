@@ -114,6 +114,45 @@ const containerPattern = /^[0-9a-f]{64}$/u;
 const projectPattern = /^aster-phase2-client-credentials-[0-9a-f]{16}$/u;
 const shaPattern = /^[0-9a-f]{64}$/u;
 
+const oracleBasicStateStages = [
+  'begin-invocation',
+  'begin-terminal',
+  'begin-handle',
+  'scenario-execute',
+  'finish-response-facts',
+  'finish-invocation',
+  'finish-terminal',
+  'finish-signing',
+  'finish-authority',
+  'finish-side-effects',
+] as const;
+type OracleBasicStateStage = (typeof oracleBasicStateStages)[number];
+type OracleBasicStateCheckpoint = Readonly<{
+  stage: OracleBasicStateStage;
+  outcome: 'entered' | 'accepted';
+}>;
+let oracleBasicStateCheckpoint: OracleBasicStateCheckpoint | undefined;
+
+const isOracleBasicStateDiagnostic = (
+  options: StateDriverOptions,
+  scenarioId: Phase2DifferentialScenarioId
+): boolean =>
+  options.descriptor.kind === 'oracle' &&
+  scenarioId === 'client-credentials.basic-explicit-resource';
+
+const markOracleBasicStateCheckpoint = (
+  enabled: boolean,
+  stage: OracleBasicStateStage,
+  outcome: OracleBasicStateCheckpoint['outcome']
+): void => {
+  if (enabled) {
+    oracleBasicStateCheckpoint = Object.freeze({ stage, outcome });
+  }
+};
+
+export const readOracleBasicStateCheckpoint = (): OracleBasicStateCheckpoint | undefined =>
+  oracleBasicStateCheckpoint;
+
 const fail = (): never => {
   throw new TypeError(diagnostic);
 };
@@ -1219,6 +1258,11 @@ export const createCommandPhase2ScenarioStateDriver = async (
     fixture: ProvisionedPhase2Fixture,
     extra: Readonly<Record<string, unknown>> = {}
   ): Promise<Record<string, unknown>> => {
+    const diagnosticEnabled =
+      isOracleBasicStateDiagnostic(options, scenarioId) &&
+      (operation === 'begin' || operation === 'finish');
+    const invocationStage = operation === 'begin' ? 'begin-invocation' : 'finish-invocation';
+    const terminalStage = operation === 'begin' ? 'begin-terminal' : 'finish-terminal';
     const descriptor = Object.freeze({
       schemaVersion: 1,
       kind: phase2StateRequestKind,
@@ -1242,12 +1286,17 @@ export const createCommandPhase2ScenarioStateDriver = async (
           shell: false,
         })
       );
+    markOracleBasicStateCheckpoint(diagnosticEnabled, invocationStage, 'entered');
     const result = options.identityFence ? await options.identityFence.run(invoke) : await invoke();
+    markOracleBasicStateCheckpoint(diagnosticEnabled, invocationStage, 'accepted');
+    markOracleBasicStateCheckpoint(diagnosticEnabled, terminalStage, 'entered');
     const after = await verifyArtifact(options.descriptor.stateDriver);
     if (JSON.stringify(after) !== JSON.stringify(verified.stateDriver)) {
       return fail();
     }
-    return parseTerminal(result.stdout, operation, scenarioId, verified.topology);
+    const terminal = parseTerminal(result.stdout, operation, scenarioId, verified.topology);
+    markOracleBasicStateCheckpoint(diagnosticEnabled, terminalStage, 'accepted');
+    return terminal;
   };
 
   const abort = async (
@@ -1267,17 +1316,24 @@ export const createCommandPhase2ScenarioStateDriver = async (
       fixture: ProvisionedPhase2Fixture,
       execute: () => Promise<SanitizedTokenObservation>
     ): Promise<Phase2ScenarioStateObservation> => {
+      const diagnosticEnabled = isOracleBasicStateDiagnostic(options, scenarioId);
       let handle: string | undefined;
       let response: SanitizedTokenObservation;
       try {
         const begin = await run('begin', scenarioId, fixture);
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'begin-handle', 'entered');
         const rawHandle = own(begin, 'handle');
         handle = typeof rawHandle === 'string' && rawHandle.length <= 128 ? rawHandle : undefined;
         if (handle === undefined || !handlePattern.test(handle)) {
           throw new TypeError(diagnostic);
         }
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'begin-handle', 'accepted');
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'scenario-execute', 'entered');
         response = await execute();
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'scenario-execute', 'accepted');
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-response-facts', 'entered');
         const { responseError, signingKeyId } = finishResponseFacts(response);
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-response-facts', 'accepted');
         const finish = await run('finish', scenarioId, fixture, {
           handle,
           responseStatus: response.status,
@@ -1285,9 +1341,12 @@ export const createCommandPhase2ScenarioStateDriver = async (
           responseError,
           signingKeyId,
         });
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-terminal', 'entered');
         if (own(finish, 'handle') !== handle) {
           throw new TypeError(diagnostic);
         }
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-terminal', 'accepted');
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-signing', 'entered');
         const signingUse = parseSigning(own(finish, 'signingUse'));
         if (
           (response.jwt === undefined && signingUse.generalKeyUse !== 'unchanged') ||
@@ -1295,11 +1354,18 @@ export const createCommandPhase2ScenarioStateDriver = async (
         ) {
           throw new TypeError(diagnostic);
         }
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-signing', 'accepted');
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-authority', 'entered');
+        const authority = parseAuthority(own(finish, 'authority'));
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-authority', 'accepted');
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-side-effects', 'entered');
+        const sideEffects = parseSideEffects(own(finish, 'sideEffects'));
+        markOracleBasicStateCheckpoint(diagnosticEnabled, 'finish-side-effects', 'accepted');
         return Object.freeze({
           response,
-          authority: parseAuthority(own(finish, 'authority')),
+          authority,
           signingUse,
-          sideEffects: parseSideEffects(own(finish, 'sideEffects')),
+          sideEffects,
         });
       } catch (error: unknown) {
         try {
