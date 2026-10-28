@@ -67,6 +67,25 @@ describe('Common completion boundary diagnostics', () => {
     });
   });
 
+  it('retains fixed configured-collision and machine-cleanup attribution', () => {
+    const error = new Error('private lifecycle detail');
+    recordCommonCompletionBoundaryFailure(
+      error,
+      'machine-cleanup-result',
+      'common.google.configured-collision',
+      {
+        googleCollisionCheckpoint: 'configured-sign-in',
+        machineLifecycleOutcome: 'body-and-cleanup-rejected',
+      }
+    );
+    expect(getCommonCompletionBoundaryFailure(error)).toEqual({
+      phase: 'machine-cleanup-result',
+      scenarioId: 'common.google.configured-collision',
+      googleCollisionCheckpoint: 'configured-sign-in',
+      machineLifecycleOutcome: 'body-and-cleanup-rejected',
+    });
+  });
+
   it('does not derive diagnostics from arbitrary aggregate members', () => {
     const error = new AggregateError(
       [new CommonCompletionScenarioFailure('common.account.wechat-link')],

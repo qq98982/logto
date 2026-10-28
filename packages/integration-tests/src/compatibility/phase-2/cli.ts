@@ -634,7 +634,7 @@ type DeviceResourceRefreshFailureStage =
   | 'jwt-verify'
   | 'projection';
 const stageFailurePattern =
-  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|completion-(?:fixture|machine-authority|runtime-read|required-controls|scenarios|owned-app-cleanup|machine-cleanup-result|(?:owned-app-cleanup|machine-cleanup-result)\/(?:common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation)))|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
+  /^Phase 2 stage failed: (oracle|candidate)-(fixture(?:-(?:provision|readiness|public-jwks|cleanup(?:-(?:first(?:-(?:command(?:-(?:transport|timeout|signal|nonzero|malformed|response|unknown))?|ack))?|replay))?|body-cleanup))?|completion-(?:fixture|machine-authority|runtime-read|required-controls|scenarios|owned-app-cleanup|machine-cleanup-result|(?:owned-app-cleanup|machine-cleanup-result)\/(?:common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation))|machine-cleanup-result\/(?:cleanup-only-rejected|common\.google\.configured-collision\/(?:body-after-cleanup-accepted|body-and-cleanup-rejected)\/(?:composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection)))|discovery|controls|sanitizer(?:-(?:target|discovery|controls|ids|(?:client|device)-(?:[0-9]|[1-9][0-9]|1[0-6][0-9]|17[0-5])|native-176|email-177|code-178|registration-179|password-registration-180|recovery-181|google-182|google-registration-183|wechat-web-184|common-completion-(?:19[2-9]|20[0-5])))?|comparison|logout-session|verification-code|custom-jwt|status-(?:admission|authorization|bootstrap|verification|identification|submit|bridge-(?:url|send|http-(?:[1-5][0-9]{2}|other))|consent-read|consent-write|resume|token-(?:http|body|type|access|refresh)|introspection)|status-comparison-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-case-(?:[0-9]|1[0-9]|2[0-6])-(?:kind|status|headers|body(?:-(?:sub|client_id|exp|iat|iss|scope|token_type))?|grant)|status-scope-(?:[0-9]|1[0-9]|2[0-6])-(?:short|full|resource|offline|other)-(?:short|full|resource|offline|other))(?::.*)?$/u;
 const candidateAdminBearerStageFailurePattern =
   /^Phase 2 stage failed: (candidate)-(admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks))$/u;
 export const commonEmailPasswordScenarioFailure = (
@@ -671,11 +671,24 @@ export const commonCompletionFailure = (kind: 'oracle' | 'candidate', error: unk
     );
   }
   if (boundary) {
-    throw new Error(
-      `Phase 2 stage failed: ${kind}-completion-${boundary.phase}${
-        boundary.scenarioId ? `/${boundary.scenarioId}` : ''
-      }`
-    );
+    const lifecycleSuffix =
+      boundary.phase === 'machine-cleanup-result' &&
+      boundary.scenarioId === 'common.google.configured-collision' &&
+      (boundary.machineLifecycleOutcome === 'body-after-cleanup-accepted' ||
+        boundary.machineLifecycleOutcome === 'body-and-cleanup-rejected') &&
+      boundary.googleCollisionCheckpoint
+        ? `/${boundary.machineLifecycleOutcome}/${boundary.googleCollisionCheckpoint}`
+        : boundary.phase === 'machine-cleanup-result' &&
+            boundary.scenarioId === undefined &&
+            boundary.machineLifecycleOutcome === 'cleanup-only-rejected'
+          ? '/cleanup-only-rejected'
+          : '';
+    const message = `Phase 2 stage failed: ${kind}-completion-${boundary.phase}${
+      boundary.scenarioId ? `/${boundary.scenarioId}` : ''
+    }${lifecycleSuffix}`;
+    if (stageFailurePattern.test(message)) {
+      throw new Error(message);
+    }
   }
   throw new Error(`Phase 2 stage failed: ${kind}-completion-fixture`);
 };

@@ -1,5 +1,8 @@
 /* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- The negative fixture changes persisted association state during simulated SignIn. */
-import { runCommonGoogleConfiguredCollision } from './common-google-configured-collision.js';
+import {
+  getCommonGoogleConfiguredCollisionCheckpoint,
+  runCommonGoogleConfiguredCollision,
+} from './common-google-configured-collision.js';
 
 test('accepts only an actual configured SignIn collision that preserves both owners', async () => {
   const original = { id: 'original', identities: { google: { userId: 'google-subject' } } };
@@ -22,23 +25,27 @@ test('accepts only an actual configured SignIn collision that preserves both own
 });
 test('rejects a configured collision that silently associates the colliding account', async () => {
   let associated = false;
-  await expect(
-    runCommonGoogleConfiguredCollision({
-      ownerId: 'original',
-      googleSubject: 'google-subject',
-      readOriginalOwner: async () => ({
-        id: 'original',
-        identities: { google: { userId: 'google-subject' } },
-      }),
-      readCollidingUser: async () => ({
-        id: 'collision',
-        identities: associated ? { google: { userId: 'google-subject' } } : {},
-      }),
-      runConfiguredSignIn: async () => {
-        associated = true;
-        return { status: 404, providerRequestExact: true };
-      },
-    })
-  ).rejects.toThrow(TypeError);
+  const failure = runCommonGoogleConfiguredCollision({
+    ownerId: 'original',
+    googleSubject: 'google-subject',
+    readOriginalOwner: async () => ({
+      id: 'original',
+      identities: { google: { userId: 'google-subject' } },
+    }),
+    readCollidingUser: async () => ({
+      id: 'collision',
+      identities: associated ? { google: { userId: 'google-subject' } } : {},
+    }),
+    runConfiguredSignIn: async () => {
+      associated = true;
+      return { status: 404, providerRequestExact: true };
+    },
+  });
+  const error = await failure.then(
+    () => null,
+    (error_: unknown) => error_
+  );
+  expect(error).toBeInstanceOf(TypeError);
+  expect(getCommonGoogleConfiguredCollisionCheckpoint(error)).toBe('projection');
 });
 /* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */

@@ -1,4 +1,4 @@
-/* eslint-disable no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- One verified machine authority owns the sequential completion rows and independent cleanup; the terminal catch records its exact rejected object. */
+/* eslint-disable complexity, max-lines, no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- One verified machine authority owns the sequential completion rows and independent cleanup; keeping its finite attribution and cleanup boundary together is easier to audit than splitting for numeric gates. */
 import type { Browser, BrowserType } from '@playwright/test';
 import type { JSONWebKeySet } from 'jose';
 
@@ -7,6 +7,8 @@ import { createPlaywrightBrowserGroupObserver } from '../../phase-1/browser/play
 import { withCommonManagementMachineBearer } from '../clients/common-management-machine-bearer.js';
 import {
   createBearerPhase2AdminRequest,
+  getCandidateManagementMachineLifecycleOutcome,
+  type CandidateManagementMachineLifecycleOutcome,
   type Phase2AdminRequestFunction,
   type ProvisionedPhase2Fixture,
 } from '../fixtures.js';
@@ -17,6 +19,7 @@ import {
 import type { CommonCompletionScenarioId } from '../scenarios/common-completion.js';
 
 import { readCommonCompletionFixtureRuntime } from './common-completion-fixture-runtime.js';
+import type { CommonGoogleConfiguredCollisionCheckpoint } from './common-google-configured-collision.js';
 import type { CommonPasswordPolicyFailurePhase } from './common-password-policy.js';
 import type { CommonSessionLogoutFailurePhase } from './common-session-logout-target-driver.js';
 import { withManagementProvisioningFixtureRuntime } from './management-provisioning-fixture-runtime.js';
@@ -39,6 +42,8 @@ type CommonCompletionBoundaryFailure = Readonly<{
   scenarioId?: CommonCompletionScenarioId;
   passwordPolicyPhase?: CommonPasswordPolicyFailurePhase;
   logoutPhase?: CommonSessionLogoutFailurePhase;
+  machineLifecycleOutcome?: CandidateManagementMachineLifecycleOutcome;
+  googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint;
 }>;
 const boundaryFailures = new WeakMap<WeakKey, CommonCompletionBoundaryFailure>();
 
@@ -61,6 +66,9 @@ const directBoundaryFailure = (error: unknown): CommonCompletionBoundaryFailure 
         scenarioId: error.scenarioId,
         ...(error.passwordPolicyPhase ? { passwordPolicyPhase: error.passwordPolicyPhase } : {}),
         ...(error.logoutPhase ? { logoutPhase: error.logoutPhase } : {}),
+        ...(error.googleCollisionCheckpoint
+          ? { googleCollisionCheckpoint: error.googleCollisionCheckpoint }
+          : {}),
       });
     }
   } catch {
@@ -72,7 +80,11 @@ const directBoundaryFailure = (error: unknown): CommonCompletionBoundaryFailure 
 export const recordCommonCompletionBoundaryFailure = <T>(
   error: T,
   phase: CommonCompletionBoundaryPhase,
-  scenarioId?: CommonCompletionScenarioId
+  scenarioId?: CommonCompletionScenarioId,
+  retained: Readonly<{
+    googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint;
+    machineLifecycleOutcome?: CandidateManagementMachineLifecycleOutcome;
+  }> = {}
 ): T => {
   const key = errorObject(error);
   if (!key) {
@@ -84,6 +96,12 @@ export const recordCommonCompletionBoundaryFailure = <T>(
     selectedScenarioId === 'common.password.policy' ? direct?.passwordPolicyPhase : undefined;
   const logoutPhase =
     selectedScenarioId === 'common.session.logout-preservation' ? direct?.logoutPhase : undefined;
+  const machineLifecycleOutcome =
+    getCandidateManagementMachineLifecycleOutcome(error) ?? retained.machineLifecycleOutcome;
+  const googleCollisionCheckpoint =
+    selectedScenarioId === 'common.google.configured-collision'
+      ? (retained.googleCollisionCheckpoint ?? direct?.googleCollisionCheckpoint)
+      : undefined;
   boundaryFailures.set(
     key,
     Object.freeze({
@@ -91,6 +109,8 @@ export const recordCommonCompletionBoundaryFailure = <T>(
       ...(selectedScenarioId ? { scenarioId: selectedScenarioId } : {}),
       ...(passwordPolicyPhase ? { passwordPolicyPhase } : {}),
       ...(logoutPhase ? { logoutPhase } : {}),
+      ...(machineLifecycleOutcome ? { machineLifecycleOutcome } : {}),
+      ...(googleCollisionCheckpoint ? { googleCollisionCheckpoint } : {}),
     })
   );
   return error;
@@ -137,6 +157,7 @@ export const runBoundCommonCompletionScenarios = async (
 ) => {
   let phase: CommonCompletionBoundaryPhase = 'machine-authority';
   let scenarioId: CommonCompletionScenarioId | undefined;
+  let googleCollisionCheckpoint: CommonGoogleConfiguredCollisionCheckpoint | undefined;
   return withCommonManagementMachineBearer(input, async (bearer) => {
     const request = createBearerPhase2AdminRequest(input.target, bearer);
     phase = 'runtime-read';
@@ -265,6 +286,8 @@ export const runBoundCommonCompletionScenarios = async (
     } catch (error: unknown) {
       bodyError = recordCommonCompletionBoundaryFailure(error, 'scenarios');
       scenarioId = getCommonCompletionBoundaryFailure(error)?.scenarioId;
+      googleCollisionCheckpoint =
+        getCommonCompletionBoundaryFailure(error)?.googleCollisionCheckpoint;
     }
     phase = 'owned-app-cleanup';
     const failures = await cleanupCommonCompletionOwnedApplications(
@@ -293,7 +316,9 @@ export const runBoundCommonCompletionScenarios = async (
     if (getCommonCompletionBoundaryFailure(error)) {
       throw error;
     }
-    throw recordCommonCompletionBoundaryFailure(error, phase, scenarioId);
+    throw recordCommonCompletionBoundaryFailure(error, phase, scenarioId, {
+      googleCollisionCheckpoint,
+    });
   });
 };
-/* eslint-enable no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable complexity, max-lines, no-await-in-loop, promise/prefer-await-to-then, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

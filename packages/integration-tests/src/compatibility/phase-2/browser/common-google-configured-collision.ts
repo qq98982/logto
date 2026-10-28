@@ -1,3 +1,4 @@
+/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation -- One sequential fixed enum records the first configured-collision checkpoint without retaining error details. */
 import {
   assertCommonGoogleConfiguredCollisionProjection,
   type CommonGoogleConfiguredCollisionProjection,
@@ -6,6 +7,25 @@ import {
 const fail = (): never => {
   throw new TypeError('Invalid Common Google configured collision flow');
 };
+export type CommonGoogleConfiguredCollisionCheckpoint =
+  | 'composition'
+  | 'original-owner-before'
+  | 'colliding-user-before'
+  | 'preconditions'
+  | 'configured-sign-in'
+  | 'original-owner-after'
+  | 'colliding-user-after'
+  | 'projection';
+const configuredCollisionFailures = new WeakMap<
+  WeakKey,
+  CommonGoogleConfiguredCollisionCheckpoint
+>();
+export const getCommonGoogleConfiguredCollisionCheckpoint = (
+  error: unknown
+): CommonGoogleConfiguredCollisionCheckpoint | undefined =>
+  (typeof error === 'object' && error !== null) || typeof error === 'function'
+    ? configuredCollisionFailures.get(error)
+    : undefined;
 // eslint-disable-next-line complexity -- Closed hostile input admission checks every nested identity boundary.
 const exactOwner = (value: unknown): Readonly<{ id: string; googleSubject?: string }> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -41,23 +61,37 @@ export const runCommonGoogleConfiguredCollision = async (
     runConfiguredSignIn(): Promise<Readonly<{ status: number; providerRequestExact: boolean }>>;
   }>
 ): Promise<CommonGoogleConfiguredCollisionProjection> => {
-  const beforeOwner = exactOwner(await input.readOriginalOwner());
-  const beforeCollision = exactOwner(await input.readCollidingUser());
-  if (beforeOwner.id !== input.ownerId || beforeOwner.googleSubject !== input.googleSubject) {
-    fail();
+  let checkpoint: CommonGoogleConfiguredCollisionCheckpoint = 'original-owner-before';
+  try {
+    const beforeOwner = exactOwner(await input.readOriginalOwner());
+    checkpoint = 'colliding-user-before';
+    const beforeCollision = exactOwner(await input.readCollidingUser());
+    checkpoint = 'preconditions';
+    if (beforeOwner.id !== input.ownerId || beforeOwner.googleSubject !== input.googleSubject) {
+      fail();
+    }
+    if (beforeCollision.id === beforeOwner.id || beforeCollision.googleSubject !== undefined) {
+      fail();
+    }
+    checkpoint = 'configured-sign-in';
+    const signIn = await input.runConfiguredSignIn();
+    checkpoint = 'original-owner-after';
+    const afterOwner = exactOwner(await input.readOriginalOwner());
+    checkpoint = 'colliding-user-after';
+    const afterCollision = exactOwner(await input.readCollidingUser());
+    checkpoint = 'projection';
+    return assertCommonGoogleConfiguredCollisionProjection({
+      configured: true,
+      signInStatus: signIn.status,
+      implicitAssociationAbsent: afterCollision.googleSubject === undefined,
+      originalOwnerPreserved:
+        afterOwner.id === beforeOwner.id && afterOwner.googleSubject === beforeOwner.googleSubject,
+      providerRequestExact: signIn.providerRequestExact,
+    });
+  } catch {
+    const error = new TypeError('Invalid Common Google configured collision flow');
+    configuredCollisionFailures.set(error, checkpoint);
+    throw error;
   }
-  if (beforeCollision.id === beforeOwner.id || beforeCollision.googleSubject !== undefined) {
-    fail();
-  }
-  const signIn = await input.runConfiguredSignIn();
-  const afterOwner = exactOwner(await input.readOriginalOwner());
-  const afterCollision = exactOwner(await input.readCollidingUser());
-  return assertCommonGoogleConfiguredCollisionProjection({
-    configured: true,
-    signInStatus: signIn.status,
-    implicitAssociationAbsent: afterCollision.googleSubject === undefined,
-    originalOwnerPreserved:
-      afterOwner.id === beforeOwner.id && afterOwner.googleSubject === beforeOwner.googleSubject,
-    providerRequestExact: signIn.providerRequestExact,
-  });
 };
+/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation */

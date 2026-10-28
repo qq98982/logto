@@ -245,6 +245,30 @@ type ReferenceCleanup = Readonly<{
 
 const failure = 'Phase 2 fixture operation failed';
 const cleanupFailure = 'Phase 2 fixture cleanup failed';
+export type CandidateManagementMachineLifecycleOutcome =
+  | 'body-after-cleanup-accepted'
+  | 'body-and-cleanup-rejected'
+  | 'cleanup-only-rejected';
+const candidateManagementMachineFailures = new WeakMap<
+  WeakKey,
+  CandidateManagementMachineLifecycleOutcome
+>();
+export const getCandidateManagementMachineLifecycleOutcome = (
+  error: unknown
+): CandidateManagementMachineLifecycleOutcome | undefined => {
+  if ((typeof error !== 'object' || error === null) && typeof error !== 'function') {
+    return undefined;
+  }
+  return candidateManagementMachineFailures.get(error);
+};
+const candidateManagementMachineFailure = (
+  outcome: CandidateManagementMachineLifecycleOutcome,
+  message: string
+): Error => {
+  const error = new Error(message);
+  candidateManagementMachineFailures.set(error, outcome);
+  return error;
+};
 const maximumResponseBytes = 64 * 1024;
 const maximumConnectorListResponseBytes = 1024 * 1024;
 const commandTimeoutMs = 30_000;
@@ -2679,16 +2703,13 @@ export const createCandidatePhase2FixtureProvisioner = (
                 }
               }
               if (cleanupFailed) {
-                throw new AggregateError(
-                  [
-                    ...(bodyError === undefined ? [] : [new Error(failure)]),
-                    new Error(cleanupFailure),
-                  ],
+                throw candidateManagementMachineFailure(
+                  bodyError === undefined ? 'cleanup-only-rejected' : 'body-and-cleanup-rejected',
                   cleanupFailure
                 );
               }
               if (bodyError !== undefined) {
-                throw new Error(failure);
+                throw candidateManagementMachineFailure('body-after-cleanup-accepted', failure);
               }
               return value as Result;
             },

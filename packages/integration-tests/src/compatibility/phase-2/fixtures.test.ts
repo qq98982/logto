@@ -20,6 +20,7 @@ import {
   createBearerPhase2AdminRequest,
   createReferencePhase2AdminRequest,
   createReferencePhase2FixtureProvisioner,
+  getCandidateManagementMachineLifecycleOutcome,
   phase2FixtureContract,
   runWithPhase2Fixture,
   takeOracleVerificationCode,
@@ -1057,6 +1058,7 @@ describe('Phase 2 fixture lifecycle', () => {
       accessTokenTtlSeconds: 3600,
     };
     let machineResponse: unknown = machine;
+    let rejectMachineCleanup = false;
     let uses = 0;
     const provisioner = createCandidatePhase2FixtureProvisioner({
       executablePath: '/usr/bin/true',
@@ -1079,6 +1081,9 @@ describe('Phase 2 fixture lifecycle', () => {
             })
           );
         }
+        if (descriptor.operation === 'cleanupManagementMachineClient' && rejectMachineCleanup) {
+          return rejectedCommandResult();
+        }
         return commandResult(
           JSON.stringify({
             schemaVersion: 1,
@@ -1097,14 +1102,20 @@ describe('Phase 2 fixture lifecycle', () => {
       (async () => {
         throw new Error('missing machine fixture');
       });
-    await expect(
-      useMachine('private-management-seed', async (client) => {
-        uses += 1;
-        expect(client).toEqual(machine);
-        await expect(useMachine('other-private-seed', async () => 'unexpected')).rejects.toThrow();
-        throw new Error('owned request failed');
-      })
-    ).rejects.toThrow('Phase 2 fixture operation failed');
+    const bodyFailure = useMachine('private-management-seed', async (client) => {
+      uses += 1;
+      expect(client).toEqual(machine);
+      await expect(useMachine('other-private-seed', async () => 'unexpected')).rejects.toThrow();
+      throw new Error('owned request failed');
+    });
+    expect(
+      getCandidateManagementMachineLifecycleOutcome(
+        await bodyFailure.then(
+          () => null,
+          (error: unknown) => error
+        )
+      )
+    ).toBe('body-after-cleanup-accepted');
     expect(uses).toBe(1);
     const provision = descriptors.find(
       ({ operation }) => operation === 'provisionManagementMachineClient'
@@ -1130,6 +1141,28 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(
       descriptors.filter(({ operation }) => operation === 'cleanupManagementMachineClient')
     ).toHaveLength(2);
+    rejectMachineCleanup = true;
+    const bodyAndCleanupFailure = useMachine('body-and-cleanup-private-seed', async () => {
+      throw new Error('private body detail');
+    });
+    expect(
+      getCandidateManagementMachineLifecycleOutcome(
+        await bodyAndCleanupFailure.then(
+          () => null,
+          (error: unknown) => error
+        )
+      )
+    ).toBe('body-and-cleanup-rejected');
+    const cleanupOnlyFailure = useMachine('cleanup-only-private-seed', async () => 'body-complete');
+    expect(
+      getCandidateManagementMachineLifecycleOutcome(
+        await cleanupOnlyFailure.then(
+          () => null,
+          (error: unknown) => error
+        )
+      )
+    ).toBe('cleanup-only-rejected');
+    rejectMachineCleanup = false;
     for (const hostile of [
       { ...machine, accessTokenTtlSeconds: 7200 },
       { ...machine, token: 'synthetic-private-canary' },
@@ -1143,7 +1176,7 @@ describe('Phase 2 fixture lifecycle', () => {
     expect(uses).toBe(1);
     expect(
       descriptors.filter(({ operation }) => operation === 'cleanupManagementMachineClient')
-    ).toHaveLength(4);
+    ).toHaveLength(6);
     const cleanupProvisioningRows = fixture.cleanupManagementProvisioningRows ?? fail;
     await cleanupProvisioningRows({
       resourceId: 'owned-resource',

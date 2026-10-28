@@ -2382,9 +2382,13 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     const cleanupPattern = patterns.find((pattern) =>
       pattern?.includes('completion-(owned-app-cleanup|machine-cleanup-result)/')
     );
+    const attributionPattern = patterns.find((pattern) =>
+      pattern?.includes('body-after-cleanup-accepted')
+    );
     expect(completionPattern).toBeDefined();
     expect(fixturePattern).toBeDefined();
     expect(cleanupPattern).toBeDefined();
+    expect(attributionPattern).toBeDefined();
     const completionIds = [
       'common.password.policy',
       'common.google.configured-collision',
@@ -2477,6 +2481,18 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
         )
       )
     ).resolves.toEqual(Array.from({ length: 56 }, () => true));
+    await expect(
+      grepMatches(
+        attributionPattern ?? '',
+        'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-and-cleanup-rejected/configured-sign-in).'
+      )
+    ).resolves.toBe(true);
+    await expect(
+      grepMatches(
+        attributionPattern ?? '',
+        'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/cleanup-only-rejected).'
+      )
+    ).resolves.toBe(true);
     const rejected = [
       'Phase 2 client credentials command failed (oracle/common.password.policy:private).',
       'Phase 2 client credentials command failed (candidate/common.management.unknown).',
@@ -2496,9 +2512,10 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           grepMatches(completionPattern ?? '', line),
           grepMatches(fixturePattern ?? '', line),
           grepMatches(cleanupPattern ?? '', line),
+          grepMatches(attributionPattern ?? '', line),
         ])
       )
-    ).resolves.toEqual(Array.from({ length: rejected.length * 3 }, () => false));
+    ).resolves.toEqual(Array.from({ length: rejected.length * 4 }, () => false));
   });
 
   it('allows only closed device candidate-invariant stages in final output', async () => {

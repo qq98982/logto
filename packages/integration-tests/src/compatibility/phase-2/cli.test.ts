@@ -125,6 +125,64 @@ describe('Common completion boundary diagnostics', () => {
     );
   });
 
+  it('reports configured-collision body and cleanup attribution with fixed enums only', () => {
+    const error = recordCommonCompletionBoundaryFailure(
+      new Error('private provider and cleanup detail'),
+      'machine-cleanup-result',
+      'common.google.configured-collision',
+      {
+        googleCollisionCheckpoint: 'configured-sign-in',
+        machineLifecycleOutcome: 'body-after-cleanup-accepted',
+      }
+    );
+    expect(() => commonCompletionFailure('candidate', error)).toThrow(
+      'Phase 2 stage failed: candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/configured-sign-in'
+    );
+  });
+
+  it('reports a cleanup-only machine failure without private detail', () => {
+    const error = recordCommonCompletionBoundaryFailure(
+      new Error('private cleanup detail'),
+      'machine-cleanup-result',
+      undefined,
+      { machineLifecycleOutcome: 'cleanup-only-rejected' }
+    );
+    expect(() => commonCompletionFailure('candidate', error)).toThrow(
+      'Phase 2 stage failed: candidate-completion-machine-cleanup-result/cleanup-only-rejected'
+    );
+  });
+
+  it('keeps unsupported lifecycle metadata on the admitted phase and scenario diagnostic', () => {
+    for (const machineLifecycleOutcome of [
+      'body-after-cleanup-accepted',
+      'body-and-cleanup-rejected',
+    ] as const) {
+      const error = recordCommonCompletionBoundaryFailure(
+        new Error('private row and cleanup detail'),
+        'machine-cleanup-result',
+        'common.account.google-link',
+        { machineLifecycleOutcome }
+      );
+      expect(() => commonCompletionFailure('candidate', error)).toThrow(
+        'Phase 2 stage failed: candidate-completion-machine-cleanup-result/common.account.google-link'
+      );
+    }
+  });
+
+  it('keeps early boundary lifecycle metadata on the admitted phase diagnostic', () => {
+    for (const phase of ['machine-authority', 'runtime-read', 'required-controls'] as const) {
+      const error = recordCommonCompletionBoundaryFailure(
+        new Error('private authority and runtime detail'),
+        phase,
+        undefined,
+        { machineLifecycleOutcome: 'cleanup-only-rejected' }
+      );
+      expect(() => commonCompletionFailure('candidate', error)).toThrow(
+        `Phase 2 stage failed: candidate-completion-${phase}`
+      );
+    }
+  });
+
   it('collapses an unclassified error without reading its message', () => {
     const error = new Error('placeholder');
     Object.defineProperty(error, 'message', {

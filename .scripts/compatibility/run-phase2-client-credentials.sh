@@ -84,6 +84,8 @@ forward_closed_common_row_failures() {
     "$file" >&2 || true
   /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-(owned-app-cleanup|machine-cleanup-result)/(common\.(password\.policy|google\.configured-collision|account\.(google-link|wechat-link)|wechat\.(h5|mini|mini-phone-registration|native)|management\.(applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation))\)\.$' \
     "$file" >&2 || true
+  /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-machine-cleanup-result/(cleanup-only-rejected|common\.google\.configured-collision/(body-after-cleanup-accepted|body-and-cleanup-rejected)/(composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection))\)\.$' \
+    "$file" >&2 || true
 }
 
 trusted_binary() {

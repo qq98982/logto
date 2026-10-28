@@ -261,6 +261,8 @@ describe('Phase 2 tracked launcher', () => {
       'candidate-completion-machine-cleanup-result',
       'oracle-completion-owned-app-cleanup/common.management.provisioning-convergence',
       'candidate-completion-machine-cleanup-result/common.account.google-link',
+      'candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/configured-sign-in',
+      'candidate-completion-machine-cleanup-result/cleanup-only-rejected',
     ]) {
       const stderr = `Phase 2 client credentials command failed (${suffix}).\n`;
       expect(diagnosticForPhase2Child(stderr)).toBe(stderr);

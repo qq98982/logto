@@ -4,6 +4,10 @@ import type { JSONWebKeySet } from 'jose';
 import type { TargetConfig } from '../../model.js';
 import type { Phase1BrowserGroupObserver } from '../../phase-1/browser/contracts.js';
 import {
+  getCommonGoogleConfiguredCollisionCheckpoint,
+  type CommonGoogleConfiguredCollisionCheckpoint,
+} from '../browser/common-google-configured-collision.js';
+import {
   getCommonPasswordPolicyFailurePhase,
   runCommonPasswordPolicyForTarget,
   type CommonPasswordPolicyFailurePhase,
@@ -70,7 +74,8 @@ export class CommonCompletionScenarioFailure extends Error {
   constructor(
     readonly scenarioId: CommonCompletionScenarioId,
     readonly passwordPolicyPhase?: CommonPasswordPolicyFailurePhase,
-    readonly logoutPhase?: CommonSessionLogoutFailurePhase
+    readonly logoutPhase?: CommonSessionLogoutFailurePhase,
+    readonly googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint
   ) {
     super(`Common completion scenario failed: ${scenarioId}`);
     this.name = 'CommonCompletionScenarioFailure';
@@ -196,6 +201,9 @@ export const runCommonCompletionScenariosForTarget = async (
           : undefined,
         id === 'common.session.logout-preservation'
           ? (getCommonSessionLogoutFailurePhase(error) ?? 'authority')
+          : undefined,
+        id === 'common.google.configured-collision'
+          ? (getCommonGoogleConfiguredCollisionCheckpoint(error) ?? 'composition')
           : undefined
       );
     }
