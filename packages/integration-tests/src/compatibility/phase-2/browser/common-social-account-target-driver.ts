@@ -31,7 +31,12 @@ import { commonSocialAccountScenarioIds } from '../scenarios/common-social-accou
 import type { CommonWechatWebFixtureRuntime } from '../scenarios/common-wechat-web.js';
 
 import { runCommonAccountSocial } from './common-account-social.js';
-import { runCommonGoogleConfiguredCollision } from './common-google-configured-collision.js';
+import {
+  getCommonGoogleConfiguredCollisionCheckpoint,
+  runCommonGoogleConfiguredCollision,
+  type CommonGoogleConfiguredCollisionCheckpoint,
+  withCommonGoogleConfiguredCollisionCheckpoint,
+} from './common-google-configured-collision.js';
 import { prepareGoogleProviderLease } from './google-provider-lease.js';
 import {
   type AccountSocialProviderLease,
@@ -388,6 +393,7 @@ const runCollision = async (
     runtime: CommonGoogleExistingOwnerFixtureRuntime;
     expectedIssuer: string;
     fetch: typeof fetch;
+    retainCollisionCheckpoint(checkpoint: CommonGoogleConfiguredCollisionCheckpoint): void;
   }>
 ): Promise<CommonGoogleConfiguredCollisionProjection> => {
   const status = input.fixture.status ?? fail();
@@ -511,13 +517,21 @@ const runCollision = async (
               expectedStatuses: [200],
               responseKind: 'object',
             });
-          return await runCommonGoogleConfiguredCollision({
-            ownerId: originalId,
-            googleSubject: providerConfig.googleSubject,
-            readOriginalOwner: async () => read(originalId ?? fail()),
-            readCollidingUser: async () => read(collision.id),
-            runConfiguredSignIn,
-          });
+          try {
+            return await runCommonGoogleConfiguredCollision({
+              ownerId: originalId,
+              googleSubject: providerConfig.googleSubject,
+              readOriginalOwner: async () => read(originalId ?? fail()),
+              readCollidingUser: async () => read(collision.id),
+              runConfiguredSignIn,
+            });
+          } catch (error: unknown) {
+            const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
+            if (checkpoint) {
+              input.retainCollisionCheckpoint(checkpoint);
+            }
+            throw error;
+          }
         } finally {
           await runIndependentSocialCleanup(
             async () => {
@@ -702,7 +716,11 @@ export const runCommonSocialAccountForTarget = async (
   const runtime = runtimeFor(input.fixture, provider);
   const requestFetch = input.fetch ?? fetch;
   const expectedIssuer = await discoverIssuer(input.target, requestFetch);
-  const execute = async (request: Phase2AdminRequestFunction, lease: Phase2FixtureSecretLease) => {
+  const execute = async (
+    request: Phase2AdminRequestFunction,
+    lease: Phase2FixtureSecretLease,
+    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void
+  ) => {
     const scope = createScopedPhase2Fixture(input.fixture, lease);
     try {
       return await (collision
@@ -714,6 +732,7 @@ export const runCommonSocialAccountForTarget = async (
             runtime: runtime as CommonGoogleExistingOwnerFixtureRuntime,
             expectedIssuer,
             fetch: requestFetch,
+            retainCollisionCheckpoint,
           })
         : runAccount({
             target: input.target,
@@ -729,16 +748,32 @@ export const runCommonSocialAccountForTarget = async (
       scope.revoke();
     }
   };
-  return input.target.label === 'candidate'
-    ? withPhase2AdminManagementBearer(
-        input.target,
-        input.fixture,
-        async (bearer, lease) =>
-          execute(createBearerPhase2AdminRequest(input.target, bearer, requestFetch), lease),
-        { fetch: requestFetch }
-      )
-    : input.fixture.withSecretLease(async (lease) =>
-        execute(createReferencePhase2AdminRequest(input.target, requestFetch), lease)
-      );
+  const dispatch = async (
+    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void
+  ) =>
+    input.target.label === 'candidate'
+      ? withPhase2AdminManagementBearer(
+          input.target,
+          input.fixture,
+          async (bearer, lease) =>
+            execute(
+              createBearerPhase2AdminRequest(input.target, bearer, requestFetch),
+              lease,
+              retainCollisionCheckpoint
+            ),
+          { fetch: requestFetch }
+        )
+      : input.fixture.withSecretLease(async (lease) =>
+          execute(
+            createReferencePhase2AdminRequest(input.target, requestFetch),
+            lease,
+            retainCollisionCheckpoint
+          )
+        );
+  return collision
+    ? withCommonGoogleConfiguredCollisionCheckpoint(dispatch)
+    : dispatch(() => {
+        // Non-collision scenarios do not publish Google checkpoint metadata.
+      });
 };
 /* eslint-enable max-lines, max-params, no-restricted-syntax, @silverhand/fp/no-mutating-methods, @silverhand/fp/no-let, @silverhand/fp/no-mutation */

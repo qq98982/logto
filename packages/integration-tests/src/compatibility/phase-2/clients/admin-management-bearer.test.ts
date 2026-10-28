@@ -1,8 +1,18 @@
-/* eslint-disable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake transport records ordered requests and lease state. */
+/* eslint-disable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- The fake transport records ordered requests and the complete selected-connector lifecycle without splitting one observable contract. */
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 
 import type { TargetConfig } from '../../model.js';
-import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
+import {
+  getCommonGoogleConfiguredCollisionCheckpoint,
+  runCommonGoogleConfiguredCollision,
+  withCommonGoogleConfiguredCollisionCheckpoint,
+} from '../browser/common-google-configured-collision.js';
+import { withSelectedAccountSocialConnector } from '../browser/selected-account-social-connector-fixture.js';
+import type {
+  Phase2AdminRequestFunction,
+  Phase2FixtureSecretLease,
+  ProvisionedPhase2Fixture,
+} from '../fixtures.js';
 
 import { withPhase2AdminManagementBearer } from './admin-management-bearer.js';
 
@@ -220,16 +230,167 @@ describe('Phase 2 Admin Management bearer transport', () => {
 
   it('revokes the rotated refresh after consumer failure and returns a fixed error', async () => {
     const fake = await transport();
-    await expect(
+    const adminFixture = fixture({ active: false });
+    const selectedFixture: ProvisionedPhase2Fixture = {
+      ...adminFixture,
+      status: {
+        user: { id: 'fixture-user', username: 'fixture-user' },
+        client: {
+          id: 'client',
+          redirectUri: 'https://app.example/demo-app',
+        },
+        confidentialClient: {
+          id: 'confidential-client',
+          redirectUri: 'https://app.example/confidential-callback',
+        },
+        resource: {
+          id: 'resource',
+          indicator: 'https://api.example',
+          scopeName: 'read:profile',
+        },
+      },
+    };
+    let methods: unknown = [
+      { identifier: 'username', password: true, verificationCode: false, isPasswordPrimary: true },
+    ];
+    let branding: unknown = {};
+    let targets: unknown = ['github'];
+    let accountCenter = { enabled: false, fields: { social: 'ReadOnly' } };
+    let metadata = {
+      redirectUris: ['https://app.example/demo-app'],
+      postLogoutRedirectUris: ['https://app.example/logout'],
+    };
+    // eslint-disable-next-line complexity -- One fake models the complete ordered Management state contract used by the nested real fixtures.
+    const request: Phase2AdminRequestFunction = async (input) => {
+      if (input.path === 'resources' && input.query?.includeScopes === 'true') {
+        return [{ id: 'resource', scopes: [{ id: 'scope', name: 'read:profile' }] }];
+      }
+      if (input.path === 'roles' && input.method === 'POST') {
+        return {
+          id: 'email-role',
+          name: 'common-email-data-allocation',
+          type: 'User',
+          isDefault: false,
+        };
+      }
+      if (input.path === 'roles/email-role/scopes') {
+        return [{ id: 'scope', name: 'read:profile', resourceId: 'resource' }];
+      }
+      if (input.path === 'roles/email-role/users') {
+        return 201;
+      }
+      if (input.path === 'users/email-user/roles') {
+        return [{ id: 'email-role', type: 'User' }];
+      }
+      if (input.path === 'users' && input.method === 'POST') {
+        return {
+          id: 'email-user',
+          primaryEmail: 'common-email-data-allocation@example.invalid',
+          hasPassword: true,
+          isSuspended: false,
+        };
+      }
+      if (
+        input.method === 'DELETE' &&
+        (input.path === 'users/email-user' || input.path === 'roles/email-role')
+      ) {
+        return 204;
+      }
+      if (input.path === 'sign-in-exp' && input.method === 'GET') {
+        return { signIn: { methods }, branding, socialSignInConnectorTargets: targets };
+      }
+      if (input.path === 'sign-in-exp') {
+        const body = input.body as Record<string, unknown>;
+        if ('socialSignInConnectorTargets' in body) {
+          targets = body.socialSignInConnectorTargets;
+        }
+        if ('signIn' in body) {
+          methods = (body.signIn as { methods: unknown }).methods;
+          branding = body.branding;
+        }
+        return { signIn: { methods }, branding, socialSignInConnectorTargets: targets };
+      }
+      if (input.path === 'account-center' && input.method === 'GET') {
+        return accountCenter;
+      }
+      if (input.path === 'account-center') {
+        accountCenter = input.body as typeof accountCenter;
+        return accountCenter;
+      }
+      if (input.path === 'connectors' && input.method === 'POST') {
+        return { id: 'connector', connectorId: 'google-universal' };
+      }
+      if (input.path === 'connectors/connector') {
+        return 204;
+      }
+      if (input.path === 'applications/client' && input.method === 'GET') {
+        return { id: 'client', type: 'SPA', oidcClientMetadata: metadata };
+      }
+      if (input.path === 'applications/client') {
+        metadata = (input.body as { oidcClientMetadata: typeof metadata }).oidcClientMetadata;
+        return { id: 'client', type: 'SPA', oidcClientMetadata: metadata };
+      }
+      throw new TypeError('unexpected selected connector request');
+    };
+    let helperReached = false;
+    const failure = withCommonGoogleConfiguredCollisionCheckpoint(async (retain) =>
       withPhase2AdminManagementBearer(
         target,
-        fixture({ active: false }),
+        adminFixture,
         async () => {
-          throw new Error('private callback token and cookie');
+          await withSelectedAccountSocialConnector({
+            fixture: selectedFixture,
+            request,
+            browser: { clientId: 'client', redirectUri: 'https://app.example/demo-app' },
+            callbackOrigin: 'https://core.example/',
+            provider: 'google',
+            connectorConfig: { clientId: 'owned', clientSecret: 'private' },
+            getPassword: () => 'private',
+            prepareProvider: async () => ({
+              associationData: {},
+              takeAccountCode: async () => 'private',
+              takeForeignAccountCode: async () => 'private',
+              assertAccountProviderCase: async () => {
+                // This fixture has no external provider state beyond the nested collision helper.
+              },
+              stop: async () => {
+                // The synthetic provider owns no process or file that requires cleanup.
+              },
+            }),
+            use: async () => {
+              try {
+                await runCommonGoogleConfiguredCollision({
+                  ownerId: 'original',
+                  googleSubject: 'google-subject',
+                  readOriginalOwner: async () => ({
+                    id: 'original',
+                    identities: { google: { userId: 'google-subject' } },
+                  }),
+                  readCollidingUser: async () => ({ id: 'collision', identities: {} }),
+                  runConfiguredSignIn: async () => {
+                    helperReached = true;
+                    throw new TypeError('private configured collision failure');
+                  },
+                });
+              } catch (error: unknown) {
+                const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
+                if (checkpoint) {
+                  retain(checkpoint);
+                }
+                throw error;
+              }
+            },
+          });
         },
         { fetch: fake.fetch, codeVerifier: () => verifier, state: () => state }
       )
-    ).rejects.toThrow('Invalid Phase 2 Admin Management bearer flow (consumer)');
+    );
+    const error = await failure.catch((error_: unknown) => error_);
+    expect(error).toMatchObject({
+      message: 'Invalid Phase 2 Admin Management bearer flow (consumer)',
+    });
+    expect(helperReached).toBe(true);
+    expect(getCommonGoogleConfiguredCollisionCheckpoint(error)).toBe('configured-sign-in');
     expect(fake.requests.at(-1)?.url.pathname).toBe('/oidc/token/revocation');
   });
 
@@ -267,4 +428,4 @@ describe('Phase 2 Admin Management bearer transport', () => {
   });
 });
 
-/* eslint-enable @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */
+/* eslint-enable max-lines, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods */

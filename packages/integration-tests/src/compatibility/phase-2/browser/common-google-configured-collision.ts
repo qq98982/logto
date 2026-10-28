@@ -26,6 +26,24 @@ export const getCommonGoogleConfiguredCollisionCheckpoint = (
   (typeof error === 'object' && error !== null) || typeof error === 'function'
     ? configuredCollisionFailures.get(error)
     : undefined;
+export const withCommonGoogleConfiguredCollisionCheckpoint = async <Result>(
+  use: (retain: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void) => Promise<Result>
+): Promise<Result> => {
+  let retained: CommonGoogleConfiguredCollisionCheckpoint | undefined;
+  try {
+    return await use((checkpoint) => {
+      retained ??= checkpoint;
+    });
+  } catch (error: unknown) {
+    if (
+      retained &&
+      ((typeof error === 'object' && error !== null) || typeof error === 'function')
+    ) {
+      configuredCollisionFailures.set(error, retained);
+    }
+    throw error;
+  }
+};
 // eslint-disable-next-line complexity -- Closed hostile input admission checks every nested identity boundary.
 const exactOwner = (value: unknown): Readonly<{ id: string; googleSubject?: string }> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
