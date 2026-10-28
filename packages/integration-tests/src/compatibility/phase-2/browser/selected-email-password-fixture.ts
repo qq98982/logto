@@ -1,6 +1,7 @@
 /* eslint-disable complexity, max-lines, no-restricted-syntax, unicorn/error-message, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods -- Ordered setup and compensation retain bounded state inside one fixture scope. */
 import { isDeepStrictEqual } from 'node:util';
 
+import type { Phase2FixtureOperationDiagnostic } from '../fixture-operation-diagnostic.js';
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 const fail = (): never => {
@@ -70,6 +71,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       additionalRedirectUris?: readonly string[];
     }>;
     resourceRoleIsDefault?: boolean;
+    operationDiagnostic?: Phase2FixtureOperationDiagnostic;
     getPassword(): string;
     use(identity: SelectedEmailPasswordIdentity): Promise<Result>;
   }>
@@ -81,7 +83,20 @@ export const withSelectedEmailPasswordFixture = async <Result>(
   let result: Result | undefined;
   let bodyError: unknown;
   let primaryFailed = false;
-  let primaryStage = 'setup-config';
+  let primaryStage:
+    | 'setup-config'
+    | 'patch-sie'
+    | 'read-sie'
+    | 'get-app'
+    | 'patch-app'
+    | 'read-app'
+    | 'read-resource-scopes'
+    | 'post-resource-role'
+    | 'read-resource-role-scopes'
+    | 'post-user'
+    | 'assign-resource-role'
+    | 'read-user-roles'
+    | 'use' = 'setup-config';
   let flowStage = 'none';
   const cleanupStages: string[] = [];
   let previousClientMetadata:
@@ -354,6 +369,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       })
     );
   } catch (error: unknown) {
+    input.operationDiagnostic?.record(`email-password-primary-${primaryStage}`);
     primaryFailed = true;
     flowStage =
       error instanceof Error
@@ -385,6 +401,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         fail();
       }
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('email-password-cleanup-restore-sie');
       cleanupStages.push('restore-sie');
       bodyError = bodyError ? new AggregateError([bodyError, error]) : error;
     }
@@ -398,6 +415,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         responseKind: 'status',
       });
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('email-password-cleanup-delete-user');
       cleanupStages.push('delete-user');
       bodyError = bodyError ? new AggregateError([bodyError, error]) : error;
     }
@@ -411,6 +429,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
         responseKind: 'status',
       });
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('email-password-cleanup-delete-role');
       cleanupStages.push('delete-role');
       bodyError = bodyError ? new AggregateError([bodyError, error]) : error;
     }
@@ -426,6 +445,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       });
       assertBrowserApplication(restored, input.browser.clientId, previousClientMetadata);
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('email-password-cleanup-restore-app-patch');
       cleanupStages.push('restore-app-patch');
       bodyError = bodyError ? new AggregateError([bodyError, error]) : error;
     }
@@ -438,6 +458,7 @@ export const withSelectedEmailPasswordFixture = async <Result>(
       });
       assertBrowserApplication(restoredReadBack, input.browser.clientId, previousClientMetadata);
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('email-password-cleanup-restore-app-read');
       cleanupStages.push('restore-app-read');
       bodyError = bodyError ? new AggregateError([bodyError, error]) : error;
     }

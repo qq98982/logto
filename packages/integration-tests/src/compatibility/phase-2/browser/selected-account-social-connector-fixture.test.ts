@@ -1,4 +1,8 @@
 /* eslint-disable complexity, @silverhand/fp/no-let, @silverhand/fp/no-mutation, @silverhand/fp/no-mutating-methods, @typescript-eslint/consistent-type-assertions -- The fixture fakes record compensated Management state. */
+import {
+  getPhase2FixtureFailureOperation,
+  withPhase2FixtureOperationDiagnostic,
+} from '../fixture-operation-diagnostic.js';
 import type {
   Phase2AdminRequest,
   Phase2AdminRequestFunction,
@@ -40,6 +44,43 @@ test('removes the owned connector and restores social targets when provider prep
     'PATCH sign-in-exp',
     'DELETE connectors/connector',
   ]);
+});
+
+test('retains a real provider preparation operation through connector cleanup replacement', async () => {
+  // eslint-disable-next-line unicorn/consistent-function-scoping -- This request belongs only to the diagnostic fixture below.
+  const request: Phase2AdminRequestFunction = async (input) => {
+    if (input.method === 'GET') {
+      return { socialSignInConnectorTargets: ['github'] };
+    }
+    if (input.method === 'POST') {
+      return { id: 'connector' };
+    }
+    return input.responseKind === 'status' ? 204 : { socialSignInConnectorTargets: ['github'] };
+  };
+  const failure = withPhase2FixtureOperationDiagnostic(async (diagnostic) =>
+    withSelectedAccountSocialConnector({
+      fixture: { public: { allocationId: 'fixture' } } as ProvisionedPhase2Fixture,
+      request,
+      browser: { clientId: 'client', redirectUri: 'https://app.example/callback' },
+      callbackOrigin: 'https://core.example/',
+      provider: 'google',
+      connectorConfig: {},
+      getPassword: () => 'private',
+      operationDiagnostic: diagnostic,
+      prepareProvider: async () => {
+        throw new Error('private provider failure');
+      },
+      use: async () => true,
+    })
+  );
+  let error: unknown;
+  try {
+    await failure;
+  } catch (error_: unknown) {
+    error = error_;
+  }
+  expect(error).toBeInstanceOf(AggregateError);
+  expect(getPhase2FixtureFailureOperation(error)).toBe('connector-provider-prepare');
 });
 
 test('registers the core social callback with the browser application and restores metadata', async () => {

@@ -5,6 +5,7 @@ import type { JSONWebKeySet } from 'jose';
 import type { TargetConfig } from '../../model.js';
 import { createPlaywrightBrowserGroupObserver } from '../../phase-1/browser/playwright-session.js';
 import { withCommonManagementMachineBearer } from '../clients/common-management-machine-bearer.js';
+import type { Phase2FixtureFailureOperation } from '../fixture-operation-diagnostic.js';
 import {
   createBearerPhase2AdminRequest,
   getCandidateManagementMachineLifecycleOutcome,
@@ -44,6 +45,7 @@ type CommonCompletionBoundaryFailure = Readonly<{
   logoutPhase?: CommonSessionLogoutFailurePhase;
   machineLifecycleOutcome?: CandidateManagementMachineLifecycleOutcome;
   googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint;
+  fixtureFailureOperation?: Phase2FixtureFailureOperation;
 }>;
 const boundaryFailures = new WeakMap<WeakKey, CommonCompletionBoundaryFailure>();
 
@@ -69,6 +71,9 @@ const directBoundaryFailure = (error: unknown): CommonCompletionBoundaryFailure 
         ...(error.googleCollisionCheckpoint
           ? { googleCollisionCheckpoint: error.googleCollisionCheckpoint }
           : {}),
+        ...(error.fixtureFailureOperation
+          ? { fixtureFailureOperation: error.fixtureFailureOperation }
+          : {}),
       });
     }
   } catch {
@@ -83,6 +88,7 @@ export const recordCommonCompletionBoundaryFailure = <T>(
   scenarioId?: CommonCompletionScenarioId,
   retained: Readonly<{
     googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint;
+    fixtureFailureOperation?: Phase2FixtureFailureOperation;
     machineLifecycleOutcome?: CandidateManagementMachineLifecycleOutcome;
   }> = {}
 ): T => {
@@ -102,6 +108,10 @@ export const recordCommonCompletionBoundaryFailure = <T>(
     selectedScenarioId === 'common.google.configured-collision'
       ? (retained.googleCollisionCheckpoint ?? direct?.googleCollisionCheckpoint)
       : undefined;
+  const fixtureFailureOperation =
+    selectedScenarioId === 'common.google.configured-collision'
+      ? (retained.fixtureFailureOperation ?? direct?.fixtureFailureOperation)
+      : undefined;
   boundaryFailures.set(
     key,
     Object.freeze({
@@ -111,6 +121,7 @@ export const recordCommonCompletionBoundaryFailure = <T>(
       ...(logoutPhase ? { logoutPhase } : {}),
       ...(machineLifecycleOutcome ? { machineLifecycleOutcome } : {}),
       ...(googleCollisionCheckpoint ? { googleCollisionCheckpoint } : {}),
+      ...(fixtureFailureOperation ? { fixtureFailureOperation } : {}),
     })
   );
   return error;
@@ -158,6 +169,7 @@ export const runBoundCommonCompletionScenarios = async (
   let phase: CommonCompletionBoundaryPhase = 'machine-authority';
   let scenarioId: CommonCompletionScenarioId | undefined;
   let googleCollisionCheckpoint: CommonGoogleConfiguredCollisionCheckpoint | undefined;
+  let fixtureFailureOperation: Phase2FixtureFailureOperation | undefined;
   return withCommonManagementMachineBearer(input, async (bearer) => {
     const request = createBearerPhase2AdminRequest(input.target, bearer);
     phase = 'runtime-read';
@@ -288,6 +300,7 @@ export const runBoundCommonCompletionScenarios = async (
       scenarioId = getCommonCompletionBoundaryFailure(error)?.scenarioId;
       googleCollisionCheckpoint =
         getCommonCompletionBoundaryFailure(error)?.googleCollisionCheckpoint;
+      fixtureFailureOperation = getCommonCompletionBoundaryFailure(error)?.fixtureFailureOperation;
     }
     phase = 'owned-app-cleanup';
     const failures = await cleanupCommonCompletionOwnedApplications(
@@ -302,7 +315,8 @@ export const runBoundCommonCompletionScenarios = async (
           'Bound Common completion cleanup failed'
         ),
         'owned-app-cleanup',
-        scenarioId
+        scenarioId,
+        { googleCollisionCheckpoint, fixtureFailureOperation }
       );
     }
     phase = 'machine-cleanup-result';
@@ -318,6 +332,7 @@ export const runBoundCommonCompletionScenarios = async (
     }
     throw recordCommonCompletionBoundaryFailure(error, phase, scenarioId, {
       googleCollisionCheckpoint,
+      fixtureFailureOperation,
     });
   });
 };

@@ -262,6 +262,7 @@ describe('Phase 2 tracked launcher', () => {
       'oracle-completion-owned-app-cleanup/common.management.provisioning-convergence',
       'candidate-completion-machine-cleanup-result/common.account.google-link',
       'candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/configured-sign-in',
+      'candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-account-settings',
       'candidate-completion-machine-cleanup-result/cleanup-only-rejected',
     ]) {
       const stderr = `Phase 2 client credentials command failed (${suffix}).\n`;
@@ -306,8 +307,53 @@ describe('Phase 2 tracked launcher', () => {
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-account-cleanup-secret).\n',
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-private-429/email-smtp-none).\n',
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-verification-code-send-999/email-smtp-none).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-private).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.account.google-link/body-after-cleanup-accepted/composition/operation-connector-account-settings).\n',
       'prefix Phase 2 client credentials command failed (oracle/common.password.policy).\n',
       'Phase 2 client credentials command failed (oracle/common.password.policy).\nprivate',
+    ]) {
+      expect(diagnosticForPhase2Child(stderr)).toBe(
+        'Phase 2 client credentials launcher failed.\n'
+      );
+    }
+  });
+
+  it('passes only source-owned configured-collision operation diagnostics', () => {
+    for (const operation of [
+      'issuer-discovery',
+      'admin-bearer-consumer',
+      'provider-credential-lease',
+      'connector-provider-prepare',
+      'account-settings-read-account-center',
+      'account-settings-read-sign-in-experience',
+      'account-settings-parse-policy',
+      'account-settings-configure',
+      'account-settings-email-password',
+      'email-password-primary-read-resource-role-scopes',
+      'email-password-cleanup-restore-app-read',
+      'collision-settings-restore',
+      'collision-admission',
+      'collision-read-sign-in-settings',
+      'collision-create-original-owner',
+      'collision-associate-original-owner',
+      'collision-update-colliding-email',
+      'collision-enable-account-linking',
+    ]) {
+      const stderr =
+        'Phase 2 client credentials command failed ' +
+        `(candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-${operation}).\n`;
+      expect(diagnosticForPhase2Child(stderr)).toBe(stderr);
+      expect(
+        diagnosticForPhase2ChildResult({ code: 1, signal: null, timedOut: false, stderr })
+      ).toBe(stderr);
+    }
+    for (const stderr of [
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-private).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-account-settings-setup).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-collision-setup).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-create/private).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.account.google-link/body-after-cleanup-accepted/composition/operation-connector-create).\n',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-create).\nprivate',
     ]) {
       expect(diagnosticForPhase2Child(stderr)).toBe(
         'Phase 2 client credentials launcher failed.\n'

@@ -6,6 +6,7 @@ import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from 'jose';
 import { validateTargetConfig } from '../../config.js';
 import type { TargetConfig } from '../../model.js';
 import { getPhase1FixtureRuntimeUsername } from '../../phase-1/fixture-map.js';
+import type { Phase2FixtureOperationDiagnostic } from '../fixture-operation-diagnostic.js';
 import type { Phase2FixtureSecretLease, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 const diagnostic = 'Invalid Phase 2 Admin Management bearer flow';
@@ -132,9 +133,23 @@ export const withPhase2AdminManagementBearer = async <Result>(
   targetInput: TargetConfig,
   fixture: Pick<ProvisionedPhase2Fixture, 'public' | 'withSecretLease'>,
   use: (bearer: string, lease: Phase2FixtureSecretLease) => Promise<Result>,
-  options: Phase2AdminManagementBearerOptions = {}
+  options: Phase2AdminManagementBearerOptions &
+    Readonly<{ operationDiagnostic?: Phase2FixtureOperationDiagnostic }> = {}
 ): Promise<Result> => {
-  let stage = 'admission';
+  let stage:
+    | 'admission'
+    | 'authorization'
+    | 'bootstrap'
+    | 'password'
+    | 'identification'
+    | 'submit'
+    | 'bridge'
+    | 'consent'
+    | 'resume'
+    | 'code-token'
+    | 'management-refresh'
+    | 'jwks'
+    | 'consumer' = 'admission';
   try {
     const target = validateTargetConfig(targetInput);
     const allocationId = fixture.public.admin?.allocationId ?? fail();
@@ -360,6 +375,7 @@ export const withPhase2AdminManagementBearer = async <Result>(
       }
     }
   } catch {
+    options.operationDiagnostic?.record(`admin-bearer-${stage}`);
     throw new TypeError(`${diagnostic} (${stage})`);
   }
 };

@@ -140,6 +140,22 @@ describe('Common completion boundary diagnostics', () => {
     );
   });
 
+  it('appends only a trusted configured-collision fixture operation', () => {
+    const error = recordCommonCompletionBoundaryFailure(
+      new Error('private provider and cleanup detail'),
+      'machine-cleanup-result',
+      'common.google.configured-collision',
+      {
+        googleCollisionCheckpoint: 'composition',
+        fixtureFailureOperation: 'connector-account-settings',
+        machineLifecycleOutcome: 'body-after-cleanup-accepted',
+      }
+    );
+    expect(() => commonCompletionFailure('candidate', error)).toThrow(
+      'Phase 2 stage failed: candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-account-settings'
+    );
+  });
+
   it('reports a cleanup-only machine failure without private detail', () => {
     const error = recordCommonCompletionBoundaryFailure(
       new Error('private cleanup detail'),
@@ -161,7 +177,10 @@ describe('Common completion boundary diagnostics', () => {
         new Error('private row and cleanup detail'),
         'machine-cleanup-result',
         'common.account.google-link',
-        { machineLifecycleOutcome }
+        {
+          machineLifecycleOutcome,
+          fixtureFailureOperation: 'connector-account-settings',
+        }
       );
       expect(() => commonCompletionFailure('candidate', error)).toThrow(
         'Phase 2 stage failed: candidate-completion-machine-cleanup-result/common.account.google-link'
@@ -1898,6 +1917,39 @@ describe('Phase 2 CLI', () => {
       'stderr:Phase 2 client credentials command failed (oracle-evidence).'
     );
     await expect(lstat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('admits and formats a constructed configured-collision operation failure', async () => {
+    const calls: string[] = [];
+    const base = dependencies(calls);
+    const boundaryError = recordCommonCompletionBoundaryFailure(
+      new Error('private collision detail'),
+      'machine-cleanup-result',
+      'common.google.configured-collision',
+      {
+        googleCollisionCheckpoint: 'composition',
+        fixtureFailureOperation: 'collision-read-sign-in-settings',
+        machineLifecycleOutcome: 'body-after-cleanup-accepted',
+      }
+    );
+    let operationError: unknown;
+    try {
+      commonCompletionFailure('oracle', boundaryError);
+    } catch (error: unknown) {
+      operationError = error;
+    }
+
+    expect(
+      await runPhase2CliMain(oracleArguments(), undefined, {
+        ...base,
+        executeOracle: async () => {
+          throw operationError;
+        },
+      })
+    ).toBe(1);
+    expect(calls).toContain(
+      'stderr:Phase 2 client credentials command failed (oracle-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-collision-read-sign-in-settings).'
+    );
   });
 
   it.each([

@@ -15,6 +15,10 @@ import {
 } from '../clients/user-token-issuance.js';
 import { createWebSocialIdentityDriver } from '../clients/web-social-identity.js';
 import {
+  withPhase2FixtureOperationDiagnostic,
+  type Phase2FixtureOperationDiagnostic,
+} from '../fixture-operation-diagnostic.js';
+import {
   createBearerPhase2AdminRequest,
   createScopedPhase2Fixture,
   createReferencePhase2AdminRequest,
@@ -393,156 +397,58 @@ const runCollision = async (
     runtime: CommonGoogleExistingOwnerFixtureRuntime;
     expectedIssuer: string;
     fetch: typeof fetch;
+    operationDiagnostic: Phase2FixtureOperationDiagnostic;
     retainCollisionCheckpoint(checkpoint: CommonGoogleConfiguredCollisionCheckpoint): void;
   }>
 ): Promise<CommonGoogleConfiguredCollisionProjection> => {
   const status = input.fixture.status ?? fail();
   const providerConfig = input.runtime.provider;
-  return input.runtime.withProviderCredentialLease(async (credentials) => {
-    const clientId = credentials.getClientId();
-    const clientSecret = credentials.getClientSecret();
-    return withSelectedAccountSocialConnector({
-      fixture: input.fixture,
-      request: input.request,
-      browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
-      callbackOrigin: input.target.coreUrl,
-      provider: 'google',
-      connectorConfig: { clientId, clientSecret },
-      getPassword: () => input.lease.getSubjectPassword?.() ?? fail(),
-      prepareProvider: async (connectorId) =>
-        prepareGoogleProviderLease({
-          ...providerConfig,
-          clientId,
-          clientSecret,
-          connectorId,
-          targetOrigin: input.target.coreUrl,
-          role: input.target.label,
-          googleSubject: providerConfig.googleSubject,
-          originalEmail: providerConfig.originalOwnerEmail,
-          changedEmail: providerConfig.changedProviderEmail,
-          resetPrivateFilesOnStop: true,
-        }),
-      use: async ({ owner: collision, connectorId, redirectUri, provider }) => {
-        const takeOccupiedEmailControlCode: unknown = Reflect.get(
-          provider,
-          'takeOccupiedEmailControlCode'
-        );
-        const assertConfiguredCollisionProviderCase: unknown = Reflect.get(
-          provider,
-          'assertConfiguredCollisionProviderCase'
-        );
-        if (
-          typeof takeOccupiedEmailControlCode !== 'function' ||
-          typeof assertConfiguredCollisionProviderCase !== 'function'
-        ) {
-          return fail();
-        }
-        let originalId: string | undefined;
-        const previous = record(
-          await input.request({
-            method: 'GET',
-            path: 'sign-in-exp',
-            expectedStatuses: [200],
-            responseKind: 'object',
-          })
-        );
-        const previousSocial = record(previous.socialSignIn);
-        try {
-          const original = record(
-            await input.request({
-              method: 'POST',
-              path: 'users',
-              body: {},
-              expectedStatuses: [200, 201],
-              responseKind: 'object',
-            })
-          );
-          originalId = typeof original.id === 'string' ? original.id : fail();
-          await associate(
-            input.request,
-            originalId,
+  return input.operationDiagnostic.run('provider-credential-lease', async () =>
+    input.runtime.withProviderCredentialLease(async (credentials) => {
+      const clientId = credentials.getClientId();
+      const clientSecret = credentials.getClientSecret();
+      return withSelectedAccountSocialConnector({
+        fixture: input.fixture,
+        request: input.request,
+        browser: { clientId: status.client.id, redirectUri: status.client.redirectUri },
+        callbackOrigin: input.target.coreUrl,
+        provider: 'google',
+        connectorConfig: { clientId, clientSecret },
+        getPassword: () => input.lease.getSubjectPassword?.() ?? fail(),
+        operationDiagnostic: input.operationDiagnostic,
+        prepareProvider: async (connectorId) =>
+          prepareGoogleProviderLease({
+            ...providerConfig,
+            clientId,
+            clientSecret,
             connectorId,
-            'google',
-            providerConfig.googleSubject,
-            provider.associationData
+            targetOrigin: input.target.coreUrl,
+            role: input.target.label,
+            googleSubject: providerConfig.googleSubject,
+            originalEmail: providerConfig.originalOwnerEmail,
+            changedEmail: providerConfig.changedProviderEmail,
+            resetPrivateFilesOnStop: true,
+          }),
+        use: async ({ owner: collision, connectorId, redirectUri, provider }) => {
+          const takeOccupiedEmailControlCode: unknown = Reflect.get(
+            provider,
+            'takeOccupiedEmailControlCode'
           );
-          await input.request({
-            method: 'PATCH',
-            path: `users/${encodeURIComponent(collision.id)}`,
-            body: { primaryEmail: providerConfig.originalOwnerEmail },
-            expectedStatuses: [200],
-            responseKind: 'object',
-          });
-          await input.request({
-            method: 'PATCH',
-            path: 'sign-in-exp',
-            body: {
-              socialSignIn: { ...previousSocial, automaticAccountLinking: true },
-            },
-            expectedStatuses: [200],
-            responseKind: 'object',
-          });
-          let identificationStatus = 0;
-          const runConfiguredSignIn = async () => {
-            try {
-              await issuePublicIdentitySession(
-                input.target,
-                input.fixture,
-                createWebSocialIdentityDriver({
-                  connectorId,
-                  redirectUri,
-                  provider: 'google',
-                  takeProviderCode: async () =>
-                    (takeOccupiedEmailControlCode as () => Promise<string>)(),
-                  observeIdentification: (status) => {
-                    identificationStatus = status;
-                  },
-                }),
-                input.expectedIssuer,
-                input.fetch
-              );
-            } catch {
-              // The configured collision is expected to stop before an OIDC callback is issued.
-            }
-            await (assertConfiguredCollisionProviderCase as () => Promise<void>)();
-            return Object.freeze({
-              status: identificationStatus,
-              providerRequestExact: true,
-            });
-          };
-          const read = async (id: string) =>
-            input.request({
-              method: 'GET',
-              path: `users/${encodeURIComponent(id)}`,
-              expectedStatuses: [200],
-              responseKind: 'object',
-            });
-          try {
-            return await runCommonGoogleConfiguredCollision({
-              ownerId: originalId,
-              googleSubject: providerConfig.googleSubject,
-              readOriginalOwner: async () => read(originalId ?? fail()),
-              readCollidingUser: async () => read(collision.id),
-              runConfiguredSignIn,
-            });
-          } catch (error: unknown) {
-            const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
-            if (checkpoint) {
-              input.retainCollisionCheckpoint(checkpoint);
-            }
-            throw error;
+          const assertConfiguredCollisionProviderCase: unknown = Reflect.get(
+            provider,
+            'assertConfiguredCollisionProviderCase'
+          );
+          if (
+            typeof takeOccupiedEmailControlCode !== 'function' ||
+            typeof assertConfiguredCollisionProviderCase !== 'function'
+          ) {
+            return fail();
           }
-        } finally {
-          await runIndependentSocialCleanup(
+          let originalId: string | undefined;
+          const previousSocial = await input.operationDiagnostic.run(
+            'collision-read-sign-in-settings',
             async () => {
-              await input.request({
-                method: 'PATCH',
-                path: 'sign-in-exp',
-                body: { socialSignIn: previousSocial },
-                expectedStatuses: [200],
-                responseKind: 'object',
-              });
-              const restored = record(
+              const previous = record(
                 await input.request({
                   method: 'GET',
                   path: 'sign-in-exp',
@@ -550,25 +456,152 @@ const runCollision = async (
                   responseKind: 'object',
                 })
               );
-              if (!isDeepStrictEqual(restored.socialSignIn, previousSocial)) {
-                fail();
-              }
-            },
-            async () => {
-              if (originalId) {
-                await input.request({
-                  method: 'DELETE',
-                  path: `users/${encodeURIComponent(originalId)}`,
-                  expectedStatuses: [204, 404],
-                  responseKind: 'status',
-                });
-              }
+              return record(previous.socialSignIn);
             }
           );
-        }
-      },
-    });
-  });
+          try {
+            const original = await input.operationDiagnostic.run(
+              'collision-create-original-owner',
+              async () =>
+                record(
+                  await input.request({
+                    method: 'POST',
+                    path: 'users',
+                    body: {},
+                    expectedStatuses: [200, 201],
+                    responseKind: 'object',
+                  })
+                )
+            );
+            const originalOwnerId = original.id;
+            if (typeof originalOwnerId !== 'string') {
+              input.operationDiagnostic.record('collision-create-original-owner');
+              return fail();
+            }
+            originalId = originalOwnerId;
+            await input.operationDiagnostic.run('collision-associate-original-owner', async () =>
+              associate(
+                input.request,
+                originalOwnerId,
+                connectorId,
+                'google',
+                providerConfig.googleSubject,
+                provider.associationData
+              )
+            );
+            await input.operationDiagnostic.run('collision-update-colliding-email', async () =>
+              input.request({
+                method: 'PATCH',
+                path: `users/${encodeURIComponent(collision.id)}`,
+                body: { primaryEmail: providerConfig.originalOwnerEmail },
+                expectedStatuses: [200],
+                responseKind: 'object',
+              })
+            );
+            await input.operationDiagnostic.run('collision-enable-account-linking', async () =>
+              input.request({
+                method: 'PATCH',
+                path: 'sign-in-exp',
+                body: {
+                  socialSignIn: { ...previousSocial, automaticAccountLinking: true },
+                },
+                expectedStatuses: [200],
+                responseKind: 'object',
+              })
+            );
+            let identificationStatus = 0;
+            const runConfiguredSignIn = async () => {
+              try {
+                await issuePublicIdentitySession(
+                  input.target,
+                  input.fixture,
+                  createWebSocialIdentityDriver({
+                    connectorId,
+                    redirectUri,
+                    provider: 'google',
+                    takeProviderCode: async () =>
+                      (takeOccupiedEmailControlCode as () => Promise<string>)(),
+                    observeIdentification: (status) => {
+                      identificationStatus = status;
+                    },
+                  }),
+                  input.expectedIssuer,
+                  input.fetch
+                );
+              } catch {
+                // The configured collision is expected to stop before an OIDC callback is issued.
+              }
+              await (assertConfiguredCollisionProviderCase as () => Promise<void>)();
+              return Object.freeze({
+                status: identificationStatus,
+                providerRequestExact: true,
+              });
+            };
+            const read = async (id: string) =>
+              input.request({
+                method: 'GET',
+                path: `users/${encodeURIComponent(id)}`,
+                expectedStatuses: [200],
+                responseKind: 'object',
+              });
+            try {
+              return await input.operationDiagnostic.run('collision-helper', async () =>
+                runCommonGoogleConfiguredCollision({
+                  ownerId: originalOwnerId,
+                  googleSubject: providerConfig.googleSubject,
+                  readOriginalOwner: async () => read(originalOwnerId),
+                  readCollidingUser: async () => read(collision.id),
+                  runConfiguredSignIn,
+                })
+              );
+            } catch (error: unknown) {
+              const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
+              if (checkpoint) {
+                input.retainCollisionCheckpoint(checkpoint);
+              }
+              throw error;
+            }
+          } finally {
+            await runIndependentSocialCleanup(
+              async () =>
+                input.operationDiagnostic.run('collision-settings-restore', async () => {
+                  await input.request({
+                    method: 'PATCH',
+                    path: 'sign-in-exp',
+                    body: { socialSignIn: previousSocial },
+                    expectedStatuses: [200],
+                    responseKind: 'object',
+                  });
+                  const restored = record(
+                    await input.request({
+                      method: 'GET',
+                      path: 'sign-in-exp',
+                      expectedStatuses: [200],
+                      responseKind: 'object',
+                    })
+                  );
+                  if (!isDeepStrictEqual(restored.socialSignIn, previousSocial)) {
+                    fail();
+                  }
+                }),
+              async () =>
+                input.operationDiagnostic.run('collision-owner-delete', async () => {
+                  const cleanupOriginalId = originalId;
+                  if (cleanupOriginalId) {
+                    await input.request({
+                      method: 'DELETE',
+                      path: `users/${encodeURIComponent(cleanupOriginalId)}`,
+                      expectedStatuses: [204, 404],
+                      responseKind: 'status',
+                    });
+                  }
+                })
+            );
+          }
+        },
+      });
+    })
+  );
 };
 
 export const withOwnedGoogleSession = async <Result>(
@@ -691,6 +724,7 @@ export const withOwnedGoogleSession = async <Result>(
   });
 };
 
+// eslint-disable-next-line complexity -- Admission, collision-only diagnostics, and the existing target dispatch retain one ordered boundary.
 export const runCommonSocialAccountForTarget = async (
   input: Readonly<{
     id: CommonSocialScenarioId;
@@ -700,26 +734,48 @@ export const runCommonSocialAccountForTarget = async (
     signal: AbortSignal;
     jwks: Readonly<JSONWebKeySet>;
     fetch?: typeof fetch;
+    operationDiagnostic?: Phase2FixtureOperationDiagnostic;
   }>
 ): Promise<CommonSocialProjection> => {
-  if (
-    input.signal.aborted ||
-    !input.fixture.status ||
-    !Array.isArray(input.jwks.keys) ||
-    !(commonSocialAccountScenarioIds as readonly string[]).includes(input.id)
-  ) {
-    fail();
+  if (input.id === 'common.google.configured-collision' && !input.operationDiagnostic) {
+    return withPhase2FixtureOperationDiagnostic(async (operationDiagnostic) =>
+      runCommonSocialAccountForTarget({ ...input, operationDiagnostic })
+    );
+  }
+  try {
+    if (
+      input.signal.aborted ||
+      !input.fixture.status ||
+      !Array.isArray(input.jwks.keys) ||
+      !(commonSocialAccountScenarioIds as readonly string[]).includes(input.id)
+    ) {
+      fail();
+    }
+  } catch (error: unknown) {
+    input.operationDiagnostic?.record('collision-admission');
+    throw error;
   }
   const collision = input.id === 'common.google.configured-collision';
   const id = input.id as AccountId;
   const provider = collision || id === 'common.account.google-link' ? 'google' : 'wechat';
-  const runtime = runtimeFor(input.fixture, provider);
+  let runtime: Runtime;
+  try {
+    runtime = runtimeFor(input.fixture, provider);
+  } catch (error: unknown) {
+    input.operationDiagnostic?.record('collision-admission');
+    throw error;
+  }
   const requestFetch = input.fetch ?? fetch;
-  const expectedIssuer = await discoverIssuer(input.target, requestFetch);
+  const discover = async (operationDiagnostic?: Phase2FixtureOperationDiagnostic) =>
+    operationDiagnostic?.run('issuer-discovery', async () =>
+      discoverIssuer(input.target, requestFetch)
+    ) ?? discoverIssuer(input.target, requestFetch);
   const execute = async (
     request: Phase2AdminRequestFunction,
     lease: Phase2FixtureSecretLease,
-    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void
+    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void,
+    operationDiagnostic: Phase2FixtureOperationDiagnostic | undefined,
+    expectedIssuer: string
   ) => {
     const scope = createScopedPhase2Fixture(input.fixture, lease);
     try {
@@ -733,6 +789,7 @@ export const runCommonSocialAccountForTarget = async (
             expectedIssuer,
             fetch: requestFetch,
             retainCollisionCheckpoint,
+            operationDiagnostic: operationDiagnostic ?? fail(),
           })
         : runAccount({
             target: input.target,
@@ -749,9 +806,11 @@ export const runCommonSocialAccountForTarget = async (
     }
   };
   const dispatch = async (
-    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void
-  ) =>
-    input.target.label === 'candidate'
+    retainCollisionCheckpoint: (checkpoint: CommonGoogleConfiguredCollisionCheckpoint) => void,
+    operationDiagnostic?: Phase2FixtureOperationDiagnostic
+  ) => {
+    const expectedIssuer = await discover(operationDiagnostic);
+    return input.target.label === 'candidate'
       ? withPhase2AdminManagementBearer(
           input.target,
           input.fixture,
@@ -759,19 +818,26 @@ export const runCommonSocialAccountForTarget = async (
             execute(
               createBearerPhase2AdminRequest(input.target, bearer, requestFetch),
               lease,
-              retainCollisionCheckpoint
+              retainCollisionCheckpoint,
+              operationDiagnostic,
+              expectedIssuer
             ),
-          { fetch: requestFetch }
+          { fetch: requestFetch, operationDiagnostic }
         )
       : input.fixture.withSecretLease(async (lease) =>
           execute(
             createReferencePhase2AdminRequest(input.target, requestFetch),
             lease,
-            retainCollisionCheckpoint
+            retainCollisionCheckpoint,
+            operationDiagnostic,
+            expectedIssuer
           )
         );
+  };
   return collision
-    ? withCommonGoogleConfiguredCollisionCheckpoint(dispatch)
+    ? withCommonGoogleConfiguredCollisionCheckpoint(async (retain) =>
+        dispatch(retain, input.operationDiagnostic)
+      )
     : dispatch(() => {
         // Non-collision scenarios do not publish Google checkpoint metadata.
       });

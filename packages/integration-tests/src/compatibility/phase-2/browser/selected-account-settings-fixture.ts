@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { passwordPolicyGuard } from '@logto/core-kit';
 
+import type { Phase2FixtureOperationDiagnostic } from '../fixture-operation-diagnostic.js';
 import type { Phase2AdminRequestFunction, ProvisionedPhase2Fixture } from '../fixtures.js';
 
 import {
@@ -128,34 +129,50 @@ export const withSelectedAccountSettingsFixture = async <Result>(
     additionalReadOnlyFields?: readonly AccountField[];
     phoneProvider?: CommonPhoneCodeProviderLease;
     resourceRoleIsDefault?: boolean;
+    operationDiagnostic?: Phase2FixtureOperationDiagnostic;
     getPassword(): string;
     use(value: SelectedAccountSettingsFixture): Promise<Result>;
   }>
 ): Promise<Result> => {
-  const previous = accountCenter(
-    await input.request({
-      method: 'GET',
-      path: 'account-center',
-      expectedStatuses: [200],
-      responseKind: 'object',
+  const runOperation = async <Value>(
+    operation: Parameters<NonNullable<typeof input.operationDiagnostic>['run']>[0],
+    use: () => Promise<Value>
+  ) => input.operationDiagnostic?.run(operation, use) ?? use();
+  const previous = await runOperation('account-settings-read-account-center', async () =>
+    accountCenter(
+      await input.request({
+        method: 'GET',
+        path: 'account-center',
+        expectedStatuses: [200],
+        responseKind: 'object',
+      })
+    )
+  );
+  const signInExperience: unknown = await runOperation(
+    'account-settings-read-sign-in-experience',
+    async () =>
+      input.request({
+        method: 'GET',
+        path: 'sign-in-exp',
+        expectedStatuses: [200],
+        responseKind: 'object',
+      })
+  );
+  const { passwordPolicy, selected } = await runOperation(
+    'account-settings-parse-policy',
+    async () => ({
+      passwordPolicy: isolateAccountPasswordPolicy(record(signInExperience).passwordPolicy),
+      selected: Object.freeze({
+        enabled: true,
+        fields: selectAccountSettingsFields(
+          previous.fields,
+          input.field,
+          'Edit',
+          input.additionalReadOnlyFields
+        ),
+      }),
     })
   );
-  const signInExperience: unknown = await input.request({
-    method: 'GET',
-    path: 'sign-in-exp',
-    expectedStatuses: [200],
-    responseKind: 'object',
-  });
-  const passwordPolicy = isolateAccountPasswordPolicy(record(signInExperience).passwordPolicy);
-  const selected = Object.freeze({
-    enabled: true,
-    fields: selectAccountSettingsFields(
-      previous.fields,
-      input.field,
-      'Edit',
-      input.additionalReadOnlyFields
-    ),
-  });
   let connectorId: string | undefined;
   const patchControl = async (
     value: Readonly<{ enabled: boolean; field: 'Edit' | 'ReadOnly' }>
@@ -185,6 +202,8 @@ export const withSelectedAccountSettingsFixture = async <Result>(
   let result: Result | undefined;
   let primaryError: unknown;
   let cleanupError: unknown;
+  let operation: 'account-settings-configure' | 'account-settings-email-password' =
+    'account-settings-configure';
   const captureCleanup = (error: unknown) => {
     cleanupError =
       cleanupError === undefined
@@ -255,12 +274,14 @@ export const withSelectedAccountSettingsFixture = async <Result>(
         return fail();
       }
     }
+    operation = 'account-settings-email-password';
     result = await withSelectedEmailPasswordFixture({
       fixture: input.fixture,
       request: input.request,
       browser: input.browser,
       resourceRoleIsDefault: input.resourceRoleIsDefault,
       getPassword: input.getPassword,
+      operationDiagnostic: input.operationDiagnostic,
       use: async (identity) => {
         const suffix = [...input.fixture.public.allocationId]
           .map((value) => String(value.codePointAt(0) ?? 0))
@@ -314,6 +335,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
       },
     });
   } catch (error: unknown) {
+    input.operationDiagnostic?.record(operation);
     primaryError = error;
   } finally {
     try {
@@ -366,6 +388,7 @@ export const withSelectedAccountSettingsFixture = async <Result>(
         },
       });
     } catch (error: unknown) {
+      input.operationDiagnostic?.record('account-settings-cleanup');
       captureCleanup(error);
     }
   }

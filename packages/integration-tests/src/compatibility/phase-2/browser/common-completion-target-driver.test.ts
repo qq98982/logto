@@ -75,6 +75,7 @@ describe('Common completion boundary diagnostics', () => {
       'common.google.configured-collision',
       {
         googleCollisionCheckpoint: 'configured-sign-in',
+        fixtureFailureOperation: 'connector-provider-prepare',
         machineLifecycleOutcome: 'body-and-cleanup-rejected',
       }
     );
@@ -82,7 +83,50 @@ describe('Common completion boundary diagnostics', () => {
       phase: 'machine-cleanup-result',
       scenarioId: 'common.google.configured-collision',
       googleCollisionCheckpoint: 'configured-sign-in',
+      fixtureFailureOperation: 'connector-provider-prepare',
       machineLifecycleOutcome: 'body-and-cleanup-rejected',
+    });
+  });
+
+  it('retains a trusted fixture operation from the direct Google scenario failure', () => {
+    const error = new CommonCompletionScenarioFailure(
+      'common.google.configured-collision',
+      undefined,
+      undefined,
+      'composition',
+      'collision-settings-restore'
+    );
+
+    expect(recordCommonCompletionBoundaryFailure(error, 'scenarios')).toBe(error);
+    expect(getCommonCompletionBoundaryFailure(error)).toEqual({
+      phase: 'scenarios',
+      scenarioId: 'common.google.configured-collision',
+      googleCollisionCheckpoint: 'composition',
+      fixtureFailureOperation: 'collision-settings-restore',
+    });
+  });
+
+  it('retains Google operation metadata when owned cleanup replaces the scenario error', () => {
+    const bodyError = new CommonCompletionScenarioFailure(
+      'common.google.configured-collision',
+      undefined,
+      undefined,
+      'composition',
+      'collision-owner-delete'
+    );
+    recordCommonCompletionBoundaryFailure(bodyError, 'scenarios');
+    const cleanupError = new AggregateError([bodyError], 'fixed owned cleanup replacement');
+
+    recordCommonCompletionBoundaryFailure(cleanupError, 'owned-app-cleanup', bodyError.scenarioId, {
+      googleCollisionCheckpoint: bodyError.googleCollisionCheckpoint,
+      fixtureFailureOperation: bodyError.fixtureFailureOperation,
+    });
+
+    expect(getCommonCompletionBoundaryFailure(cleanupError)).toEqual({
+      phase: 'owned-app-cleanup',
+      scenarioId: 'common.google.configured-collision',
+      googleCollisionCheckpoint: 'composition',
+      fixtureFailureOperation: 'collision-owner-delete',
     });
   });
 

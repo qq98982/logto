@@ -86,6 +86,8 @@ forward_closed_common_row_failures() {
     "$file" >&2 || true
   /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-machine-cleanup-result/(cleanup-only-rejected|common\.google\.configured-collision/(body-after-cleanup-accepted|body-and-cleanup-rejected)/(composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection))\)\.$' \
     "$file" >&2 || true
+  /usr/bin/grep -E '^Phase 2 client credentials command failed \((oracle|candidate)-completion-machine-cleanup-result/common\.google\.configured-collision/(body-after-cleanup-accepted|body-and-cleanup-rejected)/(composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection)/operation-(issuer-discovery|admin-bearer-(admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks|consumer)|provider-credential-lease|connector-(create|provider-prepare|target-select|account-settings|provider-stop|target-restore|delete)|account-settings-(read-account-center|read-sign-in-experience|parse-policy|configure|email-password|cleanup)|email-password-primary-(setup-config|patch-sie|read-sie|get-app|patch-app|read-app|read-resource-scopes|post-resource-role|read-resource-role-scopes|post-user|assign-resource-role|read-user-roles|use)|email-password-cleanup-(restore-sie|delete-user|delete-role|restore-app-patch|restore-app-read)|collision-(admission|read-sign-in-settings|create-original-owner|associate-original-owner|update-colliding-email|enable-account-linking|helper|settings-restore|owner-delete))\)\.$' \
+    "$file" >&2 || true
 }
 
 trusted_binary() {

@@ -8,6 +8,10 @@ import {
   withCommonGoogleConfiguredCollisionCheckpoint,
 } from '../browser/common-google-configured-collision.js';
 import { withSelectedAccountSocialConnector } from '../browser/selected-account-social-connector-fixture.js';
+import {
+  getPhase2FixtureFailureOperation,
+  withPhase2FixtureOperationDiagnostic,
+} from '../fixture-operation-diagnostic.js';
 import type {
   Phase2AdminRequestFunction,
   Phase2FixtureSecretLease,
@@ -333,64 +337,73 @@ describe('Phase 2 Admin Management bearer transport', () => {
       throw new TypeError('unexpected selected connector request');
     };
     let helperReached = false;
-    const failure = withCommonGoogleConfiguredCollisionCheckpoint(async (retain) =>
-      withPhase2AdminManagementBearer(
-        target,
-        adminFixture,
-        async () => {
-          await withSelectedAccountSocialConnector({
-            fixture: selectedFixture,
-            request,
-            browser: { clientId: 'client', redirectUri: 'https://app.example/demo-app' },
-            callbackOrigin: 'https://core.example/',
-            provider: 'google',
-            connectorConfig: { clientId: 'owned', clientSecret: 'private' },
-            getPassword: () => 'private',
-            prepareProvider: async () => ({
-              associationData: {},
-              takeAccountCode: async () => 'private',
-              takeForeignAccountCode: async () => 'private',
-              assertAccountProviderCase: async () => {
-                // This fixture has no external provider state beyond the nested collision helper.
-              },
-              stop: async () => {
-                // The synthetic provider owns no process or file that requires cleanup.
-              },
-            }),
-            use: async () => {
-              try {
-                await runCommonGoogleConfiguredCollision({
-                  ownerId: 'original',
-                  googleSubject: 'google-subject',
-                  readOriginalOwner: async () => ({
-                    id: 'original',
-                    identities: { google: { userId: 'google-subject' } },
-                  }),
-                  readCollidingUser: async () => ({ id: 'collision', identities: {} }),
-                  runConfiguredSignIn: async () => {
-                    helperReached = true;
-                    throw new TypeError('private configured collision failure');
-                  },
-                });
-              } catch (error: unknown) {
-                const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
-                if (checkpoint) {
-                  retain(checkpoint);
+    const failure = withPhase2FixtureOperationDiagnostic(async (operationDiagnostic) => {
+      await withCommonGoogleConfiguredCollisionCheckpoint(async (retain) => {
+        await withPhase2AdminManagementBearer(
+          target,
+          adminFixture,
+          async () => {
+            await withSelectedAccountSocialConnector({
+              fixture: selectedFixture,
+              request,
+              operationDiagnostic,
+              browser: { clientId: 'client', redirectUri: 'https://app.example/demo-app' },
+              callbackOrigin: 'https://core.example/',
+              provider: 'google',
+              connectorConfig: { clientId: 'owned', clientSecret: 'private' },
+              getPassword: () => 'private',
+              prepareProvider: async () => ({
+                associationData: {},
+                takeAccountCode: async () => 'private',
+                takeForeignAccountCode: async () => 'private',
+                assertAccountProviderCase: async () => {
+                  // This fixture has no external provider state beyond the nested collision helper.
+                },
+                stop: async () => {
+                  // The synthetic provider owns no process or file that requires cleanup.
+                },
+              }),
+              use: async () => {
+                try {
+                  await runCommonGoogleConfiguredCollision({
+                    ownerId: 'original',
+                    googleSubject: 'google-subject',
+                    readOriginalOwner: async () => ({
+                      id: 'original',
+                      identities: { google: { userId: 'google-subject' } },
+                    }),
+                    readCollidingUser: async () => ({ id: 'collision', identities: {} }),
+                    runConfiguredSignIn: async () => {
+                      helperReached = true;
+                      throw new TypeError('private configured collision failure');
+                    },
+                  });
+                } catch (error: unknown) {
+                  const checkpoint = getCommonGoogleConfiguredCollisionCheckpoint(error);
+                  if (checkpoint) {
+                    retain(checkpoint);
+                  }
+                  throw error;
                 }
-                throw error;
-              }
-            },
-          });
-        },
-        { fetch: fake.fetch, codeVerifier: () => verifier, state: () => state }
-      )
-    );
+              },
+            });
+          },
+          {
+            fetch: fake.fetch,
+            codeVerifier: () => verifier,
+            state: () => state,
+            operationDiagnostic,
+          }
+        );
+      });
+    });
     const error = await failure.catch((error_: unknown) => error_);
     expect(error).toMatchObject({
       message: 'Invalid Phase 2 Admin Management bearer flow (consumer)',
     });
     expect(helperReached).toBe(true);
     expect(getCommonGoogleConfiguredCollisionCheckpoint(error)).toBe('configured-sign-in');
+    expect(getPhase2FixtureFailureOperation(error)).toBe('email-password-primary-use');
     expect(fake.requests.at(-1)?.url.pathname).toBe('/oidc/token/revocation');
   });
 

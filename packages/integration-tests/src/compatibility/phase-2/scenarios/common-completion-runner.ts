@@ -23,6 +23,10 @@ import { runCommonSocialAccountForTarget } from '../browser/common-social-accoun
 import { withSelectedPasswordCoreApplication } from '../browser/selected-password-core-application-fixture.js';
 import { withPhase2AdminManagementBearer } from '../clients/admin-management-bearer.js';
 import {
+  getPhase2FixtureFailureOperation,
+  type Phase2FixtureFailureOperation,
+} from '../fixture-operation-diagnostic.js';
+import {
   createBearerPhase2AdminRequest,
   createReferencePhase2AdminRequest,
   createScopedPhase2Fixture,
@@ -71,11 +75,13 @@ export type CommonCompletionFixtureRuntime = Readonly<{
   takePasswordRecoveryCode(recipient: string): Promise<string>;
 }>;
 export class CommonCompletionScenarioFailure extends Error {
+  // eslint-disable-next-line max-params -- Fixed optional diagnostics belong to the existing scenario boundary error.
   constructor(
     readonly scenarioId: CommonCompletionScenarioId,
     readonly passwordPolicyPhase?: CommonPasswordPolicyFailurePhase,
     readonly logoutPhase?: CommonSessionLogoutFailurePhase,
-    readonly googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint
+    readonly googleCollisionCheckpoint?: CommonGoogleConfiguredCollisionCheckpoint,
+    readonly fixtureFailureOperation?: Phase2FixtureFailureOperation
   ) {
     super(`Common completion scenario failed: ${scenarioId}`);
     this.name = 'CommonCompletionScenarioFailure';
@@ -204,6 +210,9 @@ export const runCommonCompletionScenariosForTarget = async (
           : undefined,
         id === 'common.google.configured-collision'
           ? (getCommonGoogleConfiguredCollisionCheckpoint(error) ?? 'composition')
+          : undefined,
+        id === 'common.google.configured-collision'
+          ? getPhase2FixtureFailureOperation(error)
           : undefined
       );
     }

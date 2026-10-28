@@ -224,6 +224,12 @@ const commonPasswordPolicyPhasePattern =
   /^(?:initialization|local-policy(?:-(?:write|read|readback))?|compromise-(?:compromised|clear|unavailable)|recovery|cleanup-policy)$/u;
 const commonLogoutPreservationPhasePattern =
   /^(?:discovery|authority|(?:google|email-code|wechat-native)-(?:accepted-rp|rejected-rp|account)-(?:session-preparation|observation|cleanup)|email-code-(?:accepted-rp|rejected-rp|account)-session-preparation\/email-http-(?:none|experience-initialize|verification-code-send|verification-code-verify|identification|other)-(?:none|[1-5][0-9]{2})\/email-smtp-(?:none|entered|completed|failure-(?:env-missing|socket-shape|recipient|connect|timeout|not-found|response|unknown)))$/u;
+const phase2FixtureFailureOperationSource =
+  '(?:issuer-discovery|admin-bearer-(?:admission|authorization|bootstrap|password|identification|submit|bridge|consent|resume|code-token|management-refresh|jwks|consumer)|provider-credential-lease|connector-(?:create|provider-prepare|target-select|account-settings|provider-stop|target-restore|delete)|account-settings-(?:read-account-center|read-sign-in-experience|parse-policy|configure|email-password|cleanup)|email-password-primary-(?:setup-config|patch-sie|read-sie|get-app|patch-app|read-app|read-resource-scopes|post-resource-role|read-resource-role-scopes|post-user|assign-resource-role|read-user-roles|use)|email-password-cleanup-(?:restore-sie|delete-user|delete-role|restore-app-patch|restore-app-read)|collision-(?:admission|read-sign-in-settings|create-original-owner|associate-original-owner|update-colliding-email|enable-account-linking|helper|settings-restore|owner-delete))';
+const configuredCollisionOperationDiagnosticPattern = new RegExp(
+  `^Phase 2 client credentials command failed \\((oracle|candidate)-completion-machine-cleanup-result/common\\.google\\.configured-collision/(?:body-after-cleanup-accepted|body-and-cleanup-rejected)/(?:composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection)/operation-${phase2FixtureFailureOperationSource}\\)\\.\\n$`,
+  'u'
+);
 const deviceIdClaimKeysDifferencePattern = new RegExp(
   `^Phase 2 client credentials command failed \\((oracle|candidate)\\/(device-(?:authorization|verification|consent|token|token-status|discovery)\\.[a-z-]+):projection-id-claimKeys\\)\\.\\nPhase 2 device ID claimKeys differ \\(only on oracle: ${closedIdClaimSet}; only on candidate: ${closedIdClaimSet}\\)\\.\\n$`,
   'u'
@@ -442,6 +448,7 @@ export const diagnosticForPhase2Child = (stderr) => {
     return stderr;
   }
   if (
+    configuredCollisionOperationDiagnosticPattern.test(stderr) ||
     /^Phase 2 client credentials command failed \((oracle|candidate)-completion-(?:fixture|machine-authority|runtime-read|required-controls|scenarios|owned-app-cleanup|machine-cleanup-result|(?:owned-app-cleanup|machine-cleanup-result)\/(?:common\.(?:password\.policy|google\.configured-collision|account\.(?:google-link|wechat-link)|wechat\.(?:h5|mini|mini-phone-registration|native)|management\.(?:applications-secrets|native-resource-role|connectors-experience|user-suspend-delete|provisioning-convergence)|session\.logout-preservation))|machine-cleanup-result\/(?:cleanup-only-rejected|common\.google\.configured-collision\/(?:body-after-cleanup-accepted|body-and-cleanup-rejected)\/(?:composition|original-owner-before|colliding-user-before|preconditions|configured-sign-in|original-owner-after|colliding-user-after|projection)))\)\.\n$/u.test(
       stderr
     )

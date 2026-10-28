@@ -2382,13 +2382,16 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     const cleanupPattern = patterns.find((pattern) =>
       pattern?.includes('completion-(owned-app-cleanup|machine-cleanup-result)/')
     );
-    const attributionPattern = patterns.find((pattern) =>
-      pattern?.includes('body-after-cleanup-accepted')
+    const attributionPattern = patterns.find(
+      (pattern) =>
+        pattern?.includes('body-after-cleanup-accepted') && !pattern.includes('operation-')
     );
+    const operationPattern = patterns.find((pattern) => pattern?.includes('/operation-'));
     expect(completionPattern).toBeDefined();
     expect(fixturePattern).toBeDefined();
     expect(cleanupPattern).toBeDefined();
     expect(attributionPattern).toBeDefined();
+    expect(operationPattern).toBeDefined();
     const completionIds = [
       'common.password.policy',
       'common.google.configured-collision',
@@ -2489,6 +2492,12 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
     ).resolves.toBe(true);
     await expect(
       grepMatches(
+        operationPattern ?? '',
+        'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-collision-read-sign-in-settings).'
+      )
+    ).resolves.toBe(true);
+    await expect(
+      grepMatches(
         attributionPattern ?? '',
         'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/cleanup-only-rejected).'
       )
@@ -2505,6 +2514,10 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/google-account-cleanup-secret).',
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-private-429/email-smtp-none).',
       'Phase 2 client credentials command failed (candidate/common.session.logout-preservation/email-code-account-session-preparation/email-http-verification-code-send-999/email-smtp-none).',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-connector-private).',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-account-settings-setup).',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.google.configured-collision/body-after-cleanup-accepted/composition/operation-collision-setup).',
+      'Phase 2 client credentials command failed (candidate-completion-machine-cleanup-result/common.account.google-link/body-after-cleanup-accepted/composition/operation-connector-account-settings).',
     ];
     await expect(
       Promise.all(
@@ -2513,9 +2526,10 @@ if normalize_image_id "repo@example.invalid/thing@sha256:${raw}" >/dev/null 2>&1
           grepMatches(fixturePattern ?? '', line),
           grepMatches(cleanupPattern ?? '', line),
           grepMatches(attributionPattern ?? '', line),
+          grepMatches(operationPattern ?? '', line),
         ])
       )
-    ).resolves.toEqual(Array.from({ length: rejected.length * 4 }, () => false));
+    ).resolves.toEqual(Array.from({ length: rejected.length * 5 }, () => false));
   });
 
   it('allows only closed device candidate-invariant stages in final output', async () => {
